@@ -613,3 +613,109 @@ work on that branch, push it to GitHub with `git push -u origin frontend/scaffol
 a pull request from `frontend/scaffold` into `main` for review before it merges.
 
 ---
+
+## 2026-08-14 — Tooling: add CLAUDE.md, and moving a new file onto its own branch mid-flight
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — running Claude Code's built-in `/init`
+command, which generates a `CLAUDE.md` file, plus the git housekeeping needed to deliver it
+through the project's normal branch/PR workflow rather than as a stray uncommitted file.
+
+### Background / concepts
+
+- **What `CLAUDE.md` is.** Claude Code (the AI coding assistant driving this whole build) re-reads
+  the conversation from scratch every time a new chat session starts — it doesn't remember
+  earlier sessions automatically. `CLAUDE.md`, placed at the repo root, is a file Claude Code
+  loads automatically at the start of every session in this repo, so a brand-new session
+  immediately knows things like "how do I run the tests here," "what's the folder structure,"
+  and, specific to this project, "work task-by-task from `Tasks.md`, always through a branch
+  and PR, and write it up in `IMPLEMENTATION_LOG.md`." Think of it as an onboarding doc — not
+  for a human new hire, but for a fresh AI session that otherwise has no memory of anything
+  in this log. It's genuinely useful for a human contributor too, since it's just documentation
+  sitting in the repo like any other file.
+- **`git stash`.** Sometimes you need to switch which branch you're working on, but you have
+  uncommitted changes sitting in your files that aren't ready to be committed yet — and git
+  normally won't let you switch branches if doing so would overwrite or lose those changes.
+  `git stash` temporarily "puts away" your uncommitted changes (like sweeping papers off a
+  desk into a drawer), leaving your files matching the last commit, so you're free to switch
+  branches, pull, or do anything else with a clean working tree. `git stash pop` takes the
+  most recently stashed changes back out of the drawer and reapplies them to whatever branch
+  you're currently on. By default, `git stash` only stashes changes to files git is already
+  tracking — a brand-new file that's never been committed (an **untracked** file) is left
+  alone unless you add the `-u` flag (`git stash -u`), which was needed here since the new
+  `CLAUDE.md` file had never been committed yet.
+- **A branch being "ahead" or "behind."** Git can compare any two branches (or a local branch
+  against its remote counterpart) and count how many commits exist on one that the other
+  doesn't have yet. "Behind by 2" means the other side (here, `origin/main` on GitHub) has 2
+  commits your local branch doesn't have — usually because someone merged something on
+  GitHub's website directly, without your local copy being told about it yet. This is
+  informational, not an error: your local copy is just temporarily out of date until you run
+  `git fetch` (download the new history) or `git pull`/`git merge` (download *and* apply it).
+- **Fast-forward merge.** When the branch you're merging in is simply "ahead" with no
+  conflicting changes of its own, git can update your branch by just moving its pointer
+  forward to match — no new "merge commit" needs to be created, and nothing about the
+  history is rewritten or combined. This is the simplest, safest kind of merge, and is what
+  happened repeatedly in this step (`git merge --ff-only origin/main`).
+
+### What was done
+
+1. Ran the `/init` slash command, which inspected the repo (package.json files, README,
+   requirements doc, existing config) and generated `CLAUDE.md` at the repo root — while
+   still on the `frontend/scaffold` branch, which by this point was fully committed and
+   already merged into `main` via PR #1.
+2. Since `CLAUDE.md` isn't really part of the frontend scaffold work, it was moved onto its
+   own branch rather than being tacked onto an already-merged branch:
+   - `git stash -u` — put the new, uncommitted `CLAUDE.md` file aside.
+   - `git checkout main` then `git pull` — switched to `main` and fast-forwarded it to pick
+     up the already-merged `frontend/scaffold` work.
+   - `git checkout -b docs/claude-md` — created a fresh branch off the now-up-to-date `main`.
+   - `git stash pop` — brought `CLAUDE.md` back out of the stash, now sitting on the new
+     branch as an untracked file, ready to commit.
+3. Committed `CLAUDE.md`, pushed `docs/claude-md`, and opened **PR #2** with `gh pr create`.
+4. The user asked to double check nothing had been lost during the stash/branch shuffle.
+   Verified with `git stash list` (empty — nothing left behind in the "drawer"),
+   `git status` (clean working tree), and `git branch -vv` (confirmed `frontend/scaffold`
+   still pointed at its expected last commit, matching GitHub exactly).
+5. That check also revealed local `main` was "behind `origin/main`" by 2 commits — because
+   the user had already merged PR #2 on GitHub while this verification was happening.
+   Nothing was missing; local `main` just hadn't caught up yet. Fixed by fetching and running
+   `git merge --ff-only origin/main`, bringing local `main` fully in sync with GitHub.
+
+### Why it's needed
+
+`CLAUDE.md` makes every future Claude Code session in this repo productive immediately,
+without needing this entire implementation log re-read (or re-explained by the user) from
+scratch — it's a compact, current summary of "how do I run this, and how does work get done
+here." Handling the git side carefully (stash → branch → pop, then verifying) matters because
+it's exactly the kind of moment — moving a file between branches — where someone new to git
+often worries something got silently lost; walking through the verification explicitly
+demonstrates that git's stash mechanism is safe when used deliberately, and shows the actual
+commands used to *prove* nothing was lost rather than just asserting it.
+
+### Decisions
+
+- **Gave `CLAUDE.md` its own branch/PR rather than adding it to `frontend/scaffold` or
+  committing it straight to `main`.** It's an unrelated, self-contained change (repo-wide
+  documentation, no app code), and `frontend/scaffold` had already been merged by the time
+  it was created — bundling it in would have meant either reopening merged work or breaking
+  the "everything through review" rule this same file documents.
+- **Verified rather than assumed** after the stash/branch sequence, at the user's request —
+  a good general habit any time git history gets rearranged (stash, rebase, cherry-pick), not
+  just something specific to this step.
+
+### State at end of this step
+
+`CLAUDE.md` is merged into `main` via PR #2. Local `main` is fully in sync with
+`origin/main` (both PR #1 and PR #2 merged in, 5 commits total on `main`). No stashes remain.
+
+### Verification
+
+- `git stash list` → empty, confirming nothing was left stranded in a stash.
+- `git status` → clean working tree on every branch touched.
+- `git branch -vv` → confirmed `frontend/scaffold`, `docs/claude-md`, and `main` each pointed
+  at the exact commits expected, matching their `origin/*` counterparts.
+- `git fetch` + `git log main..origin/main` → identified the 2 "missing" commits as the
+  already-merged PR #2, not lost work.
+- `git merge --ff-only origin/main` → brought local `main` current; confirmed via `git log`
+  showing the merge commits for both PR #1 and PR #2 present in history.
+
+---
