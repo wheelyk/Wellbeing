@@ -719,3 +719,427 @@ commands used to *prove* nothing was lost rather than just asserting it.
   showing the merge commits for both PR #1 and PR #2 present in history.
 
 ---
+
+## 2026-08-14 — Tooling: install Docker Desktop (needed to run PostgreSQL locally)
+
+**Task:** Prerequisite for [Tasks.md](Tasks.md) → Phase 0 → "Set up PostgreSQL locally
+(Docker Compose recommended...)" — pulled forward because it blocks implementing
+`POST /api/auth/register`, which needs a real database to create user accounts in.
+
+### Background / concepts
+
+- **Why a database is needed at all here.** Registering a user means permanently storing
+  their account (email, hashed password, etc.) somewhere that survives the server
+  restarting. So far this project has no database — Phase 0/1 set that up. Requirements §4
+  specifies **PostgreSQL** as the database engine.
+- **A container** packages an application together with everything it needs to run
+  (its own tiny filesystem, libraries, configuration) so it runs identically no matter what
+  computer it's on — you don't have to manually install PostgreSQL itself, configure it, and
+  hope it matches what teammates or a production server have. **Docker** is the tool that
+  builds, runs, and manages containers. **Docker Desktop** is the Windows/Mac application
+  that provides Docker's engine (the background service actually running containers) plus a
+  GUI for managing them.
+- **Why Docker needs WSL2 on Windows.** Containers, as built by Docker, are fundamentally a
+  Linux technology — the isolation tricks they rely on are part of the Linux kernel. Windows
+  doesn't have that kernel, so Docker Desktop runs a lightweight virtualized Linux
+  environment underneath to actually execute containers. On modern Windows, that's done via
+  **WSL2** ("Windows Subsystem for Linux," version 2) — a real, fairly minimal Linux kernel
+  that Microsoft ships as part of Windows, rather than a heavier traditional virtual machine.
+  Docker Desktop needs WSL2 installed and enabled to have somewhere to actually run
+  containers.
+- **A WSL "distribution."** WSL can host one or more Linux **distributions** ("distros" —
+  a specific Linux operating system, e.g. Ubuntu, Debian) side by side, similar to how you
+  could dual-boot different operating systems, except they run simultaneously and
+  lightweight. Running `wsl -l -v` after installing WSL reported *"has no installed
+  distributions"* — that sounded alarming, but turned out to be irrelevant here: Docker
+  Desktop doesn't need a user-visible distro like Ubuntu at all. It quietly creates and
+  manages its own internal utility distros (named `docker-desktop` and
+  `docker-desktop-data`) purely to run containers in — those aren't meant to show up as
+  something you'd `wsl` into and use directly, so their absence from `wsl -l -v` wasn't a
+  problem.
+- **Docker's optional sign-in.** Docker Desktop's UI offers to sign in with a Docker Hub
+  account on first launch. This is unrelated to whether Docker actually works — the Docker
+  *engine* (what actually runs containers) functions fully without being signed in, for
+  personal/local development use. Signing in mainly matters for things this project doesn't
+  need yet, like publishing your own container images to Docker Hub. Confirmed working
+  without any sign-in by running `docker ps` successfully (with an empty result, since no
+  containers exist yet).
+
+### What was done
+
+1. Installed Docker Desktop via `winget install --id Docker.DockerDesktop`.
+2. Discovered its WSL2 requirement wasn't met yet (`wsl --status` reported WSL wasn't
+   installed). Rather than run `wsl --install` automatically — since it can require a
+   system restart, which would have interrupted the session — the user was asked to run it
+   themselves and restart if prompted.
+3. The user ran `wsl --install` — on this machine, it completed **without requiring a
+   restart** (this varies: whether a restart is needed depends on what Windows features/
+   virtualization support were already enabled on the specific machine; it's not guaranteed
+   either way, so it's worth always checking rather than assuming).
+4. Re-checked `docker --version` from a *fresh* command — it now worked, whereas it hadn't
+   immediately after install. This is the same category of issue seen earlier with the GitHub
+   CLI: installers update the system's PATH (the list of folders the OS searches for
+   programs), but a terminal session that was already open keeps its own *copy* of the PATH
+   from when it started, so it doesn't notice the update until that value is explicitly
+   re-read (or a new terminal is opened).
+5. `docker ps` still failed at this point with a "cannot connect... is the daemon running?"
+   error — installing Docker Desktop and having its `docker` command available isn't the
+   same as the background engine actually being started. Launched the Docker Desktop
+   application itself (`Docker Desktop.exe`), which is what actually starts that background
+   engine, and is a normal one-time step the first time it's installed.
+6. Waited briefly for Docker Desktop's first-run startup, then confirmed `docker ps`
+   succeeded (returned an empty container list rather than a connection error).
+
+### Why it's needed
+
+Without Docker (or some other way to run PostgreSQL), there is nowhere for the register
+endpoint — or any future feature — to durably store data. This unblocks Phase 0's Postgres
+setup and Phase 1's data model work, both of which the register endpoint sits on top of.
+
+### Decisions
+
+- **Didn't run `wsl --install` automatically.** It can require a system restart, and a
+  restart would end the current working session with no way to resume it automatically —
+  a decision with real disruption for the user, so it was left to them to run and restart on
+  their own schedule, then return.
+- **Chose Docker Desktop over a native Windows PostgreSQL install**, per the user's explicit
+  choice when asked, keeping the project aligned with `Tasks.md`'s suggested `docker-compose.yml`
+  approach — which also means the same setup instructions will work for any future
+  Mac/Linux contributor, not just Windows.
+
+### State at end of this step
+
+Docker Desktop is installed, its background engine is running, and `docker`/`docker compose`
+commands work from the terminal. No containers exist yet — the actual PostgreSQL container
+is set up in the next entry, alongside Prisma and the `User` model.
+
+### Verification
+
+- `docker --version` → `Docker version 29.7.2, build a7dcaa6`.
+- `docker ps` → succeeded with an empty table (headers only, no containers), confirming the
+  engine is reachable and working, not just installed.
+
+---
+
+## 2026-08-14 — Phase 1 + Phase 2: PostgreSQL, Prisma, the `User` model, and `POST /api/auth/register`
+
+**Task:** [Tasks.md](Tasks.md) → Phase 2 → "Implement `POST /api/auth/register`" — which, on
+inspection, needed two prerequisite Phase 0/1 items pulled forward first, since register
+can't create an account without a database to put it in: "Set up PostgreSQL locally" and
+"Install and configure Prisma," plus defining the `User` model from Phase 1.
+
+**Delivered via branch:** `feature/2.1-auth-register`.
+
+### Background / concepts
+
+#### How Node.js and Express actually work, end to end
+
+- **Node.js runs one JavaScript program that never "restarts" per request.** Unlike some
+  older server technologies (PHP, classic CGI) that re-run a script from scratch for every
+  request, a Node.js server is a single long-running program: `node dist/index.js` starts it
+  once, it stays in memory, and it just *reacts* to incoming network connections for as long
+  as it keeps running. This is why `backend/src/index.ts` calls `app.listen(port, ...)` —
+  that call doesn't return; it hands control to Node's event loop, which sits there waiting
+  for HTTP requests to arrive.
+- **Express is a request router.** At its core, Express keeps an ordered list of "if a
+  request matches this method + path, run this function" rules. `app.get("/api/health", handler)`
+  registers one such rule. `app.use("/api/auth", authRouter)` (added in this step) registers
+  a whole *group* of rules at once — every route defined inside `authRouter` (currently just
+  `POST /register`) effectively gets the `/api/auth` prefix glued onto it, so
+  `authRouter.post("/register", ...)` becomes reachable at `POST /api/auth/register`. This
+  is why the code is organized as one `Router` per feature area (`routes/auth.ts` now;
+  `routes/symptoms.ts`, `routes/mood.ts` etc. will follow the same pattern in later phases)
+  instead of piling every route directly into `app.ts`.
+- **Middleware runs before your route handler, for every matching request.**
+  `app.use(express.json())` (added back in the backend-scaffold entry) is *middleware*: a
+  function that runs on the way in, before Express even looks for a matching route. Its job
+  is to read the raw request body (which arrives as raw bytes) and parse it as JSON,
+  attaching the result to `req.body` — which is exactly what makes `req.body.email` and
+  `req.body.password` available inside the register route. Without it, `req.body` would be
+  empty no matter what the client sent.
+- **Route handlers are `async` functions, and Express awaits them implicitly via a Promise
+  chain — but only if you don't swallow the error.** The register handler is declared
+  `async (req, res) => { ... }` because it does two things that take real time and must be
+  waited for: hashing the password (`bcrypt.hash`, deliberately slow — see below) and writing
+  to the database (`prisma.user.create`, a network round-trip to Postgres). `await`ing both
+  means the function doesn't send a response until each step has actually finished.
+- **A `Router` is just an isolated, mountable mini-app.** Keeping `authRouter` in its own
+  file (`routes/auth.ts`) and exporting it, rather than defining routes straight on `app` in
+  `app.ts`, means `app.ts` stays a short table of contents ("mount health, mount auth, mount
+  [future routers]") instead of growing into one enormous file as more endpoints are added
+  over the coming phases.
+
+#### PostgreSQL and Docker Compose
+
+- **PostgreSQL** ("Postgres") is the actual database system that will durably store every
+  user, symptom log, mood entry, etc. — a program that manages structured, relational data
+  and answers structured queries against it, running as its own separate process from the
+  Node.js backend.
+- **`docker-compose.yml`** describes one or more containers ("services") to run together and
+  how to run them — here, a single `postgres` service, using the official `postgres:16-alpine`
+  container image (a ready-made package containing Postgres 16, built on the minimal "Alpine"
+  Linux base to keep the download small). `docker compose up -d postgres` reads that file and
+  starts it as a background container. This means nobody on this project has to manually
+  install and configure Postgres on their own machine — everyone runs the exact same
+  Postgres version, configured the exact same way, via one shared file in git.
+- **A named volume** (`postgres_data:` in the compose file) is a chunk of storage Docker
+  manages on your behalf, kept separate from the container itself. Without it, stopping and
+  removing the Postgres container would wipe out every row of data along with it, since a
+  container's own filesystem is normally throwaway. The volume is what lets the database
+  survive the container being recreated (e.g. after `docker compose down` + `up` again).
+
+#### Prisma: schema, migrations, and the generated client
+
+- **Prisma is an ORM** (Object-Relational Mapper): a layer that lets application code work
+  with the database using regular TypeScript objects and function calls
+  (`prisma.user.create({ data: { ... } })`) instead of hand-writing raw SQL strings
+  everywhere. It also gives strong TypeScript types for every model, generated straight from
+  the schema, so e.g. misspelling a field name is a compile error, not a runtime surprise.
+- **`prisma/schema.prisma` is the single source of truth for the data model.** The `User`
+  model added there — `id`, `email`, `passwordHash`, `displayName`, `timezone`, `createdAt`
+  — mirrors the fields from requirements §11.1, but written in Prisma's own schema syntax
+  rather than raw SQL. Field names use `camelCase` (`passwordHash`) to feel natural in
+  TypeScript, while `@map("password_hash")` tells Prisma to actually store that column as
+  `password_hash` in Postgres — matching the `snake_case` naming the requirements doc uses —
+  so the *database* and the *TypeScript code* can each use the naming convention that's
+  idiomatic for them, without a mismatch. `@@map("users")` does the same for the table name.
+- **A migration is a recorded, ordered change to the database's structure.** Running
+  `npx prisma migrate dev --name init_user` did two things: (1) compared the schema file
+  against the (empty) database and generated the exact SQL needed to bring the database in
+  line (`CREATE TABLE "users" (...)`, visible in
+  `prisma/migrations/20260814155859_init_user/migration.sql`), and (2) actually ran that SQL
+  against the running Postgres container. Every future schema change (adding `Symptom`,
+  `MoodLog`, etc. in later Phase 1 work) will generate its own migration file, and the whole
+  sequence of migration files is what lets *any* copy of this database — a teammate's
+  laptop, a CI test database, production — be brought to the exact same structure by
+  replaying them in order.
+- **The generated client is code, not something you hand-write.** `npx prisma generate`
+  reads `schema.prisma` and writes actual TypeScript source into `backend/src/generated/prisma/`
+  — this is why that folder is git-ignored (see `backend/.gitignore`, which Prisma's own
+  `prisma init` created): it's fully reproducible from `schema.prisma` plus running
+  `prisma generate`, the same way `dist/` is reproducible from `src/` plus `tsc`. Nobody
+  should hand-edit files in `generated/`; they'd just be overwritten the next time it runs.
+- **Prisma 7's driver adapters (a version-specific wrinkle worth knowing about).** The
+  installed Prisma version (7.9.1) turned out to be newer than most current tutorials assume:
+  older Prisma versions bundled their own compiled database-connector binary internally and
+  "just worked" once `DATABASE_URL` was set. Prisma 7's new client generator
+  (`provider = "prisma-client"` in the schema, as opposed to the older `"prisma-client-js"`)
+  instead expects you to explicitly supply a **driver adapter** — a small package
+  (`@prisma/adapter-pg` here) that wraps a *native* Postgres driver for Node
+  (`pg`, also installed) and hands it to Prisma. Concretely, this is why
+  `backend/src/lib/prisma.ts` constructs `new PrismaPg({ connectionString: ... })` and passes
+  it into `new PrismaClient({ adapter })`, rather than just calling `new PrismaClient()` with
+  no arguments the way many existing Prisma guides show. Worth remembering if following
+  older documentation/tutorials and something doesn't match.
+
+#### Password hashing: why it matters and how it works here
+
+- **Hashing is one-way; encryption is two-way.** Encrypting data means it can be *decrypted*
+  back to the original if you have the right key — appropriate for data you need to read
+  again later. **Hashing** runs data through a function that's deliberately impossible to
+  reverse: there is no key or process that turns a password hash back into the original
+  password. This project (like essentially all modern software) stores only a hash of each
+  password, never the password itself — confirmed directly by requirements §5.2 ("must
+  never store a user's plain-text password") and §13. This is why `backend/src/lib/prisma.ts`'s
+  `User` model has a `passwordHash` field and nothing called `password`.
+- **Why hashing specifically protects against a database leak.** If the *hashes* leak (e.g.
+  a future data breach), an attacker still can't log in as anyone or recover the real
+  passwords directly from what leaked — they'd have to separately guess passwords and check
+  each guess against the hash, which is exactly what the next two points make slow and
+  per-password-expensive on purpose.
+- **`bcrypt` — and specifically, salted, deliberately slow hashing.** A generic hash function
+  like SHA-256 is built to be *fast*, which is actually bad for passwords: it lets an
+  attacker who obtains a batch of hashes try billions of guesses per second against them.
+  **bcrypt** (used here via the `bcryptjs` package — a pure-JavaScript implementation, chosen
+  specifically to avoid needing native C++ build tools on Windows during `npm install`, which
+  the original `bcrypt` package requires) is intentionally slow, and its cost is tunable via
+  a **salt rounds** parameter (`SALT_ROUNDS = 12` in `routes/auth.ts`) — each increment
+  roughly *doubles* the work required per hash. It also automatically generates a random
+  **salt** (extra random data mixed into each password before hashing) per password, so two
+  users with the identical password `"Sup3rSecret"` end up with two completely different
+  stored hashes — this defeats precomputed "rainbow table" lookup attacks, since an attacker
+  can't just look up a hash in a table of known hash→password pairs.
+- **Never log or return the hash either.** The register route's Prisma `select` explicitly
+  lists which fields to return (`id`, `email`, `displayName`, `timezone`, `createdAt`) rather
+  than returning the whole created row — `passwordHash` is deliberately left out, so it can
+  never accidentally leak into an API response, even though the hash itself (unlike a raw
+  password) isn't directly usable to log in as the user.
+
+#### Connection strings, `.env`, and what actually counts as a "secret" here
+
+- `DATABASE_URL` (`postgresql://welltrack:welltrack@localhost:5432/welltrack?schema=public`)
+  is a **connection string** — it bundles the database's location (`localhost:5432`), which
+  database (`welltrack`), and login credentials (`welltrack`/`welltrack`) into one value.
+  Connection strings are secrets in general, since anyone with one for a production database
+  could read/write everything in it.
+- **Why this specific value was still put in `backend/.env.example`** (a file that *is*
+  committed to git, unlike `.env` itself): the username/password `welltrack`/`welltrack` are
+  already sitting in plain text in `docker-compose.yml` — which is *also* committed, by
+  design, so that anyone cloning the repo can start an identical local database with one
+  command. Since it's already fully visible in a file meant to be public, repeating the same
+  non-secret local value in `.env.example` doesn't expose anything new, and it means
+  `cp .env.example .env` immediately works with zero manual editing.
+- **This reasoning does *not* extend to real secrets that don't exist yet.** Once a JWT
+  signing secret (Phase 2, upcoming) or a production `DATABASE_URL` (Phase 14, pointing at a
+  real hosted database with a real, non-throwaway password) are introduced, those must never
+  appear as real values in any committed file, `.env.example` included — only as a clearly
+  fake placeholder there, with the actual value living solely in the git-ignored `.env`
+  locally, and in the hosting platform's own environment-variable/secrets configuration in
+  production.
+- `backend/.env` itself — the file the running app actually reads — is git-ignored (inherited
+  from the root `.gitignore` added back in the very first Phase 0 entry, which ignores `.env`
+  anywhere in the repo). That's the one safety net that matters regardless of how "secret" any
+  particular value in it currently is, because it's what will hold the real secrets later
+  without any extra setup needed at that point.
+
+#### Validating input with Zod
+
+- **Zod** is a schema-validation library: you describe the *shape* data should have
+  (`z.object({ email: z.string().email(), password: z.string().min(8)... })`), and it checks
+  arbitrary incoming data against that shape, returning either "valid, here's the
+  type-checked data" or a structured list of what's wrong. This is what enforces requirements
+  §17's rules for registration (valid email format; a password strength policy — here, at
+  least 8 characters, containing at least one letter and one number) *before* anything touches
+  the database, and is the same library flagged back in Phase 3's task list
+  ("centralized request validation... `zod` or `express-validator`") — using it here first
+  establishes the pattern the rest of the API will follow.
+
+### What was done
+
+1. **Postgres.** Added `docker-compose.yml` at the repo root defining a single `postgres`
+   service (image `postgres:16-alpine`, credentials `welltrack`/`welltrack`, database
+   `welltrack`, exposed on the standard port `5432`, backed by a named volume so data
+   survives container restarts). Started it with `docker compose up -d postgres` and
+   confirmed it was accepting connections via `docker compose exec postgres pg_isready`.
+2. **Prisma setup.** Installed `prisma` (CLI, dev dependency) and `@prisma/client` in
+   `/backend`, then ran `npx prisma init --datasource-provider postgresql`. This generated
+   `prisma/schema.prisma`, `prisma.config.ts` (Prisma's newer config file — it's what
+   actually loads `backend/.env` and hands `DATABASE_URL` to the Prisma CLI, via
+   `import "dotenv/config"` inside it), an initial `backend/.env`, and `backend/.gitignore`.
+   It also installed some AI-coding-tool "skill" scaffolding for tools this project doesn't
+   use (`.windsurf/`, `.agents/`, `skills-lock.json`, plus a `.claude/skills` folder already
+   covered by the repo's existing root `.gitignore`) — removed those to keep the repo focused
+   on the project itself.
+3. **The `User` model.** Wrote it into `prisma/schema.prisma` per requirements §11.1 (see
+   *Background* above for the `@map`/`@@map` naming translation). Filled in real values for
+   `backend/.env` and `backend/.env.example`'s `DATABASE_URL`, pointing at the Docker Compose
+   Postgres instance.
+4. **Migration + client generation.** Ran `npx prisma migrate dev --name init_user`, which
+   created and applied `prisma/migrations/20260814155859_init_user/migration.sql` (a
+   `CREATE TABLE "users" (...)`). Separately ran `npx prisma generate` to produce the actual
+   TypeScript client code in `backend/src/generated/prisma/` (this didn't happen
+   automatically as part of `migrate dev` in this version, so it was run as its own step).
+5. **Driver adapter.** Installed `@prisma/adapter-pg` and `pg` (plus `@types/pg`) — required
+   by Prisma 7's new client generator, per *Background* above. Wrote
+   `backend/src/lib/prisma.ts`: a single shared `PrismaClient` instance (constructed with the
+   `pg` adapter), so the rest of the app always imports and reuses the same client rather
+   than each file creating its own (creating many separate clients would open many separate
+   pools of database connections for no benefit).
+6. **The register route.** Installed `bcryptjs` and `zod`. Wrote
+   `backend/src/routes/auth.ts`: a Zod schema validating `email`/`password`/optional
+   `displayName`; on success, hashes the password with bcrypt (12 salt rounds), creates the
+   user via Prisma, and returns 201 with the safe, hash-excluded fields. Duplicate emails are
+   caught via Prisma's `P2002` "unique constraint violation" error code and turned into a
+   409 response; validation failures return 400 with per-field error details. Mounted it in
+   `app.ts` via `app.use("/api/auth", authRouter)`.
+7. **Manual end-to-end check.** Built (`npm run build`) and ran the compiled server, then
+   used `curl` to exercise all four cases directly against the real running Postgres
+   container: successful registration (201), duplicate email (409), weak password (400),
+   and invalid email (400) — all behaved as intended. Cleaned up the manually-created test
+   row afterward via `docker compose exec postgres psql`.
+8. **Automated tests — and a real bug they caught.** Installed `vitest` and `supertest`
+   (plus `@types/supertest`) as dev dependencies, set the backend's `npm test` script to
+   `vitest run` (replacing the placeholder stub script), and wrote
+   `backend/src/routes/auth.test.ts` covering: successful registration (and that the
+   response never contains a password/hash field), the display-name default, invalid email,
+   weak password, duplicate email → 409, and — most importantly — a test that reads the
+   user straight back out of the database via Prisma and asserts the stored `passwordHash`
+   is neither the plain-text password nor anything resembling it (only that it starts with
+   bcrypt's `$2` hash-format prefix, without asserting the exact hash, since bcrypt
+   intentionally produces a different hash every time even for the same input — see
+   *Background* above).
+
+   Running this suite for the first time immediately failed 4 of 6 tests with a database
+   connection error (`SASL: ... client password must be a string`) — a genuine bug, not a
+   flaky test: `backend/src/lib/prisma.ts` read `process.env.DATABASE_URL` directly, but
+   only `index.ts` ever explicitly loaded `.env` (via its own `import "dotenv/config"`)
+   before that code ran. The manual `curl` testing above always went through `index.ts`
+   first (`node dist/index.js`), so it never hit this. The automated tests import `app.ts`
+   directly (deliberately — see the very first backend-scaffold entry for why `app.ts` and
+   `index.ts` are split), which meant `DATABASE_URL` was still `undefined` at the moment
+   Prisma tried to connect. Per this project's *Testing Requirements* (`CLAUDE.md`) — fix
+   the code, don't fix the test, unless the test itself is wrong — the actual fix was moving
+   `import "dotenv/config"` into `lib/prisma.ts` itself, so loading the environment no longer
+   silently depends on which file happens to import it first. Re-ran the suite: all 6 tests
+   passed.
+9. Test data cleanup happens automatically: the test file tracks every email it creates and
+   deletes those rows in an `afterAll` hook, then disconnects Prisma — confirmed via a direct
+   `SELECT count(*) FROM users` against the container afterward (`0`), so re-running the
+   suite repeatedly never collides with leftover data from a previous run.
+10. Re-ran `npm run build` after the `prisma.ts` fix (still compiles cleanly) and did one
+    final full round-trip against the *compiled* server (`node dist/index.js` → `curl` a real
+    registration → 201), then stopped the server and deleted that last manual test row.
+
+### Why it's needed
+
+This is the first real vertical slice of the product: an account a user can actually create,
+durably stored, with a properly protected password — everything requirements §5.1/§5.2/§13
+require of registration specifically. It also stands up the database/Prisma/testing
+infrastructure (Docker Postgres, the `User` model + migration pattern, the shared Prisma
+client, Vitest + Supertest) that every subsequent Phase 1–13 task will build directly on top
+of, rather than each future task having to figure this out from scratch.
+
+### Decisions
+
+- **Pulled Phase 0/1 database setup forward** rather than strictly finishing every remaining
+  Phase 0 item first, since `Tasks.md`'s own phases are ordered by dependency, and register
+  is impossible to build meaningfully without a database — implementing it "as a stub" that
+  doesn't actually persist anything wouldn't have satisfied the task.
+- **Only defined the `User` model now, not the rest of Phase 1's models** (`Symptom`,
+  `MoodLog`, etc.) — those aren't needed until their own respective endpoints, and adding them
+  speculatively now would be scope creep beyond what this task needed. `Tasks.md`'s Phase 1
+  checkboxes reflect this: only the `User` model line is checked.
+- **`bcryptjs` over native `bcrypt`.** The native `bcrypt` npm package requires compiling C++
+  code during install (via `node-gyp`), which needs build tools that aren't guaranteed to be
+  present on a given Windows machine. `bcryptjs` is a pure-JavaScript, dependency-free
+  reimplementation with the same hashing behavior and its own TypeScript types — trading a
+  little raw hashing speed for zero native-build friction, a reasonable tradeoff for an
+  auth-only workload.
+- **Display name defaults to the email's local part (text before `@`) when not supplied at
+  registration.** Requirements §5.1 lists registration as email + password only, with display
+  name editing as a separate, later profile action — but the `User` model's `display_name`
+  field (§11.1) isn't marked optional. Defaulting it avoids a nullable field purely for a
+  three-step-away edge case, while still letting the caller supply a real one immediately if
+  they have it (the frontend's registration form, built later, can choose either way).
+- **Duplicate email returns an explicit "Email is already registered" message** (rather than
+  a deliberately vague message designed to prevent attackers from probing which emails are
+  registered). This is standard, common practice for consumer registration flows and matches
+  what requirements describe; formal anti-enumeration hardening isn't called for anywhere in
+  the requirements doc and would add friction to a legitimate user trying to log in instead
+  by mistake.
+- **Tests run against the same local Postgres container as manual dev**, not a separate,
+  isolated test database. Acceptable for now specifically because the test suite cleans up
+  everything it creates; proper test/dev database isolation is explicitly Phase 13's job, not
+  something to solve ahead of time here.
+
+### State at end of this step
+
+PostgreSQL runs locally via `docker compose up -d postgres`. The backend connects to it
+through Prisma, using the `User` model. `POST /api/auth/register` is live, validated, and
+tested — creating a real, durably-stored user with a securely hashed password, and correctly
+rejecting invalid emails, weak passwords, and duplicate emails. No other auth endpoints
+(login, refresh, etc.) exist yet.
+
+### Verification
+
+- `npm run build` — compiled cleanly both before and after the `dotenv` fix.
+- Manual `curl` round-trip against the compiled server for all four cases (success, duplicate,
+  weak password, invalid email) — each returned the expected status code and body.
+- `npm test` (`vitest run`) — 6/6 tests passing, including a direct database read-back
+  confirming the stored password is actually hashed, not stored in plain text.
+- Confirmed via `docker compose exec postgres psql ... SELECT count(*) FROM users` that no
+  test or manual smoke-test data was left behind after each check.
+- Confirmed the generated Prisma client (`backend/src/generated/prisma/`) never shows up in
+  `git status` — it's correctly git-ignored and treated as reproducible build output.
+
+---
