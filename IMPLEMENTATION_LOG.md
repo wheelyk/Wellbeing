@@ -24,6 +24,72 @@ full the *first* time they appear — later entries link back rather than repeat
 
 ---
 
+## Big picture: how the frontend and backend actually talk to each other
+
+The individual scaffold entries below explain the backend and frontend *separately*, since
+that's how they were built. But neither one is useful alone, so before diving into those
+entries, here's how the two connect — the part that ties everything together.
+
+**Two separate programs, running on two separate ports.** After Phase 0, running this
+project locally means two things are running *at the same time*, each listening on its own
+"door" (**port**) on your computer:
+
+- The **backend** (Express), on port `4000` — a program whose only job is to receive
+  requests and send back data. It has no visual appearance at all; it's not a webpage.
+- The **frontend** (Vite dev server), on port `5173` — serves the actual webpage your
+  browser displays: HTML, the React app, styling, images.
+
+When you open the app in a browser, you're only ever looking at the frontend. The backend is
+invisible to you directly — the frontend talks to it *behind the scenes*.
+
+**How "talking to it behind the scenes" works: the API.** Whenever the frontend needs data
+(e.g. "show me today's mood entry") or needs to save something (e.g. "the user just logged a
+symptom"), the React code running in the browser sends an **HTTP request** to the backend —
+the same kind of request a browser sends when loading any web page, just aimed at the
+backend's address instead, and carrying data instead of asking for a page. The backend reads
+the request, does whatever's needed (e.g. look something up in the database, once Phase 1+
+adds one), and sends back an **HTTP response** — usually formatted as **JSON**
+(`{"mood": 4, "loggedAt": "2026-08-14T09:00:00Z"}`), a simple, universal text format for
+structured data that both JavaScript (frontend) and Node.js (backend) can read and write
+natively.
+
+This request/response pattern — a defined set of URLs the backend understands, each doing
+one specific thing — is what's meant by an **API** (Application Programming Interface). The
+full list of URLs this project's backend will expose is laid out in requirements §12 (e.g.
+`POST /api/auth/login`, `GET /api/symptom-logs`) and mirrored as checklist items throughout
+[Tasks.md](Tasks.md). Right now, after Phase 0, there is exactly **one** such URL:
+`GET /api/health` (see the backend scaffold entry below) — everything else gets added
+endpoint-by-endpoint in Phases 2–4.
+
+**Why the frontend needs to be told the backend's address.** The frontend has to know *where*
+to send these requests. That's the purpose of `frontend/.env.example`'s `VITE_API_URL`
+(currently `http://localhost:4000`) — a setting, not a hard-coded value, because the address
+changes between environments (your laptop during development vs. wherever the app is
+actually hosted once deployed in Phase 14). The frontend code will read this value and
+prefix every API request with it, once Phase 5 builds the actual API client.
+
+**Why CORS matters here specifically.** Browsers enforce a security rule: a webpage loaded
+from one address (`http://localhost:5173`, our frontend) is blocked by default from making
+requests to a *different* address (`http://localhost:4000`, our backend) — even though
+they're both "localhost" and both under our control, the browser only looks at whether the
+port number matches, and `5173 ≠ 4000` counts as different. This is exactly why the backend
+scaffold entry below installs and enables the `cors` package: it makes the backend explicitly
+tell the browser "requests from this frontend are allowed," which is what lets the two
+actually communicate once real API calls start happening in Phase 5 onward. Without it,
+every request from the frontend to the backend would be silently blocked by the browser,
+even though both servers themselves are running fine.
+
+**Why they're still two independent projects, not one.** Even though they need to cooperate,
+frontend and backend are kept as separate npm projects with separate dependencies, separate
+build steps, and (eventually) separate deployments — this is what requirements §4 means by
+"structured so that the frontend and backend remain independently testable and deployable."
+Concretely: the backend can be tested and even hosted with zero knowledge of React; the
+frontend could, in principle, be pointed at a totally different backend implementation
+without changing how it's built. They only ever interact through the API contract described
+above — never by directly importing each other's code.
+
+---
+
 ## 2026-08-14 — Phase 0: Initialize the git repository and folder layout
 
 **Task:** [Tasks.md](Tasks.md) → Phase 0 → "Initialize a git repository and monorepo
@@ -419,5 +485,131 @@ will arrive via feature branches and pull requests rather than direct commits to
   confirming the push succeeded and the tracking relationship was established.
 - `git remote -v` confirmed `origin` now points at `https://github.com/wheelyk/Wellbeing.git`
   for both fetch and push.
+
+---
+
+## 2026-08-14 — Phase 0: Scaffold the frontend (React + TypeScript + Tailwind CSS)
+
+**Task:** [Tasks.md](Tasks.md) → Phase 0 → "Scaffold frontend: React + TypeScript project
+(Vite recommended) with Tailwind CSS configured."
+
+**Delivered via branch:** `frontend/scaffold` (see *Branch & PR* section below — this is the
+first task done under the new branch-per-task workflow).
+
+### Background / concepts
+
+- **React** is a JavaScript library for building user interfaces out of reusable
+  **components** — small, self-contained pieces of UI (e.g. a button, a mood-picker, an
+  entire page) written as functions that return what should appear on screen. Almost every
+  screen in [Tasks.md](Tasks.md) (Dashboard, History, Trends, Quick Add forms) will be one
+  or more React components.
+- **Vite** ("veet") is a build tool/dev server for frontend projects. Two jobs: (1) while
+  developing, it serves the app instantly and updates the browser the moment a file is
+  saved (**Hot Module Reload / HMR** — no manual refresh needed), and (2) for production, it
+  bundles all the source files into a small number of optimized `.js`/`.css` files that a
+  browser can download efficiently. It plays the same overall role for the frontend that
+  `ts-node-dev`/`tsc` play for the backend (see the earlier backend-scaffold entry), just
+  with browser-specific concerns (bundling, asset handling) added on top.
+- **`npm create vite@latest`** is a scaffolding command: instead of hand-writing every
+  starter file, it downloads a known-good project template (here, the `react-ts` template —
+  React plus TypeScript) and lays it out for you. This is the frontend equivalent of what
+  `npm init` did for the backend, just with a lot more starter files because a UI project
+  has more moving parts (HTML entry point, component files, build config) than a bare
+  Node script.
+- **Tailwind CSS** is a *utility-first* CSS framework. Instead of writing custom CSS class
+  names and rules in a separate stylesheet (e.g. `.hero-button { padding: 8px; ... }`),
+  you compose small, single-purpose utility classes directly in your markup — e.g.
+  `className="flex min-h-screen items-center justify-center"` means "use flexbox, make this
+  at least the full screen height, center children horizontally and vertically." The
+  requirements doc calls for a "calm, uncluttered" interface with large, consistent
+  controls; Tailwind's small composable utilities make it fast to keep spacing, sizing, and
+  color consistent across many components without writing (and maintaining) a large custom
+  CSS file by hand.
+- **Tailwind v4** (the version installed here) works differently from older Tailwind
+  versions beginners may see in tutorials: earlier versions needed a separate `tailwind.config.js`
+  plus a PostCSS setup step (`npx tailwindcss init -p`). Version 4 instead ships a Vite
+  plugin (`@tailwindcss/vite`) that hooks directly into Vite's build pipeline, and is turned
+  on with a single line in the main CSS file (`@import "tailwindcss";`) — no separate config
+  file required to get started.
+
+### What was done
+
+1. Deleted the placeholder `frontend/.gitkeep` file (no longer needed once real files exist
+   in the folder).
+2. Ran `npm create vite@latest . -- --template react-ts` inside `/frontend`, generating the
+   standard Vite React+TypeScript starter: `index.html` (the one real HTML file the browser
+   loads), `src/main.tsx` (mounts the React app into that HTML), `src/App.tsx` (the starter
+   root component), TypeScript config files, and `vite.config.ts`.
+3. Ran `npm install` to download React, Vite, and their supporting packages into
+   `frontend/node_modules` (git-ignored, same reasoning as the backend).
+4. Installed `tailwindcss` and `@tailwindcss/vite`, then added the Tailwind plugin to
+   `vite.config.ts` alongside the existing React plugin.
+5. Replaced the generated `src/index.css` with a single line, `@import "tailwindcss";`,
+   which is all Tailwind v4 needs to activate its utility classes project-wide.
+6. Replaced the generated `src/App.tsx` — which ships as a full demo page with Vite/React
+   logos and a click-counter button, meant to showcase Vite's features rather than be a real
+   starting point — with a minimal placeholder component that uses a few Tailwind utility
+   classes (`flex`, `min-h-screen`, `items-center`, `justify-center`, text styling), so it
+   both compiles cleanly and visibly proves Tailwind is working. Deleted the now-unused demo
+   assets (`App.css`, logo images) that only that placeholder page referenced.
+7. Set the page `<title>` in `index.html` to "WellTrack" (was the generic "frontend").
+8. Added `frontend/.env.example` documenting `VITE_API_URL`, the setting the frontend will
+   later use to know where the backend API lives. (Vite requires env vars exposed to the
+   browser to be prefixed with `VITE_` — anything without that prefix is intentionally kept
+   server/build-only and never bundled into client code, as a safety measure against
+   accidentally shipping secrets to the browser.)
+9. Rewrote `frontend/README.md` (Vite's generated one is generic template boilerplate) with
+   WellTrack-specific local-dev instructions.
+
+### Why it's needed
+
+This is the browser-side counterpart to the backend scaffold: a working React + TypeScript
+project, with a styling system in place, that every future screen (Dashboard, Quick Add,
+History, Trends, Settings) gets built inside of. Configuring Tailwind now — rather than
+later — means every component written from here on can immediately use it, instead of
+retrofitting styling once dozens of components already exist.
+
+### Decisions
+
+- **Removed the Vite/React demo content rather than leaving it in place.** A freshly
+  scaffolded Vite project includes a full demo page (logos, a counter button, links to Vite
+  docs) meant to show off features, not to be shipped. Leaving it in would mean the very
+  first real screen written later has to *replace* a working page rather than fill an empty
+  one, and it isn't representative of the calm/minimal interface the requirements describe.
+  Removed the matching now-unused asset files at the same time, rather than leaving dead
+  files behind.
+- **Used Tailwind v4's Vite-plugin setup over the older PostCSS-based setup.** It's fewer
+  moving parts (no separate `tailwind.config.js`/`postcss.config.js` needed to get started)
+  and is the officially recommended path for new Vite projects as of the installed version.
+  Worth knowing if following older tutorials, which usually show the v3-style setup instead.
+- **Kept Vite's own generated `frontend/.gitignore`** (covering `node_modules`, `dist`, editor
+  files) alongside the root one rather than removing it — harmless duplication, and it's the
+  standard file Vite ships with every project of this kind.
+
+### State at end of this step
+
+`/frontend` is a working React + TypeScript + Tailwind CSS project rendering a single
+placeholder "WellTrack" page. No routing, no API calls, no real screens yet — those start in
+Phase 5.
+
+### Verification
+
+1. **`npm run build`** — ran `tsc -b && vite build` with no errors, producing
+   `frontend/dist/` with a bundled `index.html`, JS, and CSS file.
+2. Inspected the built CSS output and confirmed it contained real generated Tailwind rules
+   (e.g. a `min-height` rule from the `min-h-screen` utility) — proving Tailwind is actually
+   processing the utility classes used in `App.tsx`, not just installed-but-inactive.
+3. **`npm run dev`** — started the real Vite dev server and used `curl` to fetch
+   `http://localhost:5173/`, confirming it served the expected HTML shell with the
+   `<title>WellTrack</title>` tag set in step 7 above.
+4. Stopped the dev server process afterward and confirmed port `5173` was freed.
+
+### Branch & PR
+
+This task was the first one done under the branch-per-task workflow agreed in the previous
+entry: all of the above happened on a branch named `frontend/scaffold` (created with
+`git checkout -b frontend/scaffold` off `main`), not on `main` directly. Next: commit this
+work on that branch, push it to GitHub with `git push -u origin frontend/scaffold`, and open
+a pull request from `frontend/scaffold` into `main` for review before it merges.
 
 ---
