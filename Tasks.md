@@ -12,8 +12,8 @@ Checkboxes let you track progress directly in this file.
 - [x] Scaffold backend: Node.js + Express + TypeScript project (`npm init`, `tsconfig.json`, `ts-node-dev`/`nodemon` for local dev).
 - [x] Scaffold frontend: React + TypeScript project (Vite recommended) with Tailwind CSS configured.
 - [ ] Set up ESLint + Prettier for both projects for consistent code style.
-- [ ] Set up PostgreSQL locally (Docker Compose recommended: `docker-compose.yml` with a `postgres` service).
-- [ ] Install and configure Prisma in the backend; connect it to the local PostgreSQL database via `DATABASE_URL`.
+- [x] Set up PostgreSQL locally (Docker Compose recommended: `docker-compose.yml` with a `postgres` service).
+- [x] Install and configure Prisma in the backend; connect it to the local PostgreSQL database via `DATABASE_URL`.
 - [ ] Create `.env.example` files for both frontend and backend documenting required environment variables (DB URL, JWT secrets, mail provider keys, etc.). Add real `.env` files to `.gitignore`.
 - [ ] Add a root `README.md` describing how to run the project locally (DB, backend, frontend).
 
@@ -23,7 +23,7 @@ Checkboxes let you track progress directly in this file.
 
 Reference: requirements §11.
 
-- [ ] Define `User` model: `id (uuid)`, `email (unique)`, `password_hash`, `display_name`, `timezone (default UTC)`, `created_at`.
+- [x] Define `User` model: `id (uuid)`, `email (unique)`, `password_hash`, `display_name`, `timezone (default UTC)`, `created_at`.
 - [ ] Define `Symptom` model: `id`, `user_id (nullable — null = system symptom)`, `name`, `description (optional)`, `created_at`.
 - [ ] Define `SymptomLog` model: `id`, `user_id`, `symptom_id`, `severity (1–10)`, `notes (optional)`, `logged_at`.
 - [ ] Define `MoodLog` model: `id`, `user_id`, `mood (1–5)`, `energy (nullable 1–5)`, `stress (nullable 1–5)`, `notes (optional)`, `logged_at`.
@@ -42,7 +42,7 @@ Reference: requirements §11.
 
 Reference: requirements §5, §13.
 
-- [ ] Implement `POST /api/auth/register` — validate email format + password strength, hash password with bcrypt/argon2, create user.
+- [x] Implement `POST /api/auth/register` — validate email format + password strength, hash password with bcrypt/argon2, create user.
 - [ ] Implement `POST /api/auth/login` — verify credentials, issue short-lived JWT access token + longer-lived refresh token.
 - [ ] Implement refresh token storage/rotation strategy (e.g. HTTP-only secure cookie for the refresh token) and `POST /api/auth/refresh`.
 - [ ] Implement `POST /api/auth/logout` — invalidate/clear the refresh token.
