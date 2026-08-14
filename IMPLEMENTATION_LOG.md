@@ -221,3 +221,129 @@ pass:
    wouldn't be left running in the background or conflict with future runs.
 
 ---
+
+## 2026-08-14 — Phase 0: Push the initial commit to GitHub, and adopt a branch strategy
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item directly — this is the "get the code
+onto GitHub" step that naturally follows scaffolding, and it sets up how *every future task*
+will be delivered from here on.
+
+### Background / concepts
+
+- So far, git had only been recording history **locally**, inside the hidden `.git` folder
+  on this one computer. A **remote** is a copy of the repository hosted somewhere else —
+  here, on **GitHub**, a website that hosts git repositories and adds collaboration features
+  on top (pull requests, code review, issue tracking, etc.). `git push` uploads local
+  commits to a remote; `git pull` downloads commits made elsewhere.
+- A remote is given a short nickname so you don't have to type its full URL every time. The
+  conventional default nickname for "the main copy of this project on GitHub" is
+  **`origin`**. `git remote add origin <url>` records that nickname once; after that,
+  `git push origin main` (or just `git push`, once a branch is "tracking" a remote branch)
+  knows where to send commits.
+- A **branch** is an independent line of development inside a repository. Every repository
+  starts with one default branch (by convention now usually called **`main``**, historically
+  `master`). Creating an additional branch lets you make changes *without* touching `main`
+  until you're ready — the two branches only "merge" back together when you explicitly ask
+  git to do so.
+- A **pull request** (PR) is a GitHub feature, not a raw git feature: it's a request to merge
+  one branch into another (usually a feature branch into `main`), shown as a page where the
+  proposed changes (the "diff") can be reviewed, commented on, and approved *before* they
+  become part of `main`. Even solo developers commonly use PRs against their own repos,
+  because it gives a deliberate "review, then merge" checkpoint instead of code landing on
+  `main` the instant it's written.
+
+### What was done
+
+1. Attempted to publish the repo to GitHub via VS Code's built-in "Publish to GitHub"
+   button. VS Code picked an organization the user belongs to, `wheelyk-collab`, and tried
+   to create/push to `wheelyk-collab/Wellbeing` — but the signed-in GitHub account didn't
+   have push permission there, so VS Code offered to fork it instead. That fork offer was
+   correctly declined (forking would have created a *copy* of someone else's repo, not the
+   intended destination), but by that point GitHub had already created an empty
+   `wheelyk-collab/Wellbeing` repository as the first step of the publish flow.
+2. Confirmed the intended destination was actually the user's own personal account,
+   `wheelyk/Wellbeing`, not the `wheelyk-collab` org.
+3. Checked whether `wheelyk/Wellbeing` already existed on GitHub (`git ls-remote`) — it
+   didn't yet, so the user created it manually on github.com as a completely empty
+   repository (no auto-generated README/license/`.gitignore`, since this project already
+   has its own).
+4. Found that VS Code's earlier publish attempt had already added a git remote named
+   `origin` pointing at the wrong repo (`wheelyk-collab/Wellbeing`). Fixed it with
+   `git remote set-url origin https://github.com/wheelyk/Wellbeing.git` rather than
+   `git remote add`, since the nickname `origin` was already taken.
+5. Renamed the local default branch to `main` (`git branch -M main`) and ran
+   `git push -u origin main`, which uploaded the existing initial commit and set `main` to
+   "track" `origin/main` — meaning future plain `git push`/`git pull` commands on this
+   branch will automatically know to talk to this remote/branch pair without repeating the
+   full command.
+
+### Why it's needed
+
+Code that only exists on one laptop isn't backed up, isn't shareable, and can't go through
+any kind of review process. Pushing to GitHub gives the project an off-machine backup and,
+more importantly, unlocks the collaboration workflow (branches + pull requests) described
+below — which is how essentially all professional software teams manage change safely.
+
+### The branch strategy going forward, and why it matters
+
+**The rule from here on: nothing gets written directly to `main`. Every task gets its own
+branch, and changes reach `main` only through a pull request.**
+
+Concretely, for each task from [Tasks.md](Tasks.md):
+
+1. Create a new branch off `main` (e.g. `git checkout -b backend/auth-register` for "add the
+   registration endpoint"). The branch name briefly describes what it's for.
+2. Make the change, commit it, verify it builds and runs (the same build/run verification
+   habit used in every entry in this log), and push the branch to GitHub
+   (`git push -u origin <branch-name>`).
+3. Open a pull request on github.com from that branch into `main`.
+4. The user reviews the PR (reads the diff, checks the description) and merges it — or asks
+   for changes first.
+5. `main` only ever contains code that has been through this review step.
+
+**Why this matters, even for a small/solo project:**
+
+- **`main` stays deployable.** If `main` always represents "reviewed, working code," it's
+  always safe to deploy from, safe to branch new work off of, and safe for anyone (including
+  future collaborators) to pull down and trust.
+- **Mistakes are contained.** A half-finished or broken change lives on its own branch and
+  simply doesn't affect anything else until it's merged. Compare that to committing straight
+  to `main`: a broken commit there immediately affects the "official" version of the project.
+- **Review is a real safety net, not a formality.** This project stores **health data** —
+  the requirements doc is explicit that security and correctness matter (e.g. "one user must
+  never see another user's logs"). A PR is the natural checkpoint to re-read exactly what
+  changed before it becomes permanent, which matters more here than in a typical toy project.
+- **History becomes readable.** Each PR corresponds to one task and (ideally) one coherent
+  purpose, so `git log` on `main` reads like a story of features being added, rather than a
+  tangle of in-progress, half-working commits.
+- **It's how real teams work**, so practicing it now — even solo — means the habits (small
+  focused branches, descriptive PRs, nothing untested landing on `main`) are already in
+  place if/when this project ever gets a second contributor.
+
+### Decisions
+
+- **Fixed the wrong `origin` remote rather than deleting/re-adding it.** `git remote add`
+  fails if the nickname already exists; `git remote set-url` updates an existing nickname's
+  URL in place, which is the correct tool once a remote already exists but points at the
+  wrong place.
+- **Left the accidental `wheelyk-collab/Wellbeing` empty repo as-is for now** — it's empty
+  and harmless, and deleting a GitHub repo is the user's call to make (and to do directly on
+  github.com), not something to do automatically on their behalf.
+- **Adopted branch-per-task + PR-per-branch as the standing workflow**, agreed with the user:
+  Claude creates and pushes branches; the user reviews and merges pull requests on
+  github.com. Claude does not merge to `main` or push directly to `main` going forward.
+
+### State at end of this step
+
+`main` on GitHub (`wheelyk/Wellbeing`) now matches the local `main` branch: the initial
+commit (project docs + backend scaffold) is live and backed up remotely. All future work
+will arrive via feature branches and pull requests rather than direct commits to `main`.
+
+### Verification
+
+- `git push -u origin main` completed with `branch 'main' set up to track 'origin/main'`,
+  confirming the push succeeded and the tracking relationship was established.
+- `git remote -v` confirmed `origin` now points at `https://github.com/wheelyk/Wellbeing.git`
+  for both fetch and push.
+
+---
