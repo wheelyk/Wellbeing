@@ -25,16 +25,17 @@ phase. For every task:
 
 1. Create a feature branch off `main` (see *Git Workflow* below for the naming convention).
    Never commit directly to `main`.
-2. Do the work, making atomic commits as you go (see *Git Workflow*), and **build it and
-   run it** to prove it actually works (e.g. `npm run build`, then start the dev server and
-   hit an endpoint) — not just that the code compiles in theory.
-3. Check off the completed item in `Tasks.md`.
-4. Add an entry to **[IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)** documenting the step.
+2. Do the work, making atomic commits as you go (see *Git Workflow*).
+3. Satisfy *Testing Requirements* below and **build it and run it** to prove it actually
+   works (e.g. `npm run build`, then start the dev server and hit an endpoint) — not just
+   that the code compiles in theory.
+4. Check off the completed item in `Tasks.md`.
+5. Add an entry to **[IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)** documenting the step.
    This log is written as a training manual for someone new to web development: explain
    tools/concepts the first time they appear (what they are and why they're needed), not
    just what command was run. Follow the existing entry format (Background/concepts → What
    was done → Why it's needed → Decisions → Verification).
-5. Push the branch and open the pull request with `gh pr create` (GitHub CLI is installed
+6. Push the branch and open the pull request with `gh pr create` (GitHub CLI is installed
    and authenticated via an existing `GITHUB_TOKEN`) — see *Git Workflow* for what the PR
    itself should contain. Do not merge PRs — the user reviews and merges on github.com.
 
@@ -126,3 +127,23 @@ mix of unrelated edits — using these prefixes:
 
 Before opening the PR, make sure the corresponding checkbox in `Tasks.md` is checked off and
 included in the PR's diff.
+
+## Testing Requirements
+
+Before marking any task in `Tasks.md` as complete:
+
+1. **Write light unit tests for any new functionality.** Not exhaustive coverage — just
+   enough to cover the core behavior the task introduced (e.g. a new validation rule, a new
+   calculation, a new endpoint's happy path). Test tooling isn't wired up yet in either
+   project (see *Commands* above — backend's `npm test` is currently a stub, frontend has no
+   test script). Add minimal test tooling (e.g. Vitest) as part of the first task that
+   introduces genuinely testable logic, rather than waiting for the dedicated test-focused
+   tasks in `Tasks.md` Phase 13 — those are for filling out full coverage, not for standing
+   up the tooling for the first time.
+2. **Run the full test suite**, not just the new tests — `npm test` in the relevant project
+   (`/backend` and/or `/frontend`, whichever was touched) — and confirm it passes.
+3. **If any test fails**, read the failure output and diagnose whether the code or the test
+   is wrong:
+   - If the code is wrong, fix the code and re-run the suite.
+   - Only change a test if the test itself is incorrect (e.g. it asserts the wrong expected
+     behavior). Never edit a test just to make it pass without understanding why it failed.
