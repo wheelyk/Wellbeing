@@ -610,6 +610,104 @@ This task was the first one done under the branch-per-task workflow agreed in th
 entry: all of the above happened on a branch named `frontend/scaffold` (created with
 `git checkout -b frontend/scaffold` off `main`), not on `main` directly. Next: commit this
 work on that branch, push it to GitHub with `git push -u origin frontend/scaffold`, and open
-a pull request from `frontend/scaffold` into `main` for review before it merges.
+a pull request from `frontend/scaffold` into `main` for review before it merges. (See the
+next entry — the actual PR-creation step changed slightly from what was originally planned
+here.)
+
+---
+
+## 2026-08-14 — Tooling: install and authenticate the GitHub CLI, switch to Claude opening PRs
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — a workflow change requested partway
+through the `frontend/scaffold` task, updating how pull requests get created from here on.
+
+### Background / concepts
+
+- A **CLI** (Command Line Interface) tool is a program you control by typing commands into a
+  terminal, rather than clicking around a graphical app. `git` itself is a CLI tool; **`gh`**
+  is GitHub's *official* CLI — it can do things a normal `git` command can't, because `git`
+  only knows about raw repository history (commits, branches), while `gh` knows about
+  GitHub-specific concepts layered on top, like pull requests, issues, and repo settings.
+  `gh pr create` is the command-line equivalent of clicking "New pull request" on
+  github.com.
+- Before now, the plan (from the earlier "adopt a branch strategy" entry) was: Claude pushes
+  a branch, and *the user* opens the actual pull request by visiting the link GitHub prints
+  after a push. That link only pre-fills a form — someone still has to click the final
+  "Create pull request" button on the website. The user asked to skip that manual step and
+  have Claude create the PR directly instead, which requires the `gh` tool to be installed
+  and able to prove to GitHub who is making the request.
+- **Authentication** for a CLI tool means proving your identity to a remote service (here,
+  GitHub) without a browser sitting open. There are two common ways `gh` can do this:
+  - **Interactive login** (`gh auth login`, choosing "Login with a web browser") — `gh`
+    shows a one-time code, opens github.com in a browser, you paste the code and approve,
+    and `gh` stores a credential locally for future use. This is the normal path for a
+    human setting up `gh` for the first time on a machine with nothing configured yet.
+  - **A pre-existing access token supplied via environment variable** — specifically here,
+    a `GITHUB_TOKEN` environment variable already set on the user's machine (from earlier,
+    unrelated setup). An **environment variable** is a named value the operating system
+    makes available to any program that runs, without it being written in any file the
+    program ships with — a common way to hand a program a secret (like a token) without
+    hard-coding it. A **personal access token** is a long random string that acts like a
+    scoped, revocable password — "prove you're allowed to act as this GitHub account,"
+    without using the account's actual login password.
+  - When both are possible, `gh` prefers the environment variable if one is present — which
+    is exactly why running `gh auth login` printed *"The value of the `GITHUB_TOKEN`
+    environment variable is being used for authentication"* and then exited immediately,
+    instead of walking through the interactive browser flow. This looked like the login had
+    failed or gotten stuck, but it was actually `gh` reporting "no need, you're already
+    authenticated via this token" — confirmed by running `gh auth status` separately, which
+    showed `✓ Logged in to github.com account wheelyk (GITHUB_TOKEN)`.
+
+### What was done
+
+1. Installed the GitHub CLI with `winget install --id GitHub.cli` (winget is Windows'
+   built-in package manager — the Windows equivalent of running an installer, but
+   scriptable from the command line instead of clicking through a setup wizard).
+2. Asked the user to run `gh auth login` themselves in their own terminal, since logging in
+   is inherently an interactive, human-in-the-loop step (approving access in a browser) —
+   not something that should be automated on someone's behalf.
+3. That command reported it was already using a `GITHUB_TOKEN` environment variable rather
+   than prompting for browser login. Ran `gh auth status` to confirm this meant "already
+   authenticated," not "broken" — confirmed with `✓ Logged in to github.com account wheelyk`.
+4. Sanity-checked `gh` actually worked against this specific repo by running `gh pr list`
+   inside the project folder (returned cleanly with no open PRs at the time, as expected).
+5. Created the real pull request for the `frontend/scaffold` branch with
+   `gh pr create --base main --head frontend/scaffold --title "..." --body "..."`, which
+   opened **PR #1** directly — no manual click-through on github.com needed.
+
+### Why it's needed
+
+This removes a manual step from every future task: instead of Claude handing over a
+"pre-filled form" link and waiting for the user to visit it and click a button, Claude can
+now open the pull request itself as the final step of finishing a task, the moment its
+branch is pushed. The user still reviews and merges every PR on github.com — only the
+*creation* step moved.
+
+### Decisions
+
+- **The user authenticates interactively; Claude never runs `gh auth login`.** Logging into
+  a GitHub account is a trust decision only the account owner should make, and it requires a
+  real browser + human approval step that an automated tool can't (and shouldn't try to)
+  perform on someone's behalf.
+- **Claude will create PRs going forward but will not merge them.** This matches the
+  boundary agreed earlier in the "adopt a branch strategy" entry — automation is allowed to
+  *propose* changes (branch, commit, push, open PR) but a human still makes the final call
+  to bring them into `main`.
+
+### State at end of this step
+
+`gh` is installed and authenticated on this machine via an existing `GITHUB_TOKEN`. PR #1
+(`frontend/scaffold` → `main`) exists at `https://github.com/wheelyk/Wellbeing/pull/1`. All
+future tasks will end with Claude running `gh pr create` once their branch is pushed.
+
+### Verification
+
+- `gh --version` confirmed the install succeeded (`gh version 2.97.0`).
+- `gh auth status` confirmed an authenticated session (`Active account: true`).
+- `gh pr list` returned successfully (no errors) when run inside the repo, confirming `gh`
+  can correctly identify and talk to `wheelyk/Wellbeing` specifically, not just GitHub in
+  general.
+- `gh pr create` returned a real PR URL (`https://github.com/wheelyk/Wellbeing/pull/1`)
+  rather than an error, confirming the PR was actually created, not just queued/drafted.
 
 ---
