@@ -277,6 +277,80 @@ will be delivered from here on.
    branch will automatically know to talk to this remote/branch pair without repeating the
    full command.
 
+### The fiasco, walked through slowly (for git beginners)
+
+It's worth slowing down on this because it's a *very* common way to trip up early on, and
+none of it broke anything permanently.
+
+Think of it in three layers:
+
+- **Your computer** has the actual project folder and, inside it, a `.git` folder recording
+  history. This is "local."
+- **GitHub** hosts *copies* of repositories on their servers, under an *owner* — either a
+  person's account (like `wheelyk`) or an *organization* shared by multiple people (like
+  `wheelyk-collab`). Anyone can host as many repos as they like; ownership is what controls
+  who's allowed to push changes to a given one.
+- **VS Code's "Publish to GitHub" button** is a shortcut that does two GitHub-related steps
+  for you in one click: (1) create a brand-new empty repo on GitHub under some owner, then
+  (2) push your local commits into it. The problem was entirely in step (1): VS Code guessed
+  the wrong *owner*.
+
+Here's the sequence of events:
+
+1. You clicked "Publish to GitHub" in VS Code.
+2. VS Code asked GitHub to create a new repo called `Wellbeing`, but under the
+   `wheelyk-collab` organization rather than your personal `wheelyk` account — likely because
+   that org was offered as an option and got picked, whether by default or by selection.
+   GitHub happily created it, since *creating* a repo under an org you belong to is allowed
+   even if you don't have full write/push permissions to repos there afterward (permissions
+   for an org can be scoped per-repo by an admin, separately from "is a member").
+3. VS Code then tried step (2), pushing your commits into that freshly created repo, and
+   *that* failed — the account didn't have push rights there. GitHub/VS Code's response to a
+   failed push due to missing permissions is to offer a fork ("make your own copy elsewhere
+   and push there instead").
+4. You clicked **Cancel**, correctly, because forking is the wrong fix here — forking would
+   have created yet another repo (`your-account/Wellbeing`, a copy *of* `wheelyk-collab`'s
+   now-empty repo) rather than simply using the personal repo you actually wanted.
+5. Net result of the failed attempt: an empty, unused repo now exists at
+   `wheelyk-collab/Wellbeing` on GitHub (harmless — it has no code in it, and deleting it is
+   optional cleanup you can do later directly on github.com), and — importantly — **your
+   local project already had a remote called `origin` recorded, pointing at that wrong repo**,
+   even though nothing had actually been pushed there. VS Code sets up the remote as part of
+   step (1), before step (2) (the push) even runs.
+6. Once you created the *correct* empty repo yourself, `wheelyk/Wellbeing`, the local project
+   still had that leftover, wrongly-pointed `origin` — which is exactly what the "repoint"
+   step below fixed.
+
+Nothing here was destructive: no code was lost, nothing was pushed to the wrong place, and
+the only actual side effect was one harmless empty repo sitting unused on GitHub.
+
+### What the "repoint" command actually did
+
+Recall from *Background / concepts* above: `origin` is just a **nickname** your local git
+config stores for a remote URL — like a saved contact in a phone. VS Code had already saved
+a contact named "origin" with the wrong phone number (`wheelyk-collab/Wellbeing`).
+
+There are two different git commands that can look similar but do different things:
+
+- `git remote add origin <url>` — **creates a new contact** named `origin`. This fails with
+  an error (`remote origin already exists`) if a contact with that name is already saved,
+  which is exactly the error hit when this was tried first.
+- `git remote set-url origin <url>` — **edits the existing contact's number** without
+  changing its name. This is the correct command once a remote nickname already exists but
+  points at the wrong place, which was the actual situation here.
+
+So the fix was:
+
+```
+git remote set-url origin https://github.com/wheelyk/Wellbeing.git
+```
+
+This changed what `origin` points to — from `wheelyk-collab/Wellbeing` to
+`wheelyk/Wellbeing` — without needing to delete and recreate the remote, and without
+touching any of the actual commit history. Running `git remote -v` afterward (which lists
+all saved remotes and their URLs) confirmed `origin` now pointed at the right repo before
+anything was pushed to it, which is why it was checked as part of *Verification* below.
+
 ### Why it's needed
 
 Code that only exists on one laptop isn't backed up, isn't shareable, and can't go through
