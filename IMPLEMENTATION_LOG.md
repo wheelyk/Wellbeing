@@ -24,6 +24,72 @@ full the *first* time they appear — later entries link back rather than repeat
 
 ---
 
+## Big picture: how the frontend and backend actually talk to each other
+
+The individual scaffold entries below explain the backend and frontend *separately*, since
+that's how they were built. But neither one is useful alone, so before diving into those
+entries, here's how the two connect — the part that ties everything together.
+
+**Two separate programs, running on two separate ports.** After Phase 0, running this
+project locally means two things are running *at the same time*, each listening on its own
+"door" (**port**) on your computer:
+
+- The **backend** (Express), on port `4000` — a program whose only job is to receive
+  requests and send back data. It has no visual appearance at all; it's not a webpage.
+- The **frontend** (Vite dev server), on port `5173` — serves the actual webpage your
+  browser displays: HTML, the React app, styling, images.
+
+When you open the app in a browser, you're only ever looking at the frontend. The backend is
+invisible to you directly — the frontend talks to it *behind the scenes*.
+
+**How "talking to it behind the scenes" works: the API.** Whenever the frontend needs data
+(e.g. "show me today's mood entry") or needs to save something (e.g. "the user just logged a
+symptom"), the React code running in the browser sends an **HTTP request** to the backend —
+the same kind of request a browser sends when loading any web page, just aimed at the
+backend's address instead, and carrying data instead of asking for a page. The backend reads
+the request, does whatever's needed (e.g. look something up in the database, once Phase 1+
+adds one), and sends back an **HTTP response** — usually formatted as **JSON**
+(`{"mood": 4, "loggedAt": "2026-08-14T09:00:00Z"}`), a simple, universal text format for
+structured data that both JavaScript (frontend) and Node.js (backend) can read and write
+natively.
+
+This request/response pattern — a defined set of URLs the backend understands, each doing
+one specific thing — is what's meant by an **API** (Application Programming Interface). The
+full list of URLs this project's backend will expose is laid out in requirements §12 (e.g.
+`POST /api/auth/login`, `GET /api/symptom-logs`) and mirrored as checklist items throughout
+[Tasks.md](Tasks.md). Right now, after Phase 0, there is exactly **one** such URL:
+`GET /api/health` (see the backend scaffold entry below) — everything else gets added
+endpoint-by-endpoint in Phases 2–4.
+
+**Why the frontend needs to be told the backend's address.** The frontend has to know *where*
+to send these requests. That's the purpose of `frontend/.env.example`'s `VITE_API_URL`
+(currently `http://localhost:4000`) — a setting, not a hard-coded value, because the address
+changes between environments (your laptop during development vs. wherever the app is
+actually hosted once deployed in Phase 14). The frontend code will read this value and
+prefix every API request with it, once Phase 5 builds the actual API client.
+
+**Why CORS matters here specifically.** Browsers enforce a security rule: a webpage loaded
+from one address (`http://localhost:5173`, our frontend) is blocked by default from making
+requests to a *different* address (`http://localhost:4000`, our backend) — even though
+they're both "localhost" and both under our control, the browser only looks at whether the
+port number matches, and `5173 ≠ 4000` counts as different. This is exactly why the backend
+scaffold entry below installs and enables the `cors` package: it makes the backend explicitly
+tell the browser "requests from this frontend are allowed," which is what lets the two
+actually communicate once real API calls start happening in Phase 5 onward. Without it,
+every request from the frontend to the backend would be silently blocked by the browser,
+even though both servers themselves are running fine.
+
+**Why they're still two independent projects, not one.** Even though they need to cooperate,
+frontend and backend are kept as separate npm projects with separate dependencies, separate
+build steps, and (eventually) separate deployments — this is what requirements §4 means by
+"structured so that the frontend and backend remain independently testable and deployable."
+Concretely: the backend can be tested and even hosted with zero knowledge of React; the
+frontend could, in principle, be pointed at a totally different backend implementation
+without changing how it's built. They only ever interact through the API contract described
+above — never by directly importing each other's code.
+
+---
+
 ## 2026-08-14 — Phase 0: Initialize the git repository and folder layout
 
 **Task:** [Tasks.md](Tasks.md) → Phase 0 → "Initialize a git repository and monorepo
