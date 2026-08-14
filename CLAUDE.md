@@ -23,20 +23,20 @@ never by importing each other's code.
 Implementation proceeds **task by task against [Tasks.md](Tasks.md)**, in order, phase by
 phase. For every task:
 
-1. Create a feature branch off `main` (e.g. `frontend/scaffold`, `backend/auth-register`).
+1. Create a feature branch off `main` (see *Git Workflow* below for the naming convention).
    Never commit directly to `main`.
-2. Do the work, then **build it and run it** to prove it actually works (e.g. `npm run
-   build`, then start the dev server and hit an endpoint) — not just that the code compiles
-   in theory.
+2. Do the work, making atomic commits as you go (see *Git Workflow*), and **build it and
+   run it** to prove it actually works (e.g. `npm run build`, then start the dev server and
+   hit an endpoint) — not just that the code compiles in theory.
 3. Check off the completed item in `Tasks.md`.
 4. Add an entry to **[IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)** documenting the step.
    This log is written as a training manual for someone new to web development: explain
    tools/concepts the first time they appear (what they are and why they're needed), not
    just what command was run. Follow the existing entry format (Background/concepts → What
    was done → Why it's needed → Decisions → Verification).
-5. Commit, push the branch, and open the pull request with `gh pr create` (GitHub CLI is
-   installed and authenticated via an existing `GITHUB_TOKEN`). Do not merge PRs — the user
-   reviews and merges on github.com.
+5. Push the branch and open the pull request with `gh pr create` (GitHub CLI is installed
+   and authenticated via an existing `GITHUB_TOKEN`) — see *Git Workflow* for what the PR
+   itself should contain. Do not merge PRs — the user reviews and merges on github.com.
 
 ## Commands
 
@@ -93,3 +93,36 @@ variables. Copy the example and fill in real values before running locally.
 - [Documents/requirements.md](Documents/requirements.md) — full product/functional/API/data-model spec (source of truth for what to build).
 - [Tasks.md](Tasks.md) — the ordered implementation checklist; work through it top to bottom.
 - [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md) — chronological build log/training manual; also documents project-specific conventions (git/GitHub workflow, tooling decisions) in more depth than this file.
+
+## Git Workflow
+
+**Branch naming.** Before starting a task, create a branch off `main` named:
+
+```
+feature/<task-number>-<brief-description>
+```
+
+e.g. `feature/0.3-scaffold-frontend`, `feature/2.1-auth-register-endpoint`. Use the task's
+position in `Tasks.md` (phase number + item number within that phase) as `<task-number>`,
+and a short kebab-case summary as `<brief-description>`.
+
+**Commits.** Make atomic commits — each commit should represent one coherent change, not a
+mix of unrelated edits — using these prefixes:
+
+| Prefix       | Use for |
+|--------------|---------|
+| `feat:`      | new features |
+| `fix:`       | bug fixes |
+| `docs:`      | documentation (README, `Tasks.md`, `IMPLEMENTATION_LOG.md`, etc.) |
+| `tests:`     | tests |
+| `refactor:`  | refactoring with no behavior change |
+
+**Pull requests.** After completing a task, open a PR (`gh pr create`) with:
+
+- **Title** matching the task (e.g. the `Tasks.md` item text, or close to it).
+- **Summary** of the change made.
+- **Testing notes** — how it was verified (build/run output, commands used, edge cases
+  considered), per the build-and-run-first habit described above.
+
+Before opening the PR, make sure the corresponding checkbox in `Tasks.md` is checked off and
+included in the PR's diff.
