@@ -421,3 +421,129 @@ will arrive via feature branches and pull requests rather than direct commits to
   for both fetch and push.
 
 ---
+
+## 2026-08-14 — Phase 0: Scaffold the frontend (React + TypeScript + Tailwind CSS)
+
+**Task:** [Tasks.md](Tasks.md) → Phase 0 → "Scaffold frontend: React + TypeScript project
+(Vite recommended) with Tailwind CSS configured."
+
+**Delivered via branch:** `frontend/scaffold` (see *Branch & PR* section below — this is the
+first task done under the new branch-per-task workflow).
+
+### Background / concepts
+
+- **React** is a JavaScript library for building user interfaces out of reusable
+  **components** — small, self-contained pieces of UI (e.g. a button, a mood-picker, an
+  entire page) written as functions that return what should appear on screen. Almost every
+  screen in [Tasks.md](Tasks.md) (Dashboard, History, Trends, Quick Add forms) will be one
+  or more React components.
+- **Vite** ("veet") is a build tool/dev server for frontend projects. Two jobs: (1) while
+  developing, it serves the app instantly and updates the browser the moment a file is
+  saved (**Hot Module Reload / HMR** — no manual refresh needed), and (2) for production, it
+  bundles all the source files into a small number of optimized `.js`/`.css` files that a
+  browser can download efficiently. It plays the same overall role for the frontend that
+  `ts-node-dev`/`tsc` play for the backend (see the earlier backend-scaffold entry), just
+  with browser-specific concerns (bundling, asset handling) added on top.
+- **`npm create vite@latest`** is a scaffolding command: instead of hand-writing every
+  starter file, it downloads a known-good project template (here, the `react-ts` template —
+  React plus TypeScript) and lays it out for you. This is the frontend equivalent of what
+  `npm init` did for the backend, just with a lot more starter files because a UI project
+  has more moving parts (HTML entry point, component files, build config) than a bare
+  Node script.
+- **Tailwind CSS** is a *utility-first* CSS framework. Instead of writing custom CSS class
+  names and rules in a separate stylesheet (e.g. `.hero-button { padding: 8px; ... }`),
+  you compose small, single-purpose utility classes directly in your markup — e.g.
+  `className="flex min-h-screen items-center justify-center"` means "use flexbox, make this
+  at least the full screen height, center children horizontally and vertically." The
+  requirements doc calls for a "calm, uncluttered" interface with large, consistent
+  controls; Tailwind's small composable utilities make it fast to keep spacing, sizing, and
+  color consistent across many components without writing (and maintaining) a large custom
+  CSS file by hand.
+- **Tailwind v4** (the version installed here) works differently from older Tailwind
+  versions beginners may see in tutorials: earlier versions needed a separate `tailwind.config.js`
+  plus a PostCSS setup step (`npx tailwindcss init -p`). Version 4 instead ships a Vite
+  plugin (`@tailwindcss/vite`) that hooks directly into Vite's build pipeline, and is turned
+  on with a single line in the main CSS file (`@import "tailwindcss";`) — no separate config
+  file required to get started.
+
+### What was done
+
+1. Deleted the placeholder `frontend/.gitkeep` file (no longer needed once real files exist
+   in the folder).
+2. Ran `npm create vite@latest . -- --template react-ts` inside `/frontend`, generating the
+   standard Vite React+TypeScript starter: `index.html` (the one real HTML file the browser
+   loads), `src/main.tsx` (mounts the React app into that HTML), `src/App.tsx` (the starter
+   root component), TypeScript config files, and `vite.config.ts`.
+3. Ran `npm install` to download React, Vite, and their supporting packages into
+   `frontend/node_modules` (git-ignored, same reasoning as the backend).
+4. Installed `tailwindcss` and `@tailwindcss/vite`, then added the Tailwind plugin to
+   `vite.config.ts` alongside the existing React plugin.
+5. Replaced the generated `src/index.css` with a single line, `@import "tailwindcss";`,
+   which is all Tailwind v4 needs to activate its utility classes project-wide.
+6. Replaced the generated `src/App.tsx` — which ships as a full demo page with Vite/React
+   logos and a click-counter button, meant to showcase Vite's features rather than be a real
+   starting point — with a minimal placeholder component that uses a few Tailwind utility
+   classes (`flex`, `min-h-screen`, `items-center`, `justify-center`, text styling), so it
+   both compiles cleanly and visibly proves Tailwind is working. Deleted the now-unused demo
+   assets (`App.css`, logo images) that only that placeholder page referenced.
+7. Set the page `<title>` in `index.html` to "WellTrack" (was the generic "frontend").
+8. Added `frontend/.env.example` documenting `VITE_API_URL`, the setting the frontend will
+   later use to know where the backend API lives. (Vite requires env vars exposed to the
+   browser to be prefixed with `VITE_` — anything without that prefix is intentionally kept
+   server/build-only and never bundled into client code, as a safety measure against
+   accidentally shipping secrets to the browser.)
+9. Rewrote `frontend/README.md` (Vite's generated one is generic template boilerplate) with
+   WellTrack-specific local-dev instructions.
+
+### Why it's needed
+
+This is the browser-side counterpart to the backend scaffold: a working React + TypeScript
+project, with a styling system in place, that every future screen (Dashboard, Quick Add,
+History, Trends, Settings) gets built inside of. Configuring Tailwind now — rather than
+later — means every component written from here on can immediately use it, instead of
+retrofitting styling once dozens of components already exist.
+
+### Decisions
+
+- **Removed the Vite/React demo content rather than leaving it in place.** A freshly
+  scaffolded Vite project includes a full demo page (logos, a counter button, links to Vite
+  docs) meant to show off features, not to be shipped. Leaving it in would mean the very
+  first real screen written later has to *replace* a working page rather than fill an empty
+  one, and it isn't representative of the calm/minimal interface the requirements describe.
+  Removed the matching now-unused asset files at the same time, rather than leaving dead
+  files behind.
+- **Used Tailwind v4's Vite-plugin setup over the older PostCSS-based setup.** It's fewer
+  moving parts (no separate `tailwind.config.js`/`postcss.config.js` needed to get started)
+  and is the officially recommended path for new Vite projects as of the installed version.
+  Worth knowing if following older tutorials, which usually show the v3-style setup instead.
+- **Kept Vite's own generated `frontend/.gitignore`** (covering `node_modules`, `dist`, editor
+  files) alongside the root one rather than removing it — harmless duplication, and it's the
+  standard file Vite ships with every project of this kind.
+
+### State at end of this step
+
+`/frontend` is a working React + TypeScript + Tailwind CSS project rendering a single
+placeholder "WellTrack" page. No routing, no API calls, no real screens yet — those start in
+Phase 5.
+
+### Verification
+
+1. **`npm run build`** — ran `tsc -b && vite build` with no errors, producing
+   `frontend/dist/` with a bundled `index.html`, JS, and CSS file.
+2. Inspected the built CSS output and confirmed it contained real generated Tailwind rules
+   (e.g. a `min-height` rule from the `min-h-screen` utility) — proving Tailwind is actually
+   processing the utility classes used in `App.tsx`, not just installed-but-inactive.
+3. **`npm run dev`** — started the real Vite dev server and used `curl` to fetch
+   `http://localhost:5173/`, confirming it served the expected HTML shell with the
+   `<title>WellTrack</title>` tag set in step 7 above.
+4. Stopped the dev server process afterward and confirmed port `5173` was freed.
+
+### Branch & PR
+
+This task was the first one done under the branch-per-task workflow agreed in the previous
+entry: all of the above happened on a branch named `frontend/scaffold` (created with
+`git checkout -b frontend/scaffold` off `main`), not on `main` directly. Next: commit this
+work on that branch, push it to GitHub with `git push -u origin frontend/scaffold`, and open
+a pull request from `frontend/scaffold` into `main` for review before it merges.
+
+---
