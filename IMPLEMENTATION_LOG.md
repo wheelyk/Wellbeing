@@ -3042,3 +3042,93 @@ branch merges and Railway's auto-deploy picks up the change.
 - Not yet verified: an actual Railway rebuild with this fix in place.
 
 ---
+
+## 2026-08-15 — The PR #16–#19 chain, actually walked through slowly
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — the earlier "stacked PRs" entry (back
+during #7/#8/#9) explained the general concept, but a *second*, unrelated four-PR pile-up
+(#16 through #19) built up quickly during this deployment conversation, and asking "what does
+this actually mean" deserved a proper, concrete answer rather than a one-line "merge them in
+order" — which, as it turns out, wasn't even fully accurate.
+
+### Background / concepts
+
+#### First, what's actually true right now — checked directly, not assumed
+
+The earlier chat message said "merge #16 → #17 → #18 → #19 in order," which sounds like one
+long chain of four. Checking each PR's actual base branch directly
+(`gh pr view <n> --json state,baseRefName`) shows something different:
+
+| PR | State | Branches into | What that means |
+| -- | ----- | -------------- | ---------------- |
+| #16 | **merged** | `main` | Already done. |
+| #17 | **merged** | #16's branch | Already done — and it turned out fine that #17 briefly depended on #16, since #16 was merged first. |
+| #18 | **open** | `main` | Independent. It was branched *after* #16 and #17 had already merged into `main`, so it already contains everything from both, and doesn't wait on anything. |
+| #19 | **open** | #18's branch | Depends on #18 specifically — it was branched from #18 *while #18 was still open*, to reuse code that only existed there so far. |
+
+So the real, current situation is much simpler than "four things in a row": **two PRs are
+already done, and of the two remaining, only one (#19) actually depends on the other (#18)**.
+The earlier advice to "merge in order" wasn't wrong exactly — merging #16 before #17 was
+genuinely required, and it already happened correctly — but stating it as one continuous
+four-step chain overstated how connected the *remaining* work actually is, which is exactly
+the kind of imprecision worth correcting rather than leaving as a beginner's mental model.
+
+#### Why this pile-up happened at all
+
+- Every one of these four PRs was written to explain a concept *while a live conversation was
+  actively happening* (hosting/domains, build artifacts, evaluating a signup's terms, the
+  Railway build failure, the `postinstall` fix) — each one was branched, written, and pushed
+  in the moment something needed explaining, without pausing to wait for the *previous* one to
+  be reviewed and merged first. That's a reasonable way to keep a fast-moving conversation
+  moving, but it's exactly the situation that produces exactly this kind of branch pile-up:
+  whichever branch happened to be `main`'s current tip *at the moment a new branch was
+  created* determined whether that new branch ended up standalone (like #18) or stacked on
+  top of something still open (like #19, created while #18 was still unmerged).
+- This is the same underlying mechanism explained in the much earlier #7/#8/#9 entry — nothing
+  new is happening here mechanically — but four PRs accumulating instead of three, across a
+  long, fast-moving conversation, made it genuinely harder to hold the whole shape in your head
+  without writing it down and checking it directly, which is exactly why a table beats a
+  one-line verbal summary here.
+
+#### What merging each one actually, concretely does
+
+- **Merging #18** takes its one new commit (the Railway/npm-mechanics log entry) and adds it
+  to `main`. Nothing unusual — it's a normal, independent PR at this point, indistinguishable
+  from any single non-stacked PR merged earlier in this project.
+- **Merging #19 afterward** is where the stacked relationship actually matters. Per the
+  earlier stacked-PR entry's explanation of GitHub's *retargeting* behavior: the moment #18
+  merges (and its branch is deleted), GitHub notices #19's base branch no longer exists and
+  automatically repoints #19's base at `main` instead — so by the time you go to merge #19,
+  its diff should already cleanly show just its own new commits (the `postinstall` fix + this
+  very log entry) against the now-current `main`, the same clean outcome observed and directly
+  confirmed back when #7/#8/#9 went through this same mechanism.
+- **If #19 were merged *before* #18** (technically possible — GitHub doesn't forbid it), it
+  would drag *all* of #18's commits in along with it, since #19's branch physically contains
+  them (it was built starting from #18's code). The result on `main` would likely still end up
+  correct in this specific case (both PRs' content would land either way, nothing here
+  conflicts), but the resulting commit history would misattribute #18's own changes as if they
+  were part of #19's PR — worth avoiding for a clean, honest history, which is the actual
+  reason the *order* matters when it does, not because merging out of order would break
+  anything technically catastrophic.
+
+### Why it's needed
+
+"Merge these in order" is easy to say and hard to actually picture without seeing the real
+structure — this entry exists to replace a one-line instruction with something that can
+actually be checked against reality (via `gh pr view`) rather than trusted blindly, and to
+correct an inaccurate simplification from earlier in this same conversation rather than let it
+stand uncorrected in the log.
+
+### State at end of this step
+
+#16 and #17 are merged. #18 and #19 remain open, with #19 depending on #18 specifically (not
+on #16 or #17, which are already fully resolved). Correct next step: merge #18, then #19.
+
+### Verification
+
+- `gh pr view <16|17|18|19> --json state,baseRefName` — checked each PR's actual current state
+  and base branch directly rather than relying on memory of what was true several turns
+  earlier in the conversation, which is exactly what caught the inaccuracy in the original
+  "merge four in a row" framing.
+
+---
