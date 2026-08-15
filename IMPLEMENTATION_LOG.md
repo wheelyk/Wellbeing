@@ -3299,6 +3299,27 @@ independently-real improvement came out of investigating it anyway.
   directly (exactly as done here, and back in the earlier #16–#19 entry) is the way to verify
   the second question rather than trusting the first as a proxy for it.
 
+#### The same gotcha, explained plainly (worth reading even after the technical version above)
+
+- Think of a stacked PR's base as a **forwarding address**. Setting PR #19's base to PR #18's
+  branch is like saying "deliver my parcel to wherever that branch currently lives." Normally,
+  once PR #18 is merged and its branch is deleted, GitHub notices the forwarding address no
+  longer exists and automatically updates the label to "deliver to `main` instead" — which is
+  exactly what was observed working correctly, more than once, earlier in this log.
+- **This time, the forwarding address was never closed down.** The branch merged, but nobody
+  deleted it afterward — so as far as GitHub could tell, that address was still a perfectly
+  valid place to deliver to. PR #19's label never got updated. Clicking "merge" on #19 dutifully
+  delivered its parcel exactly where the label said — a branch that had already made its own,
+  separate delivery to `main` earlier and had no further deliveries scheduled. The parcel
+  arrived, correctly, at completely the wrong place — and "delivery successful" (GitHub's
+  "Merged" badge) is a perfectly true statement about *that* delivery, while still being the
+  wrong information for "did this reach the house" (`main`).
+- **The practical habit this suggests going forward:** for any stacked PR, once its *base* PR
+  merges, it's worth explicitly checking whether that base branch actually got deleted before
+  assuming the next PR in the stack will behave itself — or, more simply, just re-verify with
+  `git log main..<branch>` (exactly the command that caught this) after merging *any* PR that
+  was part of a stack, rather than only when something looks visibly wrong.
+
 #### The independently real second problem: `postinstall` likely wasn't the right mechanism for Railway anyway
 
 - While tracking this down, Railway's build log carried another clue worth taking seriously
@@ -3320,6 +3341,40 @@ independently-real improvement came out of investigating it anyway.
   immediately before `tsc` needs it, regardless of any platform-specific install behavior.
   The `postinstall` script was left in place rather than removed — it's still correct and
   harmless for the plain local-`npm install` case — but `build` no longer depends on it.
+
+#### Lifecycle hooks vs. explicit script chaining: a general rule of thumb, not just a Prisma one
+
+This exact fork — "should this run automatically via a lifecycle hook, or be explicitly
+chained into the script that actually needs it?" — comes up anywhere a project has a
+generated-or-derived-thing dependency, not just Prisma. Worth having a general rule rather than
+re-deriving it from scratch next time:
+
+- **A lifecycle hook (`postinstall` and similar) is *implicit*.** Its big advantage: every
+  script that might need the thing it produces — `dev`, `build`, `test`, `start` — benefits
+  automatically, for free, without each one having to remember to ask for it. Its real
+  weakness, learned directly in this entry: it only runs as a *side effect* of `npm install`/
+  `npm ci`, and different environments run that install step differently — some skip
+  lifecycle scripts outright for security (a defense against the exact supply-chain-attack
+  pattern mentioned in the earlier entry), some use flags this project has no control over.
+  **A hook is only as reliable as your control over how install gets invoked** — solid for
+  "my own laptop, where I run plain `npm install`," much less certain for "some third party's
+  build infrastructure, configured however they've configured it."
+- **Explicit chaining inside a named script (`"build": "prisma generate && tsc"`) is
+  *unambiguous*.** If that script runs at all, every command in the chain runs, in order, full
+  stop — there's no install-flag or security-policy variable that can silently skip a step
+  written directly into the script itself. The tradeoff is the opposite one: it only protects
+  the *specific* script it's written into. If `test` or `dev` also needed the generated client
+  and *didn't* separately chain it in (or rely on the still-present `postinstall`), they'd be
+  unprotected — explicit chaining doesn't automatically spread to every script the way a hook
+  does.
+- **The rule of thumb that falls out of this:** reach for a lifecycle hook for convenience when
+  the install environment is fully within your own control or trust; reach for explicit
+  chaining specifically in whichever script(s) are the ones that actually *must not fail* on
+  infrastructure you don't control — exactly a hosting platform's build step, which is the
+  category of thing that just failed twice in this project for exactly this reason. Using
+  **both at once**, as this project now does, isn't indecision — it's covering the convenient
+  common case (hook) while making the one step that absolutely cannot be allowed to fail
+  (`build`) independently self-sufficient, rather than trusting a single mechanism everywhere.
 
 ### What was done
 
