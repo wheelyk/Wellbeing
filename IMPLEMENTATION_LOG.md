@@ -4414,3 +4414,104 @@ frontend's own deployment to Vercel — the natural next step.
   confirmed independently of Railway's own dashboard.
 
 ---
+
+## 2026-08-15 — Deploying the frontend to Vercel, and why `FRONTEND_URL`/CORS matters for real this time
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — the frontend was deployed to Vercel,
+hitting one real monorepo-detection wrinkle along the way, and this entry re-teaches CORS and
+`FRONTEND_URL` from first principles now that it's a real production concern, not a local
+convenience.
+
+### Background / concepts
+
+#### The monorepo detection wrinkle: Vercel wanted to deploy *two* services
+
+- Vercel's newer project-import flow auto-scans a connected repository and, seeing both
+  `frontend/package.json` and `backend/package.json`, offered to deploy **both** as separate
+  "services" under one Vercel project, wiring them together with a `vercel.json` and URL
+  rewrites (`/api/*` routed to the backend service, everything else to the frontend).
+- **This had to be declined, for a concrete reason, not just "we don't need it."** The backend
+  already has a complete, tested, working home on Railway — a persistent, always-running
+  process, connected to the real Postgres database, with migrations already applied. Vercel
+  runs backend "services" as short-lived serverless functions instead — a fundamentally
+  different execution model than the always-on process this project's backend was built and
+  tested against (e.g. the shared Prisma client singleton, `lib/prisma.ts`, assumes one
+  long-lived connection pool — a pattern that doesn't translate cleanly to a function that
+  spins up fresh for each request). Accepting Vercel's offer would have meant a second,
+  differently-behaved copy of the backend, not a helpful addition.
+- **The fix:** switching the "Application Preset" dropdown from the auto-detected "Services"
+  option to the simpler "Vite" preset collapsed the whole multi-service flow back down to a
+  single, ordinary static-site deployment — the same "Root Directory" concept already used on
+  Railway, just applied to `frontend` instead of `backend`, with no `vercel.json` needed at
+  all for this simple case.
+- Confirmed working with `VITE_API_URL` set to the Railway backend's URL, then deployed.
+  `curl` against the resulting `wellbeing-blue.vercel.app` returned `200`, with
+  `<title>WellTrack</title>` present — genuinely serving the built frontend, not a blank or
+  error page (also visually confirmed by Vercel's own auto-generated preview screenshot,
+  which showed the real login form).
+
+#### CORS and `FRONTEND_URL`, re-taught from the start — why it actually matters now
+
+This was explained once already, back in the Phase 5/6 vertical-slice entry, but only ever
+against `localhost`. It's worth re-explaining properly now that a real, third-party-hosted
+frontend is involved, since that's the situation CORS actually exists to guard.
+
+- **Two different websites, as far as a browser is concerned.** `wellbeing-blue.vercel.app`
+  (the frontend) and `wellbeing-production-0b8f.up.railway.app` (the backend) are two entirely
+  separate domains, run by two entirely separate companies, with no inherent relationship to
+  each other at all. A browser has no way to know these two are "supposed" to work together —
+  as far as it's concerned, this is indistinguishable from a random third-party website trying
+  to talk to your bank's API.
+- **This is precisely the scenario CORS exists to police.** Without any CORS configuration at
+  all, a browser **refuses by default** to let JavaScript running on one website read the
+  response from a request to a different website — imagine if any website you visited could
+  silently make your browser send requests to your bank, your email, anywhere you happened to
+  be logged in, and read the results. CORS is the mechanism that lets a *server* explicitly
+  say "no really, it's fine, requests from this specific other website are allowed" — and
+  `FRONTEND_URL`, read by `backend/src/app.ts`'s `cors({ origin: FRONTEND_URL, credentials: true })`
+  (added back in the frontend vertical-slice entry), is exactly that explicit allow-list,
+  currently naming only `http://localhost:5173`.
+- **Why this was invisible during local development.** Locally, "two different websites" was
+  actually true too — the frontend (`localhost:5173`) and backend (`localhost:4000`) are
+  different ports, which browsers treat as different origins — but `FRONTEND_URL` already
+  named that exact address, so it never caused a problem. The deployed frontend has a
+  completely different address now, and the backend's allow-list doesn't yet know about it —
+  which is why updating `FRONTEND_URL` to the real Vercel URL is a required step, not
+  optional cleanup.
+- **What it would look like if this step were skipped.** Not a clear, obvious error message —
+  something more confusing: the register/login forms would appear to "hang" or fail with a
+  generic network error in the browser's console, because the *browser itself* blocks the
+  response before the frontend's own code ever gets to see it or show a useful message. This
+  is a common, genuinely confusing first-time deployment trap, worth naming explicitly rather
+  than only discovering it by hitting it.
+- **Why `credentials: true` specifically matters here, again, now for real.** The refresh
+  token cookie (from the Phase 2.3 entry) only ever gets sent/received on **credentialed**
+  cross-origin requests — and browsers refuse to combine a wildcard CORS origin with
+  credentials at all, which is exactly why `FRONTEND_URL` has to be an exact, specific address
+  rather than something permissive like allowing any origin. This was true and already
+  correctly configured for `localhost`; it now needs to be true for the real deployed address
+  too.
+
+### Why it's needed
+
+Without updating `FRONTEND_URL`, the deployment would *look* complete — both halves live,
+both individually responding — while actually being unusable together, for a reason that
+wouldn't show up as an obvious server error anywhere, only as a confusing failure inside the
+browser itself.
+
+### State at end of this step
+
+The frontend is deployed and confirmed serving correctly at `wellbeing-blue.vercel.app`.
+`FRONTEND_URL` on Railway is being updated to match, right now, as the next immediate step —
+until that's done and redeployed, register/login on the live frontend will fail due to CORS,
+exactly as explained above.
+
+### Verification
+
+- `curl -o /dev/null -w "HTTP %{http_code}"` against the deployed Vercel URL — `200`.
+- `curl | grep "<title>"` — confirmed `<title>WellTrack</title>` present, proving the real
+  built app is being served, not a blank or default page.
+- Vercel's own auto-generated screenshot of the deployment additionally showed the actual
+  login form rendering correctly.
+
+---
