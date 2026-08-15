@@ -1,0 +1,170 @@
+name: PR Preview Screenshots
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: welltrack
+          POSTGRES_PASSWORD: welltrack
+          POSTGRES_DB: welltrack
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://welltrack:welltrack@localhost:5432/welltrack?schema=public
+      PORT: 4000
+      FRONTEND_URL: http://localhost:5173
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate ephemeral JWT secrets
+        run: |
+          echo "JWT_ACCESS_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "JWT_REFRESH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Apply database migrations
+        working-directory: backend
+        run: npx prisma migrate deploy
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Start backend
+        working-directory: backend
+        run: node dist/index.js &
+
+      - name: Wait for backend to be ready
+        run: timeout 30 bash -c 'until curl -sf http://localhost:4000/api/health; do sleep 1; done'
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Start frontend preview server
+        working-directory: frontend
+        run: npm run preview -- --port 5173 &
+
+      - name: Wait for frontend to be ready
+        run: timeout 30 bash -c 'until curl -sf http://localhost:5173/; do sleep 1; done'
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Capture screenshots
+        working-directory: frontend
+        run: node scripts/capture-pr-screenshots.mjs
+        env:
+          SCREENSHOT_DIR: pr-screenshots-output
+
+      - name: Publish screenshots to the pr-screenshots branch
+        id: publish
+        run: |
+          set -e
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          SRC_DIR="$(pwd)/frontend/pr-screenshots-output"
+          WORKTREE_DIR="$(mktemp -d)"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git fetch origin pr-screenshots:pr-screenshots; then
+            git worktree add "$WORKTREE_DIR" pr-screenshots
+          else
+            git worktree add --detach "$WORKTREE_DIR"
+            (cd "$WORKTREE_DIR" && git checkout --orphan pr-screenshots && git rm -rf . > /dev/null)
+          fi
+
+          mkdir -p "$WORKTREE_DIR/pr-$PR_NUMBER"
+          rm -rf "${WORKTREE_DIR:?}/pr-$PR_NUMBER"/*
+          cp "$SRC_DIR"/*.png "$WORKTREE_DIR/pr-$PR_NUMBER/"
+
+          cd "$WORKTREE_DIR"
+          git add "pr-$PR_NUMBER"
+          if git diff --cached --quiet; then
+            echo "No screenshot changes to publish."
+          else
+            git commit -m "Update PR #$PR_NUMBER preview screenshots"
+            git push origin pr-screenshots
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on the PR with the screenshots
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const sha = "${{ steps.publish.outputs.sha }}";
+            const repo = `${context.repo.owner}/${context.repo.repo}`;
+            const marker = "<!-- pr-preview-screenshots -->";
+            const shots = [
+              ["01-register-then-dashboard", "Register -> Dashboard (auto-logged-in)"],
+              ["02-after-logout-redirected-to-login", "Logout -> redirected to Login"],
+              ["03-login-then-dashboard", "Login -> Dashboard"],
+            ];
+            const body = [
+              marker,
+              "### Preview screenshots",
+              "Captured automatically by driving a real headless browser against this PR's build.",
+              "",
+              ...shots.map(
+                ([file, caption]) =>
+                  `**${caption}**\n\n![${caption}](https://raw.githubusercontent.com/${repo}/${sha}/pr-${prNumber}/${file}.png)`,
+              ),
+            ].join("\n\n");
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+            const existing = comments.find((c) => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+            }
