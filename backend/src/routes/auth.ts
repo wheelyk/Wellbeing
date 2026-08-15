@@ -146,3 +146,11 @@ authRouter.post("/refresh", async (req, res) => {
 
   return res.status(200).json({ accessToken: signAccessToken(user.id) });
 });
+
+authRouter.post("/logout", (_req, res) => {
+  // Stateless JWTs can't be individually revoked server-side (see 2.3's rotation-not-
+  // reuse-detection decision) — logout's whole job is just making sure the browser stops
+  // sending the refresh cookie. Clearing is safe to call even with no cookie present.
+  clearRefreshTokenCookie(res);
+  return res.status(200).json({ message: "Logged out" });
+});
