@@ -4514,4 +4514,41 @@ exactly as explained above.
 - Vercel's own auto-generated screenshot of the deployment additionally showed the actual
   login form rendering correctly.
 
+### Follow-up verification, once `FRONTEND_URL` was actually updated on Railway
+
+The explanation above was written *before* the Railway variable was changed, to make the
+reasoning clear ahead of time. Once it was updated to `https://wellbeing-blue.vercel.app` and
+Railway redeployed, the fix was verified directly against the live services — not just
+assumed from a "Deployment successful" badge, consistent with how every other deployment
+claim in this log has been checked:
+
+- **A CORS preflight request** (`curl -X OPTIONS .../api/auth/login` with
+  `Origin: https://wellbeing-blue.vercel.app`) sent to the real Railway URL. Before the
+  variable was updated, the response's `access-control-allow-origin` header came back as the
+  old `http://localhost:5173` — proof the fix hadn't taken effect yet. After Railway finished
+  redeploying, the same request returned `access-control-allow-origin:
+  https://wellbeing-blue.vercel.app` — the backend now explicitly trusts the real frontend.
+- **The full auth flow, driven with `curl` against production, using the real `Origin`
+  header a browser would send:**
+  1. `POST /api/auth/register` — `201 Created`, new user row returned.
+  2. `POST /api/auth/login` — `200 OK`, with a `Set-Cookie: refreshToken=...; HttpOnly;
+     Secure; SameSite=Lax` header, exactly as designed back in the refresh-token entry.
+  3. `POST /api/auth/refresh`, sending that cookie back — `200 OK`, a fresh access token
+     returned and the refresh cookie rotated (a new `Set-Cookie` with a different token
+     value), matching the rotation behavior built and tested earlier.
+  4. `POST /api/auth/logout` — `200 OK`, with `Set-Cookie: refreshToken=...; Expires=Thu, 01
+     Jan 1970...` — the standard way a server tells a browser "delete this cookie now."
+  - Every one of these four responses carried `access-control-allow-origin:
+    https://wellbeing-blue.vercel.app` — confirming the *entire* auth flow, not just one
+    endpoint, is reachable from the real deployed frontend now.
+- **Caveat, noted honestly:** this test created one real user row in the production database
+  (an obviously-labeled test address). There's no account-deletion endpoint yet — that's
+  still a pending Phase 2 task — so it hasn't been cleaned up via the API. It's inert test
+  data, not a functional problem, but worth naming rather than glossing over.
+
+With this, the deployment is genuinely complete and working end-to-end: a real user, using a
+real browser, at `https://wellbeing-blue.vercel.app`, can register and log in, and their
+session is backed by a real Postgres database on Railway — not just two services that each
+independently return `200` while silently unable to talk to each other.
+
 ---
