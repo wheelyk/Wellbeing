@@ -2656,9 +2656,11 @@ business getting a screenshot comment at all.
 
 `pr-preview.yml` now only triggers on frontend-touching PRs, and produces a proper before/after
 comparison when possible, falling back cleanly to after-only when the base commit's frontend
-can't be built or run for comparison. Not yet verified against a real GitHub Actions run (that
-happens once this branch's own PR is opened, which — since it touches
-`.github/workflows/pr-preview.yml` — will itself trigger the very workflow being changed).
+can't be built or run for comparison. **Confirmed against a real run** — PR #15, which touches
+`.github/workflows/pr-preview.yml` itself, triggered the very workflow being changed, and every
+step passed on the first attempt this time (unlike the original workflow's first-ever run,
+which needed the `prisma generate` fix from the previous entry) — including the full `BEFORE:`
+sequence, not just the `if:`-skipped fallback path.
 
 ### Verification
 
@@ -2669,6 +2671,12 @@ happens once this branch's own PR is opened, which — since it touches
 - The PR-comment-building JavaScript, run standalone with `node` against both `hasBefore: true`
   and `hasBefore: false` — produced well-formed Markdown in both cases, including a correctly
   structured Before/After table.
-- Not yet verified: an actual GitHub Actions run of the updated workflow.
+- **The real GitHub Actions run** (PR #15, watched live with `gh run watch`): every step
+  passed, including the full `BEFORE:` build/start/capture sequence, finishing in 1m41s.
+- `gh pr view 15 --comments` — confirmed the posted comment contains a real Before/After
+  Markdown table (not the after-only fallback), for all three screenshot pairs.
+- `curl -o /dev/null -w "%{http_code}"` against all six resulting URLs (3 before + 3 after) —
+  every one returned `200`, confirming the full comparison actually renders, not just that the
+  workflow completed without error.
 
 ---
