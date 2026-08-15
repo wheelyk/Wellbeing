@@ -2956,3 +2956,89 @@ backend can actually start successfully even once it builds, since none of those
 Railway project yet.
 
 ---
+
+## 2026-08-15 — Fixing the real Railway build failure: `postinstall` and Prisma's generated client
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — after fixing the Root Directory setting,
+Railway's rebuild failed again, with an error that turned out to be an old friend rather than
+a new problem.
+
+### Background / concepts
+
+#### The error was the exact same missing-generated-client bug already diagnosed once
+
+- Railway's build log showed `error TS2307: Cannot find module '../generated/prisma/client'`
+  — the identical failure the very first GitHub Actions CI run hit, diagnosed in the earlier
+  CI entry: `backend/src/generated/prisma/` is **git-ignored** (it's reproducible output, the
+  same reasoning as `dist/`), so it simply doesn't exist anywhere until something explicitly
+  runs `npx prisma generate`. The GitHub Actions fix at the time was adding an explicit
+  "Generate Prisma client" *step* to that one workflow file — which fixed CI, but did nothing
+  for Railway, since Railway has no knowledge of `.github/workflows/pr-preview.yml` at all;
+  each hosting platform runs its own, completely separate build process.
+- **This time, fixed it once, for every platform, instead of once per platform.** Rather than
+  hunting for "Railway's equivalent of a custom build step" and adding a second,
+  Railway-specific fix, the actual fix applied here is Prisma's own officially documented
+  deployment pattern: add a `"postinstall"` script to `package.json`. npm automatically runs
+  a package's `postinstall` script immediately after `npm install` (or `npm ci`) finishes,
+  *no matter which tool or platform invoked that install* — a person running `npm install` on
+  their own laptop, Railway's build system, a hypothetical future platform, all trigger it
+  identically. This guarantees `prisma generate` always runs as a direct consequence of
+  installing dependencies, rather than depending on every single place this project ever gets
+  built remembering to add its own separate "generate the client" step by hand.
+- **`hasInstallScript: true` appearing in `package-lock.json`** is npm recording, in the
+  lockfile itself, that this package now declares an install-time script — directly relevant
+  to a separate warning glimpsed in Railway's build log about `npm approve-scripts`: newer npm
+  versions added a security feature that can require explicit approval before running
+  install scripts *from third-party dependencies*, specifically to guard against a known
+  supply-chain attack pattern (a malicious package silently running arbitrary code the moment
+  it's installed). That warning wasn't actually what caused this build to fail — the real
+  failure was squarely the missing generated client — but the lockfile change is worth
+  understanding rather than treating as unexplained diff noise.
+
+### What was done
+
+1. Added `"postinstall": "prisma generate"` to `backend/package.json`'s `scripts`.
+2. **Verified the fix locally before trusting it to another remote build**, consistent with
+   the standing "check before trusting" habit that's guided every deployment step so far in
+   this project: deleted `backend/src/generated/` entirely, ran `npm install` fresh, and
+   confirmed the `postinstall` hook fired automatically and regenerated the exact same client
+   — proving the fix actually works, not just that the syntax is plausible.
+3. Re-ran `npm run build` (clean, from a deleted `dist/`) and the full test suite —
+   both passed, confirming nothing else regressed.
+4. Committed the lockfile's `hasInstallScript` change separately from the actual fix, since it
+   was a distinct, automatically-generated side effect rather than a hand-written change.
+
+### Why it's needed
+
+Without this, every future hosting platform this project is ever deployed to would need its
+own hand-written "remember to run `prisma generate` first" step rediscovered the hard way, the
+same way both GitHub Actions and Railway just independently did. Fixing it at the `npm install`
+level instead means it's simply already handled, everywhere, permanently.
+
+### Decisions
+
+- **`postinstall` in `package.json`, not a Railway-specific build command override.** The
+  Railway UI does offer a place to set a custom build command per-service, which would have
+  fixed *this one platform* — but the `postinstall` approach fixes local development, GitHub
+  Actions CI, Railway, and any future platform simultaneously, with zero platform-specific
+  configuration anywhere. Worth noting: the GitHub Actions workflow's own explicit
+  "Generate Prisma client" step is now technically redundant (its `npm ci` step would trigger
+  the same `postinstall` automatically) — left in place rather than removed, since a harmless,
+  explicit, clearly-named step is arguably still worth keeping for readability in a workflow
+  file, and removing it isn't necessary for anything to work correctly.
+
+### State at end of this step
+
+`backend/package.json` now regenerates its Prisma client automatically after every install,
+verified locally. Not yet confirmed on an actual Railway rebuild — that happens once this
+branch merges and Railway's auto-deploy picks up the change.
+
+### Verification
+
+- Deleted `backend/src/generated/` and ran `npm install` — the `postinstall` hook fired and
+  regenerated the client automatically, confirmed by its presence afterward.
+- `npm run build` (from a freshly deleted `dist/`) — compiled cleanly.
+- `npm test` — 18/18 passing, unchanged.
+- Not yet verified: an actual Railway rebuild with this fix in place.
+
+---
