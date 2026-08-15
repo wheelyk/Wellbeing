@@ -2834,3 +2834,125 @@ actual Railway/Vercel account setup and deployment work, which continues as its 
 conversation thread from here.
 
 ---
+
+## 2026-08-15 — First real Railway deploy attempt: the monorepo build failure, `package.json`, and what a "server" actually is
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — the user connected this repo to a real
+Railway project and hit an expected first failure. This entry explains what actually happened,
+why `package.json` is the thing every Node hosting platform looks for, what `npm` is really
+doing when it "builds" and "starts" something, and answers a question asked directly: is the
+running backend basically a console app that listens for requests?
+
+### Background / concepts
+
+#### What actually happened on the first build attempt
+
+- After connecting the GitHub repo, Railway's build system (called **Railpack** — their own
+  tool for looking at a pile of source code and figuring out how to build and run it, the same
+  general idea as the older, more widely-known "buildpacks" concept popularized by Heroku)
+  cloned the repo and tried to figure out what kind of project it was looking at — by default,
+  starting from the **repository root**.
+- The repo root has no `package.json` at all (only `frontend/package.json` and
+  `backend/package.json`, in their own subfolders — a direct consequence of this being a
+  monorepo, first explained back in the very first Phase 0 entry). Railpack's own error was
+  exactly this: *"Railpack could not determine how to build the app,"* followed by a list of
+  languages/frameworks it knows how to recognize (Node included) — it wasn't that Railway
+  doesn't support Node.js, it's that it found **nothing recognizable at the location it looked**.
+- The fix — setting the service's **Root Directory** to `backend` — tells Railway "treat this
+  subfolder as the entire project," so every subsequent step (installing dependencies,
+  building, starting) runs from inside `backend/` specifically, completely ignoring
+  `frontend/` for this particular service. This is a standard, expected setting for monorepos
+  on essentially every hosting platform, not a Railway quirk — Vercel will need the equivalent
+  "Root Directory" set to `frontend` for the same reason once that side is configured.
+
+#### Why `package.json` specifically is what every tool looks for first
+
+- `package.json`, first introduced back in the Phase 0 backend-scaffold entry, is a Node
+  project's **manifest** — its name, version, list of dependencies, and (most relevant here)
+  a `"scripts"` section defining named, reusable commands. This project's `backend/package.json`
+  has, among others:
+  ```json
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  }
+  ```
+- **This is a universal convention across the entire Node.js ecosystem**, not something
+  specific to this project or to Railway — literally every Node tool, from a developer's own
+  terminal to Railway's Railpack to Vercel's build system, treats "does a `package.json`
+  exist, and what's in its `scripts` section" as the standard, first place to look for "how do
+  I build/run this." That's precisely *why* Railpack's error was about not finding a
+  recognizable project, rather than some Railway-specific configuration file being missing —
+  it's looking for the same file any Node developer would look for by hand.
+
+#### What `npm` is actually doing when it "builds" and "starts" the app
+
+- **`npm`** (Node Package Manager) has two related but distinct jobs, both relevant to
+  deployment:
+  1. **Installing dependencies** (`npm install`, or `npm ci` for a clean, reproducible
+     install from the exact versions locked in `package-lock.json`) — downloads every package
+     listed in `package.json`'s `dependencies`/`devDependencies` into `node_modules/`, since
+     none of that code is committed to git (as established all the way back in the first
+     Phase 0 entry's `.gitignore`).
+  2. **Running named scripts** (`npm run <name>`) — looks up `<name>` inside the `"scripts"`
+     object and runs whatever shell command is written there. `npm run build` runs `tsc`
+     (compiling TypeScript into the `dist/` artifact, per the previous entry); `npm start` runs
+     `node dist/index.js` — note `start` (and `test`) are the two script names npm lets you run
+     *without* the word `run` (`npm start` instead of `npm run start`), a long-standing npm
+     convenience for these two especially common script names, not a difference in what's
+     actually happening underneath.
+- **This is exactly the mechanism Railway (and virtually every similar platform) relies on to
+  deploy *any* Node project without needing project-specific instructions from a human**: run
+  `npm install` (or `npm ci`), then run whatever's in the `"build"` script if one exists, then
+  run whatever's in the `"start"` script to actually launch it. Nothing about this is
+  Railway-specific configuration — it's the exact same three commands used by hand, over and
+  over, throughout this entire log (`npm install`, `npm run build`, `npm start`/
+  `node dist/index.js`), just triggered automatically instead of typed manually.
+
+#### Is the running backend "like a console app listening for requests"? Yes — precisely that.
+
+- **`node dist/index.js` starts an ordinary command-line program.** `node` itself is a console
+  application, invoked from a terminal exactly like any other CLI tool — there is no hidden
+  "server mode" separate from just running a program. What makes it behave like a *server*
+  specifically is one line of this project's own code, `app.listen(port, ...)` (present since
+  the very first backend-scaffold entry) — that line tells the operating system "open a
+  network listening socket on this port and hand me any data that arrives on it."
+- **After that line runs, the program does not exit.** A typical simple console program runs
+  top to bottom and finishes. This one instead falls into Node's **event loop** (mentioned
+  back in the Phase 2 entries) — an idle waiting state that does nothing at all until some
+  event wakes it up. For this program, "an event" specifically means "a new HTTP request
+  arrived on the listening socket" — at which point the matching Express route handler runs
+  (e.g. the register/login logic from Phase 2), a response gets written back, and the process
+  goes back to idling, ready for the next one. It can sit idle indefinitely — this is normal,
+  not a hang.
+- **The useful comparison, stated directly:** an ordinary console program reads input from the
+  keyboard (`stdin`) and writes output to the terminal screen (`stdout`). This program instead
+  reads input from a network socket and writes output back to that same socket — otherwise,
+  it's the same fundamental shape of program: something that starts, waits for input, reacts,
+  and repeats, with no graphical interface at all. There's no special "server" category of
+  program distinct from a console app — a server is just a console app whose input/output
+  happens to be a network connection instead of a keyboard and screen. **What actually makes
+  something "hosted" isn't anything about the program itself — it's simply that Railway keeps
+  this exact same kind of process running continuously, on a machine that stays switched on
+  and network-reachable, and automatically restarts it if it ever crashes** — the concrete,
+  process-level meaning of "hosting" introduced conceptually in the earlier hosting/domains
+  entry.
+
+### Why it's needed
+
+Understanding *why* Railway looked where it looked, and *what* "build" and "start" actually
+mean, makes the fix (Root Directory) make sense as a consequence of how Node tooling works in
+general, rather than an arbitrary Railway setting to memorize. It also directly answers a
+question asked mid-deployment rather than leaving "is this basically a console app" as an
+unresolved curiosity.
+
+### State at end of this step
+
+Root Directory has been set to `backend` on the Railway service; a fresh build was triggered
+automatically as a result. Not yet confirmed successful — that's the next thing to check.
+Environment variables (`DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`,
+`FRONTEND_URL`) and the Postgres database service itself still need to be added before the
+backend can actually start successfully even once it builds, since none of those exist in this
+Railway project yet.
+
+---
