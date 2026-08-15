@@ -3852,3 +3852,100 @@ end, via a real merge.
   assumed from configuration alone.
 
 ---
+
+## 2026-08-15 — Where secrets actually live in production, and how a hosted Postgres database works
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — before actually adding the four required
+environment variables and a Postgres database to the Railway project, two questions asked
+directly deserve a proper answer first: where do secrets actually get stored for a deployed
+app (a password manager? somewhere else?), and how does a *hosted* database actually work,
+given it's ultimately just files on a disk somewhere.
+
+### Background / concepts
+
+#### Where the four environment variables actually need to live
+
+- **The platform's own "Variables" tab is the required location — not optional, not a
+  convenience.** Every environment variable this project's backend reads
+  (`DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `FRONTEND_URL`, `PORT`) is read
+  via plain `process.env.SOMETHING` in the code — Node.js only ever sees values that were
+  actually injected into the running process's environment at startup. Locally, that
+  injection has always come from `backend/.env` (via `dotenv/config`, first explained in the
+  Phase 0 entry). On Railway, the equivalent mechanism is that service's own **Variables**
+  tab — Railway injects whatever's set there into the container's environment the moment it
+  starts, the direct production equivalent of the local `.env` file. There is no working
+  alternative to this: the app cannot read a value from LastPass, 1Password, or anywhere else
+  at runtime — those tools have no connection to the running process at all.
+- **A password manager is a genuinely good idea, just for a different, complementary reason:
+  a personal backup record, not a functional requirement.** Two of the four values
+  (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`) are randomly generated once and then need to
+  stay *exactly* the same for as long as issued tokens should keep working — if that exact
+  value is ever lost with no record of it, the fix is simple (generate a new one, per the
+  Phase 2 entry's `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+  command) but has a real consequence: every already-issued access/refresh token instantly
+  stops validating, forcing every logged-in user to log in again. Keeping a personal copy in a
+  password manager is a sensible safety net against that — but it's a backup for the human,
+  not something the running application ever reads from.
+- **Not all four values need to be invented by hand.** `DATABASE_URL` specifically will be
+  **generated automatically by Railway itself**, the moment a Postgres database is added to
+  this project (see below) — it doesn't need to be manually composed the way the JWT secrets
+  do. `FRONTEND_URL` isn't a secret at all (it's just a public web address, the frontend's own
+  deployed URL, once that exists) — it lives in the same Variables tab purely because that's
+  the standard place for *all* of a service's configuration, not because it needs protecting.
+
+#### How a hosted Postgres database actually works, given it's "ultimately just a file"
+
+- **The intuition is correct at the lowest level, and irrelevant at every level the
+  application actually touches.** Postgres genuinely does store data as files on disk — but
+  exactly like this project's own backend (explained in the "is this a console app" entry a
+  few steps back), Postgres itself is a **long-running server program**, not a file the
+  application opens directly. It starts up, binds to a network port (conventionally `5432`),
+  and then sits waiting for connections — the exact same "console app that listens on a socket
+  instead of reading the keyboard" shape as this project's own `node dist/index.js`. Nothing
+  in this backend's code — or in *any* application anywhere — opens Postgres's data files
+  directly; doing so would corrupt them. Every single interaction happens by sending commands
+  over that network connection and getting results back, never by touching a file path.
+- **The "client" the backend uses is real, specific code, already present in this project.**
+  `pg` (installed back in the Phase 1/2 Prisma entry) is a JavaScript library that knows how
+  to speak Postgres's specific network protocol — opening a TCP connection to the given host
+  and port, authenticating, and translating function calls into the actual bytes Postgres
+  expects on the wire. Prisma's `@prisma/adapter-pg` sits on top of that, and the generated
+  Prisma Client sits on top of *that* — but underneath all three layers, it's still just
+  `pg` making an ordinary network connection, the same fundamental kind of connection this
+  project's own frontend makes to its own backend.
+- **Credentials work exactly the same way remotely as they already have locally.** The whole
+  reason `DATABASE_URL` has always looked like
+  `postgresql://username:password@host:port/databasename` (first introduced in the Phase 1/2
+  entry, for the local Docker Compose Postgres) is that a connection string is nothing more
+  than "where to connect, and proof of who's allowed to." A hosted database changes *which*
+  host, port, username, and password appear in that string — nothing about the shape or
+  meaning of the string itself changes. Locally, `welltrack`/`welltrack` was chosen by hand,
+  for a database only reachable from this one laptop. On Railway, adding a Postgres database
+  to the project makes Railway generate a real, random, non-guessable username and password
+  automatically — not something to invent manually, the same way a real production JWT secret
+  should never be a memorable, human-chosen string either.
+- **Why the database itself should never be made publicly reachable, even though the backend
+  will be.** Railway supports **private networking** between services that live in the same
+  project — the backend can reach the database over Railway's own internal network without
+  either service being exposed to the wider internet at all. This matters specifically because
+  the database holds the raw data directly (every user's row, every future symptom/mood log),
+  with none of the backend's own validation, authentication, or authorization logic in front
+  of it — exposing it directly would mean anyone who obtained its credentials could read or
+  modify everything with no application-level checks at all. The backend is the only thing
+  that should ever be allowed to talk to it directly.
+
+### Why it's needed
+
+Both questions asked directly — "where do secrets actually go" and "how does a database that's
+just files on disk let something else connect to it" — are exactly the kind of thing worth
+understanding *before* clicking through the actual Railway UI to add them, rather than
+copy-pasting values into fields without a clear picture of why they need to go there or what's
+happening underneath.
+
+### State at end of this step
+
+No configuration changes yet — this entry is purely explanatory, immediately ahead of actually
+adding the Postgres database and the four environment variables to the Railway project, which
+is the next step.
+
+---
