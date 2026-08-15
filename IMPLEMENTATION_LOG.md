@@ -4412,3 +4412,132 @@ API endpoint reads or writes it yet — that's the next task.
   not inferred from the migration file alone.
 
 ---
+
+## 2026-08-15 — Phase 3: `GET/POST/PATCH/DELETE /api/mood-logs`
+
+**Task:** [Tasks.md](Tasks.md) → Phase 3 → Mood → "`GET/POST/PATCH/DELETE /api/mood-logs` —
+full CRUD, scoped to the authenticated user; validate `mood` 1–5, `energy`/`stress` 1–5 when
+present."
+
+**Delivered via branch:** `feature/3.5-mood-logs-endpoint` (stacked on
+`feature/1.4-mood-log-model`, which is itself stacked on `feature/2.7-auth-middleware` — this
+task is where both of the previous two tasks actually get used together for the first time).
+
+### Background / concepts
+
+#### "Scoped to the authenticated user" — what that phrase actually means in code
+
+- Every route in this file reads `req.userId`, which only exists because `requireAuth` (the
+  previous task) ran first and put it there — this is `app.ts`'s
+  `app.use("/api/mood-logs", requireAuth, moodLogsRouter)`: the middleware runs on *every*
+  request to any `/api/mood-logs/*` route before any of this file's own code does.
+- **"Scoped" isn't just about who's logged in — it's about which rows a query is even allowed
+  to touch.** `GET` filters with `where: { userId: req.userId }`; `PATCH`/`DELETE` look the row
+  up with `findFirst({ where: { id, userId: req.userId } })` rather than a plain `findUnique({
+  where: { id } })`. The difference matters: `findUnique` by `id` alone would find *any* user's
+  mood log if you guessed or otherwise obtained its ID — the query itself would happily return
+  someone else's data. Including `userId` in the `where` clause means a mismatched log simply
+  doesn't match the query at all, as if it didn't exist. This is the concrete mechanism behind
+  Phase 11's later audit item ("confirm queries are filtered by the authenticated `user_id`")
+  — and it's tested directly here already (see below), not deferred to that later phase.
+- **Why 404, not 403, for "this log belongs to someone else."** A `403 Forbidden` response
+  confirms to the caller "yes, this resource exists, you're just not allowed to see it" — which
+  is itself a small information leak (an attacker could probe IDs to learn which ones are
+  real). Responding `404 Not Found` for both "genuinely doesn't exist" and "exists but isn't
+  yours" gives an outside caller no way to tell the two apart — the same reasoning already
+  applied to login's undifferentiated `INVALID_CREDENTIALS` response back in Phase 2.
+
+#### Backfilling: accepting a caller-supplied `loggedAt`, safely
+
+- Requirements call for letting a user log an entry for *yesterday*, not just "right now" — a
+  real need for a wellness tracker (e.g. remembering this morning's mood in the evening). The
+  `loggedAt` field in the request body is entirely optional; when present, it's validated as a
+  proper ISO 8601 datetime string by Zod's `z.string().datetime()` before ever reaching the
+  database, and when absent, the database's own `@default(now())` (from the previous entry's
+  schema) fills it in — "now" is deliberately resolved by the database at insert time, not
+  computed earlier in the request-handling code, so it reflects the actual moment of insertion.
+- Nothing stops a caller from supplying a `loggedAt` in the *future* here — Tasks.md's spec
+  for this task only calls for validating the numeric rating fields, not constraining the date
+  range, so this is left permissive rather than adding an unrequested rule.
+
+#### Reading `req.userId` inside a route that ran after `requireAuth`
+
+- This is the payoff of the previous task's TypeScript declaration-merging work: every handler
+  in this file can write `req.userId` and have it type-check as `string | undefined`, with real
+  autocomplete, purely because `requireAuth.ts` extended Express's own `Request` type once,
+  centrally. Nothing in this file needs to re-declare or re-verify what that middleware already
+  guarantees.
+
+### What was done
+
+1. **`backend/src/routes/moodLogs.ts` (new).** Four routes:
+   - `GET /` — lists the authenticated user's mood logs, most recent first.
+   - `POST /` — validates the body with Zod (`mood` required 1–5; `energy`/`stress` optional
+     1–5; `notes` optional non-empty string; `loggedAt` optional ISO datetime), creates the row,
+     returns `201` with the created log.
+   - `PATCH /:id` — validates a *partial* body (any subset of the same fields), looks the log
+     up scoped to the caller (`404` if missing or not owned), applies the update, returns `200`.
+   - `DELETE /:id` — same ownership lookup, deletes, returns `200`.
+2. **`backend/src/app.ts`.** Mounted the router at `/api/mood-logs` with `requireAuth` applied
+   at the mount point (`app.use("/api/mood-logs", requireAuth, moodLogsRouter)`) — the first
+   route group in the app that isn't wide open, and the first real use of the previous task's
+   middleware.
+3. **Tests (`moodLogs.test.ts`).** Covers: every route rejecting a request with no access
+   token; creating and reading back a log; `loggedAt` defaulting to "now" vs. accepting an
+   explicit past date for backfilling; rejecting an out-of-range `mood`/`energy`; listing only
+   the calling user's own logs (registers a second user and confirms their log never appears);
+   updating an owned log; `404` for an update/delete against a nonexistent ID; **and,
+   specifically, a cross-user test** — user A creates a log, user B (a different authenticated
+   account) attempts to edit and delete it, both get `404`, and the log is confirmed unchanged
+   directly via `prisma.moodLog.findUnique` afterward, proving the intruder's requests had
+   zero effect rather than just returning the "right" status code by coincidence.
+4. **`npm test`** — 33/33 passing (24 pre-existing, 9 new).
+5. **`npm run build`** — compiled cleanly.
+6. **Manual end-to-end verification against the compiled, running server** (`npm start`), via
+   `curl`: registered and logged in a real user, confirmed `/api/mood-logs` returns `401` with
+   no token, then walked the full lifecycle with a real access token — create (`201`), list
+   (the created log present), update (`200`, new `mood` value reflected), delete (`200`), and a
+   final list confirming the log is genuinely gone (`[]`). Cleaned up the manually-created test
+   user afterward via `psql` and stopped the manually-started server.
+
+### Why it's needed
+
+This is the first piece of real wellness-tracking functionality in the app — everything before
+this task was infrastructure (auth, deployment) in service of *eventually* letting a user
+record something about their day. It also proves out the full pattern (auth middleware → model
+→ scoped CRUD route) that every other log type (symptoms, medications, habits) in the rest of
+Phase 3 will repeat.
+
+### Decisions
+
+- **Not building the centralized error-handling middleware from Phase 3's cross-cutting
+  checklist item in this task.** This route's error responses (`{ error: { message, code } }`)
+  are written by hand, matching the exact shape already used throughout `routes/auth.ts` — kept
+  consistent with the existing convention rather than introducing a mismatched shape, but the
+  *centralized* version (a single Express error-handling middleware other routes could rely on
+  instead of each repeating this by hand) is left as that checklist item's own separate task,
+  not bundled in here.
+- **`200 { message: "Deleted" }` rather than `204 No Content` for `DELETE`.** `204` (with an
+  empty body) is the more common REST convention, but this codebase's one existing precedent
+  for "an action completed, nothing to return" — `POST /api/auth/logout` — already returns `200`
+  with a small JSON body. Matched that existing convention for consistency rather than
+  introducing a second, different "successful action" shape.
+- **No query parameters on `GET /` yet** (date range, pagination). Tasks.md scopes that to
+  Phase 9 (History filtering) — added here it would be speculative, unused by anything yet.
+
+### State at end of this step
+
+A real, working, tested, auth-protected CRUD API for mood logs exists locally. Nothing on the
+frontend calls it yet — that's the next task. Deployed production (Railway) does not yet have
+this code; it will pick it up whenever this branch is merged to `main` (the same auto-deploy
+pipeline documented in the earlier Railway entries).
+
+### Verification
+
+- `npm test` (`vitest run`) — 33/33 passing (24 pre-existing, 9 new).
+- `npm run build` — compiled cleanly.
+- Manual `curl` round-trip against the compiled, running server: unauthenticated request → 401;
+  full create → list → update → delete → list-again lifecycle with a real access token, each
+  response matching expectations exactly.
+
+---

@@ -68,7 +68,7 @@ Reference: requirements §6, §12.
 - [ ] `GET/POST/PATCH/DELETE /api/symptom-logs` — full CRUD, scoped to the authenticated user; validate `severity` is an integer 1–10.
 
 ### Mood
-- [ ] `GET/POST/PATCH/DELETE /api/mood-logs` — full CRUD, scoped to the authenticated user; validate `mood` 1–5, `energy`/`stress` 1–5 when present.
+- [x] `GET/POST/PATCH/DELETE /api/mood-logs` — full CRUD, scoped to the authenticated user; validate `mood` 1–5, `energy`/`stress` 1–5 when present.
 
 ### Medications
 - [ ] `GET/POST/PATCH/DELETE /api/medications` — manage the user's medication list.
