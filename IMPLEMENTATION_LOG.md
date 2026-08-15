@@ -2595,6 +2595,15 @@ piece by piece as it was built. Here's the fuller picture, since it was asked fo
    at all — there'd be nothing new for a screenshot to usefully show. The workflow file's own
    path is included too, so a future change to the workflow itself can still be tested by
    opening a PR that only touches this file.
+   **A non-obvious detail confirmed while testing this, worth knowing:** the `paths` filter
+   on a `pull_request` trigger evaluates against the PR's *entire* base→head diff, not just
+   the specific commit in the latest push. Confirmed directly: after this PR's `IMPLEMENTATION_LOG.md`-only
+   commit was pushed (touching neither `frontend/**` nor the workflow file), the workflow
+   *still* ran again — because the PR's overall diff (from when it branched off `main`) still
+   includes the earlier commit that changed `pr-preview.yml`. This is the sensible behavior,
+   not a bug: once a PR is "in scope" for a path-filtered workflow, it stays in scope for
+   every subsequent push to that same PR, rather than flickering on and off commit-by-commit
+   depending on what each individual commit happens to touch.
 2. **Before/after comparison.** The backend now starts once and stays up for both captures
    (reasonable specifically *because* the path filter above means a screenshot-triggering PR
    changes frontend code only, in the common case — see *Decisions*). The frontend gets built
