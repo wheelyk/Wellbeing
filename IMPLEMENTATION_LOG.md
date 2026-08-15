@@ -2956,3 +2956,308 @@ backend can actually start successfully even once it builds, since none of those
 Railway project yet.
 
 ---
+
+## 2026-08-15 — Fixing the real Railway build failure: `postinstall` and Prisma's generated client
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — after fixing the Root Directory setting,
+Railway's rebuild failed again, with an error that turned out to be an old friend rather than
+a new problem.
+
+### Background / concepts
+
+#### The error was the exact same missing-generated-client bug already diagnosed once
+
+- Railway's build log showed `error TS2307: Cannot find module '../generated/prisma/client'`
+  — the identical failure the very first GitHub Actions CI run hit, diagnosed in the earlier
+  CI entry: `backend/src/generated/prisma/` is **git-ignored** (it's reproducible output, the
+  same reasoning as `dist/`), so it simply doesn't exist anywhere until something explicitly
+  runs `npx prisma generate`. The GitHub Actions fix at the time was adding an explicit
+  "Generate Prisma client" *step* to that one workflow file — which fixed CI, but did nothing
+  for Railway, since Railway has no knowledge of `.github/workflows/pr-preview.yml` at all;
+  each hosting platform runs its own, completely separate build process.
+- **This time, fixed it once, for every platform, instead of once per platform.** Rather than
+  hunting for "Railway's equivalent of a custom build step" and adding a second,
+  Railway-specific fix, the actual fix applied here is Prisma's own officially documented
+  deployment pattern: add a `"postinstall"` script to `package.json`. npm automatically runs
+  a package's `postinstall` script immediately after `npm install` (or `npm ci`) finishes,
+  *no matter which tool or platform invoked that install* — a person running `npm install` on
+  their own laptop, Railway's build system, a hypothetical future platform, all trigger it
+  identically. This guarantees `prisma generate` always runs as a direct consequence of
+  installing dependencies, rather than depending on every single place this project ever gets
+  built remembering to add its own separate "generate the client" step by hand.
+- **`hasInstallScript: true` appearing in `package-lock.json`** is npm recording, in the
+  lockfile itself, that this package now declares an install-time script — directly relevant
+  to a separate warning glimpsed in Railway's build log about `npm approve-scripts`: newer npm
+  versions added a security feature that can require explicit approval before running
+  install scripts *from third-party dependencies*, specifically to guard against a known
+  supply-chain attack pattern (a malicious package silently running arbitrary code the moment
+  it's installed). That warning wasn't actually what caused this build to fail — the real
+  failure was squarely the missing generated client — but the lockfile change is worth
+  understanding rather than treating as unexplained diff noise.
+
+### What was done
+
+1. Added `"postinstall": "prisma generate"` to `backend/package.json`'s `scripts`.
+2. **Verified the fix locally before trusting it to another remote build**, consistent with
+   the standing "check before trusting" habit that's guided every deployment step so far in
+   this project: deleted `backend/src/generated/` entirely, ran `npm install` fresh, and
+   confirmed the `postinstall` hook fired automatically and regenerated the exact same client
+   — proving the fix actually works, not just that the syntax is plausible.
+3. Re-ran `npm run build` (clean, from a deleted `dist/`) and the full test suite —
+   both passed, confirming nothing else regressed.
+4. Committed the lockfile's `hasInstallScript` change separately from the actual fix, since it
+   was a distinct, automatically-generated side effect rather than a hand-written change.
+
+### Why it's needed
+
+Without this, every future hosting platform this project is ever deployed to would need its
+own hand-written "remember to run `prisma generate` first" step rediscovered the hard way, the
+same way both GitHub Actions and Railway just independently did. Fixing it at the `npm install`
+level instead means it's simply already handled, everywhere, permanently.
+
+### Decisions
+
+- **`postinstall` in `package.json`, not a Railway-specific build command override.** The
+  Railway UI does offer a place to set a custom build command per-service, which would have
+  fixed *this one platform* — but the `postinstall` approach fixes local development, GitHub
+  Actions CI, Railway, and any future platform simultaneously, with zero platform-specific
+  configuration anywhere. Worth noting: the GitHub Actions workflow's own explicit
+  "Generate Prisma client" step is now technically redundant (its `npm ci` step would trigger
+  the same `postinstall` automatically) — left in place rather than removed, since a harmless,
+  explicit, clearly-named step is arguably still worth keeping for readability in a workflow
+  file, and removing it isn't necessary for anything to work correctly.
+
+### State at end of this step
+
+`backend/package.json` now regenerates its Prisma client automatically after every install,
+verified locally. Not yet confirmed on an actual Railway rebuild — that happens once this
+branch merges and Railway's auto-deploy picks up the change.
+
+### Verification
+
+- Deleted `backend/src/generated/` and ran `npm install` — the `postinstall` hook fired and
+  regenerated the client automatically, confirmed by its presence afterward.
+- `npm run build` (from a freshly deleted `dist/`) — compiled cleanly.
+- `npm test` — 18/18 passing, unchanged.
+- Not yet verified: an actual Railway rebuild with this fix in place.
+
+---
+
+## 2026-08-15 — The PR #16–#19 chain, actually walked through slowly
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — the earlier "stacked PRs" entry (back
+during #7/#8/#9) explained the general concept, but a *second*, unrelated four-PR pile-up
+(#16 through #19) built up quickly during this deployment conversation, and asking "what does
+this actually mean" deserved a proper, concrete answer rather than a one-line "merge them in
+order" — which, as it turns out, wasn't even fully accurate.
+
+### Background / concepts
+
+#### First, what's actually true right now — checked directly, not assumed
+
+The earlier chat message said "merge #16 → #17 → #18 → #19 in order," which sounds like one
+long chain of four. Checking each PR's actual base branch directly
+(`gh pr view <n> --json state,baseRefName`) shows something different:
+
+| PR | State | Branches into | What that means |
+| -- | ----- | -------------- | ---------------- |
+| #16 | **merged** | `main` | Already done. |
+| #17 | **merged** | #16's branch | Already done — and it turned out fine that #17 briefly depended on #16, since #16 was merged first. |
+| #18 | **open** | `main` | Independent. It was branched *after* #16 and #17 had already merged into `main`, so it already contains everything from both, and doesn't wait on anything. |
+| #19 | **open** | #18's branch | Depends on #18 specifically — it was branched from #18 *while #18 was still open*, to reuse code that only existed there so far. |
+
+So the real, current situation is much simpler than "four things in a row": **two PRs are
+already done, and of the two remaining, only one (#19) actually depends on the other (#18)**.
+The earlier advice to "merge in order" wasn't wrong exactly — merging #16 before #17 was
+genuinely required, and it already happened correctly — but stating it as one continuous
+four-step chain overstated how connected the *remaining* work actually is, which is exactly
+the kind of imprecision worth correcting rather than leaving as a beginner's mental model.
+
+#### Why this pile-up happened at all
+
+- Every one of these four PRs was written to explain a concept *while a live conversation was
+  actively happening* (hosting/domains, build artifacts, evaluating a signup's terms, the
+  Railway build failure, the `postinstall` fix) — each one was branched, written, and pushed
+  in the moment something needed explaining, without pausing to wait for the *previous* one to
+  be reviewed and merged first. That's a reasonable way to keep a fast-moving conversation
+  moving, but it's exactly the situation that produces exactly this kind of branch pile-up:
+  whichever branch happened to be `main`'s current tip *at the moment a new branch was
+  created* determined whether that new branch ended up standalone (like #18) or stacked on
+  top of something still open (like #19, created while #18 was still unmerged).
+- This is the same underlying mechanism explained in the much earlier #7/#8/#9 entry — nothing
+  new is happening here mechanically — but four PRs accumulating instead of three, across a
+  long, fast-moving conversation, made it genuinely harder to hold the whole shape in your head
+  without writing it down and checking it directly, which is exactly why a table beats a
+  one-line verbal summary here.
+
+#### What merging each one actually, concretely does
+
+- **Merging #18** takes its one new commit (the Railway/npm-mechanics log entry) and adds it
+  to `main`. Nothing unusual — it's a normal, independent PR at this point, indistinguishable
+  from any single non-stacked PR merged earlier in this project.
+- **Merging #19 afterward** is where the stacked relationship actually matters. Per the
+  earlier stacked-PR entry's explanation of GitHub's *retargeting* behavior: the moment #18
+  merges (and its branch is deleted), GitHub notices #19's base branch no longer exists and
+  automatically repoints #19's base at `main` instead — so by the time you go to merge #19,
+  its diff should already cleanly show just its own new commits (the `postinstall` fix + this
+  very log entry) against the now-current `main`, the same clean outcome observed and directly
+  confirmed back when #7/#8/#9 went through this same mechanism.
+- **If #19 were merged *before* #18** (technically possible — GitHub doesn't forbid it), it
+  would drag *all* of #18's commits in along with it, since #19's branch physically contains
+  them (it was built starting from #18's code). The result on `main` would likely still end up
+  correct in this specific case (both PRs' content would land either way, nothing here
+  conflicts), but the resulting commit history would misattribute #18's own changes as if they
+  were part of #19's PR — worth avoiding for a clean, honest history, which is the actual
+  reason the *order* matters when it does, not because merging out of order would break
+  anything technically catastrophic.
+
+### Why it's needed
+
+"Merge these in order" is easy to say and hard to actually picture without seeing the real
+structure — this entry exists to replace a one-line instruction with something that can
+actually be checked against reality (via `gh pr view`) rather than trusted blindly, and to
+correct an inaccurate simplification from earlier in this same conversation rather than let it
+stand uncorrected in the log.
+
+### State at end of this step
+
+#16 and #17 are merged. #18 and #19 remain open, with #19 depending on #18 specifically (not
+on #16 or #17, which are already fully resolved). Correct next step: merge #18, then #19.
+
+### Verification
+
+- `gh pr view <16|17|18|19> --json state,baseRefName` — checked each PR's actual current state
+  and base branch directly rather than relying on memory of what was true several turns
+  earlier in the conversation, which is exactly what caught the inaccuracy in the original
+  "merge four in a row" framing.
+
+---
+
+## 2026-08-15 — `npm install`, lockfiles, generated Prisma code, and lifecycle hooks, from the ground up
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — a request to properly explain, for a
+beginner, everything actually going on in the `postinstall` fix from two entries ago: what
+`npm install` does step by step, what a lockfile ("the locking") actually is, what the
+generated Prisma client actually *is* as opposed to just "a folder that goes missing," and
+what an npm lifecycle hook is as a general mechanism, not just this one specific case.
+
+### Background / concepts
+
+#### What `npm install` actually does, step by step
+
+Every one of this project's `npm install`/`npm ci` runs — dozens of them by now across this
+log — has been treated as a single black-box step so far ("install the dependencies"). Here's
+what's actually happening inside it:
+
+1. **Read `package.json`'s dependency lists.** `dependencies` and `devDependencies` each list
+   package names and a version *range* (e.g. `"express": "^5.2.1"` — the `^` means "this
+   version or any newer compatible one," not necessarily that exact version).
+2. **Resolve exact versions.** Because ranges allow flexibility, and because installed
+   packages themselves depend on *other* packages (which depend on others, and so on — a real
+   dependency tree, often hundreds of packages deep for a modest project), npm has to work out
+   one single, consistent, exact version number for every package involved, resolving any
+   conflicts where two different packages want incompatible versions of some shared
+   dependency.
+3. **Download and write `node_modules/`.** Each resolved package's actual code gets downloaded
+   (or read from a local cache if already downloaded before) and placed into the
+   `node_modules/` folder — the same folder that's been git-ignored since the very first
+   backend-scaffold entry, precisely because it's large, fully reproducible from
+   `package.json`, and shouldn't be committed.
+4. **Run any lifecycle scripts** — covered in its own section below, since this is the part
+   directly relevant to the bug that was just fixed.
+
+#### What a lockfile is, and why "the locking" matters
+
+- **The problem a lockfile solves:** version *ranges* in `package.json` (`^5.2.1`) are
+  deliberately flexible — but that flexibility means two different `npm install` runs, on two
+  different days, could legitimately resolve to two *different* exact versions, even though
+  `package.json` itself never changed, simply because a newer compatible version of some
+  package was published in between. For an application that needs to behave identically in
+  development, in CI, and in production, that unpredictability is a real problem — subtle
+  bugs from "well, it worked on my machine" often trace back to exactly this.
+- **`package-lock.json`** (present in this project — `backend/package-lock.json` and
+  `frontend/package-lock.json`, both committed to git, unlike `node_modules/`) is npm's
+  solution: after resolving every package's exact version once, it writes the *entire*
+  resolved dependency tree — every package, its exact version, and where it came from — into
+  this one file. **This is "the locking":** as long as this file exists and matches
+  `package.json`, `npm ci` (specifically — "clean install," used throughout this project's own
+  GitHub Actions workflows and recommended for any automated build) installs *exactly* those
+  locked versions, every single time, on any machine, forever — not "whatever the ranges
+  happen to resolve to today."
+- **This is why `package-lock.json` is committed to git but `node_modules/` isn't:** the
+  lockfile is a small, readable *description* of exactly what should be installed; deleting it
+  and running `npm install` again can regenerate `node_modules/` byte-for-byte reproducibly
+  (well — reproducibly in terms of which package versions get installed; the lockfile is what
+  makes that reproducible rather than left to chance), whereas the actual downloaded package
+  code in `node_modules/` is large, and copy-pasting it into version control would be treating
+  a derived, regeneratable thing as if it were precious source code, the same reasoning
+  applied to `dist/` and the generated Prisma client itself.
+- **`hasInstallScript: true`**, the specific lockfile change from the previous entry, is simply
+  one more fact npm now records about this exact, locked dependency tree — "this package has a
+  lifecycle script that will run automatically" — relevant to the tooling that decides whether
+  those scripts are safe to run automatically, covered below.
+
+#### What the generated Prisma client actually *is*, concretely
+
+- This has been mentioned in passing since the original Phase 1/2 Prisma entry ("the generated
+  client is code, not something you hand-write"), but worth being fully concrete now that a
+  bug specifically about its *absence* has come up twice: `backend/prisma/schema.prisma` is a
+  human-written description of the data model (the `User` model, its fields, its types).
+  `npx prisma generate` reads that file and **writes brand new TypeScript source files** —
+  actual `.ts`/`.d.ts` files with real class and type definitions matching that schema exactly
+  — into `backend/src/generated/prisma/`. Every line of code inside that folder is
+  mechanically produced from `schema.prisma`; nobody types it by hand, and it changes
+  automatically the moment the schema changes and `generate` is re-run.
+- **This is exactly why it's git-ignored, and exactly why its absence broke two separate
+  builds.** Being reproducible-from-source is *why* it's excluded from git (the same rule as
+  `dist/` and `node_modules/`) — but that same fact means anywhere this project gets freshly
+  cloned (a new laptop, a GitHub Actions runner, Railway's build machine) starts with **no**
+  `backend/src/generated/prisma/` at all, and needs something to actually run
+  `npx prisma generate` before any code that does `import { PrismaClient } from
+  "../generated/prisma/client"` can possibly compile. Both build failures fixed so far in this
+  log were precisely that missing step, on two different platforms, independently.
+
+#### npm lifecycle hooks, as a general mechanism (not just this one case)
+
+- **`postinstall` is one of several specially-named scripts npm treats differently from
+  ordinary custom ones.** Every script this project has defined so far (`"dev"`, `"build"`,
+  `"start"`, `"test"`) only ever runs when explicitly asked for by name
+  (`npm run build`, or the two special-cased ones, `npm start`/`npm test`, without needing
+  `run`). **Lifecycle scripts are different: npm runs them automatically, by itself, at a
+  specific defined moment**, without ever being asked by name. `postinstall` specifically means
+  "run this automatically, immediately after `npm install`/`npm ci` finishes" — no command
+  anywhere in this project's own workflows, or in Railway's build process, ever explicitly
+  says "now run `prisma generate`" — npm does it unprompted, purely because that script exists
+  under that specific reserved name in `package.json`.
+- **Why this is the right fix, mechanically:** every single build environment this project has
+  ever run in — a developer's laptop, a GitHub Actions runner, Railway's build machine — starts
+  by running `npm install` or `npm ci` as an unavoidable first step (there is no way to get the
+  project's dependencies without it). Attaching the missing step to *that* moment, rather than
+  to `build` or to some platform's separate "build command" setting, guarantees it happens
+  everywhere `npm install` happens — which is to say, guaranteed to happen absolutely
+  everywhere this project could ever be built, present or future, without needing to remember
+  to configure it again per platform.
+- **The `npm approve-scripts` warning glimpsed in Railway's build log** belongs to a genuinely
+  separate npm feature worth knowing about, even though it wasn't what caused this particular
+  failure: newer npm versions can require a project to explicitly *approve* lifecycle scripts
+  that come from **third-party dependencies** (not the project's own `package.json`) before
+  running them automatically — a defense against a real, documented category of attack where a
+  malicious package publishes a `postinstall` script that silently runs harmful code the
+  moment anyone installs it. This project's own `postinstall` script (added in the previous
+  entry) is the project's *own* script, not a dependency's, so it isn't affected by that
+  particular protection — but it's exactly why lifecycle scripts as a mechanism are treated
+  with real caution industry-wide, not just an obscure npm setting.
+
+### Why it's needed
+
+The previous entry explained *what* was fixed and *why the fix was chosen*, at the level of
+"here's the bug, here's the fix, here's why this approach beats a platform-specific one." This
+entry exists to explain the actual mechanics underneath that fix in enough depth that none of
+`npm install`, lockfiles, generated code, or lifecycle hooks have to be taken on faith.
+
+### State at end of this step
+
+No code changes in this entry — purely a deeper explanatory pass over the mechanics behind the
+`postinstall` fix already made and pushed in this same branch/PR.
+
+---
