@@ -4072,3 +4072,101 @@ once the Postgres database is actually added to the Railway project, the next st
 - `npm test` — 18/18 passing, unchanged.
 
 ---
+
+## 2026-08-15 — The backend is genuinely connected to a real production database
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — the Postgres database and environment
+variables were added to Railway, with one real mistake caught and fixed along the way, and
+this entry records what the actual deploy log proves versus what was only inferred before.
+
+### Background / concepts
+
+#### A real mistake, caught before it mattered: variables set on the wrong service
+
+- The four environment variables were initially added to the **Postgres** service's own
+  Variables tab, not the **Wellbeing** (backend) service's. This is an easy mistake to make —
+  both are just "a place in Railway's UI called Variables" — but only one of them is the
+  running process that actually reads `process.env.*`. Variables sitting on the database
+  service are simply never seen by the backend code at all; they'd have sat there, inert,
+  looking correctly configured while doing nothing.
+- **How this was caught:** rather than assuming the setup was correct because *some* Variables
+  tab had the right-looking entries, the actual mixed contents of that tab were checked
+  directly — it contained the four manually-added variables sitting alongside a long list of
+  Postgres's own auto-generated ones (`PGHOST`, `PGUSER`, `PGPASSWORD`, `POSTGRES_*`, etc.),
+  which only appear on a database service, confirming the wrong service was being edited. The
+  fix was moving the same four variables to the backend service's own Variables tab instead —
+  using Railway's **variable reference** feature for `DATABASE_URL` specifically (a `{{ }}`
+  picker that links directly to another service's variable, rather than manually retyping a
+  value that could go stale or be mistyped).
+
+#### What the deploy log actually proves, versus what a green checkmark alone would only suggest
+
+- A successful build/deploy status is good evidence something works, but the deploy log's
+  actual text is direct, first-hand proof of *what specifically* worked, worth reading
+  carefully rather than trusting the checkmark alone:
+  - `Datasource "db": PostgreSQL database "railway"...` — the backend genuinely opened a real
+    network connection to the real hosted database, using the `DATABASE_URL` variable
+    reference — not a guess, an actual successful connection.
+  - `1 migration found in prisma/migrations` → `Applying migration
+    '20260814155859_init_user'` → `All migrations have been successfully applied.` — this is
+    the automatic `prisma migrate deploy` step (wired into `start` two entries ago) genuinely
+    doing its job for the first time against a brand-new, empty production database: creating
+    the `users` table for real, from the migration file that's been sitting committed in git
+    since the very first Prisma entry.
+  - `Backend listening on port 8080` — the server actually started and began accepting
+    connections, the same `app.listen()` behavior explained in the "is this a console app"
+    entry, just running on Railway's infrastructure instead of this laptop.
+- **A small, satisfying detail: port 8080, not the usual 4000.** Railway assigns its own port
+  to a service via a `PORT` environment variable — this backend's `src/index.ts` has read
+  `process.env.PORT ?? 4000` since the very first Phase 0 scaffold entry, for no reason that
+  mattered until now. That early, unremarkable design choice is exactly why the app adapted to
+  Railway's actual assigned port automatically, with zero code changes required at deploy time.
+
+### What was done
+
+1. Diagnosed and fixed the wrong-service variable mistake, as described above.
+2. Added the four variables correctly to the **Wellbeing** service specifically:
+   `DATABASE_URL` (as a variable reference to the Postgres service, not a typed value),
+   `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` (the values generated earlier in this
+   conversation), and `FRONTEND_URL` (a temporary placeholder, `http://localhost:5173`, until
+   the frontend is actually deployed).
+3. Confirmed the resulting automatic redeploy's **Deploy** log directly, line by line, rather
+   than trusting the "Deployment successful" badge alone — reading the actual Prisma
+   connection, migration, and server-start output described above.
+
+### Why it's needed
+
+This is the first point in the whole deployment effort where the backend is *provably*, not
+just *believably*, doing its real job on real infrastructure: connecting to a real database,
+correctly evolving that database's schema from committed migration files, and serving
+requests — the entire point of everything built since the Phase 1 Prisma entry, now actually
+running somewhere other than this laptop.
+
+### Decisions
+
+- **Used a variable reference for `DATABASE_URL` instead of copying the value by hand.** A
+  reference stays correct automatically if the database's own connection details ever change
+  (e.g. a credential rotation); a manually copied value would silently go stale the moment
+  that happened, with nothing pointing at the mismatch until something failed.
+- **Verified via the actual log text, not the status badge**, directly because the wrong-service
+  mistake earlier in this same step was a reminder that "looks configured" and "is actually
+  working" are different claims — worth actually reading the evidence rather than trusting
+  the first plausible-looking signal a second time in the same conversation.
+
+### State at end of this step
+
+The backend is deployed, connected to a real Postgres database, has successfully applied its
+one existing migration, and is listening for requests — confirmed directly from the deploy
+log, not inferred. It is still **not publicly reachable** ("Unexposed service") — enabling
+public networking is the next step.
+
+### Verification
+
+- Read the actual Railway deploy log text directly: confirmed the real Postgres connection,
+  the successful migration application (creating `users` for the first time in production),
+  and the server successfully starting and listening.
+- Confirmed the wrong-service mistake by inspecting the *contents* of the Postgres service's
+  Variables tab directly (finding it mixed with Postgres's own auto-generated variables) rather
+  than assuming from the tab's mere existence that it was the correct one.
+
+---
