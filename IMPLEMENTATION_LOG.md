@@ -2471,13 +2471,22 @@ on every future PR against `main`.
 
 ### State at end of this step
 
-`.github/workflows/pr-preview.yml` and `frontend/scripts/capture-pr-screenshots.mjs` exist
-and are believed correct: YAML syntax is valid, the shell logic's core branch/worktree
-mechanics were proven against real (throwaway) git repositories, and the capture script itself
-was run locally exactly as CI will invoke it. **The one thing that hasn't been verified yet is
-an actual GitHub Actions run** — that happens the moment this branch's PR is opened, which is
-the next step after this entry. A follow-up note (or a correction, if something's wrong) will
-be added once that real run is observed.
+`.github/workflows/pr-preview.yml` and `frontend/scripts/capture-pr-screenshots.mjs` are live
+and confirmed working against real GitHub infrastructure — see *Verification* below. This is
+the project's first working CI pipeline: every future PR against `main` will automatically get
+a comment with three live screenshots proving the register/login flow actually works, with no
+manual steps.
+
+**Update — the real run found one more real bug.** Opening PR #14 to trigger the workflow for
+the first time immediately caught something the earlier local validation couldn't have: the
+"Build backend" step failed with `Cannot find module '../generated/prisma/client'`. The cause
+was exactly the kind of thing that's invisible on a development machine but not in CI — this
+Prisma version's `migrate deploy` doesn't generate the TypeScript client as a side effect (the
+Phase 1/2 Prisma entry hit the same thing locally with `migrate dev`, and had to run
+`npx prisma generate` as its own separate step). Locally, this never mattered because the
+generated client was already sitting on disk from earlier local development sessions and never
+got deleted — but a fresh CI checkout starts with nothing generated at all. Added an explicit
+`npx prisma generate` step, pushed the fix, and the very next run passed completely.
 
 ### Verification
 
@@ -2489,7 +2498,12 @@ be added once that real run is observed.
 - `node scripts/capture-pr-screenshots.mjs` run locally against the real dev servers —
   produced the same three screenshots as the ad hoc version from the previous entry, exiting
   cleanly with no console errors detected.
-- Not yet verified: the workflow actually executing on GitHub's infrastructure, and the PR
-  comment actually rendering the linked images for a real viewer.
+- **The real GitHub Actions run** (`gh run watch`, watched live): first attempt failed exactly
+  as described above; after the fix, all 18 steps passed, finishing in 1m19s.
+- `gh pr view 14 --comments` — confirmed the bot's comment was actually posted, containing the
+  three expected `raw.githubusercontent.com` image links.
+- `curl -I` against each of those three URLs directly — all three returned `200 OK` with a
+  real, non-zero `Content-Length`, confirming they serve actual image bytes, not a 404 or an
+  error page, and require no authentication (consistent with the repo being public).
 
 ---
