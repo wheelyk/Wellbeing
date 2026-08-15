@@ -3949,3 +3949,126 @@ adding the Postgres database and the four environment variables to the Railway p
 is the next step.
 
 ---
+
+## 2026-08-15 — Production migrations: how "upgrading" the live schema actually works, and the honest truth about rollbacks
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — a forward-looking question asked
+directly: as more models get added over time (Phase 1's remaining `Symptom`, `MoodLog`,
+`Medication`, `Habit`, etc.), the production database will need to be upgraded to match —
+and if something goes wrong, will it be possible to downgrade?
+
+### Background / concepts
+
+#### The forward path: `migrate dev` locally, `migrate deploy` in production — two different commands, on purpose
+
+- Every migration this project has run so far (the `User` model's initial migration, from the
+  Phase 1/2 entry) used `npx prisma migrate dev` — and that command has always run against the
+  local Docker Compose database only. `migrate dev` does two things at once: it works out what
+  changed in `schema.prisma` since the last migration and **writes a brand-new migration
+  file** describing that change, *and* immediately applies it. That's exactly right for local
+  development, where new migration files are actually meant to be created — but it's the wrong
+  tool for production, which should never be generating brand-new, unreviewed migration files
+  on the fly.
+- **`npx prisma migrate deploy`** is the production counterpart, already used in the GitHub
+  Actions CI workflow (`pr-preview.yml`, from the earlier CI entry) but, until this step,
+  never actually wired into the Railway deployment itself. It does the other half of the job:
+  it looks at the `prisma/migrations/` folder — which **is** committed to git, unlike the
+  generated client — and applies whichever migration files exist there but haven't been
+  applied to *this particular* database yet. It never generates a new migration file itself;
+  it only replays ones that already exist, committed and reviewed ahead of time.
+- **This is genuinely "upgrading" the live database, mechanically:** the day a new model
+  (e.g. `Symptom`) gets added, the actual steps will be: edit `schema.prisma`, run
+  `prisma migrate dev` locally (creating a new migration file, applying it to the local
+  database, confirming everything still works), commit that new migration file to git as part
+  of the PR — and then the *next* time `migrate deploy` runs in production (now wired into
+  `npm start`, see below), it finds that one new, not-yet-applied file and applies it
+  automatically. No manual "log into the production database and run some SQL" step required.
+
+#### Why wiring this into `start`, not `build`
+
+- `npm run build` compiles code — a pure, side-effect-free translation from TypeScript to
+  JavaScript that doesn't need a live database connection at all, and arguably shouldn't touch
+  one (a build step failing because a database happened to be briefly unreachable would be a
+  confusing, unnecessary coupling). `npm start` is the moment the app is actually about to
+  begin serving real traffic — the natural, correct point to first make sure the schema it's
+  about to rely on is actually up to date. `prisma migrate deploy` is safe to run every single
+  time the app starts, including every ordinary restart with nothing new to apply — the
+  local verification below confirmed exactly that (`No pending migrations to apply`,
+  printed, then the app started normally) — so there's no downside to it always running,
+  only the upside of guaranteeing the schema is never out of date the moment the app comes up.
+
+#### The honest truth about "downgrading": there isn't a magic undo button
+
+- Some migration systems (Rails' `db:rollback` being the best-known example) support
+  automatically reversing the most recently applied migration. **Prisma deliberately does not
+  work this way.** There's no `prisma migrate rollback` command that inspects a migration and
+  automatically figures out how to undo it — and for good reason: not every schema change has
+  an obvious, safe, automatic reverse (dropping a column, for instance, permanently discards
+  whatever data was in it — there's no way to "undo" that by inspecting the SQL alone).
+- **Prisma's own recommended approach is to roll *forward*, not backward.** If a migration
+  turns out to be wrong, the fix is writing a *new* migration that corrects or reverses it —
+  e.g. a follow-up migration that re-adds a column, or changes a type back — going through the
+  exact same reviewed, committed, `migrate deploy`-applied path as any other change, rather
+  than un-applying history. This keeps the migration history an honest, linear record of
+  everything that actually happened to the database, including mistakes and their fixes,
+  instead of a rewritten record pretending the mistake never occurred.
+- **The real safety net for anything migrations themselves can't safely undo (like discarded
+  data) is a database backup taken *before* the migration ran** — not a rollback command. This
+  is a genuine, current gap worth naming plainly: no backup strategy exists yet for whatever
+  Postgres database is about to be added to Railway. Whether Railway's own tier includes
+  automatic backups, and what a manual `pg_dump`-based backup habit before risky migrations
+  should look like, is worth checking once the database actually exists — flagged here rather
+  than silently assumed to be handled.
+- **The lower-risk habit that avoids needing rollbacks as often:** preferring additive,
+  backward-compatible schema changes where reasonable — e.g. adding a new *nullable* column
+  rather than changing an existing one's type, so that even a brief window where old and new
+  application code run side by side (a real possibility during a rolling deploy) doesn't
+  produce errors either version can't handle. Not always possible, but worth defaulting to
+  when it is.
+
+### What was done
+
+1. Changed `backend/package.json`'s `"start"` script from `"node dist/index.js"` to
+   `"prisma migrate deploy && node dist/index.js"` — so every time the app actually starts
+   (including every future Railway deploy), it first brings the database schema fully up to
+   date with whatever migration files are committed to git, before accepting any traffic.
+2. **Verified locally against the real Docker Compose database** — ran `npm start` directly
+   and confirmed the output showed `1 migration found in prisma/migrations` /
+   `No pending migrations to apply` (correctly finding the existing `User` migration already
+   applied, nothing new to do), followed by the server starting normally and responding to
+   `GET /api/health`.
+3. Re-ran the full test suite — 18/18 still passing, confirming this change doesn't affect
+   anything else.
+
+### Why it's needed
+
+Without this, every future schema change (the entire rest of Phase 1's models, and beyond)
+would need someone to remember to separately, manually apply it to production — an easy step
+to forget, and exactly the kind of manual production step this project has otherwise avoided
+throughout every part of its deployment setup so far.
+
+### Decisions
+
+- **Wired into `start`, not a separate manual step or a Railway-specific "release phase"
+  setting** — Railway doesn't have a distinct release-phase concept the way some platforms
+  (Heroku) do, and chaining it into `start` is both platform-agnostic (works identically
+  anywhere `npm start` runs) and safe to run unconditionally, confirmed by direct local testing.
+- **Did not attempt to build any kind of rollback tooling.** Prisma's own position — roll
+  forward, don't try to auto-reverse — is treated as correct here, not worked around. A backup
+  strategy (the actual safety net for irreversible changes) is named as a real, current gap
+  rather than either solved prematurely (there's no database to back up yet) or left unspoken.
+
+### State at end of this step
+
+Production database migrations will now apply automatically on every app start, the moment a
+real database exists to apply them to. No backup strategy exists yet — an open item to revisit
+once the Postgres database is actually added to the Railway project, the next step.
+
+### Verification
+
+- `npm start` run locally against the real Docker Compose Postgres — confirmed
+  `prisma migrate deploy` ran first, correctly reported no pending migrations, then the server
+  started and `GET /api/health` responded `200 {"status":"ok"}`.
+- `npm test` — 18/18 passing, unchanged.
+
+---
