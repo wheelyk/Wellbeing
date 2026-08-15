@@ -2,6 +2,8 @@ import express, { Express } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { authRouter } from "./routes/auth";
+import { moodLogsRouter } from "./routes/moodLogs";
+import { requireAuth } from "./middleware/requireAuth";
 
 const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:5173";
 
@@ -17,6 +19,7 @@ export function createApp(): Express {
   });
 
   app.use("/api/auth", authRouter);
+  app.use("/api/mood-logs", requireAuth, moodLogsRouter);
 
   return app;
 }
