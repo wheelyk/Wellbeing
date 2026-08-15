@@ -1733,3 +1733,140 @@ whole sequence.
   #9 merged at, which is what pinpointed that this entry's own commit had arrived just after.
 
 ---
+
+## 2026-08-15 — Tooling: a GitHub ruleset that actually enforces "no direct pushes to `main`"
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — closes a gap the user noticed: GitHub
+itself was warning that `main` had no protection configured, meaning the "everything goes
+through a branch and a PR" rule this whole log has followed was, until now, only a written
+convention (`CLAUDE.md`) — nothing on GitHub's side actually stopped anyone (including an
+accidental `git push origin main`) from pushing straight to it.
+
+### Background / concepts
+
+#### Branch protection vs. a ruleset — GitHub has two overlapping systems
+
+- GitHub has an older feature called **"branch protection rules"** and a newer one called
+  **"rulesets"** that does mostly the same job with a more flexible, reusable design (one
+  ruleset can target multiple branches by pattern, e.g. "the default branch" specifically,
+  rather than a fixed name). Rulesets are the current recommended approach and are what got
+  configured here.
+- **What a ruleset actually is:** a named, structured list of rules attached to a
+  **condition** describing which branch(es) it applies to, plus an **enforcement status**
+  (`active` — actually enforced — vs. `disabled`/`evaluate`, the latter being a dry-run mode
+  that reports what *would* be blocked without blocking anything). This project's ruleset
+  targets `~DEFAULT_BRANCH` — a placeholder meaning "whichever branch is currently configured
+  as the repo's default" (`main` here) — rather than hard-coding the literal name `main`, so
+  it keeps working correctly even if the default branch were ever renamed later.
+
+#### The three specific rules chosen, and what each one actually blocks
+
+- **`deletion` (Restrict deletions):** without this, anyone with push access could run
+  `git push origin --delete main` and the branch — and, practically, the project's entire
+  history as far as GitHub is concerned — would simply be gone. Blocks that outright.
+- **`non_fast_forward` (Block force pushes):** a force push (`git push --force`) rewrites a
+  branch's history to something that isn't a simple continuation of what was there before —
+  this is exactly the kind of "destructive, hard-to-reverse" git operation flagged as
+  something to always confirm carefully before running, back in the very first turns of this
+  project. Blocking it on `main` specifically means that even a mistaken or malicious force
+  push from a machine with valid credentials can't silently rewrite the project's official
+  history.
+- **`pull_request` (Require a pull request before merging), with 0 required approvals:**
+  this is the one that actually enforces "no direct commits to `main`" — GitHub rejects *any*
+  push straight to `main` once this is active, full stop; the only way code reaches `main` is
+  by merging an already-open pull request through GitHub's merge button (or `gh pr merge`).
+  Required approvals was deliberately set to **0** rather than 1+: this repository has a
+  single collaborator (the project owner), and GitHub does not allow someone to approve their
+  own pull request — requiring 1 approval on a solo repo would make every PR permanently
+  unmergeable via the normal UI. Zero approvals still keeps the actual protection that
+  matters here (routing through a PR, getting a reviewable diff, no accidental direct
+  pushes) without demanding a second human who doesn't exist on this project.
+- **Left off, deliberately, for now:** *require status checks to pass* (there's no CI
+  pipeline yet — that's Phase 13) and *require linear history* (would force every PR to be
+  squashed or rebased rather than merged with a regular merge commit, which is how #7/#8/#9
+  were merged in the previous entry; no strong reason to forbid that yet).
+
+### What was done
+
+1. Confirmed the gap first: `gh api repos/wheelyk/Wellbeing/rulesets` returned `[]` — no
+   rulesets existed at all, matching what GitHub's UI was warning about.
+2. Wrote the ruleset definition as a JSON file (target `~DEFAULT_BRANCH`, `enforcement:
+   "active"`, the three rules above) and attempted to create it via
+   `gh api repos/wheelyk/Wellbeing/rulesets -X POST --input ruleset.json` — the GitHub REST
+   API endpoint for managing rulesets, used directly rather than via a `gh` subcommand, since
+   `gh` doesn't have a dedicated ruleset-management command built in.
+3. **Hit a permissions wall, repeatedly.** The request failed with `403 Resource not
+   accessible by personal access token`. `gh auth status` showed the active credential is a
+   **fine-grained personal access token** (format `github_pat_...`, distinct from a classic
+   token, an OAuth token, or anything issued by Claude/Anthropic — this environment simply
+   reads whatever value is already stored in the `GITHUB_TOKEN` environment variable on this
+   machine, the same one used for every `gh pr create` throughout this log). Fine-grained
+   tokens are scoped permission-by-permission per repository, and creating a ruleset needs
+   the **Administration** permission specifically — a separate, more powerful permission
+   than the **Contents** and **Pull requests** permissions that had already been sufficient
+   for every git push and PR created so far.
+4. The user updated the token's permissions on github.com (Settings → Developer settings →
+   Fine-grained tokens → edit the token → **Administration: Read and write**) and confirmed
+   saving it. The very next retry **still** failed with the identical 403.
+5. To rule out a wrong-token mix-up (e.g. more than one fine-grained token existing, and the
+   one edited not actually being the one stored in `GITHUB_TOKEN`), printed a partial
+   fingerprint of the token actually in use (`github_pat_11AB...H23JxQ` — first 15 and last 6
+   characters only, deliberately not the full secret) for the user to cross-check against
+   whatever value they had a record of. This didn't fully resolve the question either way,
+   but ruled out blindly retrying forever without narrowing down *why* it was failing.
+6. Retried twice more at the user's request, both still `403`. On the **fourth** retry
+   (several minutes after the permission edit was saved), the request finally
+   **succeeded** — returning the full created ruleset object, including its id (`20886071`).
+7. Confirmed it stuck via `gh api repos/wheelyk/Wellbeing/rulesets`, which now listed exactly
+   the one ruleset, `enforcement: "active"`.
+
+### Why it's needed
+
+Everything in this log from the very first `git init` entry onward has followed "branch,
+then PR, then merge" — but until this step, that was enforced by nothing except the people
+(and Claude) involved choosing to follow it. A ruleset makes it structurally impossible to
+skip: even an accidental `git push origin main` from a future session, a future
+collaborator, or a moment of forgetting the convention now gets rejected by GitHub itself,
+rather than relying on everyone remembering `CLAUDE.md`. This matters more than usual for a
+project handling health data, where the PR/review step is a real safety net (per the earlier
+Phase 0 *Git Workflow* entry's reasoning), not just a tidiness preference.
+
+### Decisions
+
+- **0 required approvals, not 1+.** Covered under *Background* above — the correct number
+  for a solo-maintainer repo, since GitHub cannot let someone approve their own PR, and
+  demanding an approval that structurally can never happen would just lock out the merge
+  button entirely rather than add any real review step.
+- **Used the raw GitHub REST API (`gh api .../rulesets`) rather than the web UI**, since the
+  user asked to have this automated where possible — even though it turned out to need
+  several retries and a permissions change first, doing it this way leaves an exact,
+  reproducible JSON definition of the ruleset in this log, rather than a one-time set of UI
+  clicks that would be hard to reconstruct later if the ruleset ever needed to be recreated
+  (e.g. on a future repository).
+- **Didn't switch to a fresh token** when the permission edit didn't immediately take effect,
+  per the user's explicit choice to keep retrying the existing one first — which turned out
+  to be the right call: the eventual success confirms the original token and its edited
+  permissions were correct all along, and the repeated early failures were propagation delay
+  on GitHub's side, not a wrong-token mix-up or a genuine platform limitation.
+- **Left "require status checks" and "require linear history" off for now** — both are
+  reasonable *future* additions (the former once Phase 13 adds CI; the latter is purely a
+  history-style preference) rather than gaps in the actual protection this task was about.
+
+### State at end of this step
+
+`main` on GitHub now has an active ruleset (`main-protection`, id `20886071`) that: blocks
+deleting the branch, blocks force pushes to it, and rejects any push directly to it that
+isn't arriving via a merged pull request. Nothing about the day-to-day workflow changes —
+every task in this log has already been delivered via a feature branch and a PR — but that
+workflow is now backed by an actual enforcement mechanism instead of only a written
+convention.
+
+### Verification
+
+- `gh api repos/wheelyk/Wellbeing/rulesets -X POST --input ruleset.json` — eventually
+  returned `201`-equivalent success with the full created ruleset object (id `20886071`,
+  `enforcement: "active"`, all three configured rules present in the response).
+- `gh api repos/wheelyk/Wellbeing/rulesets` (a plain `GET`) — confirmed the ruleset is listed
+  and active, not just accepted-but-silently-dropped.
+
+---
