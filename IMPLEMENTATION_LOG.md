@@ -5065,3 +5065,152 @@ pipeline documented in the earlier Railway entries).
   response matching expectations exactly.
 
 ---
+
+## 2026-08-15 — Phase 7: Mood entry form, wired into the Dashboard
+
+**Task:** [Tasks.md](Tasks.md) → Phase 7 → "Mood entry form: 5 large emoji/visual mood
+buttons, optional energy (1–5) and stress (1–5) controls, optional notes, date/time picker,
+`Save Entry` button — matching the wireframe."
+
+**Delivered via branch:** `feature/7.3-mood-entry-form` (stacked on
+`feature/3.5-mood-logs-endpoint`). This is the last piece of the mood-logging vertical slice —
+where everything built so far (auth middleware, the `MoodLog` model, the CRUD endpoint)
+finally becomes something a real person can see and use, the same way the very first vertical
+slice ended with an actual login form rather than just a working `/api/auth/login` endpoint.
+
+### Background / concepts
+
+#### Why this task also touched `DashboardPage.tsx`, not just added a new form component
+
+- Tasks.md's own wording for this item is scoped to the form itself. But a form nobody can
+  reach isn't a finished feature yet — the earlier auth vertical slice's whole justification
+  (documented back in its own entry) was building thin *end-to-end* slices specifically so
+  something is genuinely usable at the end of each one, not just individually correct in
+  isolation. `DashboardPage.tsx` (previously just a placeholder welcome message) is where this
+  form needed to actually live for that to be true here too.
+- **What was deliberately left out**, to keep this task's scope honest rather than quietly
+  absorbing later Tasks.md items: the shared "Quick Add" modal used by *all four* log types
+  (its own Phase 7 item), and reusing this same form pre-filled for editing (a separate,
+  later Phase 7 item covering all log types at once). This entry's dashboard only has mood
+  logging, shown inline rather than in a modal, with delete but not edit — intentionally
+  smaller than what those later, broader tasks will eventually build.
+
+#### `role="radiogroup"` / `role="radio"` — accessible custom controls, not real `<input>`s
+
+- The five mood buttons (and the energy/stress rating rows) are visually just styled
+  `<button>` elements, not native HTML radio inputs — a native radio button can't easily be
+  styled as a large emoji tile the way the wireframe calls for. But semantically, they behave
+  exactly like a radio group: exactly one selectable at a time (for mood), with a clear
+  "currently selected" state. Native radio inputs get this behavior (and screen-reader
+  announcements, keyboard behavior) for free; a plain `<button>` doesn't automatically
+  communicate any of that to assistive technology.
+  - `role="radiogroup"` on the container and `role="radio"` + `aria-checked` on each button is
+    how that meaning gets communicated explicitly instead — a screen reader announces these the
+    same way it would a native radio group, even though under the hood they're just buttons with
+    an `onClick`. This is the same "custom rating control needs explicit ARIA roles" concern
+    Phase 12 (Accessibility QA) calls out generally; applied here at the point the first rating
+    control actually gets built, rather than retrofitted later.
+- The energy/stress rows reuse the same pattern but allow *deselecting* (clicking an already-
+  selected value clears it back to "not set") — appropriate since those two fields are
+  genuinely optional, unlike mood, which is required.
+
+#### `<input type="datetime-local">` and why the value has to be built by hand
+
+- HTML has a built-in date/time picker input (`type="datetime-local"`) — using it directly
+  avoids writing a custom calendar widget for this task, which the requirements don't call for
+  ("date/time picker" is satisfied by the native control). The one wrinkle: this input's value
+  format is a specific plain string (`"YYYY-MM-DDTHH:mm"`) with **no timezone information at
+  all** — it represents whatever the browser's local wall-clock time is, nothing more. The
+  `toDateTimeLocalValue` helper in `MoodEntryForm.tsx` builds that exact string from `new
+  Date()` to default the field to "right now" in the browser's own local time, since neither
+  `Date`'s own `toISOString()` (which is UTC, not local) nor any other built-in method produces
+  this specific format directly.
+- On submit, that local-time string is converted back with `new Date(loggedAt).toISOString()`
+  before being sent to the API — which is what the backend's `loggedAt` field actually expects
+  (an unambiguous ISO 8601 instant, validated by the previous task's Zod schema). The
+  round-trip matters: a plain local-time string sent as-is would be ambiguous about which
+  timezone it was meant in; converting through a real `Date` object resolves that ambiguity
+  using the browser's own timezone before the value ever leaves the client.
+
+#### Why the dashboard list doesn't reuse the `Card` component
+
+- `Card` (used by `LoginPage`/`RegisterPage`) is hard-coded to `max-w-sm` — a deliberate choice
+  for a centered auth form, but wrong for a dashboard list meant to fill the page's wider
+  content column. Overriding a Tailwind utility class by appending another one after it in the
+  same `className` string (e.g. trying to cancel `max-w-sm` with a later `max-w-none`) isn't
+  reliably safe — which of two conflicting utility classes "wins" depends on the order Tailwind
+  itself emits them in the generated stylesheet, not the order they appear in the `className`
+  attribute, so this can silently do nothing depending on build details. Rather than relying on
+  that, the dashboard's mood-log list and form container use plain `<div>`s with the same
+  visual styling (`rounded-2xl border border-border bg-surface p-6 shadow-sm`) copied
+  directly, without the width constraint — correct and unambiguous, at the small cost of a
+  little duplicated styling until `Card` is generalized (a natural candidate for Phase 5's
+  still-unbuilt shared-primitives cleanup, not something to force through here).
+
+### What was done
+
+1. **`frontend/src/components/MoodEntryForm.tsx` (new).** Five emoji mood buttons (1 Bad ↔ 5
+   Great, per requirements §6.2's exact wording), optional 1–5 energy/stress rating rows,
+   optional notes textarea, a `datetime-local` field defaulting to "now," and Save/Cancel
+   buttons. Submits directly via `apiFetch("/api/mood-logs", { method: "POST", ... })` and
+   calls `onSaved(log)` with the created row on success — no separate state-management layer,
+   consistent with how `LoginPage`/`RegisterPage` already call the API client directly rather
+   than through an intermediate store.
+2. **`frontend/src/pages/DashboardPage.tsx` (rewritten).** Fetches the user's mood logs on
+   mount (`GET /api/mood-logs`), shows a `+ Mood` button that reveals the form inline, prepends
+   newly-saved logs to the list, and lets each entry be deleted (optimistic removal from the
+   list, rolled back if the `DELETE` request fails).
+3. **Tests (`MoodEntryForm.test.tsx`).** Requiring a mood selection before submit is possible;
+   a full submission (mood + energy + notes) producing the exact expected request body and
+   calling `onSaved` with the server's response; a failed save showing a friendly error; Cancel
+   calling `onCancel`.
+4. **`npm test`** (frontend) — 18/18 passing (14 pre-existing, 4 new).
+5. **`npm run build`** (frontend) — compiled cleanly.
+6. **Real browser verification**, per the project's UI-change testing rule — not just tests and
+   a type-check. Started the actual compiled backend (`npm start`, working around the
+   pre-existing, previously-documented `ts-node-dev` crash) and the frontend dev server, then
+   drove a real headless Chromium browser through the full flow with a throwaway Playwright
+   script: register → land on Dashboard → open the mood form → select "Good," energy 4, add a
+   note → Save → confirm the entry actually appears in the list with the right emoji, values,
+   note, and timestamp → delete it → confirm the list returns to its empty state. No browser
+   console errors at any point. Screenshots taken at each step and visually reviewed, not just
+   asserted programmatically. Cleaned up the browser-created test user afterward and stopped
+   both manually-started servers.
+
+### Why it's needed
+
+This is the moment the mood-logging vertical slice becomes a real, usable feature rather than
+a set of individually-correct but disconnected pieces — the same significance the original
+login form had for the auth slice.
+
+### Decisions
+
+- **Inline on the Dashboard, not a modal.** The shared Quick Add modal (meant to serve all four
+  log types at once, per its own Phase 7 checklist item) doesn't exist yet, and building it just
+  for mood alone would mean redoing it once the other three log types arrive. An inline toggle
+  is simpler and doesn't foreclose that later, shared design.
+- **Delete only, no edit, in this slice.** Editing "reusing the same form pre-filled with
+  existing values" is its own explicit Tasks.md item, written to cover all four log types at
+  once — building a one-off version just for mood here would likely need reworking once that
+  broader task starts. Delete alone is enough to make the feature genuinely usable end to end
+  (create something, see it, remove it) without pre-building a piece of a not-yet-started task.
+- **Plain `<div>`s instead of forcing `Card` to fit.** Covered above — chosen over a
+  Tailwind class-override that isn't guaranteed to behave predictably.
+
+### State at end of this step
+
+A real user can register or log in, land on the Dashboard, log their mood with optional energy/
+stress/notes/backdated time, see it appear immediately, and delete it — verified directly in a
+real browser, not just via tests. This closes out the mood-logging vertical slice: Phase 2.7
+(auth middleware) → Phase 1.4 (model) → Phase 3.5 (endpoint) → Phase 7.3 (this task) are each
+their own PR, stacked in that order, and need merging in that same order once reviewed.
+
+### Verification
+
+- `npm test` (frontend, `vitest run`) — 18/18 passing (14 pre-existing, 4 new).
+- `npm run build` (frontend) — compiled cleanly.
+- Real headless-browser walkthrough (Playwright) against the actual running backend and
+  frontend dev servers: full register → log mood → view → delete cycle, screenshots reviewed
+  at each step, zero browser console errors.
+
+---
