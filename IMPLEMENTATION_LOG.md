@@ -1733,3 +1733,172 @@ whole sequence.
   #9 merged at, which is what pinpointed that this entry's own commit had arrived just after.
 
 ---
+
+## 2026-08-15 — Tooling: a GitHub ruleset that actually enforces "no direct pushes to `main`"
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — closes a gap the user noticed: GitHub
+itself was warning that `main` had no protection configured, meaning the "everything goes
+through a branch and a PR" rule this whole log has followed was, until now, only a written
+convention (`CLAUDE.md`) — nothing on GitHub's side actually stopped anyone (including an
+accidental `git push origin main`) from pushing straight to it.
+
+### Background / concepts
+
+#### Branch protection vs. a ruleset — GitHub has two overlapping systems
+
+- GitHub has an older feature called **"branch protection rules"** and a newer one called
+  **"rulesets"** that does mostly the same job with a more flexible, reusable design (one
+  ruleset can target multiple branches by pattern, e.g. "the default branch" specifically,
+  rather than a fixed name). Rulesets are the current recommended approach and are what got
+  configured here.
+- **What a ruleset actually is:** a named, structured list of rules attached to a
+  **condition** describing which branch(es) it applies to, plus an **enforcement status**
+  (`active` — actually enforced — vs. `disabled`/`evaluate`, the latter being a dry-run mode
+  that reports what *would* be blocked without blocking anything). This project's ruleset
+  targets `~DEFAULT_BRANCH` — a placeholder meaning "whichever branch is currently configured
+  as the repo's default" (`main` here) — rather than hard-coding the literal name `main`, so
+  it keeps working correctly even if the default branch were ever renamed later.
+
+#### The three specific rules chosen, and what each one actually blocks
+
+- **`deletion` (Restrict deletions):** without this, anyone with push access could run
+  `git push origin --delete main` and the branch — and, practically, the project's entire
+  history as far as GitHub is concerned — would simply be gone. Blocks that outright.
+- **`non_fast_forward` (Block force pushes):** a force push (`git push --force`) rewrites a
+  branch's history to something that isn't a simple continuation of what was there before —
+  this is exactly the kind of "destructive, hard-to-reverse" git operation flagged as
+  something to always confirm carefully before running, back in the very first turns of this
+  project. Blocking it on `main` specifically means that even a mistaken or malicious force
+  push from a machine with valid credentials can't silently rewrite the project's official
+  history.
+- **`pull_request` (Require a pull request before merging), with 0 required approvals:**
+  this is the one that actually enforces "no direct commits to `main`" — GitHub rejects *any*
+  push straight to `main` once this is active, full stop; the only way code reaches `main` is
+  by merging an already-open pull request through GitHub's merge button (or `gh pr merge`).
+  Required approvals was deliberately set to **0** rather than 1+: this repository has a
+  single collaborator (the project owner), and GitHub does not allow someone to approve their
+  own pull request — requiring 1 approval on a solo repo would make every PR permanently
+  unmergeable via the normal UI. Zero approvals still keeps the actual protection that
+  matters here (routing through a PR, getting a reviewable diff, no accidental direct
+  pushes) without demanding a second human who doesn't exist on this project.
+- **Left off, deliberately, for now:** *require status checks to pass* (there's no CI
+  pipeline yet — that's Phase 13) and *require linear history* (would force every PR to be
+  squashed or rebased rather than merged with a regular merge commit, which is how #7/#8/#9
+  were merged in the previous entry; no strong reason to forbid that yet).
+
+#### A GitHub account can have many tokens at once, and editing one never touches another
+
+- **A personal access token (fine-grained or classic) is just a long secret string, and an
+  account can have any number of them at the same time** — e.g. one created ages ago for a
+  different project or tool, one created specifically for this environment, one created by
+  accident while experimenting with token settings. GitHub's *Settings → Developer settings →
+  Fine-grained tokens* page lists every token the account owns, each with its own name,
+  its own separate list of permissions, and its own separate secret value — they don't share
+  settings with each other in any way, even though they all belong to the same GitHub
+  account and can all authenticate as the same user.
+- **Editing a token's permissions in that UI only ever changes *that one token*.** If two
+  tokens both exist, and only one of them is the actual value stored in this machine's
+  `GITHUB_TOKEN` environment variable, editing the *other* one's permissions has precisely
+  zero effect on what `gh api` requests are allowed to do — from the API's point of view,
+  nothing changed at all, because the token actually being sent with every request is
+  unmodified. This is exactly what happened here: see *What was done* below.
+
+### What was done
+
+1. Confirmed the gap first: `gh api repos/wheelyk/Wellbeing/rulesets` returned `[]` — no
+   rulesets existed at all, matching what GitHub's UI was warning about.
+2. Wrote the ruleset definition as a JSON file (target `~DEFAULT_BRANCH`, `enforcement:
+   "active"`, the three rules above) and attempted to create it via
+   `gh api repos/wheelyk/Wellbeing/rulesets -X POST --input ruleset.json` — the GitHub REST
+   API endpoint for managing rulesets, used directly rather than via a `gh` subcommand, since
+   `gh` doesn't have a dedicated ruleset-management command built in.
+3. **Hit a permissions wall, repeatedly.** The request failed with `403 Resource not
+   accessible by personal access token`. `gh auth status` showed the active credential is a
+   **fine-grained personal access token** (format `github_pat_...`, distinct from a classic
+   token, an OAuth token, or anything issued by Claude/Anthropic — this environment simply
+   reads whatever value is already stored in the `GITHUB_TOKEN` environment variable on this
+   machine, the same one used for every `gh pr create` throughout this log). Fine-grained
+   tokens are scoped permission-by-permission per repository, and creating a ruleset needs
+   the **Administration** permission specifically — a separate, more powerful permission
+   than the **Contents** and **Pull requests** permissions that had already been sufficient
+   for every git push and PR created so far.
+4. The user went to github.com (Settings → Developer settings → Fine-grained tokens) and
+   updated a token's permissions to add **Administration: Read and write**, then confirmed
+   saving it. The very next retry **still** failed with the identical 403.
+5. To investigate rather than keep blindly retrying, printed a partial fingerprint of the
+   token *actually being used* for these API calls (`github_pat_11AB...H23JxQ` — only the
+   first 15 and last 6 characters, deliberately not the full secret) so the user could
+   cross-check it against their token list.
+6. Retried twice more regardless, both still `403` — at this point still assumed to be a
+   propagation delay (permission changes on some systems take a short while to take effect
+   everywhere), so continuing to retry seemed reasonable.
+7. **The real cause, confirmed by the user afterward: the first edit was made to the wrong
+   token.** There was more than one fine-grained token on the account, and the one initially
+   opened and edited was a *different* token from the one whose value is actually stored in
+   this machine's `GITHUB_TOKEN` — see *Background* above for why that guarantees zero
+   effect. The fingerprint printed in step 5 was what let the user identify the mismatch:
+   comparing it against their token list showed the edited token didn't match. The user then
+   found and edited the *correct* token (the one matching that fingerprint) to add
+   **Administration: Read and write**.
+8. The next retry after editing the *correct* token **succeeded immediately** — no further
+   delay, no additional retries needed — returning the full created ruleset object, including
+   its id (`20886071`). This on its own is good evidence the earlier "maybe it just needs
+   time to propagate" theory was wrong: if propagation delay had been the real cause, the
+   *first* edit would eventually have started working too, on its own, without ever touching
+   a second token.
+9. Confirmed it stuck via `gh api repos/wheelyk/Wellbeing/rulesets`, which now listed exactly
+   the one ruleset, `enforcement: "active"`.
+
+### Why it's needed
+
+Everything in this log from the very first `git init` entry onward has followed "branch,
+then PR, then merge" — but until this step, that was enforced by nothing except the people
+(and Claude) involved choosing to follow it. A ruleset makes it structurally impossible to
+skip: even an accidental `git push origin main` from a future session, a future
+collaborator, or a moment of forgetting the convention now gets rejected by GitHub itself,
+rather than relying on everyone remembering `CLAUDE.md`. This matters more than usual for a
+project handling health data, where the PR/review step is a real safety net (per the earlier
+Phase 0 *Git Workflow* entry's reasoning), not just a tidiness preference.
+
+### Decisions
+
+- **0 required approvals, not 1+.** Covered under *Background* above — the correct number
+  for a solo-maintainer repo, since GitHub cannot let someone approve their own PR, and
+  demanding an approval that structurally can never happen would just lock out the merge
+  button entirely rather than add any real review step.
+- **Used the raw GitHub REST API (`gh api .../rulesets`) rather than the web UI**, since the
+  user asked to have this automated where possible — even though it turned out to need
+  several retries and a permissions change first, doing it this way leaves an exact,
+  reproducible JSON definition of the ruleset in this log, rather than a one-time set of UI
+  clicks that would be hard to reconstruct later if the ruleset ever needed to be recreated
+  (e.g. on a future repository).
+- **Didn't switch to a *fresh* (newly created) token** when the permission edit didn't
+  immediately take effect, per the user's explicit choice to keep retrying first — but the
+  actual fix that worked wasn't "just wait" either: it was identifying that the *existing*
+  token being edited wasn't the one actually in use, and editing the correct one instead. In
+  hindsight, printing the token fingerprint (step 5 above) should have been the very first
+  troubleshooting move, before any retries — it's what eventually solved this, and doing it
+  earlier would have skipped several rounds of retrying a permission change that could never
+  have worked no matter how long it waited.
+- **Left "require status checks" and "require linear history" off for now** — both are
+  reasonable *future* additions (the former once Phase 13 adds CI; the latter is purely a
+  history-style preference) rather than gaps in the actual protection this task was about.
+
+### State at end of this step
+
+`main` on GitHub now has an active ruleset (`main-protection`, id `20886071`) that: blocks
+deleting the branch, blocks force pushes to it, and rejects any push directly to it that
+isn't arriving via a merged pull request. Nothing about the day-to-day workflow changes —
+every task in this log has already been delivered via a feature branch and a PR — but that
+workflow is now backed by an actual enforcement mechanism instead of only a written
+convention.
+
+### Verification
+
+- `gh api repos/wheelyk/Wellbeing/rulesets -X POST --input ruleset.json` — eventually
+  returned `201`-equivalent success with the full created ruleset object (id `20886071`,
+  `enforcement: "active"`, all three configured rules present in the response).
+- `gh api repos/wheelyk/Wellbeing/rulesets` (a plain `GET`) — confirmed the ruleset is listed
+  and active, not just accepted-but-silently-dropped.
+
+---
