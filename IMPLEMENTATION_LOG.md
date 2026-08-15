@@ -4551,4 +4551,59 @@ real browser, at `https://wellbeing-blue.vercel.app`, can register and log in, a
 session is backed by a real Postgres database on Railway — not just two services that each
 independently return `200` while silently unable to talk to each other.
 
+### The access token + refresh token flow, explained step by step
+
+The refresh-token entry earlier in this log explains *why* each design choice was made
+(`HttpOnly`, rotation, separate secrets). What's missing so far is a plain walkthrough of how
+the two tokens actually work together over the lifetime of a single visit — worth spelling
+out now, using the exact production trace captured above as the concrete example.
+
+There are two tokens at play, and they exist because of a trade-off: a token that's easy to
+use on every request should also be one that doesn't matter much if it leaks, and a token
+that's dangerous if it leaks should be used as rarely as possible. One token can't be good at
+both, so this app uses two:
+
+1. **Register or log in.** The server checks the email/password, and if they're correct,
+   hands back *two* different tokens at once, each with a very different job:
+   - An **access token** — a short-lived pass (15 minutes) that proves "this request really
+     is from a logged-in user." It comes back in the JSON response body, and from here on the
+     frontend attaches it to every API request it makes (in an `Authorization` header). Any
+     endpoint that needs to know who's asking checks this token.
+   - A **refresh token** — a long-lived pass (7 days) whose *only* job is to be exchanged
+     later for a brand-new access token, so the user isn't forced to type their password again
+     every 15 minutes. Crucially, this one is never handed to the page's JavaScript at all —
+     it arrives only as the `HttpOnly` cookie seen in the trace above
+     (`Set-Cookie: refreshToken=...; HttpOnly; Secure; SameSite=Lax`), which the browser
+     stores and will keep sending automatically on future requests to `/api/auth/*`, without
+     any frontend code ever being able to read or copy it.
+2. **Using the app.** For the next 15 minutes, every request the frontend makes carries the
+   access token, and the backend trusts it without touching the database session at all — this
+   is the whole point of a JWT (JSON Web Token): it's cryptographically signed, so verifying it
+   is just checking a signature, not a database lookup.
+3. **The access token expires.** After 15 minutes, requests carrying it start failing with
+   `401 Unauthorized`. This is expected and is *not* meant to log the user out — it's meant to
+   trigger step 4 automatically, invisibly to the user.
+4. **The frontend calls `POST /api/auth/refresh`.** No body is needed — the browser has
+   already attached the `refreshToken` cookie automatically, because the browser handles
+   cookies itself, unlike the access token, which the frontend has to attach manually. As seen
+   in the trace above, the backend reads that cookie, verifies it, and responds with a brand
+   new access token — *and* silently overwrites the cookie with a brand new refresh token too
+   (rotation: a different token value than the one that was just sent in). The frontend swaps
+   in the new access token and retries whatever request originally got the `401`, and the user
+   never sees any of this happen.
+5. **This repeats for up to 7 days** without the user ever re-entering their password — each
+   refresh both extends the session and replaces the refresh token, so a single refresh token
+   value is only ever "live" for a short window of normal use.
+6. **Logging out** (`POST /api/auth/logout`) does the opposite of login: instead of setting the
+   cookie, it tells the browser to delete it immediately — the
+   `Set-Cookie: refreshToken=...; Expires=Thu, 01 Jan 1970...` seen in the trace above is the
+   standard way a server does this (a cookie with an expiry date in the past is deleted by the
+   browser right away). After this, even if someone still had the now-expired access token, no
+   new one can be minted, because there's no refresh token left to redeem.
+
+One thing worth naming plainly: this frontend/backend wiring for automatic refresh-on-401
+(the frontend piece of steps 3–4 above) is still a *later*, not-yet-built Tasks.md item —
+Phase 5/6's API client. Everything demonstrated in this entry was driven directly against the
+backend with `curl`, standing in for what that future frontend code will do automatically.
+
 ---
