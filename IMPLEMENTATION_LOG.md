@@ -2507,3 +2507,168 @@ got deleted — but a fresh CI checkout starts with nothing generated at all. Ad
   error page, and require no authentication (consistent with the repo being public).
 
 ---
+
+## 2026-08-15 — GitHub Actions, properly explained, and a before/after screenshot upgrade
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — refines the CI screenshot workflow per
+feedback: only run it when a PR actually touches the frontend, and show a **before** image
+(the PR's base branch) next to the **after** image (the PR's own code), not just "after."
+Also a proper explanation of what GitHub Actions actually is and can do, requested directly.
+
+### Background / concepts — GitHub Actions, from first principles
+
+This project's only GitHub Actions workflow so far (`pr-preview.yml`) has been explained
+piece by piece as it was built. Here's the fuller picture, since it was asked for directly.
+
+- **The problem CI solves.** Everything in this log up to the previous entry happened on one
+  person's laptop: builds, tests, manual browser checks. That works, but it depends on someone
+  remembering to actually run those checks, and running them the same way every time. **CI**
+  (Continuous Integration) means a *server* — not a person's laptop — automatically runs some
+  of those same checks whenever something relevant happens (most commonly: a commit is pushed,
+  or a pull request is opened/updated). **GitHub Actions** is GitHub's own built-in CI system,
+  free to use for public repositories like this one (with paid tiers for heavier usage on
+  private repos).
+- **A workflow is a YAML file that says "when X happens, do Y."** Any file under
+  `.github/workflows/` (any filename, `.yml` extension) is a workflow. The `on:` key names the
+  **trigger(s)** — this project's uses `pull_request`, but GitHub Actions supports many others
+  worth knowing exist even though this project doesn't use them yet: `push` (runs on every
+  push to matching branches — the standard "run my test suite on every commit" trigger),
+  `schedule` (cron-style, e.g. "run this every night" — useful for things like a nightly
+  dependency-vulnerability scan), `workflow_dispatch` (an explicit "Run workflow" button in
+  GitHub's UI, for things you want to trigger manually on demand), and `release` (runs when a
+  new GitHub release is published — a common place to trigger an actual deployment).
+- **A workflow contains one or more jobs; each job is a sequence of steps.** This project's
+  workflow has exactly one job (`screenshots`). Each **job** runs on its own fresh virtual
+  machine (`runs-on: ubuntu-latest` here — GitHub also offers Windows and macOS runners),
+  which is created new for that job and destroyed once it finishes — nothing persists between
+  separate job runs unless something is deliberately saved (see "artifacts and caching"
+  below). Multiple jobs in one workflow run in parallel by default, unless one explicitly
+  `needs:` another to finish first.
+- **A step is either a shell command or a reusable "action."** `run: npm ci` is a plain shell
+  command. `uses: actions/checkout@v4` instead runs a pre-built, reusable **action** — a
+  packaged piece of automation someone else wrote (in this case, GitHub itself), versioned
+  like a library dependency (`@v4`). This project's workflow uses three: `actions/checkout`
+  (clones the repo onto the runner — without it, the job starts with an empty filesystem),
+  `actions/setup-node` (installs a specific Node.js version), and `actions/github-script` — a
+  general-purpose action for running arbitrary JavaScript with a pre-authenticated GitHub API
+  client already set up (`github.rest...`), which is what posts/updates the PR comment.
+  Thousands of other actions exist in GitHub's Marketplace for things like deploying to a
+  cloud provider, running a linter, or sending a Slack notification — using one is usually far
+  less work than scripting the same thing from scratch in raw shell commands.
+  `actions/upload-artifact` (mentioned below, under "artifacts") is one more worth knowing
+  about even though this workflow doesn't use it.
+- **What else GitHub Actions can do, beyond what this project uses yet** (worth knowing the
+  shape of, for when they become relevant):
+  - **Required status checks.** Once this project has real tests running in CI (Phase 13),
+    the `main`-branch ruleset from the earlier entry could require that CI job to pass before
+    a PR is even mergeable — turning "please remember to run tests" into "GitHub simply won't
+    let this merge if tests fail."
+  - **Artifacts.** `actions/upload-artifact` saves files from a job as a downloadable zip
+    attached to that specific run — the simpler alternative to this project's orphan-branch
+    approach, considered and explicitly not chosen back in the previous entry specifically
+    because it doesn't show images *directly on the PR*.
+  - **Caching.** `actions/cache` can save `node_modules` (or similar) between runs so
+    `npm ci` doesn't redownload every dependency on every single run — a common speed
+    optimization once a project's CI usage grows large enough for it to matter.
+  - **Secrets.** Repository (or organization) **secrets**, configured in GitHub's UI, are
+    encrypted values a workflow can reference (`${{ secrets.SOME_NAME }}`) without ever
+    printing them in logs — the place a real deployment credential or a third-party API key
+    would live, as opposed to this workflow's JWT secrets, which are fine to generate fresh
+    on the spot each run since that database is thrown away when the job ends anyway.
+  - **Deployments.** A very common use of the `push`/`release` triggers is: run the test
+    suite, and if it passes, automatically deploy to a hosting platform — directly relevant
+    to this project's own Phase 14 ("deploy to the chosen hosting platform"), once that phase
+    arrives.
+
+### What changed in this step
+
+1. **Path-filtered triggering.** Added a `paths:` filter to the `pull_request` trigger:
+   ```yaml
+   on:
+     pull_request:
+       branches: [main]
+       paths:
+         - "frontend/**"
+         - ".github/workflows/pr-preview.yml"
+   ```
+   A PR that only touches `backend/` or documentation files no longer triggers this workflow
+   at all — there'd be nothing new for a screenshot to usefully show. The workflow file's own
+   path is included too, so a future change to the workflow itself can still be tested by
+   opening a PR that only touches this file.
+2. **Before/after comparison.** The backend now starts once and stays up for both captures
+   (reasonable specifically *because* the path filter above means a screenshot-triggering PR
+   changes frontend code only, in the common case — see *Decisions*). The frontend gets built
+   and served twice: once from the PR's own code ("after"), and once from a separate
+   `git worktree` checked out at the PR's **base** commit ("before") — reusing the *same*
+   capture script from the head checkout both times (pointed at whichever server is currently
+   running), rather than needing two copies of the script. This also sidesteps a real
+   chicken-and-egg problem: the base commit for *this very PR* doesn't have
+   `capture-pr-screenshots.mjs` yet, since this PR is what introduces it.
+3. **Graceful degradation when "before" isn't available.** Every "BEFORE:"-prefixed step is
+   marked `continue-on-error: true`, and later steps check `steps.before_checkout.outcome`
+   before attempting to run at all. The publish step only treats "before" as usable if it
+   finds **exactly** the 3 expected screenshots (not just "the folder isn't empty") — a
+   partial set (e.g. the base branch's app crashed partway through the flow) is treated the
+   same as "no before available" rather than silently showing a broken image for just one row.
+   The posted comment adapts its wording and layout accordingly: a two-column
+   **Before | After** Markdown table per screenshot when a comparison is available, or the
+   original single-image format with a note explaining why there's no comparison when it
+   isn't.
+4. **Validated the new branching logic locally** before trusting it to a real run, the same
+   way the original publish logic was validated in the previous entry: three scenarios against
+   throwaway git repos (all 3 "before" screenshots present → comparison table; "before" folder
+   entirely absent → after-only; only 2 of 3 "before" screenshots present → also correctly
+   treated as after-only, not a partially-broken table). Also extracted the PR-comment-building
+   JavaScript into a standalone script and ran it directly with `node` against both the
+   "with before" and "without before" cases, printing the actual Markdown each would produce,
+   to visually confirm the table and fallback formats are well-formed before relying on
+   GitHub Actions' own JS runner to be the first place either ever actually executes.
+
+### Why it's needed
+
+The original workflow ran on *every* PR and only ever showed "here's what it looks like now,"
+which is a weaker signal than "here's what changed" — a reviewer has to already know what the
+old page looked like to judge whether a visual change is correct. Restricting to
+frontend-touching PRs also avoids noise: a PR that only fixes a backend validation rule has no
+business getting a screenshot comment at all.
+
+### Decisions
+
+- **Reused the head commit's backend for both "before" and "after" frontend builds**, rather
+  than also checking out and rebuilding the backend at the base commit. Since this workflow
+  only triggers on PRs that touch `frontend/**` (per the new path filter), the backend is
+  identical between base and head in the overwhelming common case, so rebuilding it twice would
+  mostly just cost extra job time for no benefit. A PR that changes both frontend and backend
+  in one go is the one case where "before" technically compares against the wrong backend
+  version — accepted as a known, minor simplification rather than doubling the job's
+  complexity and runtime to handle an edge case.
+- **"Before" failures never fail the whole job**, only degrade the comment — a missing or
+  broken comparison shouldn't block a PR's CI status the way a *broken PR itself* (a failing
+  "after" capture) correctly still does. This asymmetry is deliberate: "after" represents the
+  actual change being reviewed and must work; "before" is a nice-to-have.
+- **Required exactly 3 "before" screenshots, not "at least 1."** A partially-captured before
+  state (e.g. the base branch's register form has since changed and the script only got
+  partway through) is arguably worse than no comparison at all, since a reviewer might
+  mistakenly read a missing "before" image as "nothing changed here" rather than "this
+  screenshot wasn't captured."
+
+### State at end of this step
+
+`pr-preview.yml` now only triggers on frontend-touching PRs, and produces a proper before/after
+comparison when possible, falling back cleanly to after-only when the base commit's frontend
+can't be built or run for comparison. Not yet verified against a real GitHub Actions run (that
+happens once this branch's own PR is opened, which — since it touches
+`.github/workflows/pr-preview.yml` — will itself trigger the very workflow being changed).
+
+### Verification
+
+- `npx js-yaml .github/workflows/pr-preview.yml` — valid YAML.
+- `bash -n` on the updated publish script — valid shell syntax.
+- Three local dry runs against throwaway git repos (full before/after, before entirely
+  missing, before partially present) — all three produced exactly the expected file layout.
+- The PR-comment-building JavaScript, run standalone with `node` against both `hasBefore: true`
+  and `hasBefore: false` — produced well-formed Markdown in both cases, including a correctly
+  structured Before/After table.
+- Not yet verified: an actual GitHub Actions run of the updated workflow.
+
+---
