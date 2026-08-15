@@ -4354,3 +4354,63 @@ visiting the generated domain directly and confirming `GET /api/health` responds
 every other endpoint in this project has been verified throughout this log.
 
 ---
+
+## 2026-08-15 — Confirmed live: the backend is genuinely reachable from the public internet
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — closing out the previous entry's
+prediction with an actual, real-world test, plus a direct answer on public vs. private
+networking.
+
+### Background / concepts
+
+#### Public vs. private networking, answered directly
+
+- **Public networking** means reachable from the internet at large — literally any device,
+  anywhere, that can make an HTTP request can reach `wellbeing-production-0b8f.up.railway.app`
+  now that it's been generated. This is the exact thing "Unexposed service" was warning was
+  *not* yet true, several entries back.
+- **Private networking** (`wellbeing.railway.internal`, visible in the same Networking screen)
+  is the opposite: reachable *only* from other services inside this same Railway project —
+  invisible to the public internet entirely, and invisible even to a different Railway project.
+  This is the mechanism that should keep the Postgres database itself safe: the backend reaches
+  it privately (over the `DATABASE_URL` variable reference set up two entries ago), and the
+  database should never get a public domain generated for it the way the backend just did — the
+  whole reason, explained back in the secrets/Postgres entry, that a database should never be
+  directly reachable from the internet, only through an application's own validation logic in
+  front of it.
+
+#### Why this was tested from an actual outside machine, not trusted from Railway's own dashboard
+
+- Every previous "is it actually working" check in this log has followed the same discipline:
+  don't trust a status badge or a UI label alone when a real, independent test is possible. The
+  generated domain was tested with a plain `curl` request from this laptop — a genuinely
+  separate machine, on the open internet, with no special access to Railway's own internal
+  view of things — specifically because that's the same vantage point any real future user
+  (or, eventually, the deployed frontend) would have. Railway's dashboard showing a domain as
+  configured is a claim; an external `curl` actually succeeding is proof.
+
+### What was done
+
+Ran `curl -s -w "\nHTTP %{http_code}\n" https://wellbeing-production-0b8f.up.railway.app/api/health`
+directly from this laptop (not from within Railway, not from any tool with special access) and
+confirmed a real `200 {"status":"ok"}` response.
+
+### Why it's needed
+
+This is the actual, final proof that everything built and fixed across this whole deployment
+effort — the Prisma client generation fix, the stranded-commit recovery, the database
+connection, the migration, the public domain — genuinely works end to end, from the actual
+public internet, not just according to Railway's own dashboard.
+
+### State at end of this step
+
+The backend is live, public, connected to a real database, and confirmed reachable from outside
+Railway entirely. `FRONTEND_URL` is still a placeholder (`http://localhost:5173`) pending the
+frontend's own deployment to Vercel — the natural next step.
+
+### Verification
+
+- `curl` from this laptop directly against the public Railway URL — `200 {"status":"ok"}`,
+  confirmed independently of Railway's own dashboard.
+
+---
