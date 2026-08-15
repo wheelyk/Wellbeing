@@ -3132,3 +3132,132 @@ on #16 or #17, which are already fully resolved). Correct next step: merge #18, 
   "merge four in a row" framing.
 
 ---
+
+## 2026-08-15 — `npm install`, lockfiles, generated Prisma code, and lifecycle hooks, from the ground up
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — a request to properly explain, for a
+beginner, everything actually going on in the `postinstall` fix from two entries ago: what
+`npm install` does step by step, what a lockfile ("the locking") actually is, what the
+generated Prisma client actually *is* as opposed to just "a folder that goes missing," and
+what an npm lifecycle hook is as a general mechanism, not just this one specific case.
+
+### Background / concepts
+
+#### What `npm install` actually does, step by step
+
+Every one of this project's `npm install`/`npm ci` runs — dozens of them by now across this
+log — has been treated as a single black-box step so far ("install the dependencies"). Here's
+what's actually happening inside it:
+
+1. **Read `package.json`'s dependency lists.** `dependencies` and `devDependencies` each list
+   package names and a version *range* (e.g. `"express": "^5.2.1"` — the `^` means "this
+   version or any newer compatible one," not necessarily that exact version).
+2. **Resolve exact versions.** Because ranges allow flexibility, and because installed
+   packages themselves depend on *other* packages (which depend on others, and so on — a real
+   dependency tree, often hundreds of packages deep for a modest project), npm has to work out
+   one single, consistent, exact version number for every package involved, resolving any
+   conflicts where two different packages want incompatible versions of some shared
+   dependency.
+3. **Download and write `node_modules/`.** Each resolved package's actual code gets downloaded
+   (or read from a local cache if already downloaded before) and placed into the
+   `node_modules/` folder — the same folder that's been git-ignored since the very first
+   backend-scaffold entry, precisely because it's large, fully reproducible from
+   `package.json`, and shouldn't be committed.
+4. **Run any lifecycle scripts** — covered in its own section below, since this is the part
+   directly relevant to the bug that was just fixed.
+
+#### What a lockfile is, and why "the locking" matters
+
+- **The problem a lockfile solves:** version *ranges* in `package.json` (`^5.2.1`) are
+  deliberately flexible — but that flexibility means two different `npm install` runs, on two
+  different days, could legitimately resolve to two *different* exact versions, even though
+  `package.json` itself never changed, simply because a newer compatible version of some
+  package was published in between. For an application that needs to behave identically in
+  development, in CI, and in production, that unpredictability is a real problem — subtle
+  bugs from "well, it worked on my machine" often trace back to exactly this.
+- **`package-lock.json`** (present in this project — `backend/package-lock.json` and
+  `frontend/package-lock.json`, both committed to git, unlike `node_modules/`) is npm's
+  solution: after resolving every package's exact version once, it writes the *entire*
+  resolved dependency tree — every package, its exact version, and where it came from — into
+  this one file. **This is "the locking":** as long as this file exists and matches
+  `package.json`, `npm ci` (specifically — "clean install," used throughout this project's own
+  GitHub Actions workflows and recommended for any automated build) installs *exactly* those
+  locked versions, every single time, on any machine, forever — not "whatever the ranges
+  happen to resolve to today."
+- **This is why `package-lock.json` is committed to git but `node_modules/` isn't:** the
+  lockfile is a small, readable *description* of exactly what should be installed; deleting it
+  and running `npm install` again can regenerate `node_modules/` byte-for-byte reproducibly
+  (well — reproducibly in terms of which package versions get installed; the lockfile is what
+  makes that reproducible rather than left to chance), whereas the actual downloaded package
+  code in `node_modules/` is large, and copy-pasting it into version control would be treating
+  a derived, regeneratable thing as if it were precious source code, the same reasoning
+  applied to `dist/` and the generated Prisma client itself.
+- **`hasInstallScript: true`**, the specific lockfile change from the previous entry, is simply
+  one more fact npm now records about this exact, locked dependency tree — "this package has a
+  lifecycle script that will run automatically" — relevant to the tooling that decides whether
+  those scripts are safe to run automatically, covered below.
+
+#### What the generated Prisma client actually *is*, concretely
+
+- This has been mentioned in passing since the original Phase 1/2 Prisma entry ("the generated
+  client is code, not something you hand-write"), but worth being fully concrete now that a
+  bug specifically about its *absence* has come up twice: `backend/prisma/schema.prisma` is a
+  human-written description of the data model (the `User` model, its fields, its types).
+  `npx prisma generate` reads that file and **writes brand new TypeScript source files** —
+  actual `.ts`/`.d.ts` files with real class and type definitions matching that schema exactly
+  — into `backend/src/generated/prisma/`. Every line of code inside that folder is
+  mechanically produced from `schema.prisma`; nobody types it by hand, and it changes
+  automatically the moment the schema changes and `generate` is re-run.
+- **This is exactly why it's git-ignored, and exactly why its absence broke two separate
+  builds.** Being reproducible-from-source is *why* it's excluded from git (the same rule as
+  `dist/` and `node_modules/`) — but that same fact means anywhere this project gets freshly
+  cloned (a new laptop, a GitHub Actions runner, Railway's build machine) starts with **no**
+  `backend/src/generated/prisma/` at all, and needs something to actually run
+  `npx prisma generate` before any code that does `import { PrismaClient } from
+  "../generated/prisma/client"` can possibly compile. Both build failures fixed so far in this
+  log were precisely that missing step, on two different platforms, independently.
+
+#### npm lifecycle hooks, as a general mechanism (not just this one case)
+
+- **`postinstall` is one of several specially-named scripts npm treats differently from
+  ordinary custom ones.** Every script this project has defined so far (`"dev"`, `"build"`,
+  `"start"`, `"test"`) only ever runs when explicitly asked for by name
+  (`npm run build`, or the two special-cased ones, `npm start`/`npm test`, without needing
+  `run`). **Lifecycle scripts are different: npm runs them automatically, by itself, at a
+  specific defined moment**, without ever being asked by name. `postinstall` specifically means
+  "run this automatically, immediately after `npm install`/`npm ci` finishes" — no command
+  anywhere in this project's own workflows, or in Railway's build process, ever explicitly
+  says "now run `prisma generate`" — npm does it unprompted, purely because that script exists
+  under that specific reserved name in `package.json`.
+- **Why this is the right fix, mechanically:** every single build environment this project has
+  ever run in — a developer's laptop, a GitHub Actions runner, Railway's build machine — starts
+  by running `npm install` or `npm ci` as an unavoidable first step (there is no way to get the
+  project's dependencies without it). Attaching the missing step to *that* moment, rather than
+  to `build` or to some platform's separate "build command" setting, guarantees it happens
+  everywhere `npm install` happens — which is to say, guaranteed to happen absolutely
+  everywhere this project could ever be built, present or future, without needing to remember
+  to configure it again per platform.
+- **The `npm approve-scripts` warning glimpsed in Railway's build log** belongs to a genuinely
+  separate npm feature worth knowing about, even though it wasn't what caused this particular
+  failure: newer npm versions can require a project to explicitly *approve* lifecycle scripts
+  that come from **third-party dependencies** (not the project's own `package.json`) before
+  running them automatically — a defense against a real, documented category of attack where a
+  malicious package publishes a `postinstall` script that silently runs harmful code the
+  moment anyone installs it. This project's own `postinstall` script (added in the previous
+  entry) is the project's *own* script, not a dependency's, so it isn't affected by that
+  particular protection — but it's exactly why lifecycle scripts as a mechanism are treated
+  with real caution industry-wide, not just an obscure npm setting.
+
+### Why it's needed
+
+The previous entry explained *what* was fixed and *why the fix was chosen*, at the level of
+"here's the bug, here's the fix, here's why this approach beats a platform-specific one." This
+entry exists to explain the actual mechanics underneath that fix in enough depth that none of
+`npm install`, lockfiles, generated code, or lifecycle hooks have to be taken on faith.
+
+### State at end of this step
+
+No code changes in this entry — purely a deeper explanatory pass over the mechanics behind the
+`postinstall` fix already made and pushed in this same branch/PR.
+
+---
