@@ -3261,3 +3261,115 @@ No code changes in this entry — purely a deeper explanatory pass over the mech
 `postinstall` fix already made and pushed in this same branch/PR.
 
 ---
+
+## 2026-08-15 — The real bug: `postinstall` never reached `main` at all (a stacked-PR gotcha), plus a more robust fix
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — Railway's rebuild failed with the
+*identical* error after PR #19 supposedly merged. The actual cause turned out to be a git
+workflow mistake, not anything wrong with the `postinstall` fix itself — though a second,
+independently-real improvement came out of investigating it anyway.
+
+### Background / concepts
+
+#### What actually happened: a stacked PR that never reached `main`
+
+- The earlier "stacked PRs" entries (#7–#9, and #16–#19) both explained and directly observed
+  GitHub's **retargeting** behavior: when a PR's base branch gets merged *and deleted*, GitHub
+  automatically repoints any PR still based on it to `main` instead. Both previous times this
+  was checked, it worked exactly as described.
+- **This time it didn't happen, because the precondition wasn't actually met.** PR #19's base
+  was `docs/railway-deploy-and-npm-explainer` (PR #18's branch). PR #18 merged — but its
+  branch was **not deleted** afterward (confirmed directly: `git branch -r` still shows
+  `origin/docs/railway-deploy-and-npm-explainer` existing right now). Retargeting is
+  triggered specifically by the base branch *disappearing* — a branch that merges but survives
+  doesn't trigger it. So PR #19's base silently stayed pointed at that now-merged-but-still-
+  alive branch, and clicking "merge" on #19 merged its commits **into that branch**, not into
+  `main`.
+- **GitHub's "MERGED" status was entirely accurate and still misleading in effect.** PR #19
+  genuinely was merged — just into the wrong destination. Checked directly:
+  `git merge-base --is-ancestor <PR19-merge-commit> main` returned **false**, and
+  `git log main..origin/docs/railway-deploy-and-npm-explainer` listed all six commits from
+  that PR — including the actual `postinstall` fix — sitting on a branch that was never itself
+  merged into `main`. This is why Railway kept failing with the *exact* same error: it was
+  building `main`, and `main` genuinely never received the fix, despite every PR involved
+  correctly showing as merged.
+- **The general lesson:** "is this PR merged?" and "did this PR's changes reach `main`?" are
+  two different questions for a stacked PR specifically — normally the same question, but only
+  reliably the same once the base branch is confirmed gone. Checking `git log main..<branch>`
+  directly (exactly as done here, and back in the earlier #16–#19 entry) is the way to verify
+  the second question rather than trusting the first as a proxy for it.
+
+#### The independently real second problem: `postinstall` likely wasn't the right mechanism for Railway anyway
+
+- While tracking this down, Railway's build log carried another clue worth taking seriously
+  even once the stranded-commit issue was found: `warn config production Use --omit=dev
+  instead` — language associated with npm skipping certain install behavior in
+  production-oriented environments. Combined with the earlier `npm approve-scripts` warning
+  (a real npm security feature that can restrict when lifecycle scripts run automatically),
+  there's a reasonable chance Railway's build environment wouldn't have reliably run a plain
+  `postinstall` hook even *if* it had actually reached `main` this time.
+- **Rather than relying on a lifecycle hook that might or might not fire** depending on exactly
+  which flags a given platform's install step happens to use, the more robust fix folds the
+  same command directly into the `build` script itself:
+  ```json
+  "build": "prisma generate && tsc"
+  ```
+  `npm run build` is unambiguous — it's explicitly invoked, by name, everywhere this project
+  gets built (locally, in CI, on Railway), unlike `postinstall`, which depends on *how*
+  `npm install`/`npm ci` happened to be invoked. This guarantees the generated client exists
+  immediately before `tsc` needs it, regardless of any platform-specific install behavior.
+  The `postinstall` script was left in place rather than removed — it's still correct and
+  harmless for the plain local-`npm install` case — but `build` no longer depends on it.
+
+### What was done
+
+1. Diagnosed the real cause using direct git inspection rather than trusting GitHub's "Merged"
+   label at face value: confirmed the branch survived, confirmed the merge commit isn't an
+   ancestor of `main`, and listed the exact stranded commits.
+2. Created a new branch directly from the stranded branch's tip
+   (`fix/land-stranded-postinstall-commits`, based on `origin/docs/railway-deploy-and-npm-explainer`)
+   to carry all six missing commits into a fresh PR targeting `main` directly this time.
+3. On that same branch, additionally changed `"build"` from `"tsc"` to
+   `"prisma generate && tsc"` — the more robust fix described above.
+4. **Verified locally, deliberately bypassing `npm install`/`postinstall` entirely this time**
+   — deleted both `src/generated/` and `dist/`, then ran only `npm run build` directly (not
+   `npm install` first) to prove the build script alone, with no help from any install hook,
+   regenerates the client and compiles successfully.
+5. Re-ran the full test suite — still 18/18 passing.
+
+### Why it's needed
+
+Without this, Railway would have kept failing indefinitely, and — worse — every future
+diagnosis attempt would have kept "confirming" the fix was merged (because it genuinely was,
+technically) while never explaining why the failure persisted, since the actual gap was in
+*where* it merged, not whether it did.
+
+### Decisions
+
+- **Landed the stranded commits via a fresh direct-to-`main` PR** rather than trying to
+  retroactively fix the orphaned branch's relationship to the merged one — simpler, and avoids
+  further compounding an already-confusing branch history with more corrective surgery.
+- **Kept both `postinstall` and the `build`-script fix**, rather than picking one — they're
+  not in conflict (running `prisma generate` twice is harmless and fast), and together they
+  cover both "however this project's dependencies get installed" and "however `build` gets
+  invoked," rather than betting on a single mechanism being reliable everywhere.
+
+### State at end of this step
+
+A new PR carries the six previously-stranded commits (including both Prisma fixes) directly
+into `main` this time. Not yet verified against a real Railway rebuild — that's the actual
+test, once this merges.
+
+### Verification
+
+- `git merge-base --is-ancestor <PR19-merge-sha> main` → confirmed `false`, proving the
+  earlier fix never reached `main` despite showing as merged.
+- `git log main..origin/docs/railway-deploy-and-npm-explainer` → listed the exact six stranded
+  commits directly, rather than guessing.
+- Deleted `backend/src/generated/` and `backend/dist/`, ran **only** `npm run build` (no
+  `npm install` first) — confirmed it alone regenerates the Prisma client and compiles
+  cleanly, proving the fix no longer depends on any install-time hook at all.
+- `npm test` — 18/18 passing, unchanged.
+- Not yet verified: an actual Railway rebuild once this new PR is merged.
+
+---
