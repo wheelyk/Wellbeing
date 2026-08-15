@@ -1,0 +1,106 @@
+import { Router } from "express";
+import { z } from "zod";
+import { prisma } from "../lib/prisma";
+
+const ratingField = z.number().int().min(1).max(5);
+
+const createSchema = z.object({
+  mood: ratingField,
+  energy: ratingField.nullable().optional(),
+  stress: ratingField.nullable().optional(),
+  notes: z.string().trim().min(1).optional(),
+  // Accepts an explicit past (or future) timestamp for backfilling; omitted entirely means
+  // "now", handled below rather than as a Zod default so "now" means the moment the request
+  // is actually processed, not schema-parse time.
+  loggedAt: z.string().datetime().optional(),
+});
+
+const updateSchema = createSchema.partial();
+
+export const moodLogsRouter = Router();
+
+moodLogsRouter.get("/", async (req, res) => {
+  const moodLogs = await prisma.moodLog.findMany({
+    where: { userId: req.userId },
+    orderBy: { loggedAt: "desc" },
+  });
+  res.json(moodLogs);
+});
+
+moodLogsRouter.post("/", async (req, res) => {
+  const parsed = createSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: {
+        message: "Invalid mood log",
+        code: "VALIDATION_ERROR",
+        details: parsed.error.flatten().fieldErrors,
+      },
+    });
+  }
+
+  const { mood, energy, stress, notes, loggedAt } = parsed.data;
+  const moodLog = await prisma.moodLog.create({
+    data: {
+      userId: req.userId as string,
+      mood,
+      energy,
+      stress,
+      notes,
+      ...(loggedAt ? { loggedAt: new Date(loggedAt) } : {}),
+    },
+  });
+
+  res.status(201).json(moodLog);
+});
+
+moodLogsRouter.patch("/:id", async (req, res) => {
+  const parsed = updateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: {
+        message: "Invalid mood log",
+        code: "VALIDATION_ERROR",
+        details: parsed.error.flatten().fieldErrors,
+      },
+    });
+  }
+
+  // findFirst scoped to userId (not just findUnique by id) so a log belonging to another
+  // user is treated as not found rather than confirming its existence via a 403 - the same
+  // "don't leak information to an unauthorized caller" principle already applied to login's
+  // undifferentiated INVALID_CREDENTIALS error.
+  const existing = await prisma.moodLog.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+  });
+  if (!existing) {
+    return res.status(404).json({
+      error: { message: "Mood log not found", code: "MOOD_LOG_NOT_FOUND" },
+    });
+  }
+
+  const { loggedAt, ...rest } = parsed.data;
+  const moodLog = await prisma.moodLog.update({
+    where: { id: existing.id },
+    data: {
+      ...rest,
+      ...(loggedAt ? { loggedAt: new Date(loggedAt) } : {}),
+    },
+  });
+
+  res.json(moodLog);
+});
+
+moodLogsRouter.delete("/:id", async (req, res) => {
+  const existing = await prisma.moodLog.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+  });
+  if (!existing) {
+    return res.status(404).json({
+      error: { message: "Mood log not found", code: "MOOD_LOG_NOT_FOUND" },
+    });
+  }
+
+  await prisma.moodLog.delete({ where: { id: existing.id } });
+  res.status(200).json({ message: "Deleted" });
+});
