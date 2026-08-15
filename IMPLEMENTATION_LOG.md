@@ -1902,3 +1902,129 @@ convention.
   and active, not just accepted-but-silently-dropped.
 
 ---
+
+## 2026-08-15 — Checking in: what's actually running, and what a PR-visible screenshot would take
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — the user asked "where are we, is
+anything visible if we run it," which is a good moment to explain both what's genuinely
+there right now and a documentation tool that was reached for but not available.
+
+### Background / concepts
+
+#### What "running the app" means for a project with two separate halves
+
+- As covered back in the very first *Big picture* section near the top of this log, this
+  project is two independent programs: the **backend** (an API with no visual appearance of
+  its own) and the **frontend** (the actual webpage a browser renders). "Running the app"
+  therefore means starting *both* — a database (Postgres, via Docker Compose), the backend
+  (`node dist/index.js`, listening on port `4000`), and the frontend (`vite`, serving on port
+  `5173`) — and checking each one the way its actual audience would: `curl`/API calls against
+  the backend, and an actual browser tab against the frontend.
+
+#### What was tried first: `chromium-cli`, and why a screenshot didn't happen
+
+- Claude Code has a general-purpose skill for "launch and verify the app is actually
+  working," which — for a browser-based frontend specifically — recommends driving a
+  headless (no visible window) Chromium browser via a tool called **`chromium-cli`**, then
+  saving a **screenshot** of whatever it rendered as proof. The idea: a screenshot is much
+  stronger evidence than "the server started without crashing" — it's proof of what a real
+  user would actually *see*.
+- **`chromium-cli` isn't installed in this environment** (`which chromium-cli` came back
+  empty) — it's an optional tool some environments have and this one doesn't. Rather than
+  spend time installing a new browser-automation dependency purely to prove out a page that's
+  currently just one line of static text (confirmed by reading `frontend/src/App.tsx`
+  directly — there's no dynamic behavior yet for a screenshot to meaningfully capture), the
+  fallback used instead was: start both real servers, `curl` each one directly, and read the
+  actual HTML/JSON each one returned — genuinely proving both are running and responding
+  correctly, just via text instead of a picture. A live end-to-end `POST /api/auth/register`
+  call was also made against the real running backend (and the test row cleaned up
+  afterward) as extra proof beyond just the health check.
+- **The honest gap:** text output can't show *layout, styling, or visual bugs* the way a
+  screenshot can. For this specific check, that gap didn't matter much (the page has no
+  layout to speak of yet), but it will start to matter a lot from Phase 5 onward, once real
+  UI — forms, buttons, the mood-picker's large visual controls specifically called out in
+  requirements §6.2/§8 — actually exists to look wrong or right.
+
+#### Could a PR *itself* show a screenshot, for a reviewer? (Advice, not implemented here)
+
+- **Yes — this is a well-established pattern**, usually called "visual review" or "preview
+  screenshots in CI," and it would fit naturally into this project once there's real UI to
+  show. The general shape: a CI job (GitHub Actions) runs on every PR, starts the frontend
+  the same way this check just did manually, drives it with a headless browser (Playwright,
+  the underlying engine `chromium-cli` wraps, is the standard tool for this in JS projects),
+  saves one or more screenshots, and then either uploads them as a downloadable **PR
+  artifact** or posts them directly as an **automated PR comment** so a reviewer sees the
+  actual rendered page without pulling the branch and running it locally themselves.
+- **Why this isn't set up yet, and roughly what it would take:** it depends on CI existing at
+  all, which is explicitly Phase 13's job (`Tasks.md` — automated tests, and by extension a
+  GitHub Actions workflow to run them). Adding screenshot-on-PR on top of that CI once it
+  exists would mean: installing Playwright as a dev dependency, writing a small script that
+  starts the dev server and captures one or more representative pages, and a GitHub Actions
+  step that runs that script and either uploads the images (`actions/upload-artifact`) or
+  posts them into the PR via the GitHub API/a community Action built for exactly this. None
+  of that exists yet — worth doing once Phase 5+ gives the frontend actual pages worth
+  screenshotting, not before.
+- **A lighter middle ground**, worth considering even before full CI screenshots: a human
+  (or Claude, manually, as was done in this session) pasting a screenshot directly into a PR
+  description or comment on GitHub is always possible right now, with zero setup — it's the
+  fully-automated-on-every-PR version that needs the CI investment described above.
+
+### What was done
+
+1. Confirmed Postgres was already running (`docker compose up -d postgres` — a no-op, it was
+   already up; `pg_isready` confirmed).
+2. Built and started the backend from its compiled output (`npm run build && node dist/index.js`
+   — not `npm run dev`, per the previously logged `ts-node-dev`/TypeScript 7 incompatibility).
+   Confirmed via `curl http://localhost:4000/api/health` → `{"status":"ok"}`.
+3. Started the frontend dev server (`npm run dev`, Vite) and confirmed via `curl
+   http://localhost:5173/` that it served the expected HTML shell (`<title>WellTrack</title>`).
+4. Attempted to use `chromium-cli` for an actual visual screenshot per *Background* above;
+   confirmed it isn't installed, and made the deliberate call not to install a new dependency
+   just to screenshot a single static heading — used direct HTTP verification instead.
+5. Made one more live round-trip against the real running backend (`POST /api/auth/register`)
+   to demonstrate the API is genuinely functional, not just "the process didn't crash" —
+   then deleted that test row via `psql`.
+6. Reported back to the user exactly what each half of the app currently shows, and left both
+   servers running afterward at the user's implicit interest in looking themselves, rather
+   than stopping them immediately the way every previous verification step in this log has
+   (each of which was a private check, not something the user was about to go look at).
+
+### Why it's needed
+
+"Is anything visible" is a completely reasonable question to ask partway through a project
+like this, and the honest answer — a fully working API with nothing to click yet — is easy to
+misread as "nothing's working" if it isn't explained clearly. This entry exists to make that
+gap legible: the backend genuinely works end-to-end (proven directly, again, above); the
+frontend showing almost nothing is a *sequencing* fact (Phase 5 hasn't started), not a *bug*.
+
+### Decisions
+
+- **Didn't install `chromium-cli`/Playwright just for this check.** The cost (a new
+  dependency, browser binaries to download) wasn't justified by what it would have proven
+  right now (a screenshot of one line of static text) — text-based verification (`curl`,
+  reading the HTML/JSON directly) was equally conclusive for the current state of the app.
+  This will be worth revisiting once Phase 5 gives the frontend real pages.
+- **Advised on PR-visible screenshots as a future addition, not something to build now** —
+  it's a real, common, worthwhile pattern, but it depends on CI existing first (Phase 13),
+  and is far more valuable once there's actual UI to show reviewers rather than a blank
+  placeholder page.
+- **Left both dev servers running** after this check, rather than stopping them immediately
+  as every prior manual verification in this log has done — because this check's entire
+  purpose was for the user to go look themselves afterward, unlike previous checks, which
+  were private confirmations of code Claude had just written.
+
+### State at end of this step
+
+Backend and frontend are both running locally (ports `4000` and `5173`). No code changed in
+this step — this was purely a status check and a documentation entry, not a build task.
+
+### Verification
+
+- `curl http://localhost:4000/api/health` → `{"status":"ok"}`.
+- `curl -X POST http://localhost:4000/api/auth/register ...` → `201`, a real created user,
+  cleaned up afterward via `psql`.
+- `curl http://localhost:5173/` → the expected static HTML shell, `<title>WellTrack</title>`.
+- Read `frontend/src/App.tsx` directly to confirm, in source, that the single rendered
+  heading really is the entire current UI — not just what happened to load in this check.
+
+---
