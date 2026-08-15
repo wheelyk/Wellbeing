@@ -12,6 +12,12 @@ function uniqueEmail(label: string) {
 
 const createdEmails: string[] = [];
 
+function getCookie(res: request.Response, name: string): string | undefined {
+  const raw = res.headers["set-cookie"] as unknown as string[] | undefined;
+  const match = raw?.find((c) => c.startsWith(`${name}=`));
+  return match?.split(";")[0].split("=")[1];
+}
+
 describe("POST /api/auth/register", () => {
   it("creates a new user and never returns the password hash", async () => {
     const email = uniqueEmail("success");
@@ -88,7 +94,7 @@ describe("POST /api/auth/register", () => {
 });
 
 describe("POST /api/auth/login", () => {
-  it("logs in with correct credentials and returns valid access + refresh tokens", async () => {
+  it("logs in with correct credentials, returns an access token, and sets a refresh cookie", async () => {
     const email = uniqueEmail("login-success");
     createdEmails.push(email);
 
@@ -103,17 +109,26 @@ describe("POST /api/auth/login", () => {
     expect(res.status).toBe(200);
     expect(res.body.user).toMatchObject({ email, displayName: "Login Test" });
     expect(res.body.user.passwordHash).toBeUndefined();
+    expect(res.body.refreshToken).toBeUndefined();
 
     const accessPayload = jwt.verify(
       res.body.accessToken,
       process.env.JWT_ACCESS_SECRET as string,
     ) as jwt.JwtPayload;
+    expect(accessPayload.sub).toBe(res.body.user.id);
+
+    const refreshCookie = getCookie(res, "refreshToken");
+    expect(refreshCookie).toBeDefined();
+    const setCookieHeader = (res.headers["set-cookie"] as unknown as string[]).find((c) =>
+      c.startsWith("refreshToken="),
+    ) as string;
+    expect(setCookieHeader).toMatch(/HttpOnly/);
+    expect(setCookieHeader).toMatch(/Path=\/api\/auth/);
+
     const refreshPayload = jwt.verify(
-      res.body.refreshToken,
+      refreshCookie as string,
       process.env.JWT_REFRESH_SECRET as string,
     ) as jwt.JwtPayload;
-
-    expect(accessPayload.sub).toBe(res.body.user.id);
     expect(refreshPayload.sub).toBe(res.body.user.id);
     expect(refreshPayload.exp).toBeGreaterThan(accessPayload.exp as number);
   });
@@ -157,6 +172,90 @@ describe("POST /api/auth/login", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe("VALIDATION_ERROR");
+  });
+});
+
+describe("POST /api/auth/refresh", () => {
+  async function loginAndGetRefreshCookie(label: string) {
+    const email = uniqueEmail(label);
+    createdEmails.push(email);
+
+    await request(app).post("/api/auth/register").send({ email, password: "Sup3rSecret" });
+    const loginRes = await request(app)
+      .post("/api/auth/login")
+      .send({ email, password: "Sup3rSecret" });
+
+    return { email, userId: loginRes.body.user.id, refreshCookie: getCookie(loginRes, "refreshToken") as string };
+  }
+
+  it("issues a new access token and rotates the refresh cookie", async () => {
+    const { userId, refreshCookie } = await loginAndGetRefreshCookie("refresh-success");
+
+    const res = await request(app)
+      .post("/api/auth/refresh")
+      .set("Cookie", `refreshToken=${refreshCookie}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.refreshToken).toBeUndefined();
+
+    const accessPayload = jwt.verify(
+      res.body.accessToken,
+      process.env.JWT_ACCESS_SECRET as string,
+    ) as jwt.JwtPayload;
+    expect(accessPayload.sub).toBe(userId);
+
+    const newRefreshCookie = getCookie(res, "refreshToken");
+    expect(newRefreshCookie).toBeDefined();
+    const rotatedPayload = jwt.verify(
+      newRefreshCookie as string,
+      process.env.JWT_REFRESH_SECRET as string,
+    ) as jwt.JwtPayload;
+    expect(rotatedPayload.sub).toBe(userId);
+  });
+
+  it("rejects a missing refresh cookie with 401", async () => {
+    const res = await request(app).post("/api/auth/refresh");
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("MISSING_REFRESH_TOKEN");
+  });
+
+  it("rejects a garbage refresh token with 401 and clears the cookie", async () => {
+    const res = await request(app)
+      .post("/api/auth/refresh")
+      .set("Cookie", "refreshToken=not-a-real-token");
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("INVALID_REFRESH_TOKEN");
+    const clearedCookie = (res.headers["set-cookie"] as unknown as string[]).find((c) =>
+      c.startsWith("refreshToken="),
+    );
+    expect(clearedCookie).toMatch(/refreshToken=;/);
+  });
+
+  it("rejects a token signed with the access-token secret with 401", async () => {
+    const forged = jwt.sign({ sub: "00000000-0000-0000-0000-000000000000" }, process.env
+      .JWT_ACCESS_SECRET as string);
+
+    const res = await request(app)
+      .post("/api/auth/refresh")
+      .set("Cookie", `refreshToken=${forged}`);
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("INVALID_REFRESH_TOKEN");
+  });
+
+  it("rejects a well-formed refresh token for a deleted user with 401", async () => {
+    const { email, refreshCookie } = await loginAndGetRefreshCookie("refresh-deleted-user");
+    await prisma.user.delete({ where: { email } });
+    createdEmails.splice(createdEmails.indexOf(email), 1);
+
+    const res = await request(app)
+      .post("/api/auth/refresh")
+      .set("Cookie", `refreshToken=${refreshCookie}`);
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("INVALID_REFRESH_TOKEN");
   });
 });
 
