@@ -3657,3 +3657,115 @@ test, once this merges.
 - Not yet verified: an actual Railway rebuild once this new PR is merged.
 
 ---
+
+## 2026-08-15 — Auditing every branch for stragglers, and finding one that had been missing since PR #1
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — after PR #20 was confirmed merged, the
+user asked directly: "check for straggling files." Rather than checking only the one branch
+just worked on, every branch in the repository was checked — and turned up three real cases,
+one of them far older than expected.
+
+### Background / concepts
+
+#### Why "check the one branch I was just working on" isn't good enough
+
+- The previous entry's fix specifically addressed PR #19's stranding. But the *cause* of that
+  stranding — a stacked PR whose base branch merged without being deleted — isn't something
+  that only happens once. **The right question wasn't "is #19's content on `main` now,"** it
+  was "has this happened anywhere else in this repository's entire history, undetected." A
+  targeted fix for one confirmed instance says nothing about whether the same mistake happened
+  quietly, elsewhere, earlier — the only way to know is to check *everything*, not just the
+  branch already under suspicion.
+- **The method:** for every remote branch, compare it against `main` with
+  `git log origin/main..origin/<branch>` — this lists every commit that exists on that branch
+  but is *not* an ancestor of `main`. A clean branch (fully merged, or never diverged) shows
+  zero commits. Any nonzero result is either a real straggler or a branch that's deliberately
+  meant to stay separate (like `pr-screenshots`, the orphan branch backing the CI screenshot
+  workflow — expected to always show commits here, since it's never supposed to merge into
+  `main` at all).
+
+#### What the audit actually found
+
+| Branch | Stranded commit(s) | Origin |
+| ------ | ------------------- | ------ |
+| `frontend/scaffold` | `bc5efb8` — "Document GitHub CLI install/auth..." | **From the PR #1 era** — pushed after PR #1 had already merged, and never picked up by any later PR. Sat undiscovered for the entire rest of this conversation until this direct audit. |
+| `docs/hosting-and-domains-explainer` | `4cf9923` — "docs: explain build artifacts..." | PR #17, the exact same stacked-PR-base-not-deleted pattern diagnosed for PR #19 two entries ago — just not previously checked for. |
+| `fix/land-stranded-postinstall-commits` | `1849826` — the beginner-friendly expansion of the merge-gotcha entry | A simple timing race: this commit was pushed roughly 43 seconds *after* the user clicked merge on PR #20, confirmed by comparing the commit's timestamp against the PR's `mergedAt` directly rather than assuming. |
+
+- **The `frontend/scaffold` case is the most notable one.** It predates every other entry in
+  this log about stranded commits — including the entry that first explained what a stranded
+  commit even *is* (the "moving a file onto its own branch" `CLAUDE.md` entry, and the later
+  #7–#9 stacked-PR entry). In other words: this exact failure mode happened once, quietly,
+  before it was ever even named or understood — and then kept happening a few more times after
+  it *was* understood, simply because nobody had gone back to check whether the first,
+  unrecognized occurrence had ever actually been fixed. It hadn't.
+- **Distinguishing a real straggler from `pr-screenshots`.** The screenshot-hosting branch
+  showed up in the same scan with several commits "not in `main`" — but that's expected and
+  correct, not a bug: it's a deliberate orphan branch (explained in the CI screenshot entry)
+  that exists purely to host image files for PR comments, and was never meant to merge into
+  `main` at all. Distinguishing "expected to diverge forever, by design" from "accidentally
+  never merged" is exactly what reading each result rather than reacting to a nonzero count
+  requires.
+
+#### How each was actually landed
+
+- **`bc5efb8` and `4cf9923`** (both pure `IMPLEMENTATION_LOG.md` additions, from points in
+  history where the file looked very different from its current, much longer state) were
+  **cherry-picked** onto a fresh branch from current `main`, rather than branched from their
+  original stale tips — branching from the stale tip would have carried along an entire
+  outdated snapshot of the file, guaranteeing a massive conflict against everything added
+  since. `git cherry-pick <commit>` instead takes just *that one commit's diff* and reapplies
+  it against whatever `main` looks like right now.
+- **`bc5efb8` cherry-picked cleanly** — its insertion point (the end of the file, at the time)
+  hadn't itself been altered since, only extended after, so the patch still applied without
+  conflict even though hundreds of lines had been added beneath it since.
+- **`4cf9923` conflicted**, because its intended insertion point — right after the "hosting and
+  domains" entry — now had *different* new content already sitting there (the "First real
+  Railway deploy attempt" entry, correctly landed via PR #18). Resolving it meant manually
+  placing the recovered entry in its correct chronological position (before the Railway-deploy
+  entry, which is where it was always meant to sit) rather than wherever the automatic merge
+  attempt happened to leave it.
+- **`1849826`** cherry-picked cleanly, as the newest and simplest of the three.
+
+### Why it's needed
+
+A one-off fix for the specific branch that happened to be visibly broken doesn't answer "is
+anything else quietly broken too" — and this audit's own results prove that question was worth
+asking: two of the three findings would never have been caught by only checking PR #19's
+branch specifically, and one of them had been sitting unnoticed since essentially the
+beginning of this project's git history.
+
+### Decisions
+
+- **Audited every branch, not just the one under suspicion**, once asked to check for
+  stragglers — the cheap, mechanical cost of checking all of them is trivial compared to the
+  cost of a fourth silent failure surfacing weeks from now with no memory of why.
+- **Cherry-picked rather than re-branching from stale tips**, specifically because this
+  project's `IMPLEMENTATION_LOG.md` grows continuously and any old branch's snapshot of it is
+  guaranteed to be badly out of date by now — cherry-pick isolates just the one relevant change
+  instead of dragging along an entire obsolete file state.
+- **Resolved the one real conflict by hand, choosing correct chronological placement**, rather
+  than accepting whichever side a mechanical merge tool would have picked by default — since
+  this file's entries are meant to read in order, silently misplacing one would have left the
+  log itself confusing for exactly the kind of reader (a beginner reading it end to end) it's
+  written for.
+
+### State at end of this step
+
+All three previously-stranded commits are captured on this one branch, ready to land in a
+single PR directly into `main`. A full-repository audit (`git log origin/main..<branch>` for
+every remote branch) found no further stragglers beyond these three and the expected,
+by-design exception (`pr-screenshots`).
+
+### Verification
+
+- `git log origin/main..origin/<branch>` run against **every** remote branch, not just the one
+  branch already suspected — this is what surfaced `frontend/scaffold`'s long-dormant straggler,
+  which nothing narrower would have found.
+- For the PR #20 timing question specifically: compared the stranded commit's actual authored
+  timestamp against the PR's `mergedAt` field directly (43 seconds apart) rather than assuming
+  a cause from the symptom alone.
+- After cherry-picking all three: re-ran the same full-repository scan again, confirming the
+  only remaining nonzero result was the expected, by-design `pr-screenshots` branch.
+
+---
