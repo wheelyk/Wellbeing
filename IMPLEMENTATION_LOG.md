@@ -1489,3 +1489,108 @@ nothing clears a refresh cookie except a failed refresh attempt.
 - Confirmed via `psql` that the manually-created test user was removed afterward.
 
 ---
+
+## 2026-08-15 — Phase 2: `POST /api/auth/logout`
+
+**Task:** [Tasks.md](Tasks.md) → Phase 2 → "Implement `POST /api/auth/logout` — invalidate/
+clear the refresh token."
+
+**Delivered via branch:** `feature/2.4-auth-logout` (branched from `feature/2.3-auth-refresh`,
+for the same reason as that branch was stacked on `feature/2.2-auth-login` — it depends on
+`clearRefreshTokenCookie` from 2.3's `lib/cookies.ts`, and #7/#8 weren't merged yet).
+
+### Background / concepts
+
+#### Why "invalidate" a stateless JWT just means "stop sending it"
+
+- **There's no server-side session record to delete.** A traditional session-based login
+  stores a session ID in a database table, and logging out means deleting that row — after
+  that, the session ID is provably useless even if someone still has it. This app's tokens
+  are stateless JWTs instead (see the 2.2 entry's *Background*): the server never stores
+  "which tokens are currently valid" anywhere, it just verifies signatures on demand. That
+  means there is no row to delete, and by extension no way to make a *specific* already-issued
+  refresh token stop working before its natural 7-day expiry — the server has no record of it
+  existing in the first place.
+- **So what does logout actually do here?** It clears the `HttpOnly` refresh cookie via
+  `Set-Cookie: refreshToken=; Expires=<epoch>` (`clearRefreshTokenCookie`, already built in
+  2.3). The *browser* then stops attaching the cookie to future requests, which in practice is
+  what "being logged out" means for the legitimate user on that device — they can no longer
+  reach `/api/auth/refresh` without logging in again. This is a real, meaningful action (the
+  same-device, same-browser case that "click logout" is actually for), just not the same
+  *kind* of guarantee a server-side session deletion gives (which would also stop a copied,
+  still-cookied token from working on a *different* device). That gap is a known, accepted
+  consequence of the stateless design chosen in 2.2/2.3, not something this task was expected
+  to close — closing it would mean building the server-side revocation list explicitly
+  deferred in 2.3's *Decisions*.
+
+### What was done
+
+1. **`POST /api/auth/logout` route**, added to `routes/auth.ts`: calls
+   `clearRefreshTokenCookie(res)` and returns `200 { message: "Logged out" }`. No request body,
+   no auth requirement (per *Background*, above — there's no session to check, so there's
+   nothing to reject even from a request with no cookie at all; calling it is always safe).
+2. **Tests.** Added a `POST /api/auth/logout` block to `routes/auth.test.ts`:
+   - The main case uses `request.agent(app)` (supertest/superagent's cookie-jar-aware client)
+     instead of the plain `request(app)` the other tests use, specifically because this is the
+     first test where the thing being verified — "the *next* request from the same client
+     no longer carries the cookie" — depends on a real cookie jar reacting to a `Set-Cookie`
+     header, not just inspecting one response in isolation. The agent registers, logs in,
+     calls logout, then calls `/api/auth/refresh` again with no manual cookie handling — and
+     that final call getting `401 MISSING_REFRESH_TOKEN` is the actual proof the clear worked,
+     the same way a real browser would behave.
+   - A second test confirms logout still returns `200` when called with no cookie at all
+     (e.g. double-clicking logout, or calling it while already logged out) — since there's no
+     session state to be "wrong" about, there's nothing to 401 on.
+3. **`npm test`** — 18/18 passing (16 pre-existing, 2 new logout tests).
+4. **`npm run build`** — compiled cleanly.
+5. **Manual end-to-end check against the compiled server**, via `curl` with a cookie jar
+   (`-b`/`-c` against the same file): registered a user, logged in (confirmed the refresh
+   cookie present in the jar), called logout (`200 { message: "Logged out" }`, `Set-Cookie`
+   header showed the epoch-expiry clear, and the cookie jar file itself no longer contained a
+   `refreshToken` line afterward), then called `/api/auth/refresh` using the now-cleared jar
+   and got `401 MISSING_REFRESH_TOKEN` — i.e. the same round-trip the agent-based test
+   automates, reproduced manually against the real compiled server. Cleaned up the
+   manually-created user afterward via `psql` and stopped the manually-started server.
+
+### Why it's needed
+
+Registration, login, and refresh (2.1–2.3) only ever *start or extend* a session — logout is
+the first endpoint that lets a user deliberately end one, which requirements §5 and the
+Definition of Done checklist ("Register, log in, log out, ... all work end-to-end") both call
+out as a baseline expectation. It also directly unblocks Phase 6's frontend "Logout action
+(clears session, calls `/api/auth/logout`)" task, which just needs this endpoint to exist and
+behave the way it now does.
+
+### Decisions
+
+- **No request body, no auth check.** Nothing about "log this session out" needs the caller to
+  prove who they are first — clearing a cookie that may or may not exist is harmless either
+  way, and requiring a valid access token here would just add a failure mode (an already-
+  expired access token) to an action that should always succeed. This mirrors login/refresh's
+  general pattern of only rejecting requests when rejecting is actually meaningful.
+- **Did not build server-side token revocation (a denylist/allowlist of issued refresh
+  tokens) to make logout "really" invalidate the token everywhere.** Consistent with 2.3's
+  same call on rotation — the added complexity (a database table, checking it on every
+  refresh) is a deliberate, documented gap against this MVP's threat model, not an oversight.
+  If a future task needs "log out this account on all devices," that's the point where this
+  would need to be revisited.
+
+### State at end of this step
+
+`POST /api/auth/logout` is live: it always returns `200` and clears the refresh cookie when
+one exists. Combined with 2.1–2.3, the full local login lifecycle now works end-to-end at the
+API level: register → log in (access token + refresh cookie) → refresh (rotate for a new
+access token) → log out (cookie cleared, further refresh attempts rejected). Forgot/reset
+password (2.5–2.6) are the remaining pieces before Phase 2's core auth flow is complete.
+
+### Verification
+
+- `npm test` (`vitest run`) — 18/18 tests passing (16 pre-existing, 2 new), against the real
+  local Postgres container.
+- `npm run build` — compiled cleanly.
+- Manual `curl` round-trip against the compiled server, using a real cookie jar file: register
+  → login (cookie present in jar) → logout (cookie cleared in jar, confirmed by re-inspecting
+  the jar file) → refresh with the now-cookie-less jar (401 `MISSING_REFRESH_TOKEN`).
+- Confirmed via `psql` that the manually-created test user was removed afterward.
+
+---

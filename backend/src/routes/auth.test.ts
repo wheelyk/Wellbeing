@@ -259,6 +259,40 @@ describe("POST /api/auth/refresh", () => {
   });
 });
 
+describe("POST /api/auth/logout", () => {
+  it("clears the refresh cookie so a real browser-like client stops sending it", async () => {
+    const email = uniqueEmail("logout-success");
+    createdEmails.push(email);
+
+    // supertest's plain `request(app)` sends one request per call with no memory of
+    // previous responses' Set-Cookie headers — fine for the other tests, which each set
+    // the cookie explicitly, but logout's whole effect *is* changing what a browser sends
+    // on the *next* request, which needs an agent that behaves like a real cookie jar.
+    const agent = request.agent(app);
+    await agent.post("/api/auth/register").send({ email, password: "Sup3rSecret" });
+    await agent.post("/api/auth/login").send({ email, password: "Sup3rSecret" });
+
+    const logoutRes = await agent.post("/api/auth/logout");
+    expect(logoutRes.status).toBe(200);
+    const clearedCookie = (logoutRes.headers["set-cookie"] as unknown as string[]).find((c) =>
+      c.startsWith("refreshToken="),
+    );
+    expect(clearedCookie).toMatch(/refreshToken=;/);
+
+    // The agent has now dropped the cookie (per the Set-Cookie clear above), so this
+    // reproduces what a real logged-out browser would send: nothing.
+    const refreshAfterLogout = await agent.post("/api/auth/refresh");
+    expect(refreshAfterLogout.status).toBe(401);
+    expect(refreshAfterLogout.body.error.code).toBe("MISSING_REFRESH_TOKEN");
+  });
+
+  it("succeeds even when no refresh cookie is present", async () => {
+    const res = await request(app).post("/api/auth/logout");
+
+    expect(res.status).toBe(200);
+  });
+});
+
 afterAll(async () => {
   await prisma.user.deleteMany({ where: { email: { in: createdEmails } } });
   await prisma.$disconnect();
