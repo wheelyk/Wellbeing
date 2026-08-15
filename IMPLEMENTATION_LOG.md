@@ -3769,3 +3769,86 @@ by-design exception (`pr-screenshots`).
   only remaining nonzero result was the expected, by-design `pr-screenshots` branch.
 
 ---
+
+## 2026-08-15 — The first successful Railway build — what it actually means, and how auto-deploy works
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — after merging PR #21, Railway's build
+finally succeeded (all four phases green). Explains what that genuinely does and doesn't mean
+yet, and the mechanics of how merging a PR turned into a real deployment automatically.
+
+### Background / concepts
+
+#### What "Deployment successful" actually confirmed — and what it didn't
+
+- The build going green means something real and specific: the exact bug chased across the
+  last several entries (the missing generated Prisma client, then the stranded-commit
+  discovery, then the hardened `build` script) is genuinely fixed. `npm run build` completed,
+  `node dist/index.js` started, and the process didn't immediately crash.
+- **It does not yet mean the app is reachable from the internet, or fully working.** Two
+  separate gaps, both visible directly in Railway's own UI:
+  - **"Unexposed service"** — Railway services are **private by default**, reachable only from
+    other services *inside the same Railway project*, not from the public internet, unless
+    public networking is explicitly turned on for that service (generating a real
+    `https://something.up.railway.app` URL, or a custom domain per the earlier hosting/DNS
+    entry). Nothing about a successful build changes this — exposure is a separate,
+    deliberate setting.
+  - **No database or environment variables configured yet.** This Railway project doesn't
+    have a Postgres service attached, and none of `DATABASE_URL`, `JWT_ACCESS_SECRET`,
+    `JWT_REFRESH_SECRET`, or `FRONTEND_URL` have been set. The server can still start and
+    listen without any of these — `app.listen()` doesn't touch the database — so
+    `GET /api/health` would actually work once exposed, but `register`/`login` would fail the
+    moment they tried to reach a database that isn't there.
+- **The honest one-sentence summary:** the code is now provably deployable — the exact thing
+  that was broken is fixed and confirmed working on real infrastructure — but "deployable" and
+  "deployed and usable" are still two different states, and the remaining gap (exposure +
+  database + secrets) is ordinary, expected setup work, not a new bug.
+
+#### How merging a PR turned into an automatic deployment, mechanically
+
+- This is the git-based Continuous Deployment mechanism described in general terms back in the
+  "build artifacts and deployment" entry, now observed actually happening: Railway's service
+  settings have **"Auto deploys when pushed to GitHub"** enabled (seen directly, back when the
+  Root Directory setting was first located), watching the `main` branch specifically (shown as
+  "Branch connected to production" in that same settings screen).
+- **The trigger is a webhook, set up automatically when the GitHub repo was connected.** A
+  webhook is GitHub notifying an outside service, over the internet, the instant something
+  happens in a repository — in this case, "a push landed on `main`." Every PR merge is, from
+  git's point of view, just a particular kind of push to `main` (a merge commit combining the
+  PR's branch into it) — so merging PR #21 through GitHub's UI produced exactly the same
+  "something was pushed to `main`" event as typing `git push origin main` by hand would have.
+  Railway's webhook received that event within seconds, which is why the deployment log showed
+  **"Merge pull request #21 from wheelyk/do..., 41 seconds ago"** as the direct cause of the
+  new build — the merge *was* the trigger, automatically, with nobody separately telling
+  Railway "now go build this."
+- **This is the same mechanism, working correctly, that caused the earlier "docs-only PRs kept
+  triggering unnecessary rebuilds" observation** a few entries back — every merge to `main`
+  triggers this webhook indiscriminately, whether the change was app code or just a log entry.
+  Scoping *which* changes trigger a deploy (the same idea as the `paths:` filter added to the
+  GitHub Actions screenshot workflow) is possible on Railway too, but hasn't been set up yet —
+  noted there as a "not urgent" cleanup, still true here.
+
+### Why it's needed
+
+"It deployed successfully" is easy to misread as "it's live" — distinguishing exactly what
+succeeded (the build and process startup) from what's still missing (public exposure, the
+database, secrets) prevents the natural next question — "why can't I actually reach it in a
+browser yet" — from looking like a fresh bug rather than expected, remaining setup.
+
+### State at end of this step
+
+The backend builds and runs successfully on Railway. It is not yet publicly reachable
+(`Unexposed service`), has no attached Postgres database, and has none of its required
+environment variables configured. Auto-deploy on push to `main` is confirmed working, end to
+end, via a real merge.
+
+### Verification
+
+- Directly observed in Railway's UI: all four deployment phases (Initialization, Build,
+  Deploy, Post-deploy) green, status `ACTIVE`.
+- Directly observed: `"Unexposed service"` label, confirming no public URL exists yet — not
+  inferred, read straight from the platform.
+- Directly observed: the deployment's stated trigger, `"Merge pull request #21..."`, confirming
+  the auto-deploy-on-push-to-`main` mechanism fired correctly from a real GitHub merge, not
+  assumed from configuration alone.
+
+---
