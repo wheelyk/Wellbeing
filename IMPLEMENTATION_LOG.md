@@ -4619,3 +4619,209 @@ With this, WellTrack is genuinely deployed and usable, end to end, by anyone wit
 not just reachable by automated requests from this machine.
 
 ---
+
+## 2026-08-15 — Phase 2: Express auth middleware (`requireAuth`)
+
+**Task:** [Tasks.md](Tasks.md) → Phase 2 → "Implement an Express auth middleware that
+verifies the access token and attaches the authenticated user to the request; use it on all
+protected routes."
+
+**Delivered via branch:** `feature/2.7-auth-middleware` (branched from `main`). This is the
+first piece of a new "vertical slice" — the same full-stack, one-feature-at-a-time approach
+used to get login working end to end — this time aimed at the app's first real wellness-
+tracking feature (mood logging), rather than auth itself. This task is the necessary first
+step: every log-type endpoint (mood, symptoms, medications, habits) needs to know *which
+user* is making the request before it can safely read or write that user's data, and nothing
+in the codebase does that yet.
+
+### Background / concepts
+
+#### What "middleware" means in Express
+
+- Express handles a request by running it through a *chain* of functions in order — each one
+  called "middleware" — before it reaches the actual route handler. `cors()`, `express.json()`,
+  and `cookieParser()` in `app.ts` are all middleware already in use: each one looks at the
+  request, does something (parses the body, reads cookies), and calls `next()` to pass control
+  along to whatever comes after it. A middleware that *doesn't* call `next()` — because it
+  decides the request shouldn't proceed — stops the chain right there, which is exactly how
+  authentication gets enforced: `requireAuth` either calls `next()` (proceed) or sends a `401`
+  response itself (stop), and nothing after it in the chain ever runs for a rejected request.
+- **Why this belongs in its own reusable function rather than being copy-pasted into every
+  route.** Every protected endpoint needs the exact same check ("is there a valid access token,
+  and if so, whose is it?"). Writing that logic once and attaching it wherever it's needed
+  (`router.get("/mood-logs", requireAuth, handler)`) means there's exactly one place that logic
+  can have a bug, instead of a dozen near-identical copies that can quietly drift apart.
+
+#### Bearer tokens vs. the refresh cookie — two different auth mechanisms, on purpose
+
+- This app already has one place tokens travel automatically: the refresh token, sent as an
+  `HttpOnly` cookie the browser attaches by itself (see the Phase 2.3 refresh-token entry). The
+  access token works differently, **on purpose**: it's read from an `Authorization: Bearer
+  <token>` request header, which the *frontend's own code* has to attach explicitly (already
+  built — see `frontend/src/api/client.ts`'s `apiFetch`, from the Phase 5 API client task).
+- **Why not just use a cookie for the access token too?** Because the two tokens have
+  deliberately different jobs and different lifetimes. The refresh token's whole point is to
+  sit quietly and be sent automatically without any frontend code touching it (that's what
+  makes it safe from XSS — see the 2.3 entry). The access token, by contrast, is *supposed* to
+  be handled by frontend JavaScript — the API client needs to be able to hold it in memory,
+  swap it out the moment a refresh returns a new one, and decide per-request whether to attach
+  it at all. A `Bearer` header is simply the standard, conventional way to send a token that
+  the calling code manages directly, rather than one the browser manages on its behalf.
+- `requireAuth` therefore calls the new `verifyAccessToken` (added to `lib/jwt.ts` alongside
+  the existing `verifyRefreshToken`) — checking the signature against `JWT_ACCESS_SECRET`
+  specifically. Using the wrong secret here would be a real security bug: it would mean a
+  refresh token (a much longer-lived credential) could be used to authenticate ordinary API
+  requests, defeating the entire reason the two tokens have separate secrets and separate
+  short/long lifetimes in the first place.
+
+#### Attaching the user to the request: TypeScript declaration merging
+
+- Once `requireAuth` verifies a token, the route handler that runs next needs to know *whose*
+  request this is. The convention is to attach it directly onto the `req` object
+  (`req.userId = payload.sub`), since Express passes that same object through the whole chain.
+- Plain JavaScript would let any code just read `req.userId` back out with no fuss. TypeScript,
+  by default, doesn't know that property exists on Express's `Request` type and would refuse to
+  compile `req.userId`. `backend/src/middleware/requireAuth.ts` fixes this with a small
+  `declare global { namespace Express { interface Request { userId?: string } } }` block — this
+  is TypeScript's "declaration merging" feature, which lets a project extend a type defined in
+  a library it doesn't own. After this, every route handler downstream of `requireAuth` sees
+  `req.userId: string | undefined` as a genuinely typed property, with real autocomplete and
+  compile-time checking — not an untyped grab-bag.
+
+### What was done
+
+1. **`backend/src/lib/jwt.ts`.** Added `verifyAccessToken(token)`, the access-token counterpart
+   to the existing `verifyRefreshToken` — verifies against `JWT_ACCESS_SECRET` specifically.
+2. **`backend/src/middleware/requireAuth.ts` (new).** Reads the `Authorization` header, requires
+   the `Bearer <token>` format (anything else — missing header, wrong scheme — is treated as
+   "no token provided"), verifies it, and either attaches `req.userId` and calls `next()`, or
+   responds `401` and stops the chain. Two distinct error codes, mirroring the existing
+   refresh-token error pattern: `MISSING_ACCESS_TOKEN` (no token sent at all) vs.
+   `INVALID_ACCESS_TOKEN` (a token was sent but is expired, forged, or signed with the wrong
+   secret) — useful for a frontend to eventually distinguish "never logged in" from "session
+   expired," even though the current API client already handles both the same way (attempt a
+   refresh, then give up).
+3. **Tests (`requireAuth.test.ts`).** Since no real protected route exists in the codebase yet
+   to test this against (that arrives with the next task, the mood-logs endpoint), the test
+   file builds a tiny throwaway Express app with one route (`GET /protected`) that exists only
+   for this test — exactly the shape a real protected route will have. Covers: a valid token
+   (200, correct `req.userId` attached), no `Authorization` header (401
+   `MISSING_ACCESS_TOKEN`), a non-Bearer `Authorization` header (401, same code), an expired
+   token, a token signed with the *refresh* secret instead of the access secret (401
+   `INVALID_ACCESS_TOKEN` in both cases — proving the two token types can't be swapped, the
+   same property already tested for the refresh endpoint in the 2.3 entry), and a garbage
+   token string.
+4. **`npm test`** — 24/24 passing (18 pre-existing, 6 new).
+5. **`npm run build`** — compiled cleanly, confirming the declaration-merging trick above is
+   valid TypeScript and not just something that happens to run under `ts-node`.
+
+### Why it's needed
+
+Every remaining backend task in this vertical slice — the mood-logs endpoint next — needs to
+answer "which user does this request belong to?" before it can safely read or write data.
+Without this middleware, that check would either not exist at all (meaning any request could
+read or write any user's data by guessing an ID — the exact cross-user data leak Phase 11 is
+built to catch) or would need to be reimplemented inline in every single route.
+
+### Decisions
+
+- **`req.userId` (a string) rather than `req.user` (a full user object).** The token only ever
+  proves *who* the request is from, not any other detail about them — fetching the full `User`
+  row is a separate, deliberate database call that individual routes can make if and when they
+  actually need more than the ID (e.g. the future `GET /api/users/me`). Attaching a full user
+  object here would mean either a database query on *every single request* whether the route
+  needs it or not, or attaching stale/incomplete data — neither is worth it for the common case
+  of "just tell me whose mood log to create."
+- **Tested against a throwaway route rather than waiting for a real one.** Blocking this task on
+  the mood-logs endpoint existing first would invert the dependency the wrong way — the
+  endpoint needs the middleware to exist and be correct *first*. Testing the middleware in
+  isolation, the same way `lib/jwt.ts`'s functions are unit-tested directly rather than only
+  through the routes that use them, keeps this task genuinely finished on its own.
+
+### State at end of this step
+
+`requireAuth` exists, is fully tested, and is ready to be attached to routes — but nothing
+uses it yet. No behavior of the live app has changed. The next task (mood-logs endpoint) is
+where it gets attached to a real route for the first time.
+
+### Verification
+
+- `npm test` (`vitest run`) — 24/24 tests passing (18 pre-existing, 6 new).
+- `npm run build` — compiled cleanly.
+
+---
+
+## 2026-08-15 — Why deleting a merged branch is safe (and why keeping it around actively causes bugs here)
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — while resolving a real merge conflict
+on PR #27 (documented two entries up), the advice given was "delete each branch after it
+merges, in order." That advice was met with a completely reasonable instinct: doesn't keeping
+the branch around feel *safer*, in case something needs to be recovered later? Worth answering
+properly rather than just asserting it.
+
+### Background / concepts
+
+#### What a git branch actually is — and, just as importantly, what it isn't
+
+- A branch is **not a box that holds commits**. It's just a small, human-readable label —
+  formally called a "ref" — that points at one specific commit. `feature/2.7-auth-middleware`
+  is nothing more than a sticky note reading "the tip of this line of work is currently commit
+  `d71c85d`." The commits themselves — the actual code, the actual history — exist
+  independently of that sticky note, stored permanently in git's own database the moment
+  they're created.
+- **This is why deleting a branch, once its commits are merged, deletes nothing that matters.**
+  Once `main` contains those same commits (which is exactly what "merged" means — `main`'s
+  label now points at a commit that has all of the feature branch's commits as ancestors),
+  the code is reachable from `main` forever, with full history, `git blame`, everything —
+  completely independent of whether the `feature/2.7-auth-middleware` sticky note still exists.
+  Deleting it only removes a now-redundant second label pointing at commits `main` already
+  includes; it's the git equivalent of throwing away a Post-it note *after* copying its
+  contents permanently into a filing cabinet, not throwing away the only copy.
+- **The one real exception, so this isn't overstated:** a branch with commits that were *never*
+  merged anywhere is the only copy of that work — deleting *that* would genuinely lose it (this
+  is exactly why the earlier "stranded commit" incidents in this log were worth the forensic
+  effort: real, unmerged work was at risk of being mistaken for already-safe). But a branch
+  that's been cleanly merged into `main` has already been "copied into the filing cabinet" —
+  there is no unique content left on it to protect.
+
+#### Why keeping it around isn't just unnecessary here, but actively causes the exact bug this project already hit once
+
+- This project's stacked-PR workflow (explained in the earlier "Tooling: stacked PRs,
+  auto-retargeting" entry) relies on a specific, automatic GitHub behavior: when a PR's base
+  branch is merged **and deleted**, GitHub notices the next PR in the stack was pointing at a
+  branch that no longer exists, and automatically repoints ("retargets") it at `main` instead.
+- **That retargeting is specifically triggered by the branch's deletion — not by the merge
+  alone.** A branch that merges but is left alive still looks, to GitHub, like a perfectly
+  valid, ongoing place for the next PR to be based on. Nothing tells GitHub "this branch is
+  done, move on" except actually removing it.
+- This is not a hypothetical risk — it's precisely what happened earlier in this project (see
+  "The real bug: `postinstall` never reached `main` at all," a few hundred lines up). PR #18's
+  branch merged but wasn't deleted; PR #19 (based on it) stayed pointed at that now-idle
+  branch; clicking "merge" on #19 dutifully merged it into that branch instead of `main`,
+  producing a PR that genuinely said "Merged" while its actual code never reached `main` at
+  all. Real, unmerged commits then had to be forensically recovered and cherry-picked back in.
+- So in this project's specific workflow, "keep the branch just in case" isn't a neutral,
+  extra-cautious choice — it's the one action that reliably breaks the next PR in the stack,
+  learned the hard way once already.
+
+### Why it's needed
+
+The instinct to preserve things rather than delete them is a good one in general — it's the
+same instinct behind this log's whole practice of checking `git status` before anything
+destructive. It just doesn't apply to a *merged* branch the way it would to, say, an untracked
+file or uncommitted work: there, deleting really could lose the only copy; here, the copy
+already exists permanently in `main`, and the branch label is the thing actively causing harm
+by sticking around.
+
+### Decisions
+
+- No code change — this is a concept worth having written down plainly, since it's the kind
+  of thing that's easy to get backwards by applying "don't delete things" as a blanket rule
+  rather than understanding *why* that rule exists in the cases where it does apply.
+
+### State at end of this step
+
+No behavior changes. This is purely explanatory, prompted directly by today's PR #27 conflict
+resolution and the merge-order/branch-deletion guidance that came with it.
+
+---

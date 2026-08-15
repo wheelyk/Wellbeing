@@ -48,7 +48,7 @@ Reference: requirements §5, §13.
 - [x] Implement `POST /api/auth/logout` — invalidate/clear the refresh token.
 - [ ] Implement `POST /api/auth/forgot-password` — generate a time-limited reset token and send a reset email (use a placeholder/mock email provider for local dev).
 - [ ] Implement `POST /api/auth/reset-password` — validate the reset token and update the password hash.
-- [ ] Implement an Express auth middleware that verifies the access token and attaches the authenticated user to the request; use it on all protected routes.
+- [x] Implement an Express auth middleware that verifies the access token and attaches the authenticated user to the request; use it on all protected routes.
 - [ ] Implement `GET /api/users/me`, `PATCH /api/users/me` (display name, timezone), `DELETE /api/users/me`.
 - [ ] On account deletion, cascade-delete (or explicitly delete in a transaction) all of the user's symptom logs, mood logs, medication/medication logs, habits/habit logs, and user-owned symptoms.
 - [ ] Add rate limiting (e.g. `express-rate-limit`) to all `/api/auth/*` endpoints.
