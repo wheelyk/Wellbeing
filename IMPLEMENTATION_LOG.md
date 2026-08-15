@@ -1699,16 +1699,37 @@ means the explanation is available at the moment it's actually useful.
 
 ### State at end of this step
 
-PRs #7, #8, and #9 are open and stacked (#7 → `main`, #8 → `feature/2.2-auth-login`, #9 →
-`feature/2.3-auth-refresh`). None are merged yet. No rebase has been performed — not yet
-needed.
+**Update, written right after merging:** #7, #8, and #9 were all merged in order shortly
+after this entry was first written. `main`'s history now shows three separate merge commits
+(one per PR) landing cleanly with no conflicts — exactly the "GitHub works this out on its
+own" outcome predicted above. A `git pull` on `main` afterward was a plain fast-forward, the
+simplest possible outcome: no rebase, no conflict resolution, nothing manual required. That
+confirms the retargeting behavior described above played out as expected in practice, not
+just in theory.
+
+**A small, real example of why this stuff matters, discovered while writing this very
+entry:** the *previous* version of this entry was written, committed, and pushed to
+`feature/2.4-auth-logout` — but PR #9 got merged (by the user, on GitHub) at almost exactly
+the same moment, using whatever commit was on the branch *just before* that push landed.
+GitHub doesn't retroactively pull in commits pushed to a branch after its PR has already
+merged — a merged PR is done; new pushes to that same branch just sit there, unattached to
+`main`, until something explicitly brings them in. Concretely, `git log main..origin/feature/2.4-auth-logout`
+showed exactly one stranded commit (this entry's own text). The fix was mundane: open one
+more small PR (**#10**) from that same branch into `main`, containing just that one commit,
+and merge it too. Not a mistake exactly — more a demonstration, in miniature, of the same
+"which branch is ahead/behind and why" thinking from the earlier `git stash` entry, just
+triggered by a push/merge race instead of a stash.
+
+PRs #7, #8, #9, and #10 are all merged. No rebase was ultimately needed anywhere in this
+whole sequence.
 
 ### Verification
 
-Not applicable in the usual sense (nothing to build/run) — this entry documents mechanics
-that will play out on GitHub as the user merges #7, #8, and #9. Once merged, worth confirming
-here in a future entry: that #8 and #9 retargeted to `main` automatically as described, and
-whether a local rebase ends up being needed before any further work continues on
-`feature/2.3-auth-refresh` or `feature/2.4-auth-logout`.
+- `git fetch` + `git log main..origin/feature/2.4-auth-logout` — precisely identified the one
+  stranded commit after PR #9 merged, rather than guessing.
+- `git checkout main && git pull` — a clean fast-forward through all three PR merges, with no
+  conflicts and no rebase needed, confirming the retargeting behavior worked as described.
+- `gh pr view 9 --json state,mergedAt,headRefOid` — directly confirmed which exact commit PR
+  #9 merged at, which is what pinpointed that this entry's own commit had arrived just after.
 
 ---
