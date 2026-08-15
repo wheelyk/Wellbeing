@@ -4171,6 +4171,455 @@ public networking is the next step.
 
 ---
 
+## 2026-08-15 — What a Railway-generated domain actually is, before turning it on
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — before actually exposing the backend
+publicly, a direct question deserved answering first: is a Railway-generated domain the same
+kind of DNS/IP/port mapping explained in the earlier hosting entry, and does Railway already
+have the DNS side handled?
+
+### Background / concepts
+
+#### The short answer: same underlying idea, but Railway owns the whole namespace already
+
+- The earlier hosting/domains entry explained DNS as "a name resolves to wherever the actual
+  server is," and covered the two ways to point a domain *you* own at a host you don't run
+  yourself. Clicking **"Generate Domain"** on a Railway service is a related but meaningfully
+  simpler case: Railway hands out a subdomain under **their own domain**
+  (something shaped like `<something>.up.railway.app`), not a domain the user owns at all.
+- Because Railway controls `*.up.railway.app` end to end, they can create whatever DNS record
+  is needed **on their own servers, instantly**, the moment the button is clicked — none of
+  the "add this record at your registrar, then wait for propagation" process from the earlier
+  entry applies here, precisely because there's no separate registrar involved at all in this
+  path. That whole process only becomes relevant again if a *custom* domain (like
+  `athirstycamel.com`) is later pointed at this same service.
+- **HTTPS comes for free here too, for the same reason.** A certificate for a brand-new custom
+  domain has to be issued *after* DNS proves the domain really is pointed at the right place —
+  which takes a little time. A certificate covering Railway's own domain can be prepared ahead
+  of time, since Railway isn't waiting on anyone else's DNS to change — so a generated domain
+  is reachable over `https://` immediately, with nothing extra to configure or wait for.
+
+#### The one real nuance: it's not a direct IP-and-port mapping the way local dev is
+
+- Locally, `docker-compose.yml`'s `ports: ["5432:5432"]` is a literal, direct mapping: traffic
+  to this laptop's port 5432 goes straight to the Postgres container. **Railway's generated
+  domain doesn't work that way.** The domain resolves to **Railway's own shared edge
+  infrastructure** — a reverse proxy/router they operate — which then forwards the request
+  internally, over Railway's private network, to wherever this specific container actually
+  happens to be running at that moment. The backend never gets hold of a dedicated public IP
+  address and port the way a hand-run server would; Railway's routing layer is what actually
+  knows "traffic for this hostname goes to that container," and that mapping can change
+  underneath (e.g. if the container restarts on different underlying infrastructure) without
+  the public domain ever needing to change.
+- **Why this design is normal, not a Railway-specific oddity.** Essentially every modern
+  hosting platform (Vercel included) works this way rather than dedicating one public IP per
+  customer — sharing a small number of public-facing IPs across many customers' containers via
+  hostname-based routing is both cheaper to operate and exactly why a platform can hand out a
+  working public URL in seconds rather than needing to provision new networking hardware per
+  customer.
+
+### Why it's needed
+
+Clicking a button labeled "Generate Domain" is easy to treat as a black box — understanding
+that it's DNS-plus-routing already fully controlled by Railway, rather than some new mechanism
+unrelated to everything explained about DNS so far, means the *next* time a custom domain gets
+pointed at this same service, the difference between "this was instant" (today) and "this
+needs a DNS record and a short wait" (later) makes sense as the same underlying system, just
+missing the "Railway already owns the namespace" shortcut.
+
+### State at end of this step
+
+No networking changes yet — this entry is purely explanatory, immediately ahead of actually
+clicking "Generate Domain" on the Wellbeing service.
+
+---
+
+## 2026-08-15 — A slow, careful walkthrough: which port to use, and both ways to get a working URL
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — while actually clicking "Generate
+Domain," two more direct questions: which port number belongs in that field, and — slowly,
+because this genuinely is one of the more confusing parts of deploying anything for the first
+time — how would someone set up their *own* hostname instead of Railway's, and how do DNS and
+SSL actually differ between the two paths.
+
+### Background / concepts
+
+#### Which port number goes in that field, worked through one step at a time
+
+Railway's "Generate Service Domain" screen asked for a port, and pre-filled `8080`. Here is
+*why* that specific number, traced all the way through, one link at a time:
+
+1. When the container starts, Railway itself decides which port the app should listen on, and
+   tells the app by setting an environment variable called `PORT` — the app doesn't choose
+   this; Railway does, and it can differ between deployments.
+2. This project's own `backend/src/index.ts` has contained this line since the very first
+   Phase 0 scaffold entry, long before Railway ever existed in this project:
+   `const port = process.env.PORT ? Number(process.env.PORT) : 4000;` — in plain words,
+   "use whatever `PORT` says, and only fall back to `4000` if nothing set it."
+3. On Railway, `PORT` happened to be set to `8080` this time. The app read that value and
+   called `app.listen(8080, ...)` — confirmed directly, word for word, in the deploy log two
+   entries ago: `Backend listening on port 8080`.
+4. **The "port" field on this Networking screen is asking a completely different question from
+   "what's the public web address":** it's asking "when a visitor's request arrives at
+   Railway's front door, which internal door of this specific container should it be walked
+   through to reach the app that's actually running?" That number has to be `8080` — the exact
+   port the app is genuinely listening on right now — or the request would arrive at the
+   container and find no one answering at whichever wrong door it was sent to, even though the
+   app itself is running perfectly fine on the *correct* port the whole time.
+5. **This is exactly why Railway pre-filled `8080` rather than leaving it blank or defaulting
+   to something generic like `80`:** it isn't guessing — it can see, from the running
+   container, which port the process is actually bound to, and offers that back. Confirming
+   the pre-filled value (rather than typing something else, like the locally-familiar `4000`)
+   is the correct action here.
+
+#### Path one, slowly: "Generate Domain" (what was actually clicked)
+
+1. Tap **"Generate Domain"** with the port field showing `8080`.
+2. Railway immediately creates a new subdomain under its own domain — something shaped like
+   `wellbeing-production-xxxx.up.railway.app` — and, on its own servers, an internal record
+   saying "requests for this exact name should be routed to this exact container, on port
+   8080."
+3. Because `up.railway.app` belongs entirely to Railway, this record is real and working the
+   instant it's created — there is no second company, no separate registrar, and nothing to
+   wait on.
+4. A change like this shows up as a pending change to confirm and apply (the "Apply N changes"
+   / "Deploy" step) — tapping **Deploy** is what actually makes the new configuration live,
+   the same "review, then apply" pattern already familiar from every PR merged throughout this
+   whole project, just inside Railway's own UI instead of GitHub's.
+5. Once applied, the generated address works immediately, over `https://`, with a certificate
+   that didn't need to be separately requested or waited for.
+
+#### Path two, slowly: what "Custom Domain" would actually involve (not clicked yet, explained ahead of time)
+
+This is the other button on the same screen — worth understanding fully now, even though the
+generated domain is what's actually being used today, since a custom domain (`athirstycamel.com`,
+from the earlier hosting entry) is a realistic future step.
+
+1. **Type the desired hostname into Railway** — e.g. `app.athirstycamel.com`, a *subdomain* of
+   the already-owned `athirstycamel.com`, rather than the bare root domain (a common, sensible
+   choice: it leaves the root domain free for something else later, like a marketing page, and
+   keeps the app clearly separated).
+2. **Railway responds with a specific DNS record to create** — typically a **CNAME record**
+   (explained in full back in the hosting/domains entry: a record that says "this name is just
+   another name for that name") pointing `app.athirstycamel.com` at some Railway-provided
+   target address.
+3. **That record has to be added at the domain's actual registrar** — wherever
+   `athirstycamel.com` itself is registered, *not* inside Railway anywhere, since Railway
+   doesn't control that domain's DNS at all. This is the direct, real-world version of the
+   "keep the registrar's nameservers, just add one specific record there" option explained
+   generally in the earlier hosting entry.
+4. **Then: waiting.** Unlike the generated domain (instant, because Railway controls the whole
+   namespace), this step depends on the registrar's own DNS servers actually publishing the
+   new record, and every other computer on the internet noticing the change — the TTL/
+   propagation delay explained in the hosting entry, typically minutes, occasionally longer.
+   Railway's UI would show this domain as "pending" or "not yet verified" during this window,
+   not because anything is broken, but because nothing can be confirmed working until the DNS
+   change is actually visible.
+5. **Only once Railway can see the DNS correctly pointing at them does it request an SSL
+   certificate for that domain** (via Let's Encrypt, the same free, automated certificate
+   authority almost every modern host uses) — this can only happen *after* step 4 succeeds,
+   since issuing a certificate for a domain requires proving control over it, and DNS pointing
+   correctly is exactly that proof. This step is usually fast (seconds to a couple of minutes)
+   once DNS is confirmed, but it is a genuinely separate, sequential step — not simultaneous
+   with the DNS change.
+
+#### The two paths, side by side
+
+| | Generate Domain (used today) | Custom Domain (future option) |
+| - | - | - |
+| **Who controls the DNS** | Railway, entirely | The domain's own registrar (outside Railway) |
+| **DNS setup needed** | None — Railway creates its own record instantly | A CNAME record, added by hand, at the registrar |
+| **Wait time** | None | Minutes (occasionally longer) for DNS propagation |
+| **SSL certificate** | Pre-provisioned, works immediately | Requested automatically, but only *after* DNS is confirmed — a real, sequential extra step |
+| **What you type** | Nothing — Railway generates the name | The exact hostname you want (e.g. a subdomain of an owned domain) |
+
+### Why it's needed
+
+"Which port" and "how would a custom domain even work" are exactly the kind of details that
+are easy to click through without understanding, and exactly the kind that turn into confusing
+mysteries later (a 502 error from a wrong port; a custom domain stuck "pending" for what looks
+like no reason) if the underlying mechanism was never actually understood the first time.
+
+### State at end of this step
+
+The backend now has a working, public, HTTPS-secured generated domain. A custom domain has not
+been configured — deliberately explained here ahead of time, as a documented future option,
+rather than attempted today.
+
+### Verification
+
+Not applicable in the code-verification sense — this entry is a conceptual walkthrough. The
+practical verification (does the generated URL actually serve the app) is the next real step:
+visiting the generated domain directly and confirming `GET /api/health` responds, the same way
+every other endpoint in this project has been verified throughout this log.
+
+---
+
+## 2026-08-15 — Confirmed live: the backend is genuinely reachable from the public internet
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — closing out the previous entry's
+prediction with an actual, real-world test, plus a direct answer on public vs. private
+networking.
+
+### Background / concepts
+
+#### Public vs. private networking, answered directly
+
+- **Public networking** means reachable from the internet at large — literally any device,
+  anywhere, that can make an HTTP request can reach `wellbeing-production-0b8f.up.railway.app`
+  now that it's been generated. This is the exact thing "Unexposed service" was warning was
+  *not* yet true, several entries back.
+- **Private networking** (`wellbeing.railway.internal`, visible in the same Networking screen)
+  is the opposite: reachable *only* from other services inside this same Railway project —
+  invisible to the public internet entirely, and invisible even to a different Railway project.
+  This is the mechanism that should keep the Postgres database itself safe: the backend reaches
+  it privately (over the `DATABASE_URL` variable reference set up two entries ago), and the
+  database should never get a public domain generated for it the way the backend just did — the
+  whole reason, explained back in the secrets/Postgres entry, that a database should never be
+  directly reachable from the internet, only through an application's own validation logic in
+  front of it.
+
+#### Why this was tested from an actual outside machine, not trusted from Railway's own dashboard
+
+- Every previous "is it actually working" check in this log has followed the same discipline:
+  don't trust a status badge or a UI label alone when a real, independent test is possible. The
+  generated domain was tested with a plain `curl` request from this laptop — a genuinely
+  separate machine, on the open internet, with no special access to Railway's own internal
+  view of things — specifically because that's the same vantage point any real future user
+  (or, eventually, the deployed frontend) would have. Railway's dashboard showing a domain as
+  configured is a claim; an external `curl` actually succeeding is proof.
+
+### What was done
+
+Ran `curl -s -w "\nHTTP %{http_code}\n" https://wellbeing-production-0b8f.up.railway.app/api/health`
+directly from this laptop (not from within Railway, not from any tool with special access) and
+confirmed a real `200 {"status":"ok"}` response.
+
+### Why it's needed
+
+This is the actual, final proof that everything built and fixed across this whole deployment
+effort — the Prisma client generation fix, the stranded-commit recovery, the database
+connection, the migration, the public domain — genuinely works end to end, from the actual
+public internet, not just according to Railway's own dashboard.
+
+### State at end of this step
+
+The backend is live, public, connected to a real database, and confirmed reachable from outside
+Railway entirely. `FRONTEND_URL` is still a placeholder (`http://localhost:5173`) pending the
+frontend's own deployment to Vercel — the natural next step.
+
+### Verification
+
+- `curl` from this laptop directly against the public Railway URL — `200 {"status":"ok"}`,
+  confirmed independently of Railway's own dashboard.
+
+---
+
+## 2026-08-15 — Deploying the frontend to Vercel, and why `FRONTEND_URL`/CORS matters for real this time
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — the frontend was deployed to Vercel,
+hitting one real monorepo-detection wrinkle along the way, and this entry re-teaches CORS and
+`FRONTEND_URL` from first principles now that it's a real production concern, not a local
+convenience.
+
+### Background / concepts
+
+#### The monorepo detection wrinkle: Vercel wanted to deploy *two* services
+
+- Vercel's newer project-import flow auto-scans a connected repository and, seeing both
+  `frontend/package.json` and `backend/package.json`, offered to deploy **both** as separate
+  "services" under one Vercel project, wiring them together with a `vercel.json` and URL
+  rewrites (`/api/*` routed to the backend service, everything else to the frontend).
+- **This had to be declined, for a concrete reason, not just "we don't need it."** The backend
+  already has a complete, tested, working home on Railway — a persistent, always-running
+  process, connected to the real Postgres database, with migrations already applied. Vercel
+  runs backend "services" as short-lived serverless functions instead — a fundamentally
+  different execution model than the always-on process this project's backend was built and
+  tested against (e.g. the shared Prisma client singleton, `lib/prisma.ts`, assumes one
+  long-lived connection pool — a pattern that doesn't translate cleanly to a function that
+  spins up fresh for each request). Accepting Vercel's offer would have meant a second,
+  differently-behaved copy of the backend, not a helpful addition.
+- **The fix:** switching the "Application Preset" dropdown from the auto-detected "Services"
+  option to the simpler "Vite" preset collapsed the whole multi-service flow back down to a
+  single, ordinary static-site deployment — the same "Root Directory" concept already used on
+  Railway, just applied to `frontend` instead of `backend`, with no `vercel.json` needed at
+  all for this simple case.
+- Confirmed working with `VITE_API_URL` set to the Railway backend's URL, then deployed.
+  `curl` against the resulting `wellbeing-blue.vercel.app` returned `200`, with
+  `<title>WellTrack</title>` present — genuinely serving the built frontend, not a blank or
+  error page (also visually confirmed by Vercel's own auto-generated preview screenshot,
+  which showed the real login form).
+
+#### CORS and `FRONTEND_URL`, re-taught from the start — why it actually matters now
+
+This was explained once already, back in the Phase 5/6 vertical-slice entry, but only ever
+against `localhost`. It's worth re-explaining properly now that a real, third-party-hosted
+frontend is involved, since that's the situation CORS actually exists to guard.
+
+- **Two different websites, as far as a browser is concerned.** `wellbeing-blue.vercel.app`
+  (the frontend) and `wellbeing-production-0b8f.up.railway.app` (the backend) are two entirely
+  separate domains, run by two entirely separate companies, with no inherent relationship to
+  each other at all. A browser has no way to know these two are "supposed" to work together —
+  as far as it's concerned, this is indistinguishable from a random third-party website trying
+  to talk to your bank's API.
+- **This is precisely the scenario CORS exists to police.** Without any CORS configuration at
+  all, a browser **refuses by default** to let JavaScript running on one website read the
+  response from a request to a different website — imagine if any website you visited could
+  silently make your browser send requests to your bank, your email, anywhere you happened to
+  be logged in, and read the results. CORS is the mechanism that lets a *server* explicitly
+  say "no really, it's fine, requests from this specific other website are allowed" — and
+  `FRONTEND_URL`, read by `backend/src/app.ts`'s `cors({ origin: FRONTEND_URL, credentials: true })`
+  (added back in the frontend vertical-slice entry), is exactly that explicit allow-list,
+  currently naming only `http://localhost:5173`.
+- **Why this was invisible during local development.** Locally, "two different websites" was
+  actually true too — the frontend (`localhost:5173`) and backend (`localhost:4000`) are
+  different ports, which browsers treat as different origins — but `FRONTEND_URL` already
+  named that exact address, so it never caused a problem. The deployed frontend has a
+  completely different address now, and the backend's allow-list doesn't yet know about it —
+  which is why updating `FRONTEND_URL` to the real Vercel URL is a required step, not
+  optional cleanup.
+- **What it would look like if this step were skipped.** Not a clear, obvious error message —
+  something more confusing: the register/login forms would appear to "hang" or fail with a
+  generic network error in the browser's console, because the *browser itself* blocks the
+  response before the frontend's own code ever gets to see it or show a useful message. This
+  is a common, genuinely confusing first-time deployment trap, worth naming explicitly rather
+  than only discovering it by hitting it.
+- **Why `credentials: true` specifically matters here, again, now for real.** The refresh
+  token cookie (from the Phase 2.3 entry) only ever gets sent/received on **credentialed**
+  cross-origin requests — and browsers refuse to combine a wildcard CORS origin with
+  credentials at all, which is exactly why `FRONTEND_URL` has to be an exact, specific address
+  rather than something permissive like allowing any origin. This was true and already
+  correctly configured for `localhost`; it now needs to be true for the real deployed address
+  too.
+
+### Why it's needed
+
+Without updating `FRONTEND_URL`, the deployment would *look* complete — both halves live,
+both individually responding — while actually being unusable together, for a reason that
+wouldn't show up as an obvious server error anywhere, only as a confusing failure inside the
+browser itself.
+
+### State at end of this step
+
+The frontend is deployed and confirmed serving correctly at `wellbeing-blue.vercel.app`.
+`FRONTEND_URL` on Railway is being updated to match, right now, as the next immediate step —
+until that's done and redeployed, register/login on the live frontend will fail due to CORS,
+exactly as explained above.
+
+### Verification
+
+- `curl -o /dev/null -w "HTTP %{http_code}"` against the deployed Vercel URL — `200`.
+- `curl | grep "<title>"` — confirmed `<title>WellTrack</title>` present, proving the real
+  built app is being served, not a blank or default page.
+- Vercel's own auto-generated screenshot of the deployment additionally showed the actual
+  login form rendering correctly.
+
+### Follow-up verification, once `FRONTEND_URL` was actually updated on Railway
+
+The explanation above was written *before* the Railway variable was changed, to make the
+reasoning clear ahead of time. Once it was updated to `https://wellbeing-blue.vercel.app` and
+Railway redeployed, the fix was verified directly against the live services — not just
+assumed from a "Deployment successful" badge, consistent with how every other deployment
+claim in this log has been checked:
+
+- **A CORS preflight request** (`curl -X OPTIONS .../api/auth/login` with
+  `Origin: https://wellbeing-blue.vercel.app`) sent to the real Railway URL. Before the
+  variable was updated, the response's `access-control-allow-origin` header came back as the
+  old `http://localhost:5173` — proof the fix hadn't taken effect yet. After Railway finished
+  redeploying, the same request returned `access-control-allow-origin:
+  https://wellbeing-blue.vercel.app` — the backend now explicitly trusts the real frontend.
+- **The full auth flow, driven with `curl` against production, using the real `Origin`
+  header a browser would send:**
+  1. `POST /api/auth/register` — `201 Created`, new user row returned.
+  2. `POST /api/auth/login` — `200 OK`, with a `Set-Cookie: refreshToken=...; HttpOnly;
+     Secure; SameSite=Lax` header, exactly as designed back in the refresh-token entry.
+  3. `POST /api/auth/refresh`, sending that cookie back — `200 OK`, a fresh access token
+     returned and the refresh cookie rotated (a new `Set-Cookie` with a different token
+     value), matching the rotation behavior built and tested earlier.
+  4. `POST /api/auth/logout` — `200 OK`, with `Set-Cookie: refreshToken=...; Expires=Thu, 01
+     Jan 1970...` — the standard way a server tells a browser "delete this cookie now."
+  - Every one of these four responses carried `access-control-allow-origin:
+    https://wellbeing-blue.vercel.app` — confirming the *entire* auth flow, not just one
+    endpoint, is reachable from the real deployed frontend now.
+- **Caveat, noted honestly:** this test created one real user row in the production database
+  (an obviously-labeled test address). There's no account-deletion endpoint yet — that's
+  still a pending Phase 2 task — so it hasn't been cleaned up via the API. It's inert test
+  data, not a functional problem, but worth naming rather than glossing over.
+
+With this, the deployment is genuinely complete and working end-to-end: a real user, using a
+real browser, at `https://wellbeing-blue.vercel.app`, can register and log in, and their
+session is backed by a real Postgres database on Railway — not just two services that each
+independently return `200` while silently unable to talk to each other.
+
+### The access token + refresh token flow, explained step by step
+
+The refresh-token entry earlier in this log explains *why* each design choice was made
+(`HttpOnly`, rotation, separate secrets). What's missing so far is a plain walkthrough of how
+the two tokens actually work together over the lifetime of a single visit — worth spelling
+out now, using the exact production trace captured above as the concrete example.
+
+There are two tokens at play, and they exist because of a trade-off: a token that's easy to
+use on every request should also be one that doesn't matter much if it leaks, and a token
+that's dangerous if it leaks should be used as rarely as possible. One token can't be good at
+both, so this app uses two:
+
+1. **Register or log in.** The server checks the email/password, and if they're correct,
+   hands back *two* different tokens at once, each with a very different job:
+   - An **access token** — a short-lived pass (15 minutes) that proves "this request really
+     is from a logged-in user." It comes back in the JSON response body, and from here on the
+     frontend attaches it to every API request it makes (in an `Authorization` header). Any
+     endpoint that needs to know who's asking checks this token.
+   - A **refresh token** — a long-lived pass (7 days) whose *only* job is to be exchanged
+     later for a brand-new access token, so the user isn't forced to type their password again
+     every 15 minutes. Crucially, this one is never handed to the page's JavaScript at all —
+     it arrives only as the `HttpOnly` cookie seen in the trace above
+     (`Set-Cookie: refreshToken=...; HttpOnly; Secure; SameSite=Lax`), which the browser
+     stores and will keep sending automatically on future requests to `/api/auth/*`, without
+     any frontend code ever being able to read or copy it.
+2. **Using the app.** For the next 15 minutes, every request the frontend makes carries the
+   access token, and the backend trusts it without touching the database session at all — this
+   is the whole point of a JWT (JSON Web Token): it's cryptographically signed, so verifying it
+   is just checking a signature, not a database lookup.
+3. **The access token expires.** After 15 minutes, requests carrying it start failing with
+   `401 Unauthorized`. This is expected and is *not* meant to log the user out — it's meant to
+   trigger step 4 automatically, invisibly to the user.
+4. **The frontend calls `POST /api/auth/refresh`.** No body is needed — the browser has
+   already attached the `refreshToken` cookie automatically, because the browser handles
+   cookies itself, unlike the access token, which the frontend has to attach manually. As seen
+   in the trace above, the backend reads that cookie, verifies it, and responds with a brand
+   new access token — *and* silently overwrites the cookie with a brand new refresh token too
+   (rotation: a different token value than the one that was just sent in). The frontend swaps
+   in the new access token and retries whatever request originally got the `401`, and the user
+   never sees any of this happen.
+5. **This repeats for up to 7 days** without the user ever re-entering their password — each
+   refresh both extends the session and replaces the refresh token, so a single refresh token
+   value is only ever "live" for a short window of normal use.
+6. **Logging out** (`POST /api/auth/logout`) does the opposite of login: instead of setting the
+   cookie, it tells the browser to delete it immediately — the
+   `Set-Cookie: refreshToken=...; Expires=Thu, 01 Jan 1970...` seen in the trace above is the
+   standard way a server does this (a cookie with an expiry date in the past is deleted by the
+   browser right away). After this, even if someone still had the now-expired access token, no
+   new one can be minted, because there's no refresh token left to redeem.
+
+One thing worth naming plainly: this frontend/backend wiring for automatic refresh-on-401
+(the frontend piece of steps 3–4 above) is still a *later*, not-yet-built Tasks.md item —
+Phase 5/6's API client. Everything demonstrated in this entry was driven directly against the
+backend with `curl`, standing in for what that future frontend code will do automatically.
+
+### Final confirmation: a real person, in a real browser
+
+Everything above was verified with `curl` — a genuine end-to-end test, but still a script
+pretending to be a browser. The last, and most important, check is a real person doing the
+same thing by hand: opening `https://wellbeing-blue.vercel.app` on an actual phone browser,
+registering an account through the real UI, landing on the dashboard, logging out, and
+logging back in — confirmed working. This is the check that actually matters most, since it's
+the same experience any future real user of this app would have.
+
+With this, WellTrack is genuinely deployed and usable, end to end, by anyone with the link —
+not just reachable by automated requests from this machine.
+
+---
+
 ## 2026-08-15 — Phase 2: Express auth middleware (`requireAuth`)
 
 **Task:** [Tasks.md](Tasks.md) → Phase 2 → "Implement an Express auth middleware that
@@ -4299,6 +4748,81 @@ where it gets attached to a real route for the first time.
 
 - `npm test` (`vitest run`) — 24/24 tests passing (18 pre-existing, 6 new).
 - `npm run build` — compiled cleanly.
+
+---
+
+## 2026-08-15 — Why deleting a merged branch is safe (and why keeping it around actively causes bugs here)
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — while resolving a real merge conflict
+on PR #27 (documented two entries up), the advice given was "delete each branch after it
+merges, in order." That advice was met with a completely reasonable instinct: doesn't keeping
+the branch around feel *safer*, in case something needs to be recovered later? Worth answering
+properly rather than just asserting it.
+
+### Background / concepts
+
+#### What a git branch actually is — and, just as importantly, what it isn't
+
+- A branch is **not a box that holds commits**. It's just a small, human-readable label —
+  formally called a "ref" — that points at one specific commit. `feature/2.7-auth-middleware`
+  is nothing more than a sticky note reading "the tip of this line of work is currently commit
+  `d71c85d`." The commits themselves — the actual code, the actual history — exist
+  independently of that sticky note, stored permanently in git's own database the moment
+  they're created.
+- **This is why deleting a branch, once its commits are merged, deletes nothing that matters.**
+  Once `main` contains those same commits (which is exactly what "merged" means — `main`'s
+  label now points at a commit that has all of the feature branch's commits as ancestors),
+  the code is reachable from `main` forever, with full history, `git blame`, everything —
+  completely independent of whether the `feature/2.7-auth-middleware` sticky note still exists.
+  Deleting it only removes a now-redundant second label pointing at commits `main` already
+  includes; it's the git equivalent of throwing away a Post-it note *after* copying its
+  contents permanently into a filing cabinet, not throwing away the only copy.
+- **The one real exception, so this isn't overstated:** a branch with commits that were *never*
+  merged anywhere is the only copy of that work — deleting *that* would genuinely lose it (this
+  is exactly why the earlier "stranded commit" incidents in this log were worth the forensic
+  effort: real, unmerged work was at risk of being mistaken for already-safe). But a branch
+  that's been cleanly merged into `main` has already been "copied into the filing cabinet" —
+  there is no unique content left on it to protect.
+
+#### Why keeping it around isn't just unnecessary here, but actively causes the exact bug this project already hit once
+
+- This project's stacked-PR workflow (explained in the earlier "Tooling: stacked PRs,
+  auto-retargeting" entry) relies on a specific, automatic GitHub behavior: when a PR's base
+  branch is merged **and deleted**, GitHub notices the next PR in the stack was pointing at a
+  branch that no longer exists, and automatically repoints ("retargets") it at `main` instead.
+- **That retargeting is specifically triggered by the branch's deletion — not by the merge
+  alone.** A branch that merges but is left alive still looks, to GitHub, like a perfectly
+  valid, ongoing place for the next PR to be based on. Nothing tells GitHub "this branch is
+  done, move on" except actually removing it.
+- This is not a hypothetical risk — it's precisely what happened earlier in this project (see
+  "The real bug: `postinstall` never reached `main` at all," a few hundred lines up). PR #18's
+  branch merged but wasn't deleted; PR #19 (based on it) stayed pointed at that now-idle
+  branch; clicking "merge" on #19 dutifully merged it into that branch instead of `main`,
+  producing a PR that genuinely said "Merged" while its actual code never reached `main` at
+  all. Real, unmerged commits then had to be forensically recovered and cherry-picked back in.
+- So in this project's specific workflow, "keep the branch just in case" isn't a neutral,
+  extra-cautious choice — it's the one action that reliably breaks the next PR in the stack,
+  learned the hard way once already.
+
+### Why it's needed
+
+The instinct to preserve things rather than delete them is a good one in general — it's the
+same instinct behind this log's whole practice of checking `git status` before anything
+destructive. It just doesn't apply to a *merged* branch the way it would to, say, an untracked
+file or uncommitted work: there, deleting really could lose the only copy; here, the copy
+already exists permanently in `main`, and the branch label is the thing actively causing harm
+by sticking around.
+
+### Decisions
+
+- No code change — this is a concept worth having written down plainly, since it's the kind
+  of thing that's easy to get backwards by applying "don't delete things" as a blanket rule
+  rather than understanding *why* that rule exists in the cases where it does apply.
+
+### State at end of this step
+
+No behavior changes. This is purely explanatory, prompted directly by today's PR #27 conflict
+resolution and the merge-order/branch-deletion guidance that came with it.
 
 ---
 
