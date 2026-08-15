@@ -1143,3 +1143,176 @@ rejecting invalid emails, weak passwords, and duplicate emails. No other auth en
   `git status` — it's correctly git-ignored and treated as reproducible build output.
 
 ---
+
+## 2026-08-15 — Phase 2: `POST /api/auth/login`
+
+**Task:** [Tasks.md](Tasks.md) → Phase 2 → "Implement `POST /api/auth/login` — verify
+credentials, issue short-lived JWT access token + longer-lived refresh token."
+
+**Delivered via branch:** `feature/2.2-auth-login`.
+
+### Background / concepts
+
+#### What a JWT actually is, and why two of them
+
+- **A JWT (JSON Web Token) is a signed, self-contained claim, not a lookup key.** A database
+  session ID means nothing on its own — the server has to look it up in a table to know who
+  it belongs to. A JWT instead directly *contains* the claim (here, just `{ sub: userId }`,
+  `sub` being the JWT standard's name for "subject" — whose token this is) plus an expiry
+  (`exp`), and is cryptographically **signed** with a secret only the server knows. Anyone can
+  *read* a JWT's contents (it's just base64-encoded JSON, not encrypted — this is why nothing
+  sensitive like a password ever goes in one), but nobody can *forge* or *alter* one without
+  the signing secret, because the server recomputes the signature on every request and
+  rejects the token if it doesn't match. This is what lets the backend verify "yes, this
+  really is user X, and this token hasn't expired or been tampered with" without a database
+  round-trip on every single request — unlike checking a session ID.
+- **Two tokens with two different lifetimes, because they trade off differently.** An
+  **access token** (signed in `signAccessToken`, 15-minute expiry) is what gets sent with
+  every ordinary API request to prove who's asking — kept short-lived so that if one ever
+  leaks (e.g. via a browser bug, a compromised dependency), the window an attacker could use
+  it in is small. A **refresh token** (`signRefreshToken`, 7-day expiry) isn't sent with
+  every request; its only job is to be exchanged for a new access token once the old one
+  expires, which is what task 2.3's upcoming `POST /api/auth/refresh` will do — so the user
+  doesn't have to re-enter their password every 15 minutes just because the access token
+  expired.
+- **Separate signing secrets per token type** (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` —
+  new entries in `.env`/`.env.example`). If the two used the *same* secret, anyone who
+  obtained it (e.g. via a leaked short-lived access token secret, if it were shared) could
+  forge the other kind of token too. Separate secrets mean the two blast radii stay
+  independent — this also sets up task 2.3's refresh-rotation logic to only ever verify
+  refresh tokens against `JWT_REFRESH_SECRET`, never accidentally accepting an access token
+  in a refresh token's place.
+- **`backend/src/lib/jwt.ts` centralizes signing.** Same reasoning as `lib/prisma.ts`'s shared
+  client from the previous entry: one place that knows how to build a valid access/refresh
+  token, rather than every route that eventually issues one (login now; register itself
+  doesn't, by design — a new user still has to log in) reimplementing the `jwt.sign(...)`
+  call and its options.
+
+#### Defending login against timing-based user enumeration
+
+- **The register endpoint's 409 "Email is already registered" is an intentional, explicit
+  signal** (see the previous entry's *Decisions*) — but *login* is a different situation: a
+  wrong password and a nonexistent account should look identical to an outside observer,
+  because leaking "that email doesn't have an account" from the *login* screen specifically
+  would let an attacker cheaply enumerate real user emails at scale (unlike registration,
+  where they'd have to actually attempt one registration per guess). This is why both cases
+  return the exact same `401 { code: "INVALID_CREDENTIALS" }` response in `routes/auth.ts`.
+- **Matching response *time*, not just response *body*, is what actually closes the gap.**
+  bcrypt's comparison (`bcrypt.compare`) is deliberately slow (see the previous entry on
+  `SALT_ROUNDS`). If the login handler only ran `bcrypt.compare` when a matching user was
+  found — and returned immediately for a nonexistent email — a nonexistent-email request
+  would come back measurably *faster* than a wrong-password request, and that timing
+  difference alone would leak which emails are registered even though the JSON bodies match.
+  The fix: `DUMMY_PASSWORD_HASH` is a real, precomputed bcrypt hash of an arbitrary value that
+  matches no real password. `bcrypt.compare(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH)`
+  always runs the same expensive comparison — against the real stored hash if the user
+  exists, against the dummy one if not — so both code paths take roughly the same amount of
+  work either way.
+
+### What was done
+
+1. **JWT secrets.** Added `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` to `backend/.env`
+   (real, randomly generated 32-byte hex values, via
+   `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`) and to
+   `backend/.env.example` (clearly fake placeholder strings, plus a comment explaining the
+   two-secret split — per the previous entry's rule that real secrets never go in the
+   committed example file, unlike the local-only `DATABASE_URL` credentials).
+2. **`backend/src/lib/jwt.ts`.** Installed `jsonwebtoken` (+ `@types/jsonwebtoken`). Wrote
+   `signAccessToken(userId)` (15m expiry, `JWT_ACCESS_SECRET`) and
+   `signRefreshToken(userId)` (7d expiry, `JWT_REFRESH_SECRET`), each just wrapping
+   `jwt.sign({ sub: userId }, secret, { expiresIn })`.
+3. **The login route.** Added `loginSchema` (email + non-empty password) and
+   `authRouter.post("/login", ...)` to `routes/auth.ts`: looks the user up by email,
+   `bcrypt.compare`s the password against either the real hash or `DUMMY_PASSWORD_HASH` (see
+   *Background*), and on success returns `200` with the same safe user fields the register
+   route returns (id/email/displayName/timezone/createdAt — never `passwordHash`) plus
+   `accessToken` and `refreshToken`. Any failure — unknown email or wrong password — returns
+   a uniform `401 { error: { message: "Invalid email or password", code: "INVALID_CREDENTIALS" } }`.
+4. **Tests.** Added a `POST /api/auth/login` block to `routes/auth.test.ts`: successful login
+   (asserts both tokens verify with `jwt.verify` against the real secrets, decode to the
+   correct `sub`, and that the refresh token's `exp` is later than the access token's — i.e.
+   actually longer-lived, not just differently labeled), wrong password → 401, unknown email
+   → 401 (same code as wrong password), invalid email format → 400, and missing password →
+   400.
+5. **Ran into an environment problem unrelated to the new code, and fixed the environment,
+   not the code.** Docker Desktop wasn't running when tests were first re-run in this step
+   (`docker compose ps` failed to reach the Docker engine at all), so every test touching the
+   database — including the *existing*, previously-passing register tests — failed with a
+   generic `500`. Started Docker Desktop, waited for its engine to come up, then
+   `docker compose up -d postgres` and confirmed `pg_isready`. Also deleted a stale
+   `backend/dist/` from an earlier manual build while debugging — it's git-ignored,
+   reproducible output, but a leftover `dist/routes/auth.test.js` was confusing Vitest's file
+   discovery (Vitest imports the compiled CommonJS version too, which errors, since Vitest
+   itself is ESM-only) — a good reminder that stale build output can occasionally interfere
+   with the very tests meant to verify the source.
+6. **`npm test`** — all 11 tests passed (the original 6 register tests, unchanged, plus 5 new
+   login tests).
+7. **`npm run build`** — compiled cleanly.
+8. **Manual end-to-end check against the compiled server.** Started `node dist/index.js`,
+   then via `curl`: registered a fresh user, logged in with the correct password (200, real
+   access/refresh tokens back), logged in with a wrong password (401,
+   `INVALID_CREDENTIALS`), and logged in with an email that was never registered (401, the
+   identical `INVALID_CREDENTIALS` body — confirming the two failure cases are genuinely
+   indistinguishable from the response alone). Cleaned up the manually-created user afterward
+   via `docker compose exec postgres psql ... DELETE FROM users ...` and confirmed the table
+   was back to empty, then stopped the manually-started server.
+
+### Why it's needed
+
+Registration alone only gets a user *into* the database — login is what lets that same user
+prove who they are on a later visit and get back the credentials (the access/refresh tokens)
+that every other protected endpoint in Phase 2 onward will require. It's also the first place
+tokens are minted at all, so the signing infrastructure built here (`lib/jwt.ts`, the two
+secrets) is what the upcoming auth middleware (verifying access tokens on protected routes)
+and `POST /api/auth/refresh` (task 2.3) will both build on directly.
+
+### Decisions
+
+- **Login and register return uniform-looking failures for different reasons, on purpose.**
+  Register's 409 is deliberately specific (see the previous entry); login's 401 is
+  deliberately generic, *and* timing-matched via `DUMMY_PASSWORD_HASH` — because the two
+  endpoints have different attack surfaces (an attacker "guessing" during registration has to
+  create real accounts to test each email; an attacker guessing during login can test emails
+  for free and, without the timing fix, would only need a stopwatch — not even a full
+  password-guessing attempt — to enumerate them).
+- **Access and refresh tokens use separate secrets** rather than one shared `JWT_SECRET`,
+  even though nothing *forces* that split yet — it costs nothing today and avoids a shared
+  blast radius later once refresh-token rotation (task 2.3) starts trusting refresh tokens
+  for a more sensitive operation (minting new access tokens).
+- **Refresh tokens are returned in the JSON body for now, not yet as an HTTP-only cookie.**
+  Requirements §14 and Tasks.md's own next item (2.3, "refresh token storage/rotation
+  strategy... HTTP-only secure cookie") call out cookie-based refresh-token storage as its
+  own distinct task with its own design decisions (cookie flags, rotation-on-use, revocation)
+  — bundling that into the login endpoint itself would blur two separable pieces of work.
+  This login response shape (`{ user, accessToken, refreshToken }`) is expected to change
+  once 2.3 lands.
+- **15-minute access / 7-day refresh token lifetimes.** Not specified numerically anywhere in
+  requirements.md; chosen as conventional, reasonable defaults for a wellness app with no
+  unusual sensitivity profile — short enough that a leaked access token is only dangerous
+  briefly, long enough on the refresh side that a user isn't forced to fully re-log-in every
+  session.
+
+### State at end of this step
+
+`POST /api/auth/login` is live: a registered user can log in with the correct email and
+password and receive a signed access token and refresh token; wrong passwords and unknown
+emails are both rejected identically (body and, in practice, timing) with `401
+INVALID_CREDENTIALS`. Refresh tokens aren't usable for anything yet — `POST /api/auth/refresh`
+(task 2.3) hasn't been built — and nothing in the app verifies an access token on a protected
+route yet either, since no protected routes exist before Phase 2's later middleware task.
+
+### Verification
+
+- `npm test` (`vitest run`) — 11/11 tests passing (6 pre-existing register tests unchanged, 5
+  new login tests), against the real local Postgres container.
+- `npm run build` — compiled cleanly.
+- Manual `curl` round-trip against the compiled server: register → login success (200, valid
+  tokens) → login wrong password (401) → login unknown email (401, identical body to the
+  wrong-password case). All four matched expectations.
+- Confirmed via `docker compose exec postgres psql ... SELECT count(*) FROM users` that no
+  manual test data was left behind afterward.
+- Manually decoded the returned tokens (via the same `jwt.verify` logic the tests use) to
+  confirm the access and refresh tokens carry the correct `sub` (user id) and that the
+  refresh token's expiry is meaningfully later than the access token's.
+
+---
