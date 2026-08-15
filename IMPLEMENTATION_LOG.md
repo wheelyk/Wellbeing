@@ -4750,3 +4750,78 @@ where it gets attached to a real route for the first time.
 - `npm run build` — compiled cleanly.
 
 ---
+
+## 2026-08-15 — Why deleting a merged branch is safe (and why keeping it around actively causes bugs here)
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — while resolving a real merge conflict
+on PR #27 (documented two entries up), the advice given was "delete each branch after it
+merges, in order." That advice was met with a completely reasonable instinct: doesn't keeping
+the branch around feel *safer*, in case something needs to be recovered later? Worth answering
+properly rather than just asserting it.
+
+### Background / concepts
+
+#### What a git branch actually is — and, just as importantly, what it isn't
+
+- A branch is **not a box that holds commits**. It's just a small, human-readable label —
+  formally called a "ref" — that points at one specific commit. `feature/2.7-auth-middleware`
+  is nothing more than a sticky note reading "the tip of this line of work is currently commit
+  `d71c85d`." The commits themselves — the actual code, the actual history — exist
+  independently of that sticky note, stored permanently in git's own database the moment
+  they're created.
+- **This is why deleting a branch, once its commits are merged, deletes nothing that matters.**
+  Once `main` contains those same commits (which is exactly what "merged" means — `main`'s
+  label now points at a commit that has all of the feature branch's commits as ancestors),
+  the code is reachable from `main` forever, with full history, `git blame`, everything —
+  completely independent of whether the `feature/2.7-auth-middleware` sticky note still exists.
+  Deleting it only removes a now-redundant second label pointing at commits `main` already
+  includes; it's the git equivalent of throwing away a Post-it note *after* copying its
+  contents permanently into a filing cabinet, not throwing away the only copy.
+- **The one real exception, so this isn't overstated:** a branch with commits that were *never*
+  merged anywhere is the only copy of that work — deleting *that* would genuinely lose it (this
+  is exactly why the earlier "stranded commit" incidents in this log were worth the forensic
+  effort: real, unmerged work was at risk of being mistaken for already-safe). But a branch
+  that's been cleanly merged into `main` has already been "copied into the filing cabinet" —
+  there is no unique content left on it to protect.
+
+#### Why keeping it around isn't just unnecessary here, but actively causes the exact bug this project already hit once
+
+- This project's stacked-PR workflow (explained in the earlier "Tooling: stacked PRs,
+  auto-retargeting" entry) relies on a specific, automatic GitHub behavior: when a PR's base
+  branch is merged **and deleted**, GitHub notices the next PR in the stack was pointing at a
+  branch that no longer exists, and automatically repoints ("retargets") it at `main` instead.
+- **That retargeting is specifically triggered by the branch's deletion — not by the merge
+  alone.** A branch that merges but is left alive still looks, to GitHub, like a perfectly
+  valid, ongoing place for the next PR to be based on. Nothing tells GitHub "this branch is
+  done, move on" except actually removing it.
+- This is not a hypothetical risk — it's precisely what happened earlier in this project (see
+  "The real bug: `postinstall` never reached `main` at all," a few hundred lines up). PR #18's
+  branch merged but wasn't deleted; PR #19 (based on it) stayed pointed at that now-idle
+  branch; clicking "merge" on #19 dutifully merged it into that branch instead of `main`,
+  producing a PR that genuinely said "Merged" while its actual code never reached `main` at
+  all. Real, unmerged commits then had to be forensically recovered and cherry-picked back in.
+- So in this project's specific workflow, "keep the branch just in case" isn't a neutral,
+  extra-cautious choice — it's the one action that reliably breaks the next PR in the stack,
+  learned the hard way once already.
+
+### Why it's needed
+
+The instinct to preserve things rather than delete them is a good one in general — it's the
+same instinct behind this log's whole practice of checking `git status` before anything
+destructive. It just doesn't apply to a *merged* branch the way it would to, say, an untracked
+file or uncommitted work: there, deleting really could lose the only copy; here, the copy
+already exists permanently in `main`, and the branch label is the thing actively causing harm
+by sticking around.
+
+### Decisions
+
+- No code change — this is a concept worth having written down plainly, since it's the kind
+  of thing that's easy to get backwards by applying "don't delete things" as a blanket rule
+  rather than understanding *why* that rule exists in the cases where it does apply.
+
+### State at end of this step
+
+No behavior changes. This is purely explanatory, prompted directly by today's PR #27 conflict
+resolution and the merge-order/branch-deletion guidance that came with it.
+
+---
