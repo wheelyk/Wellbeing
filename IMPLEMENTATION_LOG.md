@@ -2834,3 +2834,134 @@ actual Railway/Vercel account setup and deployment work, which continues as its 
 conversation thread from here.
 
 ---
+
+## 2026-08-15 — Why migration should stay easy, what a "build artifact" is, and how deployment actually works
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — written while the user was creating
+Vercel and Railway accounts, covering three things asked about directly: why migrating away
+from either platform later should be low-friction, what actually gets built and deployed, and
+how to sanity-check a hosting platform's signup/terms as a beginner without a lawyer on hand.
+
+### Background / concepts
+
+#### Why this project should be easy to move off Vercel/Railway later
+
+- **"Vendor lock-in" means a codebase becomes written *against* a specific platform's own
+  proprietary features**, not just *hosted on* it — e.g. calling a platform-specific database
+  service's own SDK directly, or writing serverless functions in a format only that platform
+  understands. Once that happens, leaving isn't just "redeploy elsewhere" — it means rewriting
+  the parts of the app that only make sense on the platform being left.
+- **This project never did that, for either half of the stack** — not as a specific
+  anti-lock-in decision made along the way, but as a natural consequence of building against
+  plain, standard technology from the start: the backend is ordinary Express reading
+  `process.env.DATABASE_URL` and talking to it via Prisma (which works identically against
+  *any* real PostgreSQL server, not a proprietary Railway-flavored one); the frontend is a
+  plain Vite build producing ordinary static files, with zero calls to any Vercel-specific
+  API. Neither Railway nor Vercel is *needed* by anything in the source code — they're just
+  where it happens to run right now.
+- **The one piece with real (but standard, not proprietary) migration work is the database.**
+  Moving the *code* to a different host is close to free — any Node host can run
+  `node dist/index.js`, any static host can serve a `dist/` folder. Moving the *data* means an
+  actual export/import step (`pg_dump` / `pg_restore`, or Prisma's own migration files
+  replayed fresh against a new empty database) — not because of anything Railway-specific,
+  simply because databases hold state that has to be physically copied somewhere else,
+  regardless of which two providers are involved.
+
+#### What a "build artifact" actually is, concretely, for each half of this project
+
+- A **build artifact** is the actual thing produced by a build step — the output a computer
+  runs or serves, as opposed to the human-authored source code that generated it. This
+  project already produces one for each half, and has since very early in this log:
+  - **Backend artifact:** `npm run build` runs `tsc`, compiling every `.ts` file in `backend/src`
+    into plain `.js` in `backend/dist`. The artifact is that compiled JavaScript —
+    it's what actually executes in production (`node dist/index.js`), never the original
+    TypeScript directly (Node.js has no idea what TypeScript syntax even means; `tsc`'s entire
+    job is translating it into something Node.js does understand).
+  - **Frontend artifact:** `npm run build` runs `tsc -b && vite build`, producing
+    `frontend/dist` — but unlike the backend, this artifact is **pure static files**: one
+    `index.html`, a handful of `.js`/`.css` bundles, nothing else. Critically, *nothing* about
+    running this artifact requires Node.js, or any server-side logic at all — a static file
+    server just hands these exact bytes to whichever browser asks for them.
+- **This distinction is exactly why the two halves of this app need two different *kinds* of
+  hosting**, not just two different hosting companies: the backend artifact is a program that
+  has to be *kept running continuously* (Railway's specialty — see the earlier entry
+  comparing Railway/Render/Fly.io); the frontend artifact is a pile of static files that just
+  need to be *served efficiently to lots of browsers*, ideally from servers physically close
+  to each visitor (Vercel's specialty, via what's called a CDN — a network of servers in many
+  locations all holding a copy of the same static files).
+
+#### How "deployment" actually works on platforms like these (git-based Continuous Deployment)
+
+- Every manual "build it, then run it" step throughout this entire log so far has been done
+  by hand, on this one laptop. **Continuous Deployment (CD)** — the natural next step after
+  the **Continuous Integration (CI)** already set up via GitHub Actions — means a hosting
+  platform does that same build-and-run sequence *automatically*, triggered by a `git push`,
+  instead of a person doing it manually.
+- **The general mechanism, common to Railway, Vercel, and most modern hosting platforms:**
+  connect the platform to a GitHub repository once; from then on, every push to a chosen
+  branch (typically `main`) makes the platform automatically clone the repo at that commit,
+  run the project's install and build commands (e.g. `npm ci && npm run build` — the exact
+  same commands used manually throughout this log), and then either start the resulting
+  server process (Railway) or publish the resulting static files (Vercel). Many platforms,
+  Vercel included, also build a temporary **preview deployment** for every open pull request —
+  conceptually the same idea as this project's own PR screenshot workflow, just done natively
+  by the hosting platform itself rather than a custom GitHub Actions job.
+- **What's still left to configure, specific to this being a monorepo:** both platforms need
+  to be told *which subfolder* is the actual app to build, since `frontend/` and `backend/`
+  each have their own separate `package.json` rather than one at the repo root — this is a
+  "root directory" setting on both Railway and Vercel, not something they can guess correctly
+  on their own. Environment variables (`DATABASE_URL`, `JWT_ACCESS_SECRET`,
+  `JWT_REFRESH_SECRET`, `FRONTEND_URL` for the backend; `VITE_API_URL` for the frontend) also
+  need to be entered into each platform's own settings — this is the production equivalent of
+  the local, git-ignored `.env` files used throughout local development, just stored in the
+  hosting platform's UI instead of a file on this laptop.
+
+#### How to sanity-check a platform's signup terms as a beginner, without a lawyer
+
+- Legal text reads as alarming mostly because it's unfamiliar, not because it's usually
+  unusual — most cloud hosting companies' terms cover the same handful of legally-required
+  bases, in similar language, because they're responding to the same laws (e.g. DMCA
+  copyright-takedown compliance is a specific, standard requirement for US-based hosts to
+  qualify for certain legal protections — it's not a company-specific choice).
+- **What's normal, seen directly in Railway's own signup summary:** an age requirement;
+  "we'll email you" (account/billing notifications); "we can act on your behalf toward
+  services like GitHub" (this is just naming the OAuth connection itself — reading your repo,
+  setting up the push-triggered deploy described above); "you grant us a license to what you
+  host" (hosting fundamentally means copying and running your code on someone else's
+  computer — some form of license is *legally required* for them to be allowed to do that at
+  all, and reputable platforms scope it narrowly to "what's needed to provide the hosting
+  service," not an unrelated claim on the code itself); "you're responsible for what you
+  host" and "provided as-is" (standard liability limitation, present in nearly every software
+  ToS ever written, this project's own MVP included implicitly); copyright-takedown
+  compliance (the DMCA point above).
+- **What would actually be worth stopping over, for contrast** — none of it present in either
+  Railway's or Vercel's flow, but worth knowing as genuine red flags on any future platform:
+  being asked for the actual *password* to another service (GitHub, Google) instead of a
+  proper OAuth "Continue with X" button — legitimate integrations never need a raw password,
+  only a scoped, revocable token; a content license that explicitly claims rights to use
+  uploaded content for the *platform's own* unrelated purposes, or that survives account
+  deletion; requiring payment details before any pricing or free tier is even shown; no stated
+  way to export or delete your own data.
+- **How much scrutiny is proportionate depends on what's actually at stake.** For this
+  project's current stage — a personal MVP, fake test data, no real users — reading the
+  human-readable summary (as Railway shows before the full document) is reasonable due
+  diligence. This changes once real users' health data is genuinely involved: at that point,
+  per the earlier UK GDPR entry, it's worth specifically checking whether the hosting platform
+  offers a **Data Processing Agreement (DPA)** — a separate, standard document confirming they
+  handle personal data on your behalf under GDPR's rules — which both Vercel and Railway do
+  offer, but which isn't something a personal hobby project needs to chase down yet.
+
+### Why it's needed
+
+Account creation and the first real deploy are happening in this same conversation, right
+after this entry — understanding what's actually being agreed to, and what the platforms are
+about to do with a `git push`, matters more in the moment it's happening than as an
+after-the-fact summary.
+
+### State at end of this step
+
+No deployment has happened yet. The user is completing GitHub-based signup on both Vercel and
+Railway; actual project configuration (root directory, environment variables, first deploy)
+is the next step once both accounts exist.
+
+---
