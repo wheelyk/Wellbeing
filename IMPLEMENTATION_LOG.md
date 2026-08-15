@@ -4170,3 +4170,66 @@ public networking is the next step.
   than assuming from the tab's mere existence that it was the correct one.
 
 ---
+
+## 2026-08-15 — What a Railway-generated domain actually is, before turning it on
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — before actually exposing the backend
+publicly, a direct question deserved answering first: is a Railway-generated domain the same
+kind of DNS/IP/port mapping explained in the earlier hosting entry, and does Railway already
+have the DNS side handled?
+
+### Background / concepts
+
+#### The short answer: same underlying idea, but Railway owns the whole namespace already
+
+- The earlier hosting/domains entry explained DNS as "a name resolves to wherever the actual
+  server is," and covered the two ways to point a domain *you* own at a host you don't run
+  yourself. Clicking **"Generate Domain"** on a Railway service is a related but meaningfully
+  simpler case: Railway hands out a subdomain under **their own domain**
+  (something shaped like `<something>.up.railway.app`), not a domain the user owns at all.
+- Because Railway controls `*.up.railway.app` end to end, they can create whatever DNS record
+  is needed **on their own servers, instantly**, the moment the button is clicked — none of
+  the "add this record at your registrar, then wait for propagation" process from the earlier
+  entry applies here, precisely because there's no separate registrar involved at all in this
+  path. That whole process only becomes relevant again if a *custom* domain (like
+  `athirstycamel.com`) is later pointed at this same service.
+- **HTTPS comes for free here too, for the same reason.** A certificate for a brand-new custom
+  domain has to be issued *after* DNS proves the domain really is pointed at the right place —
+  which takes a little time. A certificate covering Railway's own domain can be prepared ahead
+  of time, since Railway isn't waiting on anyone else's DNS to change — so a generated domain
+  is reachable over `https://` immediately, with nothing extra to configure or wait for.
+
+#### The one real nuance: it's not a direct IP-and-port mapping the way local dev is
+
+- Locally, `docker-compose.yml`'s `ports: ["5432:5432"]` is a literal, direct mapping: traffic
+  to this laptop's port 5432 goes straight to the Postgres container. **Railway's generated
+  domain doesn't work that way.** The domain resolves to **Railway's own shared edge
+  infrastructure** — a reverse proxy/router they operate — which then forwards the request
+  internally, over Railway's private network, to wherever this specific container actually
+  happens to be running at that moment. The backend never gets hold of a dedicated public IP
+  address and port the way a hand-run server would; Railway's routing layer is what actually
+  knows "traffic for this hostname goes to that container," and that mapping can change
+  underneath (e.g. if the container restarts on different underlying infrastructure) without
+  the public domain ever needing to change.
+- **Why this design is normal, not a Railway-specific oddity.** Essentially every modern
+  hosting platform (Vercel included) works this way rather than dedicating one public IP per
+  customer — sharing a small number of public-facing IPs across many customers' containers via
+  hostname-based routing is both cheaper to operate and exactly why a platform can hand out a
+  working public URL in seconds rather than needing to provision new networking hardware per
+  customer.
+
+### Why it's needed
+
+Clicking a button labeled "Generate Domain" is easy to treat as a black box — understanding
+that it's DNS-plus-routing already fully controlled by Railway, rather than some new mechanism
+unrelated to everything explained about DNS so far, means the *next* time a custom domain gets
+pointed at this same service, the difference between "this was instant" (today) and "this
+needs a DNS record and a short wait" (later) makes sense as the same underlying system, just
+missing the "Railway already owns the namespace" shortcut.
+
+### State at end of this step
+
+No networking changes yet — this entry is purely explanatory, immediately ahead of actually
+clicking "Generate Domain" on the Wellbeing service.
+
+---
