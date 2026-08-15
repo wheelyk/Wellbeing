@@ -1,8 +1,13 @@
 name: PR Preview Screenshots
 
+# Only runs when a PR actually touches the frontend (or this workflow file itself) - a
+# backend-only or docs-only PR has nothing for a screenshot to usefully show.
 on:
   pull_request:
     branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/pr-preview.yml"
 
 permissions:
   contents: write
@@ -33,8 +38,10 @@ jobs:
       FRONTEND_URL: http://localhost:5173
 
     steps:
-      - name: Check out repository
+      - name: Check out the PR's head commit
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -46,6 +53,12 @@ jobs:
           echo "JWT_ACCESS_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
           echo "JWT_REFRESH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
 
+      # The backend only runs once and stays up for both captures below - the path filter
+      # above means a screenshot-triggering PR only touches frontend/ in the common case, so
+      # the head commit's backend is a reasonable stand-in for "before" too. A PR that
+      # happens to change both frontend and backend will compare two frontend builds against
+      # that same (head) backend rather than the base commit's backend - a known, accepted
+      # simplification (see the implementation log).
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci
@@ -69,33 +82,83 @@ jobs:
       - name: Wait for backend to be ready
         run: timeout 30 bash -c 'until curl -sf http://localhost:4000/api/health; do sleep 1; done'
 
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build frontend
-        working-directory: frontend
-        run: npm run build
-
-      - name: Start frontend preview server
-        working-directory: frontend
-        run: npm run preview -- --port 5173 &
-
-      - name: Wait for frontend to be ready
-        run: timeout 30 bash -c 'until curl -sf http://localhost:5173/; do sleep 1; done'
-
       - name: Install Playwright browser
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
-      - name: Capture screenshots
+      # --- AFTER: the PR's own frontend code ---
+
+      - name: "AFTER: install frontend dependencies"
+        working-directory: frontend
+        run: npm ci
+
+      - name: "AFTER: build frontend"
+        working-directory: frontend
+        run: npm run build
+
+      - name: "AFTER: start frontend preview server"
+        working-directory: frontend
+        run: npm run preview -- --port 5173 &
+
+      - name: "AFTER: wait for frontend to be ready"
+        run: timeout 30 bash -c 'until curl -sf http://localhost:5173/; do sleep 1; done'
+
+      - name: "AFTER: capture screenshots"
         working-directory: frontend
         run: node scripts/capture-pr-screenshots.mjs
         env:
-          SCREENSHOT_DIR: pr-screenshots-output
+          SCREENSHOT_DIR: pr-screenshots-output/after
+
+      - name: Stop the AFTER preview server
+        run: lsof -ti:5173 | xargs -r kill
+
+      # --- BEFORE: the PR's base commit, built in a separate worktree so the current
+      # checkout (and the capture script we keep reusing from it) is left untouched ---
+
+      - name: "BEFORE: check out the PR's base commit into a worktree"
+        id: before_checkout
+        continue-on-error: true
+        # fetch-depth: 0 above already fetched full history for every branch, so the base
+        # commit is guaranteed to be present locally already - no extra fetch needed.
+        run: git worktree add /tmp/before-checkout "${{ github.event.pull_request.base.sha }}"
+
+      - name: "BEFORE: install frontend dependencies"
+        if: steps.before_checkout.outcome == 'success'
+        continue-on-error: true
+        working-directory: /tmp/before-checkout/frontend
+        run: npm ci
+
+      - name: "BEFORE: build frontend"
+        if: steps.before_checkout.outcome == 'success'
+        continue-on-error: true
+        working-directory: /tmp/before-checkout/frontend
+        run: npm run build
+
+      - name: "BEFORE: start frontend preview server"
+        if: steps.before_checkout.outcome == 'success'
+        continue-on-error: true
+        working-directory: /tmp/before-checkout/frontend
+        run: npm run preview -- --port 5173 &
+
+      - name: "BEFORE: wait for frontend to be ready"
+        if: steps.before_checkout.outcome == 'success'
+        continue-on-error: true
+        run: timeout 30 bash -c 'until curl -sf http://localhost:5173/; do sleep 1; done'
+
+      # Runs the capture script from the HEAD checkout (this job's main working directory)
+      # even while pointed at the BEFORE server - so this still works even for the very PR
+      # that first introduces this script, when the base commit doesn't have it yet.
+      - name: "BEFORE: capture screenshots"
+        if: steps.before_checkout.outcome == 'success'
+        continue-on-error: true
+        working-directory: frontend
+        run: node scripts/capture-pr-screenshots.mjs
+        env:
+          SCREENSHOT_DIR: pr-screenshots-output/before
 
       - name: Publish screenshots to the pr-screenshots branch
         id: publish
+        if: always()
         run: |
           set -e
           PR_NUMBER="${{ github.event.pull_request.number }}"
@@ -112,9 +175,25 @@ jobs:
             (cd "$WORKTREE_DIR" && git checkout --orphan pr-screenshots && git rm -rf . > /dev/null)
           fi
 
+          EXPECTED_COUNT=3
+          BEFORE_COUNT=0
+          if [ -d "$SRC_DIR/before" ]; then
+            BEFORE_COUNT=$(ls "$SRC_DIR/before"/*.png 2>/dev/null | wc -l)
+          fi
+          if [ "$BEFORE_COUNT" -eq "$EXPECTED_COUNT" ]; then
+            HAS_BEFORE=true
+          else
+            HAS_BEFORE=false
+          fi
+
           mkdir -p "$WORKTREE_DIR/pr-$PR_NUMBER"
           rm -rf "${WORKTREE_DIR:?}/pr-$PR_NUMBER"/*
-          cp "$SRC_DIR"/*.png "$WORKTREE_DIR/pr-$PR_NUMBER/"
+          mkdir -p "$WORKTREE_DIR/pr-$PR_NUMBER/after"
+          cp "$SRC_DIR"/after/*.png "$WORKTREE_DIR/pr-$PR_NUMBER/after/"
+          if [ "$HAS_BEFORE" = "true" ]; then
+            mkdir -p "$WORKTREE_DIR/pr-$PR_NUMBER/before"
+            cp "$SRC_DIR"/before/*.png "$WORKTREE_DIR/pr-$PR_NUMBER/before/"
+          fi
 
           cd "$WORKTREE_DIR"
           git add "pr-$PR_NUMBER"
@@ -125,13 +204,16 @@ jobs:
             git push origin pr-screenshots
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "has_before=$HAS_BEFORE" >> "$GITHUB_OUTPUT"
 
       - name: Comment on the PR with the screenshots
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
             const prNumber = context.payload.pull_request.number;
             const sha = "${{ steps.publish.outputs.sha }}";
+            const hasBefore = "${{ steps.publish.outputs.has_before }}" === "true";
             const repo = `${context.repo.owner}/${context.repo.repo}`;
             const marker = "<!-- pr-preview-screenshots -->";
             const shots = [
@@ -139,14 +221,20 @@ jobs:
               ["02-after-logout-redirected-to-login", "Logout -> redirected to Login"],
               ["03-login-then-dashboard", "Login -> Dashboard"],
             ];
+            const rawUrl = (variant, file) =>
+              `https://raw.githubusercontent.com/${repo}/${sha}/pr-${prNumber}/${variant}/${file}.png`;
+
             const body = [
               marker,
               "### Preview screenshots",
-              "Captured automatically by driving a real headless browser against this PR's build.",
+              hasBefore
+                ? "Captured automatically by driving a real headless browser against this PR's build, compared against the base branch."
+                : "Captured automatically by driving a real headless browser against this PR's build. (No \"before\" comparison - the base commit's frontend build didn't produce a comparable set of screenshots.)",
               "",
-              ...shots.map(
-                ([file, caption]) =>
-                  `**${caption}**\n\n![${caption}](https://raw.githubusercontent.com/${repo}/${sha}/pr-${prNumber}/${file}.png)`,
+              ...shots.map(([file, caption]) =>
+                hasBefore
+                  ? `**${caption}**\n\n| Before | After |\n| --- | --- |\n| ![before ${caption}](${rawUrl("before", file)}) | ![after ${caption}](${rawUrl("after", file)}) |`
+                  : `**${caption}**\n\n![${caption}](${rawUrl("after", file)})`,
               ),
             ].join("\n\n");
 
