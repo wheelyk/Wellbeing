@@ -4233,3 +4233,124 @@ No networking changes yet — this entry is purely explanatory, immediately ahea
 clicking "Generate Domain" on the Wellbeing service.
 
 ---
+
+## 2026-08-15 — A slow, careful walkthrough: which port to use, and both ways to get a working URL
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — while actually clicking "Generate
+Domain," two more direct questions: which port number belongs in that field, and — slowly,
+because this genuinely is one of the more confusing parts of deploying anything for the first
+time — how would someone set up their *own* hostname instead of Railway's, and how do DNS and
+SSL actually differ between the two paths.
+
+### Background / concepts
+
+#### Which port number goes in that field, worked through one step at a time
+
+Railway's "Generate Service Domain" screen asked for a port, and pre-filled `8080`. Here is
+*why* that specific number, traced all the way through, one link at a time:
+
+1. When the container starts, Railway itself decides which port the app should listen on, and
+   tells the app by setting an environment variable called `PORT` — the app doesn't choose
+   this; Railway does, and it can differ between deployments.
+2. This project's own `backend/src/index.ts` has contained this line since the very first
+   Phase 0 scaffold entry, long before Railway ever existed in this project:
+   `const port = process.env.PORT ? Number(process.env.PORT) : 4000;` — in plain words,
+   "use whatever `PORT` says, and only fall back to `4000` if nothing set it."
+3. On Railway, `PORT` happened to be set to `8080` this time. The app read that value and
+   called `app.listen(8080, ...)` — confirmed directly, word for word, in the deploy log two
+   entries ago: `Backend listening on port 8080`.
+4. **The "port" field on this Networking screen is asking a completely different question from
+   "what's the public web address":** it's asking "when a visitor's request arrives at
+   Railway's front door, which internal door of this specific container should it be walked
+   through to reach the app that's actually running?" That number has to be `8080` — the exact
+   port the app is genuinely listening on right now — or the request would arrive at the
+   container and find no one answering at whichever wrong door it was sent to, even though the
+   app itself is running perfectly fine on the *correct* port the whole time.
+5. **This is exactly why Railway pre-filled `8080` rather than leaving it blank or defaulting
+   to something generic like `80`:** it isn't guessing — it can see, from the running
+   container, which port the process is actually bound to, and offers that back. Confirming
+   the pre-filled value (rather than typing something else, like the locally-familiar `4000`)
+   is the correct action here.
+
+#### Path one, slowly: "Generate Domain" (what was actually clicked)
+
+1. Tap **"Generate Domain"** with the port field showing `8080`.
+2. Railway immediately creates a new subdomain under its own domain — something shaped like
+   `wellbeing-production-xxxx.up.railway.app` — and, on its own servers, an internal record
+   saying "requests for this exact name should be routed to this exact container, on port
+   8080."
+3. Because `up.railway.app` belongs entirely to Railway, this record is real and working the
+   instant it's created — there is no second company, no separate registrar, and nothing to
+   wait on.
+4. A change like this shows up as a pending change to confirm and apply (the "Apply N changes"
+   / "Deploy" step) — tapping **Deploy** is what actually makes the new configuration live,
+   the same "review, then apply" pattern already familiar from every PR merged throughout this
+   whole project, just inside Railway's own UI instead of GitHub's.
+5. Once applied, the generated address works immediately, over `https://`, with a certificate
+   that didn't need to be separately requested or waited for.
+
+#### Path two, slowly: what "Custom Domain" would actually involve (not clicked yet, explained ahead of time)
+
+This is the other button on the same screen — worth understanding fully now, even though the
+generated domain is what's actually being used today, since a custom domain (`athirstycamel.com`,
+from the earlier hosting entry) is a realistic future step.
+
+1. **Type the desired hostname into Railway** — e.g. `app.athirstycamel.com`, a *subdomain* of
+   the already-owned `athirstycamel.com`, rather than the bare root domain (a common, sensible
+   choice: it leaves the root domain free for something else later, like a marketing page, and
+   keeps the app clearly separated).
+2. **Railway responds with a specific DNS record to create** — typically a **CNAME record**
+   (explained in full back in the hosting/domains entry: a record that says "this name is just
+   another name for that name") pointing `app.athirstycamel.com` at some Railway-provided
+   target address.
+3. **That record has to be added at the domain's actual registrar** — wherever
+   `athirstycamel.com` itself is registered, *not* inside Railway anywhere, since Railway
+   doesn't control that domain's DNS at all. This is the direct, real-world version of the
+   "keep the registrar's nameservers, just add one specific record there" option explained
+   generally in the earlier hosting entry.
+4. **Then: waiting.** Unlike the generated domain (instant, because Railway controls the whole
+   namespace), this step depends on the registrar's own DNS servers actually publishing the
+   new record, and every other computer on the internet noticing the change — the TTL/
+   propagation delay explained in the hosting entry, typically minutes, occasionally longer.
+   Railway's UI would show this domain as "pending" or "not yet verified" during this window,
+   not because anything is broken, but because nothing can be confirmed working until the DNS
+   change is actually visible.
+5. **Only once Railway can see the DNS correctly pointing at them does it request an SSL
+   certificate for that domain** (via Let's Encrypt, the same free, automated certificate
+   authority almost every modern host uses) — this can only happen *after* step 4 succeeds,
+   since issuing a certificate for a domain requires proving control over it, and DNS pointing
+   correctly is exactly that proof. This step is usually fast (seconds to a couple of minutes)
+   once DNS is confirmed, but it is a genuinely separate, sequential step — not simultaneous
+   with the DNS change.
+
+#### The two paths, side by side
+
+| | Generate Domain (used today) | Custom Domain (future option) |
+| - | - | - |
+| **Who controls the DNS** | Railway, entirely | The domain's own registrar (outside Railway) |
+| **DNS setup needed** | None — Railway creates its own record instantly | A CNAME record, added by hand, at the registrar |
+| **Wait time** | None | Minutes (occasionally longer) for DNS propagation |
+| **SSL certificate** | Pre-provisioned, works immediately | Requested automatically, but only *after* DNS is confirmed — a real, sequential extra step |
+| **What you type** | Nothing — Railway generates the name | The exact hostname you want (e.g. a subdomain of an owned domain) |
+
+### Why it's needed
+
+"Which port" and "how would a custom domain even work" are exactly the kind of details that
+are easy to click through without understanding, and exactly the kind that turn into confusing
+mysteries later (a 502 error from a wrong port; a custom domain stuck "pending" for what looks
+like no reason) if the underlying mechanism was never actually understood the first time.
+
+### State at end of this step
+
+The backend now has a working, public, HTTPS-secured generated domain. A custom domain has not
+been configured — deliberately explained here ahead of time, as a documented future option,
+rather than attempted today.
+
+### Verification
+
+Not applicable in the code-verification sense — this entry is a conceptual walkthrough. The
+practical verification (does the generated URL actually serve the app) is the next real step:
+visiting the generated domain directly and confirming `GET /api/health` responds, the same way
+every other endpoint in this project has been verified throughout this log.
+
+---
