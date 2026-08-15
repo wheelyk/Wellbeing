@@ -610,7 +610,105 @@ This task was the first one done under the branch-per-task workflow agreed in th
 entry: all of the above happened on a branch named `frontend/scaffold` (created with
 `git checkout -b frontend/scaffold` off `main`), not on `main` directly. Next: commit this
 work on that branch, push it to GitHub with `git push -u origin frontend/scaffold`, and open
-a pull request from `frontend/scaffold` into `main` for review before it merges.
+a pull request from `frontend/scaffold` into `main` for review before it merges. (See the
+next entry — the actual PR-creation step changed slightly from what was originally planned
+here.)
+
+---
+
+## 2026-08-14 — Tooling: install and authenticate the GitHub CLI, switch to Claude opening PRs
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — a workflow change requested partway
+through the `frontend/scaffold` task, updating how pull requests get created from here on.
+
+### Background / concepts
+
+- A **CLI** (Command Line Interface) tool is a program you control by typing commands into a
+  terminal, rather than clicking around a graphical app. `git` itself is a CLI tool; **`gh`**
+  is GitHub's *official* CLI — it can do things a normal `git` command can't, because `git`
+  only knows about raw repository history (commits, branches), while `gh` knows about
+  GitHub-specific concepts layered on top, like pull requests, issues, and repo settings.
+  `gh pr create` is the command-line equivalent of clicking "New pull request" on
+  github.com.
+- Before now, the plan (from the earlier "adopt a branch strategy" entry) was: Claude pushes
+  a branch, and *the user* opens the actual pull request by visiting the link GitHub prints
+  after a push. That link only pre-fills a form — someone still has to click the final
+  "Create pull request" button on the website. The user asked to skip that manual step and
+  have Claude create the PR directly instead, which requires the `gh` tool to be installed
+  and able to prove to GitHub who is making the request.
+- **Authentication** for a CLI tool means proving your identity to a remote service (here,
+  GitHub) without a browser sitting open. There are two common ways `gh` can do this:
+  - **Interactive login** (`gh auth login`, choosing "Login with a web browser") — `gh`
+    shows a one-time code, opens github.com in a browser, you paste the code and approve,
+    and `gh` stores a credential locally for future use. This is the normal path for a
+    human setting up `gh` for the first time on a machine with nothing configured yet.
+  - **A pre-existing access token supplied via environment variable** — specifically here,
+    a `GITHUB_TOKEN` environment variable already set on the user's machine (from earlier,
+    unrelated setup). An **environment variable** is a named value the operating system
+    makes available to any program that runs, without it being written in any file the
+    program ships with — a common way to hand a program a secret (like a token) without
+    hard-coding it. A **personal access token** is a long random string that acts like a
+    scoped, revocable password — "prove you're allowed to act as this GitHub account,"
+    without using the account's actual login password.
+  - When both are possible, `gh` prefers the environment variable if one is present — which
+    is exactly why running `gh auth login` printed *"The value of the `GITHUB_TOKEN`
+    environment variable is being used for authentication"* and then exited immediately,
+    instead of walking through the interactive browser flow. This looked like the login had
+    failed or gotten stuck, but it was actually `gh` reporting "no need, you're already
+    authenticated via this token" — confirmed by running `gh auth status` separately, which
+    showed `✓ Logged in to github.com account wheelyk (GITHUB_TOKEN)`.
+
+### What was done
+
+1. Installed the GitHub CLI with `winget install --id GitHub.cli` (winget is Windows'
+   built-in package manager — the Windows equivalent of running an installer, but
+   scriptable from the command line instead of clicking through a setup wizard).
+2. Asked the user to run `gh auth login` themselves in their own terminal, since logging in
+   is inherently an interactive, human-in-the-loop step (approving access in a browser) —
+   not something that should be automated on someone's behalf.
+3. That command reported it was already using a `GITHUB_TOKEN` environment variable rather
+   than prompting for browser login. Ran `gh auth status` to confirm this meant "already
+   authenticated," not "broken" — confirmed with `✓ Logged in to github.com account wheelyk`.
+4. Sanity-checked `gh` actually worked against this specific repo by running `gh pr list`
+   inside the project folder (returned cleanly with no open PRs at the time, as expected).
+5. Created the real pull request for the `frontend/scaffold` branch with
+   `gh pr create --base main --head frontend/scaffold --title "..." --body "..."`, which
+   opened **PR #1** directly — no manual click-through on github.com needed.
+
+### Why it's needed
+
+This removes a manual step from every future task: instead of Claude handing over a
+"pre-filled form" link and waiting for the user to visit it and click a button, Claude can
+now open the pull request itself as the final step of finishing a task, the moment its
+branch is pushed. The user still reviews and merges every PR on github.com — only the
+*creation* step moved.
+
+### Decisions
+
+- **The user authenticates interactively; Claude never runs `gh auth login`.** Logging into
+  a GitHub account is a trust decision only the account owner should make, and it requires a
+  real browser + human approval step that an automated tool can't (and shouldn't try to)
+  perform on someone's behalf.
+- **Claude will create PRs going forward but will not merge them.** This matches the
+  boundary agreed earlier in the "adopt a branch strategy" entry — automation is allowed to
+  *propose* changes (branch, commit, push, open PR) but a human still makes the final call
+  to bring them into `main`.
+
+### State at end of this step
+
+`gh` is installed and authenticated on this machine via an existing `GITHUB_TOKEN`. PR #1
+(`frontend/scaffold` → `main`) exists at `https://github.com/wheelyk/Wellbeing/pull/1`. All
+future tasks will end with Claude running `gh pr create` once their branch is pushed.
+
+### Verification
+
+- `gh --version` confirmed the install succeeded (`gh version 2.97.0`).
+- `gh auth status` confirmed an authenticated session (`Active account: true`).
+- `gh pr list` returned successfully (no errors) when run inside the repo, confirming `gh`
+  can correctly identify and talk to `wheelyk/Wellbeing` specifically, not just GitHub in
+  general.
+- `gh pr create` returned a real PR URL (`https://github.com/wheelyk/Wellbeing/pull/1`)
+  rather than an error, confirming the PR was actually created, not just queued/drafted.
 
 ---
 
@@ -2835,6 +2933,137 @@ conversation thread from here.
 
 ---
 
+## 2026-08-15 — Why migration should stay easy, what a "build artifact" is, and how deployment actually works
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — written while the user was creating
+Vercel and Railway accounts, covering three things asked about directly: why migrating away
+from either platform later should be low-friction, what actually gets built and deployed, and
+how to sanity-check a hosting platform's signup/terms as a beginner without a lawyer on hand.
+
+### Background / concepts
+
+#### Why this project should be easy to move off Vercel/Railway later
+
+- **"Vendor lock-in" means a codebase becomes written *against* a specific platform's own
+  proprietary features**, not just *hosted on* it — e.g. calling a platform-specific database
+  service's own SDK directly, or writing serverless functions in a format only that platform
+  understands. Once that happens, leaving isn't just "redeploy elsewhere" — it means rewriting
+  the parts of the app that only make sense on the platform being left.
+- **This project never did that, for either half of the stack** — not as a specific
+  anti-lock-in decision made along the way, but as a natural consequence of building against
+  plain, standard technology from the start: the backend is ordinary Express reading
+  `process.env.DATABASE_URL` and talking to it via Prisma (which works identically against
+  *any* real PostgreSQL server, not a proprietary Railway-flavored one); the frontend is a
+  plain Vite build producing ordinary static files, with zero calls to any Vercel-specific
+  API. Neither Railway nor Vercel is *needed* by anything in the source code — they're just
+  where it happens to run right now.
+- **The one piece with real (but standard, not proprietary) migration work is the database.**
+  Moving the *code* to a different host is close to free — any Node host can run
+  `node dist/index.js`, any static host can serve a `dist/` folder. Moving the *data* means an
+  actual export/import step (`pg_dump` / `pg_restore`, or Prisma's own migration files
+  replayed fresh against a new empty database) — not because of anything Railway-specific,
+  simply because databases hold state that has to be physically copied somewhere else,
+  regardless of which two providers are involved.
+
+#### What a "build artifact" actually is, concretely, for each half of this project
+
+- A **build artifact** is the actual thing produced by a build step — the output a computer
+  runs or serves, as opposed to the human-authored source code that generated it. This
+  project already produces one for each half, and has since very early in this log:
+  - **Backend artifact:** `npm run build` runs `tsc`, compiling every `.ts` file in `backend/src`
+    into plain `.js` in `backend/dist`. The artifact is that compiled JavaScript —
+    it's what actually executes in production (`node dist/index.js`), never the original
+    TypeScript directly (Node.js has no idea what TypeScript syntax even means; `tsc`'s entire
+    job is translating it into something Node.js does understand).
+  - **Frontend artifact:** `npm run build` runs `tsc -b && vite build`, producing
+    `frontend/dist` — but unlike the backend, this artifact is **pure static files**: one
+    `index.html`, a handful of `.js`/`.css` bundles, nothing else. Critically, *nothing* about
+    running this artifact requires Node.js, or any server-side logic at all — a static file
+    server just hands these exact bytes to whichever browser asks for them.
+- **This distinction is exactly why the two halves of this app need two different *kinds* of
+  hosting**, not just two different hosting companies: the backend artifact is a program that
+  has to be *kept running continuously* (Railway's specialty — see the earlier entry
+  comparing Railway/Render/Fly.io); the frontend artifact is a pile of static files that just
+  need to be *served efficiently to lots of browsers*, ideally from servers physically close
+  to each visitor (Vercel's specialty, via what's called a CDN — a network of servers in many
+  locations all holding a copy of the same static files).
+
+#### How "deployment" actually works on platforms like these (git-based Continuous Deployment)
+
+- Every manual "build it, then run it" step throughout this entire log so far has been done
+  by hand, on this one laptop. **Continuous Deployment (CD)** — the natural next step after
+  the **Continuous Integration (CI)** already set up via GitHub Actions — means a hosting
+  platform does that same build-and-run sequence *automatically*, triggered by a `git push`,
+  instead of a person doing it manually.
+- **The general mechanism, common to Railway, Vercel, and most modern hosting platforms:**
+  connect the platform to a GitHub repository once; from then on, every push to a chosen
+  branch (typically `main`) makes the platform automatically clone the repo at that commit,
+  run the project's install and build commands (e.g. `npm ci && npm run build` — the exact
+  same commands used manually throughout this log), and then either start the resulting
+  server process (Railway) or publish the resulting static files (Vercel). Many platforms,
+  Vercel included, also build a temporary **preview deployment** for every open pull request —
+  conceptually the same idea as this project's own PR screenshot workflow, just done natively
+  by the hosting platform itself rather than a custom GitHub Actions job.
+- **What's still left to configure, specific to this being a monorepo:** both platforms need
+  to be told *which subfolder* is the actual app to build, since `frontend/` and `backend/`
+  each have their own separate `package.json` rather than one at the repo root — this is a
+  "root directory" setting on both Railway and Vercel, not something they can guess correctly
+  on their own. Environment variables (`DATABASE_URL`, `JWT_ACCESS_SECRET`,
+  `JWT_REFRESH_SECRET`, `FRONTEND_URL` for the backend; `VITE_API_URL` for the frontend) also
+  need to be entered into each platform's own settings — this is the production equivalent of
+  the local, git-ignored `.env` files used throughout local development, just stored in the
+  hosting platform's UI instead of a file on this laptop.
+
+#### How to sanity-check a platform's signup terms as a beginner, without a lawyer
+
+- Legal text reads as alarming mostly because it's unfamiliar, not because it's usually
+  unusual — most cloud hosting companies' terms cover the same handful of legally-required
+  bases, in similar language, because they're responding to the same laws (e.g. DMCA
+  copyright-takedown compliance is a specific, standard requirement for US-based hosts to
+  qualify for certain legal protections — it's not a company-specific choice).
+- **What's normal, seen directly in Railway's own signup summary:** an age requirement;
+  "we'll email you" (account/billing notifications); "we can act on your behalf toward
+  services like GitHub" (this is just naming the OAuth connection itself — reading your repo,
+  setting up the push-triggered deploy described above); "you grant us a license to what you
+  host" (hosting fundamentally means copying and running your code on someone else's
+  computer — some form of license is *legally required* for them to be allowed to do that at
+  all, and reputable platforms scope it narrowly to "what's needed to provide the hosting
+  service," not an unrelated claim on the code itself); "you're responsible for what you
+  host" and "provided as-is" (standard liability limitation, present in nearly every software
+  ToS ever written, this project's own MVP included implicitly); copyright-takedown
+  compliance (the DMCA point above).
+- **What would actually be worth stopping over, for contrast** — none of it present in either
+  Railway's or Vercel's flow, but worth knowing as genuine red flags on any future platform:
+  being asked for the actual *password* to another service (GitHub, Google) instead of a
+  proper OAuth "Continue with X" button — legitimate integrations never need a raw password,
+  only a scoped, revocable token; a content license that explicitly claims rights to use
+  uploaded content for the *platform's own* unrelated purposes, or that survives account
+  deletion; requiring payment details before any pricing or free tier is even shown; no stated
+  way to export or delete your own data.
+- **How much scrutiny is proportionate depends on what's actually at stake.** For this
+  project's current stage — a personal MVP, fake test data, no real users — reading the
+  human-readable summary (as Railway shows before the full document) is reasonable due
+  diligence. This changes once real users' health data is genuinely involved: at that point,
+  per the earlier UK GDPR entry, it's worth specifically checking whether the hosting platform
+  offers a **Data Processing Agreement (DPA)** — a separate, standard document confirming they
+  handle personal data on your behalf under GDPR's rules — which both Vercel and Railway do
+  offer, but which isn't something a personal hobby project needs to chase down yet.
+
+### Why it's needed
+
+Account creation and the first real deploy are happening in this same conversation, right
+after this entry — understanding what's actually being agreed to, and what the platforms are
+about to do with a `git push`, matters more in the moment it's happening than as an
+after-the-fact summary.
+
+### State at end of this step
+
+No deployment has happened yet. The user is completing GitHub-based signup on both Vercel and
+Railway; actual project configuration (root directory, environment variables, first deploy)
+is the next step once both accounts exist.
+
+---
+
 ## 2026-08-15 — First real Railway deploy attempt: the monorepo build failure, `package.json`, and what a "server" actually is
 
 **Task:** Not a [Tasks.md](Tasks.md) checklist item — the user connected this repo to a real
@@ -3299,6 +3528,27 @@ independently-real improvement came out of investigating it anyway.
   directly (exactly as done here, and back in the earlier #16–#19 entry) is the way to verify
   the second question rather than trusting the first as a proxy for it.
 
+#### The same gotcha, explained plainly (worth reading even after the technical version above)
+
+- Think of a stacked PR's base as a **forwarding address**. Setting PR #19's base to PR #18's
+  branch is like saying "deliver my parcel to wherever that branch currently lives." Normally,
+  once PR #18 is merged and its branch is deleted, GitHub notices the forwarding address no
+  longer exists and automatically updates the label to "deliver to `main` instead" — which is
+  exactly what was observed working correctly, more than once, earlier in this log.
+- **This time, the forwarding address was never closed down.** The branch merged, but nobody
+  deleted it afterward — so as far as GitHub could tell, that address was still a perfectly
+  valid place to deliver to. PR #19's label never got updated. Clicking "merge" on #19 dutifully
+  delivered its parcel exactly where the label said — a branch that had already made its own,
+  separate delivery to `main` earlier and had no further deliveries scheduled. The parcel
+  arrived, correctly, at completely the wrong place — and "delivery successful" (GitHub's
+  "Merged" badge) is a perfectly true statement about *that* delivery, while still being the
+  wrong information for "did this reach the house" (`main`).
+- **The practical habit this suggests going forward:** for any stacked PR, once its *base* PR
+  merges, it's worth explicitly checking whether that base branch actually got deleted before
+  assuming the next PR in the stack will behave itself — or, more simply, just re-verify with
+  `git log main..<branch>` (exactly the command that caught this) after merging *any* PR that
+  was part of a stack, rather than only when something looks visibly wrong.
+
 #### The independently real second problem: `postinstall` likely wasn't the right mechanism for Railway anyway
 
 - While tracking this down, Railway's build log carried another clue worth taking seriously
@@ -3320,6 +3570,40 @@ independently-real improvement came out of investigating it anyway.
   immediately before `tsc` needs it, regardless of any platform-specific install behavior.
   The `postinstall` script was left in place rather than removed — it's still correct and
   harmless for the plain local-`npm install` case — but `build` no longer depends on it.
+
+#### Lifecycle hooks vs. explicit script chaining: a general rule of thumb, not just a Prisma one
+
+This exact fork — "should this run automatically via a lifecycle hook, or be explicitly
+chained into the script that actually needs it?" — comes up anywhere a project has a
+generated-or-derived-thing dependency, not just Prisma. Worth having a general rule rather than
+re-deriving it from scratch next time:
+
+- **A lifecycle hook (`postinstall` and similar) is *implicit*.** Its big advantage: every
+  script that might need the thing it produces — `dev`, `build`, `test`, `start` — benefits
+  automatically, for free, without each one having to remember to ask for it. Its real
+  weakness, learned directly in this entry: it only runs as a *side effect* of `npm install`/
+  `npm ci`, and different environments run that install step differently — some skip
+  lifecycle scripts outright for security (a defense against the exact supply-chain-attack
+  pattern mentioned in the earlier entry), some use flags this project has no control over.
+  **A hook is only as reliable as your control over how install gets invoked** — solid for
+  "my own laptop, where I run plain `npm install`," much less certain for "some third party's
+  build infrastructure, configured however they've configured it."
+- **Explicit chaining inside a named script (`"build": "prisma generate && tsc"`) is
+  *unambiguous*.** If that script runs at all, every command in the chain runs, in order, full
+  stop — there's no install-flag or security-policy variable that can silently skip a step
+  written directly into the script itself. The tradeoff is the opposite one: it only protects
+  the *specific* script it's written into. If `test` or `dev` also needed the generated client
+  and *didn't* separately chain it in (or rely on the still-present `postinstall`), they'd be
+  unprotected — explicit chaining doesn't automatically spread to every script the way a hook
+  does.
+- **The rule of thumb that falls out of this:** reach for a lifecycle hook for convenience when
+  the install environment is fully within your own control or trust; reach for explicit
+  chaining specifically in whichever script(s) are the ones that actually *must not fail* on
+  infrastructure you don't control — exactly a hosting platform's build step, which is the
+  category of thing that just failed twice in this project for exactly this reason. Using
+  **both at once**, as this project now does, isn't indecision — it's covering the convenient
+  common case (hook) while making the one step that absolutely cannot be allowed to fail
+  (`build`) independently self-sufficient, rather than trusting a single mechanism everywhere.
 
 ### What was done
 
@@ -3371,5 +3655,117 @@ test, once this merges.
   cleanly, proving the fix no longer depends on any install-time hook at all.
 - `npm test` — 18/18 passing, unchanged.
 - Not yet verified: an actual Railway rebuild once this new PR is merged.
+
+---
+
+## 2026-08-15 — Auditing every branch for stragglers, and finding one that had been missing since PR #1
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — after PR #20 was confirmed merged, the
+user asked directly: "check for straggling files." Rather than checking only the one branch
+just worked on, every branch in the repository was checked — and turned up three real cases,
+one of them far older than expected.
+
+### Background / concepts
+
+#### Why "check the one branch I was just working on" isn't good enough
+
+- The previous entry's fix specifically addressed PR #19's stranding. But the *cause* of that
+  stranding — a stacked PR whose base branch merged without being deleted — isn't something
+  that only happens once. **The right question wasn't "is #19's content on `main` now,"** it
+  was "has this happened anywhere else in this repository's entire history, undetected." A
+  targeted fix for one confirmed instance says nothing about whether the same mistake happened
+  quietly, elsewhere, earlier — the only way to know is to check *everything*, not just the
+  branch already under suspicion.
+- **The method:** for every remote branch, compare it against `main` with
+  `git log origin/main..origin/<branch>` — this lists every commit that exists on that branch
+  but is *not* an ancestor of `main`. A clean branch (fully merged, or never diverged) shows
+  zero commits. Any nonzero result is either a real straggler or a branch that's deliberately
+  meant to stay separate (like `pr-screenshots`, the orphan branch backing the CI screenshot
+  workflow — expected to always show commits here, since it's never supposed to merge into
+  `main` at all).
+
+#### What the audit actually found
+
+| Branch | Stranded commit(s) | Origin |
+| ------ | ------------------- | ------ |
+| `frontend/scaffold` | `bc5efb8` — "Document GitHub CLI install/auth..." | **From the PR #1 era** — pushed after PR #1 had already merged, and never picked up by any later PR. Sat undiscovered for the entire rest of this conversation until this direct audit. |
+| `docs/hosting-and-domains-explainer` | `4cf9923` — "docs: explain build artifacts..." | PR #17, the exact same stacked-PR-base-not-deleted pattern diagnosed for PR #19 two entries ago — just not previously checked for. |
+| `fix/land-stranded-postinstall-commits` | `1849826` — the beginner-friendly expansion of the merge-gotcha entry | A simple timing race: this commit was pushed roughly 43 seconds *after* the user clicked merge on PR #20, confirmed by comparing the commit's timestamp against the PR's `mergedAt` directly rather than assuming. |
+
+- **The `frontend/scaffold` case is the most notable one.** It predates every other entry in
+  this log about stranded commits — including the entry that first explained what a stranded
+  commit even *is* (the "moving a file onto its own branch" `CLAUDE.md` entry, and the later
+  #7–#9 stacked-PR entry). In other words: this exact failure mode happened once, quietly,
+  before it was ever even named or understood — and then kept happening a few more times after
+  it *was* understood, simply because nobody had gone back to check whether the first,
+  unrecognized occurrence had ever actually been fixed. It hadn't.
+- **Distinguishing a real straggler from `pr-screenshots`.** The screenshot-hosting branch
+  showed up in the same scan with several commits "not in `main`" — but that's expected and
+  correct, not a bug: it's a deliberate orphan branch (explained in the CI screenshot entry)
+  that exists purely to host image files for PR comments, and was never meant to merge into
+  `main` at all. Distinguishing "expected to diverge forever, by design" from "accidentally
+  never merged" is exactly what reading each result rather than reacting to a nonzero count
+  requires.
+
+#### How each was actually landed
+
+- **`bc5efb8` and `4cf9923`** (both pure `IMPLEMENTATION_LOG.md` additions, from points in
+  history where the file looked very different from its current, much longer state) were
+  **cherry-picked** onto a fresh branch from current `main`, rather than branched from their
+  original stale tips — branching from the stale tip would have carried along an entire
+  outdated snapshot of the file, guaranteeing a massive conflict against everything added
+  since. `git cherry-pick <commit>` instead takes just *that one commit's diff* and reapplies
+  it against whatever `main` looks like right now.
+- **`bc5efb8` cherry-picked cleanly** — its insertion point (the end of the file, at the time)
+  hadn't itself been altered since, only extended after, so the patch still applied without
+  conflict even though hundreds of lines had been added beneath it since.
+- **`4cf9923` conflicted**, because its intended insertion point — right after the "hosting and
+  domains" entry — now had *different* new content already sitting there (the "First real
+  Railway deploy attempt" entry, correctly landed via PR #18). Resolving it meant manually
+  placing the recovered entry in its correct chronological position (before the Railway-deploy
+  entry, which is where it was always meant to sit) rather than wherever the automatic merge
+  attempt happened to leave it.
+- **`1849826`** cherry-picked cleanly, as the newest and simplest of the three.
+
+### Why it's needed
+
+A one-off fix for the specific branch that happened to be visibly broken doesn't answer "is
+anything else quietly broken too" — and this audit's own results prove that question was worth
+asking: two of the three findings would never have been caught by only checking PR #19's
+branch specifically, and one of them had been sitting unnoticed since essentially the
+beginning of this project's git history.
+
+### Decisions
+
+- **Audited every branch, not just the one under suspicion**, once asked to check for
+  stragglers — the cheap, mechanical cost of checking all of them is trivial compared to the
+  cost of a fourth silent failure surfacing weeks from now with no memory of why.
+- **Cherry-picked rather than re-branching from stale tips**, specifically because this
+  project's `IMPLEMENTATION_LOG.md` grows continuously and any old branch's snapshot of it is
+  guaranteed to be badly out of date by now — cherry-pick isolates just the one relevant change
+  instead of dragging along an entire obsolete file state.
+- **Resolved the one real conflict by hand, choosing correct chronological placement**, rather
+  than accepting whichever side a mechanical merge tool would have picked by default — since
+  this file's entries are meant to read in order, silently misplacing one would have left the
+  log itself confusing for exactly the kind of reader (a beginner reading it end to end) it's
+  written for.
+
+### State at end of this step
+
+All three previously-stranded commits are captured on this one branch, ready to land in a
+single PR directly into `main`. A full-repository audit (`git log origin/main..<branch>` for
+every remote branch) found no further stragglers beyond these three and the expected,
+by-design exception (`pr-screenshots`).
+
+### Verification
+
+- `git log origin/main..origin/<branch>` run against **every** remote branch, not just the one
+  branch already suspected — this is what surfaced `frontend/scaffold`'s long-dormant straggler,
+  which nothing narrower would have found.
+- For the PR #20 timing question specifically: compared the stranded commit's actual authored
+  timestamp against the PR's `mergedAt` field directly (43 seconds apart) rather than assuming
+  a cause from the symptom alone.
+- After cherry-picking all three: re-ran the same full-repository scan again, confirming the
+  only remaining nonzero result was the expected, by-design `pr-screenshots` branch.
 
 ---
