@@ -54,6 +54,10 @@ jobs:
         working-directory: backend
         run: npx prisma migrate deploy
 
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npx prisma generate
+
       - name: Build backend
         working-directory: backend
         run: npm run build
