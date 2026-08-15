@@ -1786,6 +1786,23 @@ accidental `git push origin main`) from pushing straight to it.
   squashed or rebased rather than merged with a regular merge commit, which is how #7/#8/#9
   were merged in the previous entry; no strong reason to forbid that yet).
 
+#### A GitHub account can have many tokens at once, and editing one never touches another
+
+- **A personal access token (fine-grained or classic) is just a long secret string, and an
+  account can have any number of them at the same time** — e.g. one created ages ago for a
+  different project or tool, one created specifically for this environment, one created by
+  accident while experimenting with token settings. GitHub's *Settings → Developer settings →
+  Fine-grained tokens* page lists every token the account owns, each with its own name,
+  its own separate list of permissions, and its own separate secret value — they don't share
+  settings with each other in any way, even though they all belong to the same GitHub
+  account and can all authenticate as the same user.
+- **Editing a token's permissions in that UI only ever changes *that one token*.** If two
+  tokens both exist, and only one of them is the actual value stored in this machine's
+  `GITHUB_TOKEN` environment variable, editing the *other* one's permissions has precisely
+  zero effect on what `gh api` requests are allowed to do — from the API's point of view,
+  nothing changed at all, because the token actually being sent with every request is
+  unmodified. This is exactly what happened here: see *What was done* below.
+
 ### What was done
 
 1. Confirmed the gap first: `gh api repos/wheelyk/Wellbeing/rulesets` returned `[]` — no
@@ -1805,19 +1822,31 @@ accidental `git push origin main`) from pushing straight to it.
    the **Administration** permission specifically — a separate, more powerful permission
    than the **Contents** and **Pull requests** permissions that had already been sufficient
    for every git push and PR created so far.
-4. The user updated the token's permissions on github.com (Settings → Developer settings →
-   Fine-grained tokens → edit the token → **Administration: Read and write**) and confirmed
+4. The user went to github.com (Settings → Developer settings → Fine-grained tokens) and
+   updated a token's permissions to add **Administration: Read and write**, then confirmed
    saving it. The very next retry **still** failed with the identical 403.
-5. To rule out a wrong-token mix-up (e.g. more than one fine-grained token existing, and the
-   one edited not actually being the one stored in `GITHUB_TOKEN`), printed a partial
-   fingerprint of the token actually in use (`github_pat_11AB...H23JxQ` — first 15 and last 6
-   characters only, deliberately not the full secret) for the user to cross-check against
-   whatever value they had a record of. This didn't fully resolve the question either way,
-   but ruled out blindly retrying forever without narrowing down *why* it was failing.
-6. Retried twice more at the user's request, both still `403`. On the **fourth** retry
-   (several minutes after the permission edit was saved), the request finally
-   **succeeded** — returning the full created ruleset object, including its id (`20886071`).
-7. Confirmed it stuck via `gh api repos/wheelyk/Wellbeing/rulesets`, which now listed exactly
+5. To investigate rather than keep blindly retrying, printed a partial fingerprint of the
+   token *actually being used* for these API calls (`github_pat_11AB...H23JxQ` — only the
+   first 15 and last 6 characters, deliberately not the full secret) so the user could
+   cross-check it against their token list.
+6. Retried twice more regardless, both still `403` — at this point still assumed to be a
+   propagation delay (permission changes on some systems take a short while to take effect
+   everywhere), so continuing to retry seemed reasonable.
+7. **The real cause, confirmed by the user afterward: the first edit was made to the wrong
+   token.** There was more than one fine-grained token on the account, and the one initially
+   opened and edited was a *different* token from the one whose value is actually stored in
+   this machine's `GITHUB_TOKEN` — see *Background* above for why that guarantees zero
+   effect. The fingerprint printed in step 5 was what let the user identify the mismatch:
+   comparing it against their token list showed the edited token didn't match. The user then
+   found and edited the *correct* token (the one matching that fingerprint) to add
+   **Administration: Read and write**.
+8. The next retry after editing the *correct* token **succeeded immediately** — no further
+   delay, no additional retries needed — returning the full created ruleset object, including
+   its id (`20886071`). This on its own is good evidence the earlier "maybe it just needs
+   time to propagate" theory was wrong: if propagation delay had been the real cause, the
+   *first* edit would eventually have started working too, on its own, without ever touching
+   a second token.
+9. Confirmed it stuck via `gh api repos/wheelyk/Wellbeing/rulesets`, which now listed exactly
    the one ruleset, `enforcement: "active"`.
 
 ### Why it's needed
@@ -1843,11 +1872,14 @@ Phase 0 *Git Workflow* entry's reasoning), not just a tidiness preference.
   reproducible JSON definition of the ruleset in this log, rather than a one-time set of UI
   clicks that would be hard to reconstruct later if the ruleset ever needed to be recreated
   (e.g. on a future repository).
-- **Didn't switch to a fresh token** when the permission edit didn't immediately take effect,
-  per the user's explicit choice to keep retrying the existing one first — which turned out
-  to be the right call: the eventual success confirms the original token and its edited
-  permissions were correct all along, and the repeated early failures were propagation delay
-  on GitHub's side, not a wrong-token mix-up or a genuine platform limitation.
+- **Didn't switch to a *fresh* (newly created) token** when the permission edit didn't
+  immediately take effect, per the user's explicit choice to keep retrying first — but the
+  actual fix that worked wasn't "just wait" either: it was identifying that the *existing*
+  token being edited wasn't the one actually in use, and editing the correct one instead. In
+  hindsight, printing the token fingerprint (step 5 above) should have been the very first
+  troubleshooting move, before any retries — it's what eventually solved this, and doing it
+  earlier would have skipped several rounds of retrying a permission change that could never
+  have worked no matter how long it waited.
 - **Left "require status checks" and "require linear history" off for now** — both are
   reasonable *future* additions (the former once Phase 13 adds CI; the latter is purely a
   history-style preference) rather than gaps in the actual protection this task was about.
