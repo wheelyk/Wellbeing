@@ -2689,3 +2689,148 @@ sequence, not just the `if:`-skipped fallback path.
   workflow completed without error.
 
 ---
+
+## 2026-08-15 — Hosting and domains, explained (ahead of actually deploying)
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — the user asked how to get the app
+published on the web to try it out. This entry covers the concepts *before* any actual
+deployment work happens, since none of Phase 14 has been started yet and none of this has
+been explained in this log before.
+
+### Background / concepts
+
+#### Why "it runs on my laptop" isn't the same as "it's on the web"
+
+- Every server started in this log so far (`node dist/index.js`, `npm run dev`, `npm run
+  preview`) only listens on `localhost` — a special address that only means anything *on the
+  machine it's running on*. Nobody else, anywhere, can reach `http://localhost:4000` from
+  their own computer, no matter how it's phrased — it's not a privacy setting, it's what
+  "localhost" fundamentally means (literally "this computer," not a real place on the
+  internet). **Hosting** means running the exact same kind of server, but on a machine that
+  (a) has a real, internet-reachable address, and (b) stays switched on and connected
+  continuously, instead of only existing while this laptop happens to be open with a terminal
+  running. A hosting *platform* (Railway, Vercel, SmarterASP.NET, etc.) is a company that
+  provides and manages those always-on machines so nobody has to buy, rack, and maintain
+  physical server hardware themselves.
+
+#### What a domain name actually is, and what a registrar does
+
+- Every server on the internet is ultimately reachable by a numeric **IP address** (e.g.
+  `76.76.21.21`) — domain names like `athirstycamel.com` exist purely as a human-friendly
+  substitute for those numbers, the same idea as a phone contact list mapping "Mum" to an
+  actual phone number nobody wants to memorize.
+- A **domain registrar** (whichever company issued the screenshot's `athirstycamel.com` —
+  Namecheap, GoDaddy, IONOS, and dozens of others all do this) is a company accredited to
+  register domain names on your behalf with the actual central registries that operate each
+  suffix (e.g. Verisign runs the master database for every `.com` domain that exists;
+  Nominet runs it for `.uk`). Buying a domain isn't a one-time purchase of property you then
+  own outright — it's closer to a renewable lease: registration is sold in yearly (or
+  multi-year) terms, and the domain stops being yours if it isn't renewed (the screenshot
+  shows `athirstycamel.com`'s current term running to **6 January 2027**).
+- **WHOIS privacy** (the toggle in the screenshot, currently "PRIVACY OFF") controls whether
+  the domain owner's real name/address/email are published in WHOIS — a public, historically
+  unrestricted lookup database of who owns which domain. Turning it **on** replaces those
+  details with the registrar's own proxy contact instead — worth doing for a personal project
+  unless there's a specific reason not to, since WHOIS data is scraped constantly (mostly by
+  spammers).
+- **Critically: a registrar only sells the *name*. It has nothing to do with hosting.**
+  Owning `athirstycamel.com` today doesn't mean any web page exists there yet — right now it
+  just points at nothing in particular. This is one of the most common points of confusion
+  for someone hosting a project for the first time: the domain and the server the domain
+  eventually points *at* are typically two completely separate services, from two completely
+  separate companies, billed separately — exactly the situation here (domain at one
+  registrar, app about to be hosted on Railway/Vercel).
+
+#### DNS: how a domain actually gets pointed at a host it wasn't bought from
+
+- **DNS** (Domain Name System) is the global lookup system that answers "what does this
+  domain name actually point to right now?" A **DNS record** is one specific answer to one
+  specific kind of question about a domain. The ones that matter for pointing a domain at a
+  host:
+  - An **A record** maps a name directly to an IPv4 address (e.g. "the root domain
+    `athirstycamel.com` → `76.76.21.21`").
+  - A **CNAME record** maps a name to *another name* instead of a raw address (e.g. "`app.
+    athirstycamel.com` → `cname.vercel-dns.com`") — used when the host's actual server address
+    might change over time; the host keeps their own name up to date, so anything pointing at
+    that name via CNAME automatically follows along without the domain owner ever touching
+    DNS again.
+  - **Nameservers** are one level up from individual records — they're *who's in charge of
+    answering DNS questions for this domain at all*. Every domain has nameservers assigned at
+    the registrar; by default they're the registrar's own.
+- **Two different ways to point a domain at a host that isn't the registrar**, both valid,
+  with a real tradeoff:
+  1. **Change the domain's nameservers** to the host's nameservers (or a dedicated DNS
+     provider like Cloudflare's). This hands over *all* DNS control for the domain to
+     whoever's nameservers are now set — simplest when the destination offers full,
+     easy-to-use DNS management, but it means every other record the domain might need (e.g.
+     `MX` records for email, seen as one of the registrar's own KB articles in the
+     screenshot: "How to setup MX records for Google Mail/Gmail?") has to be re-added at the
+     new location too, or that functionality silently breaks.
+  2. **Keep the registrar's nameservers, and add specific records there instead** — just one
+     A or CNAME record pointing at the host, added directly in the registrar's own DNS
+     management page, leaving everything else (existing email routing, other subdomains)
+     completely untouched. This is the more surgical, generally safer option when a domain
+     already has other things depending on it, and is what Vercel's and Railway's own custom
+     domain instructions default to recommending: add the specific record they give you,
+     rather than moving nameservers.
+- **DNS changes are never instant.** Every DNS record has a **TTL** (time-to-live) — how long
+  other computers are allowed to remember ("cache") an old answer before checking again.
+  Depending on the TTL and how aggressively various internet providers cache things, a DNS
+  change can take anywhere from a couple of minutes to (rarely, worst case) 24–48 hours to be
+  visible everywhere. This is why "I updated the DNS and it still shows the old thing" a few
+  minutes later is normal and not a sign anything's broken.
+- **HTTPS gets provisioned automatically, but only after DNS is actually correct.** Modern
+  hosts like Vercel and Railway automatically obtain a free TLS/SSL certificate (via Let's
+  Encrypt) for a custom domain once they can see it's correctly pointed at them — this isn't
+  a separate step to configure. This matters concretely for this project: the refresh-token
+  cookie's `secure` flag (from the Phase 2.3 entry) is only set outside local development,
+  meaning it *requires* real HTTPS to work at all in production — one more reason "add the
+  custom domain" and "get a working login" are linked, not independent steps.
+
+#### UK-specific considerations, since that's where this project's user is based
+
+- **This app stores health data — UK GDPR calls this "special category data,"** subject to
+  extra protection requirements beyond ordinary personal data, under both the UK GDPR and the
+  Data Protection Act 2018. Nothing about deploying a still-fake-data MVP to try it out
+  triggers those obligations by itself (no real person's actual health information exists in
+  this system yet), but it's exactly the kind of thing to get right *before* any real user's
+  data is ever entered — consistent with requirements §14 ("Privacy Requirements"), which
+  already exists in this project's own spec for this reason.
+- **Server region matters more here than for a typical hobby project.** Both Vercel and
+  Railway let you choose which physical region a deployment runs in (e.g. US-East vs.
+  Europe). For a health-data app specifically, choosing an EU/UK-region deployment once real
+  user data is involved is a sensible precaution against unnecessary international data
+  transfer — worth setting correctly from the first real deployment, rather than migrating a
+  live database's region later, which is a meaningfully bigger job than picking a dropdown
+  now.
+- **Billing is in USD by default** on both Vercel and Railway — a UK card will still work
+  fine, but expect the usual small foreign-currency conversion handled by the card network,
+  not by either platform. Neither platform charges UK VAT directly to an individual on their
+  free/hobby tiers in the way a UK-based service might; this is worth re-checking on their
+  own pricing pages if this ever moves from "personal project" to something billed as a real
+  product.
+- **The ICO data protection fee** — UK organisations that process personal data are generally
+  required to pay an annual fee to the Information Commissioner's Office and register as a
+  data controller, with some small exemptions. Not a concern for a personal MVP with no real
+  users, but relevant to know about before this project ever has genuine users' health data
+  in it for real.
+- **The existing `athirstycamel.com` domain is a `.com`, not a `.uk`/`.co.uk`.** No technical
+  reason it needs to change — `.com` works identically for hosting purposes regardless of
+  where the site owner or its users are based; a UK-specific TLD is purely a branding choice,
+  not a requirement.
+
+### Why it's needed
+
+Deploying this project for real (Railway + Vercel, per the earlier conversation) is about to
+involve account creation, DNS changes, and region selection — all much easier to do correctly
+once the underlying concepts (what a registrar actually sells, how DNS redirection works, why
+two separate hosts need two separate DNS records) are clear, rather than following steps
+without knowing why each one matters.
+
+### State at end of this step
+
+No deployment has happened yet — this entry is purely explanatory, written ahead of the
+actual Railway/Vercel account setup and deployment work, which continues as its own
+conversation thread from here.
+
+---
