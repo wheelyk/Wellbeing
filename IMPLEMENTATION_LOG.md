@@ -4606,4 +4606,16 @@ One thing worth naming plainly: this frontend/backend wiring for automatic refre
 Phase 5/6's API client. Everything demonstrated in this entry was driven directly against the
 backend with `curl`, standing in for what that future frontend code will do automatically.
 
+### Final confirmation: a real person, in a real browser
+
+Everything above was verified with `curl` — a genuine end-to-end test, but still a script
+pretending to be a browser. The last, and most important, check is a real person doing the
+same thing by hand: opening `https://wellbeing-blue.vercel.app` on an actual phone browser,
+registering an account through the real UI, landing on the dashboard, logging out, and
+logging back in — confirmed working. This is the check that actually matters most, since it's
+the same experience any future real user of this app would have.
+
+With this, WellTrack is genuinely deployed and usable, end to end, by anyone with the link —
+not just reachable by automated requests from this machine.
+
 ---
