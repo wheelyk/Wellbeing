@@ -4301,3 +4301,114 @@ where it gets attached to a real route for the first time.
 - `npm run build` — compiled cleanly.
 
 ---
+
+## 2026-08-15 — Phase 1: `MoodLog` model + migration
+
+**Task:** [Tasks.md](Tasks.md) → Phase 1 → "Define `MoodLog` model: `id`, `user_id`, `mood
+(1–5)`, `energy (nullable 1–5)`, `stress (nullable 1–5)`, `notes (optional)`, `logged_at`."
+
+**Delivered via branch:** `feature/1.4-mood-log-model` (stacked on
+`feature/2.7-auth-middleware`, since the next task in this vertical slice — the mood-logs
+endpoint — needs both the middleware and this model, and there's no reason to block local
+progress waiting for either to be reviewed and merged first).
+
+### Background / concepts
+
+#### Why this is a new table, not just a column on `User`
+
+- A user can log their mood many times (every day, several times a day) — this is a
+  classic **one-to-many relationship**: one `User` has many `MoodLog` rows. That can't be
+  represented as columns on `User` itself (there's no fixed number of mood logs to reserve
+  columns for); it needs its own table, with each row pointing back at the user it belongs to
+  via `user_id`.
+- **What `mood_id_fkey` (the "foreign key") actually enforces.** `userId String @map("user_id")`
+  alone would just be a plain text column — nothing would stop it from containing a value that
+  doesn't correspond to any real user. Adding `user User @relation(fields: [userId],
+  references: [id], onDelete: Cascade)` tells Postgres itself to enforce that `user_id` must
+  match a real row in `users`, at the database level — not just something the application layer
+  promises to check. This is a stronger guarantee than an application-only check: even a bug
+  elsewhere in the code can't insert an orphaned mood log.
+- **`onDelete: Cascade`, concretely.** Requirements call for "removing a `User` removes all
+  associated logs" (Phase 1's cross-cutting item). Without `Cascade`, deleting a user whose
+  `id` is still referenced by existing `mood_logs` rows would simply be *rejected* by Postgres
+  (a foreign key violation) — `Cascade` instead tells Postgres "when the referenced user is
+  deleted, automatically delete every row that points to it too," so account deletion (a later
+  Phase 2 task) will be able to remove a user cleanly in one step rather than needing to
+  manually delete every related table's rows first, in the right order, by hand.
+
+#### `@db.Timestamptz(3)` — why the database column type was overridden
+
+- Prisma's `DateTime` type, on Postgres, defaults to a column type that stores a timestamp
+  *without* any timezone information attached — just a raw date and time, with no indication
+  of which timezone it's relative to. That's a real problem for this app specifically: a
+  wellness log's exact moment matters (grouping entries into "today" correctly depends on it),
+  and a user's chosen `timezone` (already stored per-user since the very first `User` model)
+  is meaningless without an unambiguous, timezone-aware value to interpret it against.
+- `@db.Timestamptz(3)` overrides Prisma's default to Postgres's actual timezone-aware type
+  (confirmed directly against the running database above: `timestamp(3) with time zone`) — the
+  `(3)` is just precision (milliseconds). This matches what `requirements.md` §11 calls for
+  and is the same reasoning Phase 1's cross-cutting "store `logged_at` as `timestamptz`" item
+  describes; applied here to the one model this task actually adds, rather than waiting to
+  apply it to every model at once at the very end of Phase 1.
+- **What this doesn't do yet:** actually computing "which calendar day does this log belong to,
+  in the user's timezone" is separate logic, needed by the dashboard/streak features in Phase
+  4 — storing the value correctly is a prerequisite for that, not the same thing as having
+  built it.
+
+#### The composite index, and why `[userId, loggedAt]` specifically (not two separate indexes)
+
+- Every future read of this data — "this user's mood logs for the last 30 days," "this user's
+  most recent mood entry" — filters by `userId` *and* orders/ranges by `loggedAt` together, not
+  either one alone. A single composite index on `[userId, loggedAt]` lets Postgres satisfy that
+  combined pattern efficiently in one lookup; two separate single-column indexes wouldn't
+  combine as effectively for this specific "filter by X, then range over Y" access pattern,
+  which is exactly what every planned mood-log query looks like.
+
+### What was done
+
+1. **`backend/prisma/schema.prisma`.** Added the `MoodLog` model as described above, plus the
+   reciprocal `moodLogs MoodLog[]` field on `User` (Prisma requires both sides of a relation to
+   be declared, not just the "many" side).
+2. **Migration.** `npx prisma migrate dev --name add_mood_log` — generated and applied
+   `20260815174231_add_mood_log` against the local Postgres container.
+3. **`npm run build`** — compiled cleanly (also regenerates the Prisma Client, which is how
+   `prisma.moodLog.create(...)` etc. become available with full TypeScript types in the next
+   task).
+4. **`npm test`** — 24/24 passing, unchanged from the previous entry (this task adds no new
+   application code, only schema).
+5. **Manual verification directly against Postgres** (not just trusting the migration command's
+   own "success" output): `psql \d mood_logs`, confirming the exact column types, the
+   `timestamp(3) with time zone` type, the composite index, and the cascading foreign key all
+   exist for real in the running database.
+
+### Why it's needed
+
+The mood-logs endpoint (next task) needs somewhere to actually store data — this is that
+storage, with the correct relationships and constraints in place before any API code is
+written against it, rather than discovering a missing constraint later after real data exists.
+
+### Decisions
+
+- **No `createdAt` field**, unlike `User`. Kept to exactly the fields `requirements.md` and
+  `Tasks.md` specify for this model — `logged_at` already captures the moment that matters for
+  a log entry (when the mood happened, which can be backfilled to a past date/time); a separate
+  "when was this database row inserted" timestamp isn't something any planned feature reads.
+- **Stacked this branch on `feature/2.7-auth-middleware` rather than `main`.** This model has
+  no code dependency on the auth middleware, but the *next* task (the mood-logs endpoint) needs
+  both, and there's no reason to sit idle waiting for either PR to be reviewed first. Both
+  branches will need merging in order once reviewed, same as the earlier auth vertical slice.
+
+### State at end of this step
+
+`mood_logs` exists in the local database with the correct shape, constraints, and index. No
+API endpoint reads or writes it yet — that's the next task.
+
+### Verification
+
+- `npm run build` — compiled cleanly.
+- `npm test` — 24/24 passing (unchanged).
+- `psql \d mood_logs` against the real local database — confirmed column types (including
+  `timestamp(3) with time zone`), the composite index, and the cascading foreign key directly,
+  not inferred from the migration file alone.
+
+---
