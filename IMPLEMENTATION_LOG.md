@@ -2306,3 +2306,190 @@ a known, documented gap. Google OAuth was explicitly not built — not in `requi
   the committed repo.
 
 ---
+
+## 2026-08-15 — Debugging a broken image delivery, then automating PR screenshots via CI
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — two related pieces: (1) diagnosing why
+the screenshots sent directly to the user weren't displaying, and (2) building an actual CI
+pipeline (this project's first) so future PRs get preview screenshots automatically, pulled
+forward from a "worth doing later" note in the previous entry.
+
+### Part 1: a short lesson in isolating a bug by removing variables one at a time
+
+- The user reported the screenshots sent in the previous step showed as a broken-image icon.
+  The instinctive first guess — the screenshot files had been deleted from disk right after
+  sending, before the chat client had actually rendered them — turned out to be a reasonable
+  hypothesis but not something to just assume: it was tested directly, by resending the exact
+  same files *without* deleting them afterward. **Still broken.** That ruled out the timing
+  theory.
+- Next, two more variables were changed at once — sending from a different folder (the
+  scratchpad directory instead of the live project folder) and explicitly setting the display
+  mode instead of leaving it as a default. **Still broken.** Location and display-mode ruled
+  out.
+- The decisive test: sending something that had nothing to do with images at all — a plain
+  `.txt` file — alongside a trivially simple 1×1 pixel PNG (built from a known-good, minimal
+  base64-encoded byte sequence, to rule out anything unusual about Playwright's own screenshot
+  encoding). **Both still showed as broken.** A plain text file failing to display is what
+  actually pinpointed the cause: this was never about PNGs, file size, or timing — it's a
+  display/delivery issue on the chat client's own side, outside anything fixable from within
+  this session.
+- **The general lesson, worth remembering beyond this one bug:** when several plausible causes
+  exist, changing one variable at a time (or, once stuck, picking the most *different* possible
+  test — text vs. image is about as different as two file types get) narrows things down far
+  faster than guessing and re-trying the same fix repeatedly. This is the same principle
+  applied earlier when the GitHub ruleset kept failing with a 403 — the fix there ended up
+  being "the wrong token was edited," found only once fingerprinting narrowed down *which*
+  token was actually in play, rather than assuming propagation delay and just waiting.
+- **The practical resolution:** since the chat delivery mechanism itself isn't reliable in
+  this session, the user was pointed at the literal file paths on disk to open directly in
+  Windows' own image viewer (both machines are the same machine here) — sidestepping the
+  broken delivery path entirely rather than continuing to fight it.
+
+### Part 2: automated PR preview screenshots (this project's first CI pipeline)
+
+#### Background / concepts
+
+- **What GitHub Actions actually is.** Everything in this log up to now has run entirely on
+  this one machine — builds, tests, the manual Playwright check. **CI** (Continuous
+  Integration) means some of that instead runs automatically, on GitHub's own servers,
+  triggered by events like "a pull request was opened." **GitHub Actions** is GitHub's
+  built-in CI system: a YAML file under `.github/workflows/` describes one or more **jobs**
+  (here, one: `screenshots`), each running as a sequence of **steps** on a fresh, temporary
+  virtual machine that's destroyed once the job finishes. Nothing about this workflow changes
+  how anyone works locally — it's purely automation that runs *in addition to*, triggered by,
+  pushing a branch and opening a PR.
+- **A `services:` block gives a job a real, throwaway database for the duration of the run.**
+  `pr-preview.yml` declares a `postgres:16-alpine` service, matching `docker-compose.yml`'s
+  local setup — GitHub starts it as a container alongside the job's main virtual machine,
+  waits for its health check to pass, and tears it down when the job ends. This means the
+  workflow gets a completely real, empty Postgres database every single run — the exact same
+  kind of "real database, not mocked" testing this project has used from Phase 1 onward, now
+  running unattended on GitHub's infrastructure instead of this laptop.
+- **`GITHUB_TOKEN` here is a *different* token from every other `GITHUB_TOKEN` in this log.**
+  Every earlier entry's `GITHUB_TOKEN` was the fine-grained personal access token living in
+  this machine's environment variables, used by the local `gh` CLI. Inside a GitHub Actions
+  workflow, `GITHUB_TOKEN` instead refers to a **separate, automatically generated token that
+  GitHub injects into every workflow run**, scoped only to the repository the workflow lives
+  in, and automatically expired once the job finishes. `actions/checkout` uses it to configure
+  git's credentials for that job automatically — which is why the workflow's git commands
+  (`git fetch`, `git push`) never need to manually supply a token or password anywhere; it's
+  already wired in, as long as the workflow declares the right `permissions:` (`contents:
+  write` here, so it's actually allowed to push a new branch).
+- **An orphan branch, and why one was used here.** A normal new branch starts from an existing
+  commit and shares that commit's whole history. `git checkout --orphan pr-screenshots`
+  instead creates a branch with **no parent commits at all** — a completely fresh, empty
+  history, unrelated to `main`. This keeps the (frequently-changing, purely generated)
+  screenshot images from ever mixing into `main`'s actual development history, while still
+  being a real branch on GitHub that files can live on and be linked to.
+- **Why `raw.githubusercontent.com` links work at all here.** A PR comment is just Markdown;
+  `![caption](url)` only actually shows an image if that URL serves the raw image bytes
+  directly. `raw.githubusercontent.com/<owner>/<repo>/<commit-sha>/<path>` is GitHub's own
+  endpoint for exactly that — the *unrendered* file content at a specific commit. This only
+  works **without requiring the viewer to be logged in** because this repository is public
+  (checked explicitly via `gh repo view --json visibility` before relying on this) — the same
+  URL pattern against a private repo would 404 for a signed-out visitor, since raw file access
+  respects the repo's normal read permissions.
+
+#### What was done
+
+1. Diagnosed the broken-image issue as described in Part 1 — no code changes, just isolating
+   the actual cause through a sequence of narrowing tests.
+2. Wrote `frontend/scripts/capture-pr-screenshots.mjs` — the same register → dashboard →
+   logout → login → dashboard flow used for manual verification in the previous entry, now as
+   a permanent, committed script (parameterized via `PREVIEW_BASE_URL`/`SCREENSHOT_DIR` env
+   vars instead of hard-coded values) that exits non-zero if the browser logs any console
+   error, so a broken PR would visibly fail the workflow rather than silently publish screenshots
+   of a broken page.
+3. Wrote `.github/workflows/pr-preview.yml`: on every pull request targeting `main`, it spins
+   up Postgres, builds and starts the backend (ephemeral, randomly generated JWT secrets —
+   `openssl rand -hex 32` — rather than any committed value, since this database is thrown away
+   the moment the job ends anyway), builds and serves the frontend's production build via
+   `vite preview`, installs a headless Chromium via Playwright, runs the capture script, then
+   publishes the resulting screenshots to an orphan `pr-screenshots` branch under a
+   `pr-<number>/` folder, and finally posts (or updates, on subsequent pushes to the same PR)
+   a single PR comment embedding each screenshot via a `raw.githubusercontent.com` link.
+4. Added `frontend/pr-screenshots-output/` to `frontend/.gitignore`, so running the capture
+   script locally never risks accidentally committing its output.
+5. **Validated the trickiest part — the git branch/worktree logic — locally before trusting it
+   to a real CI run**, since iterating on a real GitHub Actions failure is much slower than
+   testing locally: created a throwaway bare "fake origin" repo and two genuinely independent
+   clones of it (not reusing one clone to fake two runs, which produces misleading results —
+   see below), simulating (a) the very first run for a PR, where the `pr-screenshots` branch
+   doesn't exist yet and must be created as an orphan, and (b) a later run for the same PR
+   (e.g. after a new commit), where the branch already exists and needs updating in place.
+   Both paths worked correctly and produced the expected file layout.
+6. **Caught a testing mistake mid-verification, not just a code mistake.** The first attempt
+   at step 5 reused a single local clone to simulate "run one, then run two" back to back, and
+   run two failed outright (`fatal: refusing to fetch into branch ... checked out at ...`).
+   This looked like a real bug in the workflow at first — but it wasn't: it was an artifact of
+   the *test* incorrectly reusing local state (a worktree left registered from "run one") that
+   would never actually exist in real CI, where every run gets a completely fresh, disposable
+   virtual machine with no memory of any previous run. Re-ran the check with two fully separate
+   clones instead, which is what actually matches how GitHub Actions behaves, and confirmed
+   both paths work.
+7. Sanity-checked the workflow file's YAML syntax with `js-yaml` (via `npx`, not installed as a
+   project dependency) and the embedded shell script's syntax with `bash -n`, since neither
+   backend nor frontend tooling can otherwise catch mistakes in a `.github/workflows/*.yml`
+   file before it actually runs on GitHub.
+8. Ran the committed `capture-pr-screenshots.mjs` script locally, exactly as CI will invoke it
+   (same environment variable, same working directory), against the still-running dev servers
+   from the previous entry, confirming it produces the same three screenshots as the original
+   ad hoc version.
+
+### Why it's needed
+
+Every previous "does this actually work" check in this log has depended on someone (Claude,
+or now potentially the user) manually starting servers and looking. This automates that
+specific check for the one workflow the user explicitly asked to see: a reviewer opening a
+future PR now gets visual proof of the register/login flow directly in the PR, with zero
+manual steps — and, as a side effect, this project now has its first real CI job, doing real
+integration testing (a genuine Postgres database, a genuine built frontend, a genuine browser)
+on every future PR against `main`.
+
+### Decisions
+
+- **Inline PR comment over a downloadable artifact**, per the user's explicit choice — more
+  moving parts (the orphan branch, the raw-URL comment), but it's what actually delivers "see
+  it directly on the PR" rather than "click through and download a zip."
+- **A shared `pr-screenshots` branch with a folder per PR number**, rather than one branch per
+  PR. Simpler to reason about (one place all preview images live) and avoids creating a new
+  branch per PR that would need separate cleanup; the tradeoff is the branch will grow
+  indefinitely as more PRs are opened over time — acceptable for now, and easy to prune later
+  (e.g. a scheduled job deleting folders for closed PRs) if it ever becomes a real problem.
+- **Ephemeral, randomly generated JWT secrets in CI**, never a hard-coded or committed value —
+  consistent with the project's established secrets-hygiene rules (from the Phase 1/2 entry),
+  even though this specific database only exists for the few minutes the job runs.
+- **A committed script, not another one-off scratch file.** Unlike the manual verification
+  script in the previous entry (deliberately deleted, not committed, since Phase 13 owns real
+  e2e tests), `capture-pr-screenshots.mjs` *is* committed — it's not a test in the assertion
+  sense, but it's a permanent, repeatedly-invoked piece of this project's automation now, not
+  a one-off debugging aid.
+- **Validated the git logic locally with real (throwaway) repositories before pushing**,
+  rather than trusting the YAML on the first real PR run — GitHub Actions failures are slower
+  and more annoying to iterate on than a local shell loop, so working out the trickiest logic
+  locally first was worth the extra time.
+
+### State at end of this step
+
+`.github/workflows/pr-preview.yml` and `frontend/scripts/capture-pr-screenshots.mjs` exist
+and are believed correct: YAML syntax is valid, the shell logic's core branch/worktree
+mechanics were proven against real (throwaway) git repositories, and the capture script itself
+was run locally exactly as CI will invoke it. **The one thing that hasn't been verified yet is
+an actual GitHub Actions run** — that happens the moment this branch's PR is opened, which is
+the next step after this entry. A follow-up note (or a correction, if something's wrong) will
+be added once that real run is observed.
+
+### Verification
+
+- `npx js-yaml .github/workflows/pr-preview.yml` — valid YAML, no syntax errors.
+- `bash -n` on the embedded publish script — valid shell syntax.
+- Two independent throwaway git clones — confirmed both the "first run, branch doesn't exist"
+  and "later run, branch exists and needs updating" paths produce the correct file layout and
+  push successfully.
+- `node scripts/capture-pr-screenshots.mjs` run locally against the real dev servers —
+  produced the same three screenshots as the ad hoc version from the previous entry, exiting
+  cleanly with no console errors detected.
+- Not yet verified: the workflow actually executing on GitHub's infrastructure, and the PR
+  comment actually rendering the linked images for a real viewer.
+
+---
