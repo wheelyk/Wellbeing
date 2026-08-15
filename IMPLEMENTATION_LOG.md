@@ -1594,3 +1594,121 @@ password (2.5–2.6) are the remaining pieces before Phase 2's core auth flow is
 - Confirmed via `psql` that the manually-created test user was removed afterward.
 
 ---
+
+## 2026-08-15 — Tooling: stacked PRs, auto-retargeting, and rebasing (#7 → #8 → #9)
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — explains the branch/PR shape that
+tasks 2.2–2.4 ended up in, and what will happen mechanically as the user merges
+[#7](https://github.com/wheelyk/Wellbeing/pull/7), [#8](https://github.com/wheelyk/Wellbeing/pull/8),
+and [#9](https://github.com/wheelyk/Wellbeing/pull/9) in order.
+
+### Background / concepts
+
+#### What a "stacked" PR is, and why these three ended up that way
+
+- **Normally, every feature branch in this project branches off `main`** (see the very first
+  *Git Workflow* entry) — you start from the latest reviewed code, make your change, and open
+  a PR back into `main`. That works cleanly as long as your branch doesn't need code that
+  only exists on someone else's not-yet-merged branch.
+- **Tasks 2.2 → 2.3 → 2.4 broke that assumption, on purpose.** Login (2.2) added
+  `lib/jwt.ts`. Refresh (2.3) directly needs `lib/jwt.ts` to exist to build on top of it —
+  but PR #7 (login) hadn't been merged into `main` yet when 2.3 was started. Branching 2.3
+  off `main` at that point would mean starting from a `main` that doesn't have `lib/jwt.ts`
+  at all. So instead, `feature/2.3-auth-refresh` was branched **off `feature/2.2-auth-login`
+  itself** — meaning it starts from *all* of 2.2's commits, plus its own new ones on top.
+  Same reasoning for `feature/2.4-auth-logout`, branched off `feature/2.3-auth-refresh` (it
+  needs `clearRefreshTokenCookie` from 2.3's `lib/cookies.ts`). This chain — A, then B built
+  on A, then C built on B, each as its own PR — is what "stacked PRs" means.
+- **The alternative would have been waiting**: don't start 2.3 until #7 is reviewed and
+  merged, don't start 2.4 until #8 is merged. Stacking trades that idle time for the
+  bookkeeping described below — a normal, common tradeoff, not a shortcut or a mistake.
+
+#### What each PR's diff looks like *right now*, while stacked
+
+- Because `feature/2.3-auth-refresh` contains 2.2's commits too, PR #8's diff (which GitHub
+  computes as "everything on this branch that isn't on the PR's *base* branch") was opened
+  with its base explicitly set to `feature/2.2-auth-login`, **not** `main` — so GitHub only
+  shows 2.3's *own* new commits, not a confusing re-showing of all of 2.2's changes too. Same
+  for #9, based on `feature/2.3-auth-refresh`. This is why each PR's description explicitly
+  says which branch it's stacked on, and that it's "not yet merged."
+
+#### What happens automatically when #7 merges: "retargeting"
+
+- GitHub tracks that PR #8's base is the branch `feature/2.2-auth-login` — not a fixed
+  snapshot of it, the branch itself. The moment #7 is merged (which, on GitHub, typically
+  *deletes* the now-merged `feature/2.2-auth-login` branch), GitHub notices #8 was pointed at
+  a branch that no longer exists and **automatically changes ("retargets") PR #8's base to
+  `main`** instead, rather than leaving it pointed at a dead branch. This happens by itself,
+  with no command to run — it's a GitHub website behavior, not a git operation.
+- **What retargeting does *not* do**: it doesn't touch any actual commits. `feature/2.3-auth-refresh`
+  still literally contains 2.2's old commits (the ones now already merged into `main` via
+  #7), sitting underneath 2.3's own commits, exactly as before. Retargeting only changes
+  *which branch GitHub compares against* to compute what to show as "the diff" and "is this
+  mergeable." Immediately after #7 merges, since `main` now already contains everything
+  `feature/2.2-auth-login` had, comparing `feature/2.3-auth-refresh` against the *new* `main`
+  should show the same clean "just 2.3's commits" diff #8 showed before — GitHub is usually
+  able to work this out and merge #8 normally with no extra steps needed on GitHub's side.
+  (The same then happens to #9 once #8 merges.)
+
+#### Rebasing: why the *local* copy of these branches may still need one
+
+- **A rebase rewrites where a branch's commits "start from."** Concretely, `git rebase main`
+  while on `feature/2.3-auth-refresh` would take 2.3's own commits, temporarily set them
+  aside, move the branch's starting point to wherever `main` currently is, and then replay
+  each of 2.3's commits one at a time on top of that — as if they'd been written starting
+  from today's `main` all along, rather than from 2.2's branch back when it was created. This
+  is different from a **merge**, which instead adds a new commit that ties two histories
+  together side-by-side without moving or rewriting either one's existing commits.
+- **Why this matters here specifically:** GitHub's retargeting (above) fixes what the
+  *website* shows and how the *merge button* behaves — but it doesn't change what's sitting
+  in this local clone's `feature/2.3-auth-refresh` branch, nor in the copy on GitHub's server
+  until an actual merge/rebase happens there too. If more work were to continue locally on
+  `feature/2.3-auth-refresh` *after* #7 merges, without rebasing first, git would have no
+  idea 2.2's commits already landed via a different path (through #7 directly, not through
+  #8) — this is exactly the kind of situation the earlier `git stash`/branch-juggling entry's
+  "ahead/behind" concept describes, just with two different routes to the same code instead
+  of one branch being simply behind. Running `git fetch && git rebase main` at that point
+  would replay only 2.3's genuinely new commits on top of the real, current `main` and drop
+  the now-redundant duplicate copies of 2.2's commits automatically (git recognizes them as
+  already applied).
+- **This project hasn't needed to run that rebase yet** — no new commits have been added to
+  `feature/2.3-auth-refresh` or `feature/2.4-auth-logout` locally since they were pushed, and
+  none of #7/#8/#9 have been merged yet either. It'll become relevant the moment either (a)
+  GitHub can't cleanly auto-merge a retargeted PR and asks for manual conflict resolution, or
+  (b) any further commits are added to `feature/2.3-...`/`feature/2.4-...` locally before
+  their upstream PRs merge.
+
+### Why it's needed
+
+Merging #7, #8, and #9 in order is about to happen, and stacked PRs are one of the more
+confusing things to encounter for the first time — "why does this PR's diff look weird," "why
+did the base branch change by itself," "do I need to do something called a rebase" are all
+reasonable questions to have mid-merge. Writing this down before merging, rather than after,
+means the explanation is available at the moment it's actually useful.
+
+### Decisions
+
+- **Stacked the branches rather than waiting for sequential merges**, since 2.3 and 2.4 each
+  had a hard code dependency on the previous task's unmerged work, and idling until each PR
+  was individually reviewed and merged would have serialized three tasks that could otherwise
+  be built back-to-back.
+- **Documented this *before* the merges happen**, not after, specifically because the useful
+  moment to understand "what's retargeting and do I need to rebase" is right before/while
+  doing it — this entry is written prospectively for that reason, unlike most entries in this
+  log which describe something already completed and verified.
+
+### State at end of this step
+
+PRs #7, #8, and #9 are open and stacked (#7 → `main`, #8 → `feature/2.2-auth-login`, #9 →
+`feature/2.3-auth-refresh`). None are merged yet. No rebase has been performed — not yet
+needed.
+
+### Verification
+
+Not applicable in the usual sense (nothing to build/run) — this entry documents mechanics
+that will play out on GitHub as the user merges #7, #8, and #9. Once merged, worth confirming
+here in a future entry: that #8 and #9 retargeted to `main` automatically as described, and
+whether a local rebase ends up being needed before any further work continues on
+`feature/2.3-auth-refresh` or `feature/2.4-auth-logout`.
+
+---
