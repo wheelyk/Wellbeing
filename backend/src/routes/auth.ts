@@ -3,7 +3,8 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { Prisma } from "../generated/prisma/client";
 import { prisma } from "../lib/prisma";
-import { signAccessToken, signRefreshToken } from "../lib/jwt";
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/jwt";
+import { clearRefreshTokenCookie, setRefreshTokenCookie } from "../lib/cookies";
 
 const SALT_ROUNDS = 12;
 
@@ -97,6 +98,8 @@ authRouter.post("/login", async (req, res) => {
     });
   }
 
+  setRefreshTokenCookie(res, signRefreshToken(user.id));
+
   return res.status(200).json({
     user: {
       id: user.id,
@@ -106,6 +109,40 @@ authRouter.post("/login", async (req, res) => {
       createdAt: user.createdAt,
     },
     accessToken: signAccessToken(user.id),
-    refreshToken: signRefreshToken(user.id),
   });
+});
+
+authRouter.post("/refresh", async (req, res) => {
+  const token: unknown = req.cookies?.refreshToken;
+
+  if (typeof token !== "string") {
+    return res.status(401).json({
+      error: { message: "No refresh token provided", code: "MISSING_REFRESH_TOKEN" },
+    });
+  }
+
+  let userId: string;
+  try {
+    const payload = verifyRefreshToken(token);
+    userId = payload.sub as string;
+  } catch {
+    clearRefreshTokenCookie(res);
+    return res.status(401).json({
+      error: { message: "Invalid or expired refresh token", code: "INVALID_REFRESH_TOKEN" },
+    });
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) {
+    clearRefreshTokenCookie(res);
+    return res.status(401).json({
+      error: { message: "Invalid or expired refresh token", code: "INVALID_REFRESH_TOKEN" },
+    });
+  }
+
+  // Rotate: every refresh issues a brand new refresh token and invalidates the cookie
+  // holding the old one, so a stolen-but-unused refresh token has a shrinking window of use.
+  setRefreshTokenCookie(res, signRefreshToken(user.id));
+
+  return res.status(200).json({ accessToken: signAccessToken(user.id) });
 });

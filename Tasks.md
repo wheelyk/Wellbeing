@@ -44,7 +44,7 @@ Reference: requirements §5, §13.
 
 - [x] Implement `POST /api/auth/register` — validate email format + password strength, hash password with bcrypt/argon2, create user.
 - [x] Implement `POST /api/auth/login` — verify credentials, issue short-lived JWT access token + longer-lived refresh token.
-- [ ] Implement refresh token storage/rotation strategy (e.g. HTTP-only secure cookie for the refresh token) and `POST /api/auth/refresh`.
+- [x] Implement refresh token storage/rotation strategy (e.g. HTTP-only secure cookie for the refresh token) and `POST /api/auth/refresh`.
 - [ ] Implement `POST /api/auth/logout` — invalidate/clear the refresh token.
 - [ ] Implement `POST /api/auth/forgot-password` — generate a time-limited reset token and send a reset email (use a placeholder/mock email provider for local dev).
 - [ ] Implement `POST /api/auth/reset-password` — validate the reset token and update the password hash.

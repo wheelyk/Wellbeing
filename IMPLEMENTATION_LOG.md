@@ -1316,3 +1316,176 @@ route yet either, since no protected routes exist before Phase 2's later middlew
   refresh token's expiry is meaningfully later than the access token's.
 
 ---
+
+## 2026-08-15 — Phase 2: refresh token cookie storage/rotation + `POST /api/auth/refresh`
+
+**Task:** [Tasks.md](Tasks.md) → Phase 2 → "Implement refresh token storage/rotation
+strategy (e.g. HTTP-only secure cookie for the refresh token) and `POST /api/auth/refresh`."
+
+**Delivered via branch:** `feature/2.3-auth-refresh` (branched from `feature/2.2-auth-login`,
+since this task builds directly on `lib/jwt.ts` and the login endpoint from that branch,
+which wasn't merged to `main` yet — see *Decisions*).
+
+### Background / concepts
+
+#### Why a cookie instead of just leaving the refresh token in the JSON body
+
+- **A refresh token is more dangerous to leak than an access token.** The previous entry's
+  access token expires in 15 minutes; a leaked refresh token is valid for 7 days *and* can
+  mint new access tokens on demand. That makes it a much higher-value target for anything
+  that can read the page's JavaScript — a malicious browser extension, an XSS bug, a
+  dependency that turns hostile.
+- **This is exactly the class of attack an `HttpOnly` cookie is designed to block.** A cookie
+  marked `HttpOnly` is attached automatically by the browser on requests to the matching
+  path, but is *invisible to JavaScript* (`document.cookie` simply won't show it). So even if
+  an attacker manages to run arbitrary JS on the page, they still can't read the refresh
+  token out of it — the previous body-based approach had no such protection; any JS on the
+  page could read `response.body.refreshToken` directly. This is why the login response body
+  now only carries `accessToken`, and the refresh token exists solely as a cookie.
+- **The other three cookie flags set alongside `HttpOnly`** (`lib/cookies.ts`):
+  - `Secure` — tells the browser to only ever send the cookie over `https`, never plain
+    `http`, so it can't be sniffed on the wire. Skipped in non-production (`NODE_ENV !==
+    "production"`) because local dev runs over plain `http`, where a `Secure` cookie would
+    silently just never be sent at all — not a security relaxation so much as making the
+    cookie work at all locally, with production still getting the real protection.
+  - `SameSite=Lax` — tells the browser not to attach this cookie on cross-site requests
+    (e.g. a `<form>` on some other website submitting to this API), which is what makes
+    cookies resistant to CSRF in the first place. `Lax` (rather than `Strict`) still allows
+    the cookie on top-level navigation, which doesn't matter yet for an API-only backend but
+    is the conventional safe default.
+  - `Path=/api/auth` — scopes the cookie so the browser only attaches it on requests to
+    `/api/auth/*` (i.e. login, refresh, and future logout/reset endpoints), not on *every*
+    request to the backend. Once Phase 3's data endpoints exist, none of them will see this
+    cookie at all — smaller blast radius if anything downstream ever mishandled cookies.
+
+#### What "rotation" means and why it's worth doing
+
+- **Rotation = every successful refresh issues a brand-new refresh token, not just a new
+  access token.** `POST /api/auth/refresh` calls `signRefreshToken` again and overwrites the
+  cookie with the new value on every call, in addition to returning a new access token.
+- **Why bother, if the old one hasn't expired yet?** Without rotation, a single refresh token
+  is valid, unchanged, for its entire 7-day lifetime — if it ever leaked once (e.g. copied
+  from a debugger, logged somewhere by accident), it stays usable for the attacker the whole
+  time, with zero indication anything is wrong. With rotation, the *legitimate* browser is
+  continuously exchanging its refresh token for a fresh one, so a leaked-and-unused token
+  becomes stale relatively quickly in normal usage. This implementation is deliberately the
+  simple, stateless version — verify-and-reissue, no server-side record of which refresh
+  tokens have been "used up" — not the fuller reuse-detection pattern (where reusing an
+  already-rotated token would revoke the whole token family). That fuller version needs a
+  database table tracking issued tokens, which is more machinery than this MVP's threat model
+  currently calls for; noted here so it isn't confused with having been built.
+
+### What was done
+
+1. **`backend/src/lib/jwt.ts`.** Renamed the TTL constants to be second-based
+   (`ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`) instead of the string form
+   (`"15m"`/`"7d"`) so the refresh token's lifetime is defined in exactly one place and can be
+   reused as a number for the cookie's `maxAge` (which needs milliseconds, not a string) —
+   avoids the two ever silently drifting apart. Added `verifyRefreshToken(token)`, wrapping
+   `jwt.verify` against `JWT_REFRESH_SECRET` specifically (never `JWT_ACCESS_SECRET` — see
+   the previous entry's *separate secrets* reasoning).
+2. **`backend/src/lib/cookies.ts` (new).** `setRefreshTokenCookie(res, token)` and
+   `clearRefreshTokenCookie(res)`, centralizing the cookie name (`refreshToken`) and all four
+   flags described above in one place, so login, refresh, and the future logout endpoint
+   (task 2.4) all set/clear the identical cookie rather than each re-specifying the flags and
+   risking one getting it wrong.
+3. **`cookie-parser`.** Installed `cookie-parser` + `@types/cookie-parser` and wired
+   `app.use(cookieParser())` into `app.ts`, ahead of the routes — this is what populates
+   `req.cookies` from the raw `Cookie` request header; without it `req.cookies` would be
+   `undefined`.
+4. **Updated the login route.** Now calls `setRefreshTokenCookie` and no longer returns
+   `refreshToken` in the JSON body — the response shape is now `{ user, accessToken }`,
+   exactly the change flagged as expected in the previous entry's *Decisions*.
+5. **New `POST /api/auth/refresh` route.** Reads `req.cookies.refreshToken`; if missing,
+   `401 MISSING_REFRESH_TOKEN`. Otherwise `verifyRefreshToken`s it (catching a bad signature
+   or expiry) and looks the user up by the token's `sub`; either failure — bad token or a
+   `sub` whose user no longer exists (e.g. account was deleted) — clears the cookie and
+   returns a uniform `401 INVALID_REFRESH_TOKEN` (same "don't leak which failure case"
+   principle as login's `INVALID_CREDENTIALS`, applied here to "expired" vs. "forged" vs.
+   "deleted user" rather than "wrong password" vs. "no such account"). On success, rotates
+   the cookie (new `signRefreshToken`) and returns a new `accessToken`.
+6. **Tests.** Updated the existing login test to assert the refresh token is absent from the
+   body and present as an `HttpOnly`, `Path=/api/auth` cookie instead (parsed out of the raw
+   `Set-Cookie` header, since supertest doesn't expose cookies as a friendlier object). Added
+   a `POST /api/auth/refresh` block: valid cookie → 200 with a new access token and a rotated
+   cookie; no cookie → 401 `MISSING_REFRESH_TOKEN`; a garbage/malformed token → 401
+   `INVALID_REFRESH_TOKEN` with the cookie cleared; a token *correctly signed but with the
+   wrong secret* (`JWT_ACCESS_SECRET` instead of `JWT_REFRESH_SECRET`) → 401, confirming the
+   two token types genuinely can't be swapped; and a well-formed token for a user deleted
+   after login → 401.
+7. **`npm test`** — 16/16 passing (11 pre-existing register/login tests, 5 new refresh tests)
+   against the real local Postgres container.
+8. **`npm run build`** — compiled cleanly.
+9. **Hit a pre-existing, unrelated tooling break: `npm run dev` (`ts-node-dev`) now crashes on
+   startup** (`TypeError: Cannot read properties of undefined (reading 'fileExists')` inside
+   `ts-node`'s config loader) — a `ts-node`/TypeScript 7.x incompatibility, not caused by this
+   step's changes (`npm run build`, using `tsc` directly rather than `ts-node`, compiles
+   without any error). Worked around it for manual verification by running the compiled
+   output directly (`npm run build && npm start`) instead of the dev server; the underlying
+   `ts-node-dev` breakage is left as a follow-up, not fixed here, since fixing dev-mode
+   tooling is unrelated to the refresh-token feature itself.
+10. **Manual end-to-end check against the compiled server**, via `curl`: registered a user,
+    logged in (`Set-Cookie: refreshToken=...; HttpOnly; SameSite=Lax; Path=/api/auth`
+    confirmed in the raw response headers, and `refreshToken` confirmed absent from the JSON
+    body), then called `/api/auth/refresh` three ways — with the real cookie (200, new access
+    token, cookie rotated to a new value), with no cookie at all (401
+    `MISSING_REFRESH_TOKEN`), and with a garbage cookie value (401 `INVALID_REFRESH_TOKEN`,
+    and the response's `Set-Cookie` showed the cookie being cleared, i.e. `Max-Age=0`/epoch
+    expiry). Cleaned up the manually-created user afterward directly via `psql` (`DELETE FROM
+    users WHERE email LIKE 'manual-verify-%'`) and stopped the manually-started server.
+
+### Why it's needed
+
+Without this step, the refresh token minted at login was inert — nothing could ever redeem it
+for a new access token, and it sat in the JSON response body where any JS on the page could
+read it. This closes both gaps: the token now lives somewhere the page's own JavaScript can't
+touch, and there's a working endpoint that lets a returning user keep their session alive past
+the access token's 15-minute expiry without re-entering their password, which is what Phase
+5/6's frontend API client (task: "attaches the access token, and on a 401 automatically
+attempts a token refresh before retrying once") will call.
+
+### Decisions
+
+- **Branched off `feature/2.2-auth-login` instead of `main`.** This task's code depends
+  directly on `lib/jwt.ts` and the login endpoint added in 2.2, and PR #7 (2.2) was still open
+  for review — not yet merged to `main` — when this task started. Branching off `main` would
+  have meant working without the very code being extended. This branch will need a rebase
+  onto `main` once #7 is merged, which is expected and normal for stacked work like this.
+- **Stateless rotation, not full reuse-detection.** Covered under *Background* above — chosen
+  as the right amount of complexity for this MVP's threat model; a database-backed
+  "token family" revocation system is a reasonable future hardening step, not a gap being
+  silently ignored.
+- **`Path=/api/auth` rather than the whole site.** Keeps the refresh cookie out of every
+  non-auth request entirely, which is strictly safer than a site-wide cookie and costs
+  nothing, since only the auth routes ever need to read it.
+- **CORS is still wide open (`cors()` with no options) even though cookies now matter.**
+  Tasks.md has "Add CORS configuration restricting allowed origins" as its own later, separate
+  checklist item (Phase 2's security-hardening group). Once the frontend actually starts
+  calling this cross-origin (Phase 5+), sending credentialed (cookie-bearing) requests
+  requires CORS to name an explicit origin and set `credentials: true` — a wildcard origin
+  cannot be combined with credentials per the browser spec. Left as-is here deliberately, to
+  keep this task scoped to the token/cookie mechanics rather than reaching into a separately
+  tracked task; flagged here so it isn't forgotten before the frontend needs it.
+
+### State at end of this step
+
+`POST /api/auth/refresh` is live: a valid refresh cookie exchanges for a new access token and
+a rotated refresh cookie; a missing, invalid, or user-deleted-since-issued refresh token is
+rejected with a uniform `401 INVALID_REFRESH_TOKEN` (or `MISSING_REFRESH_TOKEN` when there's
+no cookie at all) and the cookie is cleared. The login endpoint's response shape has changed
+to `{ user, accessToken }` — code or docs elsewhere referencing `res.body.refreshToken` from
+the previous entry are now stale. Logout (task 2.4, next) still doesn't exist — right now
+nothing clears a refresh cookie except a failed refresh attempt.
+
+### Verification
+
+- `npm test` (`vitest run`) — 16/16 tests passing (11 pre-existing, 5 new), against the real
+  local Postgres container.
+- `npm run build` — compiled cleanly.
+- Manual `curl` round-trip against the compiled server (`npm start`): register → login
+  (verified `Set-Cookie` flags and body shape directly in the raw HTTP response) → refresh
+  with the real cookie (200, rotated cookie) → refresh with no cookie (401) → refresh with a
+  garbage cookie (401, cookie cleared). All five matched expectations.
+- Confirmed via `psql` that the manually-created test user was removed afterward.
+
+---
