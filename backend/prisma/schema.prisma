@@ -18,5 +18,24 @@ model User {
   timezone     String   @default("UTC")
   createdAt    DateTime @default(now()) @map("created_at")
 
+  moodLogs MoodLog[]
+
   @@map("users")
+}
+
+model MoodLog {
+  id       String   @id @default(uuid())
+  userId   String   @map("user_id")
+  mood     Int
+  energy   Int?
+  stress   Int?
+  notes    String?
+  loggedAt DateTime @default(now()) @map("logged_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Every dashboard/history/trends query in later phases filters by user and orders/ranges
+  // by date, so this composite index is what keeps those queries fast as log counts grow.
+  @@index([userId, loggedAt])
+  @@map("mood_logs")
 }
