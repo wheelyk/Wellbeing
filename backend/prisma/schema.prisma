@@ -19,6 +19,8 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
 
   moodLogs       MoodLog[]
+  habits         Habit[]
+  habitLogs      HabitLog[]
   medications    Medication[]
   medicationLogs MedicationLog[]
   symptoms       Symptom[]
@@ -42,6 +44,68 @@ model MoodLog {
   // by date, so this composite index is what keeps those queries fast as log counts grow.
   @@index([userId, loggedAt])
   @@map("mood_logs")
+}
+
+// A habit's `type` decides which single column on HabitLog is expected to be populated —
+// see HabitLog below for why separate nullable columns were chosen over one polymorphic
+// "value" column.
+enum HabitType {
+  BOOLEAN
+  NUMERIC
+  DURATION
+
+  @@map("habit_type")
+}
+
+model Habit {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  name      String
+  type      HabitType
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  habitLogs HabitLog[]
+
+  // A user's own habit list is always read as "all of this user's habits," so a single-column
+  // index on user_id (rather than a composite one) is enough here - there's no secondary sort/
+  // range dimension the way logged_at is for the log tables.
+  @@index([userId])
+  @@map("habits")
+}
+
+model HabitLog {
+  id      String @id @default(uuid())
+  userId  String @map("user_id")
+  habitId String @map("habit_id")
+
+  // Exactly one of these three is populated, matching the parent Habit's `type` - enforced in
+  // application code (see backend/src/routes/habitLogs.ts), not by a database CHECK constraint.
+  // Postgres/Prisma can't express "exactly one of these three columns is non-null, and which
+  // one depends on a value in a *different* table's row" declaratively, so three plain nullable
+  // columns plus a hand-written validator was chosen over a single `Json` "value" column: three
+  // typed columns keep the common queries (e.g. "average numeric value for this habit") a plain
+  // typed SQL aggregate instead of a JSON-extraction expression, at the cost of the app-level
+  // check this file's route module performs on every create/update.
+  valueBoolean         Boolean? @map("value_boolean")
+  valueNumeric         Float?   @map("value_numeric")
+  valueDurationMinutes Int?     @map("value_duration_minutes")
+
+  notes    String?
+  loggedAt DateTime @default(now()) @map("logged_at") @db.Timestamptz(3)
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Deleting a Habit cascades to its logs too (not just User -> Habit/HabitLog): a HabitLog's
+  // value only makes sense in light of its parent Habit's type, so an orphaned log with no
+  // parent habit to interpret it against isn't a state worth allowing to exist.
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  // Same reasoning as MoodLog's composite index: every planned query filters by user and
+  // ranges/orders by logged_at together.
+  @@index([userId, loggedAt])
+  // Supports "this habit's log history" lookups (e.g. a per-habit detail/trend view).
+  @@index([habitId, loggedAt])
+  @@map("habit_logs")
 }
 
 // A user's own list of medications they take (e.g. "Ibuprofen", "Vitamin D") - just the name,
