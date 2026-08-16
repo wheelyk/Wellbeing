@@ -7764,3 +7764,187 @@ the frontend calls it yet - that's the next task, stacked on this branch.
   real registered users - not just in the automated test suite.
 
 ---
+
+## 2026-08-16 — Phase 7: Habit entry form, wired into the Dashboard
+
+**Task:** [Tasks.md](Tasks.md) → Phase 7 → "Habit entry form: input control adapts to habit
+type (toggle for boolean, number input for numeric, duration input for duration), date/time
+picker."
+
+**Delivered via branch:** `feature/7.4-habit-entry-form` (stacked on
+`feature/3.6-habits-and-habit-logs-endpoints`) — the last piece of the habit-logging vertical
+slice, where the model and endpoint built in the previous two tasks finally become something a
+real person can see and use, the same significance the mood entry form task had for that slice.
+
+### Background / concepts
+
+#### The one real UX problem this task has that mood logging never did: you can't log a habit that doesn't exist yet
+
+- Mood logging has no setup step — every user can immediately record a mood the moment they
+  land on the Dashboard. Habits are different: `requirements.md` §6.4 and this task's own brief
+  are explicit that a habit is user-defined first, then logged against — so the very first time
+  a new user clicks `+ Habit`, there is nothing yet to log against. This is the actual design
+  problem this task's UI has to solve that the mood form's simpler "always ready to log" case
+  never faced.
+- The solution built here is a small state machine on `DashboardPage`, not inside either form
+  component: `habitFormMode: "closed" | "log" | "create-habit"`. Clicking `+ Habit` checks
+  `habits.length` and picks `"create-habit"` (no habits yet) or `"log"` (at least one exists)
+  — the same button does either thing depending on what's actually possible right now, rather
+  than the user needing to discover a separate "manage habits" screen before they can use the
+  headline feature at all.
+- Once `HabitCreateForm` succeeds, its new habit is appended to `habits` state *and* the
+  Dashboard immediately switches to `"log"` mode with that new habit pre-selected
+  (`habitToPreselect`) — so "define a habit" chains straight into "log against it" in one
+  continuous flow, rather than dropping the user back at an empty screen to click `+ Habit` a
+  second time. This chaining is what makes the empty-state genuinely usable end to end, not just
+  technically unblocked.
+- A second, smaller path into the same create flow: a "+ Add a new habit" link inside
+  `HabitEntryForm` itself, for a user who already has habits but wants to define one more without
+  backing out of the log form first. Both paths land on the exact same `HabitCreateForm`
+  component — there's only one way habits actually get created, just two entry points into it.
+
+#### Why the habit type's input control is three genuinely different components, not one form field that adapts its `type` attribute
+
+- A boolean habit needs a binary choice (rendered as the same `role="radiogroup"`/`role="radio"`
+  Yes/No buttons `MoodEntryForm` already established for its rating rows - reused for
+  accessibility consistency, not reinvented). A numeric habit needs a free-form number (`<input
+  type="number" step="any">`, allowing decimals - water intake in liters, for instance, isn't
+  always a whole number). A duration habit also uses `<input type="number">`, but constrained to
+  non-negative integers only (`min={0} step={1}`) - **minutes, not a separate hours/minutes
+  picker**, the simplest reasonable choice for "how long," matching the backend's own
+  `valueDurationMinutes` column and avoiding a genuinely more complex custom duration-picker
+  widget the requirements don't call for.
+- All three are conditionally rendered based on `selectedHabit.type`, and switching the habit
+  picker's `<select>` resets every value field back to empty - without that reset, picking a
+  different habit after starting to type a numeric value could otherwise submit a stale value
+  against the wrong habit's now-different control.
+- Client-side validation mirrors the backend's `extractTypedValue` logic from the previous task
+  almost exactly (a boolean choice is required, a numeric value must parse to a finite number, a
+  duration must be a non-negative integer) - deliberately duplicated rather than shared, since
+  one is browser-side UX (fail fast, no round trip) and the other is the actual server-side
+  source of truth that can't be bypassed by a modified client; the server still re-validates
+  independently regardless of what the form already checked.
+
+#### Extracting `toDateTimeLocalValue` into a shared module
+
+- `MoodEntryForm.tsx` already had a private helper converting a `Date` into the exact string
+  format `<input type="datetime-local">` expects (documented in that task's own
+  IMPLEMENTATION_LOG.md entry). `HabitEntryForm` needed the identical logic for its own date/time
+  picker - copying it a second time would mean two places to keep in sync if the format ever
+  needed to change. Moved to `frontend/src/lib/dateTimeLocal.ts` and imported by both forms
+  instead; `MoodEntryForm.tsx` itself changed only to import the moved function, no behavior
+  difference. This is the first shared utility module in `frontend/src/lib/` - a natural home for
+  whatever the next form (symptoms/medications) will inevitably need too.
+
+#### Why `GET /api/habit-logs`'s bare rows (no embedded habit name/type, per the previous task's decision) work fine here
+
+- `DashboardPage` already fetches `GET /api/habits` in parallel with `GET /api/habit-logs` on
+  mount (`Promise.all`, matching the loading-state shape the mood section already established)
+  and builds a `Map<habitId, Habit>` (`habitsById`, via `useMemo` so it isn't rebuilt on every
+  render) purely client-side. `formatHabitValue(log, habit)` then looks up each log's habit
+  through that map to decide both what to label the value ("Done"/"Not done" vs. a bare number vs.
+  "N min") and to display the habit's `name` instead of a bare UUID. This is exactly the
+  client-side join the previous task's entry anticipated when it chose not to embed habit data in
+  every log row server-side.
+
+### What was done
+
+1. **`frontend/src/lib/dateTimeLocal.ts` (new).** The extracted `toDateTimeLocalValue` helper,
+   described above.
+2. **`frontend/src/components/MoodEntryForm.tsx` (small refactor).** Now imports
+   `toDateTimeLocalValue` from the new shared module instead of defining its own copy - no
+   behavior change, confirmed by the existing `MoodEntryForm.test.tsx` suite still passing
+   unmodified.
+3. **`frontend/src/components/HabitCreateForm.tsx` (new).** Name field (`TextField`, reused as-
+   is) plus a three-option type picker (Yes/No, Number, Duration, each with a one-line example
+   hint), Create/Cancel buttons. Submits `POST /api/habits` and calls `onCreated(habit)`.
+4. **`frontend/src/components/HabitEntryForm.tsx` (new).** Habit `<select>`, the type-adaptive
+   value control described above, optional notes, a `datetime-local` field defaulting to "now"
+   (same pattern as `MoodEntryForm`), a "+ Add a new habit" link, Save/Cancel. Submits `POST
+   /api/habit-logs` and calls `onSaved(log)`.
+5. **`frontend/src/pages/DashboardPage.tsx` (extended, not rewritten).** Added the
+   `habits`/`habitLogs` state, the parallel fetch-on-mount effect, the three-mode state machine
+   described above, and a second "Recent habit entries" section mirroring the mood section's
+   shape (loading/error/empty states, a list with per-entry Delete using the same optimistic-
+   removal-with-rollback pattern `handleDelete` already established for mood logs). The empty
+   state is split into two distinct messages depending on *why* the list is empty - "you haven't
+   created any habits yet" (points at the `+ Habit` button) versus "nothing logged yet" (habits
+   exist, just no entries) - since those are different situations needing different guidance,
+   unlike mood logging where "empty" only ever means one thing.
+6. **Tests.** `HabitCreateForm.test.tsx` (4 tests: required-field validation, a full create
+   round-trip asserting the exact request body, a failed-save error message, Cancel) and
+   `HabitEntryForm.test.tsx` (7 tests: one happy-path submission per habit type asserting the
+   exact value field sent, the corresponding rejection for each type's invalid input, switching
+   habits swaps the visible value control, the "+ Add a new habit" link, Cancel).
+7. **`npm test`** (frontend) — 35/35 passing (24 pre-existing, 11 new).
+8. **`npm run build`** (frontend) — compiled cleanly.
+9. **`npx eslint .`** — clean (one pre-existing, unrelated warning in `AuthContext.tsx`, not
+   touched by this task). **`npx prettier --check .`** — clean (after one `--write` pass).
+10. **Real browser verification**, per the project's UI-change testing rule. Started the actual
+    compiled backend (`npm start`, port 4103) and the frontend dev server, then drove a real
+    headless Chromium browser through the full flow with a throwaway Playwright script: register
+    → land on Dashboard → click `+ Habit` with zero habits defined → confirm the "Create your
+    first habit" empty-state form appears → create a boolean habit ("Exercise") → confirm the
+    log form opens automatically with it pre-selected → log it as "Yes" with a note → confirm it
+    appears in the list as "Exercise: Done" → click `+ Habit` again (now with one habit) → use
+    "+ Add a new habit" to create a second, numeric habit ("Water intake") → confirm the log form
+    re-opens with the *new* habit pre-selected and a numeric input control (not the boolean
+    toggle) → log `2.5` → confirm both entries are listed with correctly-typed values ("Water
+    intake: 2.5", most-recent-first) → delete the most recent entry → confirm exactly that one
+    disappears and the other remains. Screenshots taken at each step and visually reviewed, not
+    just asserted programmatically. Zero browser console errors at any point. Cleaned up the two
+    browser-created test users afterward via `psql`, and had to track down and force-stop one
+    orphaned `node` process left listening on port 4103 from an earlier manual-verification step
+    whose background task tracking had lost it (confirmed via `Get-NetTCPConnection` and
+    `Stop-Process`) before the frontend dev server was also stopped.
+
+### Why it's needed
+
+This closes out the habit-logging vertical slice: a real user can now define a habit of any of
+the three supported types and log against it, entirely through the UI, with the same rigor
+(tests, build, lint, format, and real-browser verification) every other slice in this codebase
+has been held to.
+
+### Decisions
+
+- **A Dashboard-level state machine (`"closed" | "log" | "create-habit"`) rather than baking
+  "no habits yet" handling into `HabitEntryForm` itself.** Keeps `HabitEntryForm` focused on one
+  job (logging against an already-known list of habits) and `HabitCreateForm` focused on a
+  different one (defining a habit) - `DashboardPage` is the one place that knows *when* each is
+  appropriate, the same separation of concerns `MoodEntryForm` already has relative to
+  `DashboardPage`'s mood-log fetching/list-rendering responsibilities.
+- **Minutes as a plain number field for duration, not a separate hours/minutes picker.** Matches
+  the backend's `valueDurationMinutes` column exactly and is the simplest control that satisfies
+  "duration input for duration" - a richer picker is a plausible future enhancement but not
+  something the requirements or this task ask for.
+- **Client-side value validation duplicated from (not shared with) the backend's
+  `extractTypedValue`.** Deliberate - one is a same-process TypeScript function callable directly
+  from a route handler, the other is a separate browser-side check with a different job (fail
+  fast without a network round trip) that can never be the actual source of truth regardless of
+  how it's implemented.
+- **Extracting `toDateTimeLocalValue` now, rather than after a third form needs it too.** Two
+  real, identical copies was already enough duplication to justify the extraction - waiting for a
+  third to "prove the pattern" would mean carrying a known-duplicated bug fix across two files in
+  the meantime if the format logic ever needed a fix.
+
+### State at end of this step
+
+A real user can register or log in, land on the Dashboard, define a habit of any of the three
+types (from a genuine empty state, without leaving the Dashboard), log against it with a value
+appropriate to its type, see it appear immediately with the right formatting, and delete it - all
+verified directly in a real browser, not just via tests. This closes out the habit-logging
+vertical slice: Phase 1.5 (models) → Phase 3.6 (endpoints) → Phase 7.4 (this task) are each their
+own PR, stacked in that order, and need merging in that same order once reviewed - the same shape
+the mood-logging slice's own three-PR stack took.
+
+### Verification
+
+- `npm test` (frontend, `vitest run`) — 35/35 passing (24 pre-existing, 11 new).
+- `npm run build` (frontend) — compiled cleanly.
+- `npx eslint .` / `npx prettier --check .` — both clean.
+- Real headless-browser walkthrough (Playwright) against the actual running backend and frontend
+  dev servers: full register → empty-state → create-habit → log → create-a-second-habit → log →
+  delete cycle across two different habit types, screenshots reviewed at each step, zero browser
+  console errors.
+
+---
