@@ -7410,3 +7410,165 @@ own PR, stacked in that order, and need merging in that same order once reviewed
   console errors.
 
 ---
+
+## 2026-08-16 — Phase 1: `Habit` and `HabitLog` models + migration
+
+**Task:** [Tasks.md](Tasks.md) → Phase 1 → "Define `Habit` model: `id`, `user_id`, `name`, `type
+(boolean | numeric | duration)`, `created_at`." and "Define `HabitLog` model: `id`, `user_id`,
+`habit_id`, `value (shape depends on habit type)`, `notes (optional)`, `logged_at`."
+
+**Delivered via branch:** `feature/1.5-habit-models`, branched off `main` (which already has
+`requireAuth` and the full mood-logging vertical slice merged). This starts a new, independent
+vertical slice — habit logging — following the exact same shape the mood-logging slice used:
+model first, then the CRUD endpoint, then the frontend form.
+
+### Background / concepts
+
+#### The actual problem this task is about: a value whose *shape* depends on another row
+
+Every previous log table (`MoodLog`) has a fixed, known set of columns — a mood log always has a
+`mood` field, always an integer 1–5. A habit log is different: `requirements.md` §6.4 says a
+habit can be yes/no, a number, or a duration, and *which one* is a property of the `Habit` row
+the log points back at, not something fixed for the whole table. This is the core modeling
+question this task has to answer: how do you store "a value whose type depends on a foreign
+key's row" in a relational database, where every row in a table normally has the same columns
+meaning the same thing?
+
+Three real options were weighed:
+
+1. **A single polymorphic column** (e.g. Prisma's `Json` type, or a `String` that gets
+   parsed/coerced depending on context). Simplest schema, but every reader of the table has to
+   know, out-of-band, how to interpret whatever's in that column — the database itself can't
+   enforce "this is a number" vs. "this is a boolean," and a numeric aggregate query (e.g. "this
+   week's average water intake") would need to cast a JSON value out of the column every time,
+   rather than operating on a plain typed number.
+2. **Separate tables per habit type** (`BooleanHabitLog`, `NumericHabitLog`, `DurationHabitLog`).
+   Fully typed at the database level, but means the `GET /api/habit-logs` endpoint (needed
+   regardless of habit type, e.g. for a combined activity feed) would have to query three tables
+   and merge the results, and every future feature that touches "a habit log" has to handle three
+   shapes structurally, not just three cases of one shape.
+3. **One table, three nullable typed columns** (`valueBoolean Boolean?`, `valueNumeric Float?`,
+   `valueDurationMinutes Int?`), with application code enforcing that exactly the one matching the
+   parent habit's `type` is populated and the other two are left `null`. **This is what was
+   built.** It keeps `HabitLog` a single table (one query for "all this user's habit logs," same
+   as every other log type), keeps each value typed at the database level (a numeric aggregate is
+   a plain SQL `AVG(value_numeric)`, not a JSON-extraction expression), and its one real cost — the
+   "exactly one of three is set" rule isn't something Postgres or Prisma can express declaratively
+   as a constraint referencing a *different* table's row — is paid once, centrally, in the
+   `habit-logs` route's validation code (the next task), not scattered across every future
+   consumer of this table the way option 1's "know how to interpret this column" cost would be.
+
+Option 3 was chosen because it's the same trade-off direction the codebase already leans: business
+rules that depend on cross-row context (e.g. "you can't edit someone else's mood log") are already
+enforced in route handlers, not attempted as database constraints — extending that same pattern to
+"you can't set the wrong value column for this habit's type" is consistent, not a new kind of
+compromise.
+
+#### `HabitType` as a Prisma `enum`, not a plain `String`
+
+- `type (boolean | numeric | duration)` is a fixed, small, known set of values — a Prisma `enum`
+  (`BOOLEAN | NUMERIC | DURATION`) maps to a real Postgres `ENUM` type, so the database itself
+  rejects an invalid value like `"weekly"` at the `INSERT`/`UPDATE` level, not just whatever the
+  application layer happens to check. A plain `String` column would accept anything and rely
+  entirely on Zod validation in the route layer (still needed regardless, since Zod runs before
+  the database ever sees the request) — the enum is a second, structural line of defense, the same
+  reasoning that justified the foreign-key constraint on `userId` back in the `MoodLog` entry.
+
+#### Cascading deletes, one level deeper than `MoodLog` needed
+
+- `MoodLog` only needed `onDelete: Cascade` from `User`. `HabitLog` needs it from **both** `User`
+  *and* `Habit`: deleting a user should remove their habits and habit logs (same as every other
+  log type), but deleting a single `Habit` (without deleting the user) should also remove that
+  habit's logs — a `HabitLog` whose parent `Habit` no longer exists has no `type` left to interpret
+  its `value*` columns against, so an orphaned log in that state isn't meaningful data worth
+  preserving. Both relations are declared with `onDelete: Cascade` for that reason.
+
+#### Two indexes on `HabitLog`, not one
+
+- `@@index([userId, loggedAt])` mirrors `MoodLog`'s composite index — every "this user's recent
+  activity" query filters by user and ranges by time together.
+- `@@index([habitId, loggedAt])` is new: a future per-habit view ("show me this specific habit's
+  history/trend over time") filters by `habitId`, not `userId`, and still ranges by `loggedAt` —
+  a query pattern `MoodLog` never had, since there's no equivalent of "one specific habit" to
+  drill into for mood.
+- `Habit` itself gets a single-column `@@index([userId])` (no second dimension) since "list this
+  user's habits" has no secondary sort/range axis the way the log tables do.
+
+### What was done
+
+1. **`backend/prisma/schema.prisma`.** Added the `HabitType` enum, the `Habit` model, and the
+   `HabitLog` model as described above, plus the reciprocal `habits`/`habitLogs` fields on `User`.
+2. **First migration attempt caught a real naming-convention bug before it shipped.** The first
+   `npx prisma migrate dev --name add_habit_and_habit_log` run applied successfully, but manually
+   inspecting the resulting table with `psql \d habit_logs` (the same "verify directly against
+   Postgres, not just trust the migration output" habit the `MoodLog` entry established) showed
+   the three value columns landed as `valueBoolean`, `valueNumeric`, `valueDurationMinutes` —
+   camelCase, unlike every other column in the schema (`user_id`, `logged_at`, etc.), because they
+   were missing the `@map(...)` snake_case override every other field already has. Since this
+   database is a throwaway local instance created solely for this task with zero real data in it,
+   the fix was to add the missing `@map` calls, manually drop just the two new tables and the new
+   enum type via `psql` (not a full `prisma migrate reset` — Prisma's own safety guard correctly
+   refused that command without explicit interactive user consent, and a full reset was overkill
+   for undoing two empty tables anyway), delete the one now-stale row from `_prisma_migrations`,
+   and re-run `migrate dev` to produce a clean, correctly-named migration on the first real attempt
+   that will ever reach a shared or production database.
+3. **Migration.** `20260816193218_add_habit_and_habit_log`, applied against the isolated local
+   database (`welltrack_habit` — this vertical slice is being built in a separate git worktree
+   from any concurrently-running symptom/medication-logging work, each pointed at its own database
+   and backend port specifically so local `migrate dev` runs never collide).
+4. **`npm run build`** — compiled cleanly (also regenerates the Prisma Client, making
+   `prisma.habit.create(...)` / `prisma.habitLog.create(...)` available with full types for the
+   next task).
+5. **`npm test`** — 38/38 passing, unchanged from before this task (schema-only change, no new
+   application code yet).
+6. **Manual verification directly against Postgres**: `psql \d habits` and `psql \d habit_logs`,
+   confirming exact column names/types (including the corrected `value_boolean` /
+   `value_numeric` / `value_duration_minutes` snake_case names, and `logged_at` as
+   `timestamp(3) with time zone`), both indexes, the `habit_type` enum, and both cascading foreign
+   keys on `habit_logs` (to `users` and to `habits`) all exist for real in the running database.
+7. **Lint/format.** `npx eslint .` and `npx prettier --check .` — both clean (no application code
+   changed, but run as part of this task's own verification regardless).
+
+### Why it's needed
+
+The habit-logs endpoint (next task) needs somewhere to store data with the right shape and
+constraints already in place — including the specific "exactly one value column per type" rule
+this schema deliberately leaves for the application layer to enforce, exactly where the next task
+picks up.
+
+### Decisions
+
+- **Three nullable typed columns over a single `Json` value column or per-type tables.** Covered
+  in detail above — chosen to keep `HabitLog` a single, typed, uniformly-queryable table.
+- **`type` immutable after creation, planned for the next task, not this one.** Not yet enforced
+  in code (there's no route yet), but noted here since it shapes why the value-column approach
+  above is safe: if `type` could change after logs already reference a habit, existing logs'
+  populated value column could become mismatched with the (now different) type with no way to
+  reconcile old data. Deferred to the next task's PATCH `/api/habits/:id` implementation, but the
+  schema decision here assumes it.
+- **No `createdAt` on `HabitLog`**, matching `MoodLog`'s precedent — `logged_at` already captures
+  the moment that matters (including backfilled past dates); a separate "row inserted at" column
+  isn't read by anything planned.
+- **Manually corrected the migration rather than shipping the camelCase-column version and fixing
+  it in a follow-up migration.** Since nothing had been pushed or merged yet and the local database
+  had no real rows, regenerating a single correct migration was strictly better than committing a
+  bug and a fix-up migration on top of it — the second option would be the right call once a
+  migration has actually reached a shared database (as the earlier "Prisma migration checksum
+  mismatch" entry describes for a different scenario), but that constraint didn't apply here yet.
+
+### State at end of this step
+
+`habits` and `habit_logs` exist in this slice's isolated local database with the correct shape,
+constraints, and indexes. No API endpoint reads or writes either table yet — that's the next
+task, stacked on this branch.
+
+### Verification
+
+- `npm run build` — compiled cleanly.
+- `npm test` — 38/38 passing (unchanged).
+- `npx eslint .` / `npx prettier --check .` — both clean.
+- `psql \d habits` and `psql \d habit_logs` against the real local database — confirmed column
+  names/types, both indexes, the enum type, and both cascading foreign keys directly, not
+  inferred from the migration file alone.
+
+---
