@@ -24,8 +24,8 @@ Checkboxes let you track progress directly in this file.
 Reference: requirements §11.
 
 - [x] Define `User` model: `id (uuid)`, `email (unique)`, `password_hash`, `display_name`, `timezone (default UTC)`, `created_at`.
-- [ ] Define `Symptom` model: `id`, `user_id (nullable — null = system symptom)`, `name`, `description (optional)`, `created_at`.
-- [ ] Define `SymptomLog` model: `id`, `user_id`, `symptom_id`, `severity (1–10)`, `notes (optional)`, `logged_at`.
+- [x] Define `Symptom` model: `id`, `user_id (nullable — null = system symptom)`, `name`, `description (optional)`, `created_at`.
+- [x] Define `SymptomLog` model: `id`, `user_id`, `symptom_id`, `severity (1–10)`, `notes (optional)`, `logged_at`.
 - [x] Define `MoodLog` model: `id`, `user_id`, `mood (1–5)`, `energy (nullable 1–5)`, `stress (nullable 1–5)`, `notes (optional)`, `logged_at`.
 - [ ] Define `Medication` model: `id`, `user_id`, `name`, `created_at`.
 - [ ] Define `MedicationLog` model: `id`, `user_id`, `medication_id`, `taken (boolean)`, `notes (optional)`, `logged_at`.
@@ -34,7 +34,7 @@ Reference: requirements §11.
 - [ ] Add appropriate foreign keys, indexes (especially on `user_id` + `logged_at` for query performance), and cascading deletes so removing a `User` removes all associated logs.
 - [ ] Store `logged_at` as a timestamp with timezone (`timestamptz`) and always compute "which calendar day" using the user's stored `timezone`, not server time.
 - [ ] Write and run the initial Prisma migration.
-- [ ] Seed the database with a small set of system-default symptoms (e.g. Headache, Fatigue, Nausea) where `user_id` is null.
+- [x] Seed the database with a small set of system-default symptoms (e.g. Headache, Fatigue, Nausea) where `user_id` is null.
 
 ---
 
