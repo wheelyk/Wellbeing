@@ -14,6 +14,7 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const infoMessage = (location.state as { message?: string } | null)?.message;
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -40,6 +41,11 @@ export function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-surface-muted px-4">
       <Card>
         <h1 className="mb-6 text-2xl font-semibold text-text">Log in</h1>
+        {infoMessage && (
+          <p role="status" className="mb-4 text-sm text-text-muted">
+            {infoMessage}
+          </p>
+        )}
         <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
           <TextField
             label="Email"
