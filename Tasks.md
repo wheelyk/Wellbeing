@@ -72,8 +72,8 @@ Reference: requirements §6, §12.
 - [x] `GET/POST/PATCH/DELETE /api/mood-logs` — full CRUD, scoped to the authenticated user; validate `mood` 1–5, `energy`/`stress` 1–7 when present (widened from 1–5 after user feedback — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)).
 
 ### Medications
-- [ ] `GET/POST/PATCH/DELETE /api/medications` — manage the user's medication list.
-- [ ] `GET/POST/PATCH/DELETE /api/medication-logs` — record taken/not-taken status per medication per date.
+- [x] `GET/POST/PATCH/DELETE /api/medications` — manage the user's medication list.
+- [x] `GET/POST/PATCH/DELETE /api/medication-logs` — record taken/not-taken status per medication per date.
 
 ### Habits
 - [ ] `GET/POST/PATCH/DELETE /api/habits` — manage user-defined habits, including `type` (boolean/numeric/duration).

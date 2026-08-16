@@ -6193,3 +6193,145 @@ that's the next task.
 - `npx eslint .` and `npx prettier --check .` — both clean.
 
 ---
+
+## 2026-08-16 — Phase 3: `GET/POST/PATCH/DELETE /api/medications` and `/api/medication-logs`
+
+**Task:** [Tasks.md](Tasks.md) → Phase 3 → Medications → "`GET/POST/PATCH/DELETE
+/api/medications` — manage the user's medication list." and "`GET/POST/PATCH/DELETE
+/api/medication-logs` — record taken/not-taken status per medication per date."
+
+**Delivered via branch:** `feature/3.6-medication-endpoints` (stacked on
+`feature/1.5-medication-models`) — the same "model → scoped CRUD route" pattern the mood-logs
+endpoint established, applied here for the first time to a domain with *two* related tables
+instead of one.
+
+### Background / concepts
+
+#### Two routers, because there are genuinely two resources
+
+- `medications.ts` manages the user's medication *list* (create "Ibuprofen" once, rename or
+  delete it later) — a small, low-frequency resource. `medicationLogs.ts` manages the
+  taken/not-taken *events* against that list (potentially several per day, per medication) — a
+  high-frequency resource, same shape as `MoodLog`. Splitting these into two route files
+  (mounted separately in `app.ts`, at `/api/medications` and `/api/medication-logs`) keeps each
+  file focused on one resource's CRUD, rather than one file juggling two different validation
+  schemas and two different Prisma models.
+
+#### The ID-tampering defense, concretely — not just "scope the query," but "verify the reference"
+
+- Every route already scopes its *own* table's queries by `req.userId` (`findFirst({ where: {
+  id, userId } })`), the same pattern `MoodLog` uses. But `MedicationLog` also carries a
+  *second* foreign key — `medicationId`, pointing at a different table the caller doesn't own
+  outright, they only own indirectly through their own `Medication` rows. A client can put
+  **any** string in the `medicationId` field of a `POST /api/medication-logs` body, including
+  another user's real medication ID copied or guessed from elsewhere. Scoping the *log's own*
+  query by `userId` does nothing to stop that, because the log doesn't exist yet — there's
+  nothing to scope. This is exactly the ID-tampering scenario Tasks.md's Phase 3 cross-cutting
+  item warns about, and it needs its own explicit check, separate from ownership-scoping a
+  lookup of an existing row.
+- The fix, in `medicationLogs.ts`'s `medicationBelongsToUser` helper: before ever writing a
+  `MedicationLog` referencing a given `medicationId`, look that medication up scoped to
+  `req.userId` (`prisma.medication.findFirst({ where: { id: medicationId, userId } })`) and
+  reject with `404 MEDICATION_NOT_FOUND` if nothing comes back. From the caller's perspective, a
+  real medication belonging to someone else and a `medicationId` that doesn't exist at all are
+  indistinguishable — same "don't confirm existence to an unauthorized caller" reasoning as the
+  404-not-403 pattern elsewhere in this codebase, just applied to a body field instead of a URL
+  param.
+- **This check runs on both `POST` and `PATCH`.** It would be easy to add it only to `POST`
+  (where a new `medicationId` is always supplied) and miss that `PATCH` can *also* supply a new
+  `medicationId`, re-pointing an existing, legitimately-owned log at a different medication —
+  including someone else's. `medicationLogs.ts`'s `PATCH /:id` handler explicitly re-runs the
+  same check whenever the update body includes `medicationId`, and a test
+  (`rejects re-pointing an existing log at another user's medicationId via PATCH`) proves this
+  specifically, not just the `POST` case.
+
+#### `taken` is a required boolean, unlike mood-logs' required numeric field
+
+- `z.boolean()` for `taken` rejects anything that isn't literally `true`/`false` — no coercion
+  from `"true"`/`1`/etc. — the same "be strict about what a field actually means" approach
+  `moodField`'s `z.number().int().min(1).max(5)` already uses for mood. A truthy-but-wrong value
+  like the string `"yes"` fails validation with `VALIDATION_ERROR` rather than silently being
+  interpreted as `true`.
+
+### What was done
+
+1. **`backend/src/routes/medications.ts` (new).** `GET /` (list the caller's medications), `POST
+   /` (create, `name` required non-empty string), `PATCH /:id` / `DELETE /:id` (ownership-scoped
+   via `findFirst`, `404 MEDICATION_NOT_FOUND` if missing or not owned).
+2. **`backend/src/routes/medicationLogs.ts` (new).** `GET /` (list the caller's medication logs,
+   most recent first), `POST /` (validates `medicationId` + `taken` required, `notes` optional,
+   `loggedAt` optional ISO datetime defaulting to now — same backfill pattern as mood-logs — and
+   runs the ID-tampering check above before creating), `PATCH /:id` (ownership-scoped lookup of
+   the log itself, plus the ID-tampering re-check if `medicationId` is included in the body),
+   `DELETE /:id`.
+3. **`backend/src/app.ts`.** Mounted both routers behind `requireAuth`, at `/api/medications` and
+   `/api/medication-logs`.
+4. **Tests (`medications.test.ts`, `medicationLogs.test.ts`).** Mirrors `moodLogs.test.ts`'s
+   coverage (no-token rejection, create/list/update/delete, validation rejection, cross-user 404
+   on PATCH/DELETE with a `findUnique` afterward proving zero effect) for both resources, plus
+   two tests specific to this task's key risk: creating a medication log against another user's
+   `medicationId` (expects `404 MEDICATION_NOT_FOUND`, and confirms via
+   `prisma.medicationLog.findMany` that no log was actually created), and re-pointing an
+   existing log at another user's `medicationId` via `PATCH` (same expectation, confirms the
+   existing log's `medicationId` is unchanged afterward).
+5. **`npm test`** — 53/53 passing (34 pre-existing, 19 new).
+6. **`npm run build`** — compiled cleanly.
+7. **Lint/format** — `npx eslint .` clean; `npx prettier --check .` initially flagged the two new
+   test files (long single-line `request(app)...` chains it wanted wrapped), fixed with `npx
+   prettier --write`, then re-ran the full suite to confirm the reformatting changed no behavior
+   (still 53/53).
+8. **Manual end-to-end verification against the compiled, running server** (`npm start` on this
+   worktree's isolated port, `4102`), via `curl`: registered and logged in a real user, confirmed
+   `/api/medications` returns `401` with no token, then create → list → (log create → list →
+   update → delete) → delete for both resources, each response matching expectations. Separately
+   registered a second "attacker" user and confirmed, against the real running server (not just
+   the test suite), that `POST /api/medication-logs` with the first user's real `medicationId`
+   returns `404 MEDICATION_NOT_FOUND` rather than creating a log. Cleaned up both manually-created
+   test users afterward via `psql` and stopped the manually-started server.
+
+### Why it's needed
+
+This is the second full log-type CRUD API in the app (after mood), and the first one where a
+log references a second, separately-owned resource rather than standing alone — proving out the
+ID-tampering defense pattern the rest of Phase 3 (symptoms, habits) will each need in their own
+way (symptom logs reference symptoms, which can also be system-owned; habit logs reference
+habits) once those slices land.
+
+### Decisions
+
+- **Two separate route files, not one combined `medications.ts`.** Covered above — each
+  resource has its own validation schema, its own not-found error code
+  (`MEDICATION_NOT_FOUND` vs. `MEDICATION_LOG_NOT_FOUND`), and mixing them would blur which
+  "not found" a given 404 refers to.
+- **`404`, not `400`, for a `medicationId` that doesn't belong to the caller.** The field itself
+  is present and well-formed (a non-empty string, satisfying Zod) — the problem is what it
+  *refers to*, which is a lookup failure, not a shape failure. This mirrors how `PATCH
+  /api/mood-logs/:id` already distinguishes "malformed body" (`400 VALIDATION_ERROR`) from "body
+  well-formed but the referenced row isn't yours" (`404`) for the URL param; applied here to a
+  body field pointing at a different resource instead.
+- **No `MEDICATION_NOT_FOUND` vs. a more specific "not yours" code.** Same reasoning as the
+  existing 404-not-403 pattern — a more specific error would leak that the ID is real but
+  belongs to someone else.
+- **Not building the Phase 3 cross-cutting items (centralized error middleware, centralized
+  validation) in this task.** Same call as the mood-logs entry: those are their own separate
+  Tasks.md items, deliberately left for a dedicated task rather than bundled into each
+  individual endpoint's PR.
+
+### State at end of this step
+
+A real, working, tested, auth-protected CRUD API for both medications and medication logs
+exists locally, including the ID-tampering defense specifically tested and manually verified
+against a real running server. Nothing on the frontend calls it yet — that's the next task.
+
+### Verification
+
+- `npm test` (`vitest run`) — 53/53 passing (34 pre-existing, 19 new).
+- `npm run build` — compiled cleanly.
+- `npx eslint .` and `npx prettier --check .` — both clean (after one `prettier --write` pass on
+  the new test files, followed by a full re-run of the suite to confirm no behavior changed).
+- Manual `curl` round-trip against the compiled, running server (port `4102`): unauthenticated
+  request → `401`; full lifecycle for both resources; and a live cross-user attempt to create a
+  medication log against another real user's `medicationId` → confirmed `404
+  MEDICATION_NOT_FOUND` against the actual running server, not just the automated test.
+
+---
