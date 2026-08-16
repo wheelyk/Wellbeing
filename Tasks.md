@@ -113,6 +113,7 @@ Reference: requirements §7, §10, §12.7, §12.8.
 - [x] Set up React Router with routes for: Login, Register, Forgot/Reset Password, Dashboard (Home), History, Trends, Settings.
 - [x] Build an API client (fetch/axios wrapper) that attaches the access token, and on a 401 automatically attempts a token refresh before retrying once; on refresh failure, redirect to Login.
 - [x] Build an auth context/store (e.g. React Context or a small state library) holding the current user and auth status.
+- [ ] On app load, attempt a silent token refresh (using the `httpOnly` refresh cookie) to rehydrate the session, so a browser refresh doesn't log out a user whose session is still genuinely valid — found missing while testing the change-password flow (see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)); currently a full page reload always shows Login even with a valid refresh cookie.
 - [ ] Build a bottom navigation component (Home / History / Trends / Settings) per the wireframes, visible on mobile; adapt to a top/side nav on desktop without changing the underlying workflow.
 - [ ] Establish base Tailwind design tokens (colors, spacing, font sizes) for a calm, high-contrast, low-clutter UI, and reusable primitives: `Button`, `Card`, `RatingScale`, `Modal`, `TextField`, `DatePicker`.
 - [ ] Ensure all interactive primitives have visible focus states and meet WCAG AA color contrast.
@@ -124,7 +125,7 @@ Reference: requirements §7, §10, §12.7, §12.8.
 - [x] Registration page: email + password form with client-side validation mirroring backend rules; friendly inline error messages.
 - [x] Login page; on success store tokens/session and redirect to Dashboard.
 - [x] Logout action (clears session, calls `/api/auth/logout`).
-- [ ] Change password form on Settings page: current password + new password fields, calls `POST /api/auth/change-password`, with clear success/error feedback.
+- [x] Change password form on Settings page: current password + new password fields, calls `POST /api/auth/change-password`, with clear success/error feedback.
 - [ ] Forgot password page (request reset email) and reset password page (submit new password with reset token).
 - [ ] Settings page: view/edit display name and timezone; account deletion flow with a clear confirmation step (type-to-confirm or a two-step dialog) per §15.
 - [x] Route guarding: unauthenticated users are redirected to Login when hitting protected routes.
