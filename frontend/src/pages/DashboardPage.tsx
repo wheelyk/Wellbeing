@@ -94,8 +94,8 @@ export function DashboardPage() {
                   <div>
                     <p className="text-text">
                       Mood {log.mood}/5
-                      {log.energy !== null && ` · Energy ${log.energy}/5`}
-                      {log.stress !== null && ` · Stress ${log.stress}/5`}
+                      {log.energy !== null && ` · Energy ${log.energy}/7`}
+                      {log.stress !== null && ` · Stress ${log.stress}/7`}
                     </p>
                     {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
                     <p className="text-xs text-text-muted">
