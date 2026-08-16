@@ -46,7 +46,13 @@ describe("mood-logs routes", () => {
       .send({ mood: 4, energy: 3, stress: 2, notes: "Feeling okay" });
 
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ userId, mood: 4, energy: 3, stress: 2, notes: "Feeling okay" });
+    expect(res.body).toMatchObject({
+      userId,
+      mood: 4,
+      energy: 3,
+      stress: 2,
+      notes: "Feeling okay",
+    });
     expect(res.body.id).toBeDefined();
     expect(res.body.loggedAt).toBeDefined();
   });

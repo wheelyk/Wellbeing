@@ -51,9 +51,7 @@ describe("requireAuth", () => {
       expiresIn: -1,
     });
 
-    const res = await request(app)
-      .get("/protected")
-      .set("Authorization", `Bearer ${expired}`);
+    const res = await request(app).get("/protected").set("Authorization", `Bearer ${expired}`);
 
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe("INVALID_ACCESS_TOKEN");
@@ -63,9 +61,7 @@ describe("requireAuth", () => {
     const app = buildTestApp();
     const wrongSecret = jwt.sign({ sub: "user-123" }, process.env.JWT_REFRESH_SECRET as string);
 
-    const res = await request(app)
-      .get("/protected")
-      .set("Authorization", `Bearer ${wrongSecret}`);
+    const res = await request(app).get("/protected").set("Authorization", `Bearer ${wrongSecret}`);
 
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe("INVALID_ACCESS_TOKEN");
