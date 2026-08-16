@@ -21,6 +21,18 @@ The frontend and backend are kept independently testable and deployable — each
 `package.json`, dependencies, and environment configuration. They communicate only over the
 HTTP API defined in the requirements doc (§12).
 
+### About the `pr-screenshots` branch
+
+If you notice a branch called `pr-screenshots` in the repository that looks unrelated to
+everything else — no shared history with `main`, no application code — that's intentional, not
+a mistake. It's an orphan branch created and maintained automatically by
+[`.github/workflows/pr-preview.yml`](.github/workflows/pr-preview.yml) purely to host the
+before/after screenshot images that get embedded in PR review comments. **Don't delete it** —
+every screenshot already posted in a past PR comment links to an image stored there, and
+removing the branch would break all of those images retroactively. See
+[IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md) for the full story, including a Vercel
+deployment quirk this branch caused and how it was fixed.
+
 ## Running locally
 
 > Scaffolding for `/frontend` and `/backend` is added in later setup tasks (see
