@@ -5441,3 +5441,87 @@ speculatively every so often.
   it's even worth spending time on a real upgrade attempt yet.
 
 ---
+
+## 2026-08-16 — Fixing a real production bug: direct links to any page but the homepage 404'd
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — a real user (not automated testing)
+tried the live app and got a genuine `404: NOT_FOUND` page from Vercel itself, on a page that
+works completely fine in every other form of testing done so far.
+
+### Background / concepts
+
+#### What actually broke, and why nothing until now had caught it
+
+- `curl` confirmed it precisely: `https://wellbeing-blue.vercel.app/` returns `200`, but
+  `/login`, `/register`, and `/dashboard` — real, working routes inside the app — each return a
+  genuine `404` **from Vercel's own server**, before the app's own code ever runs at all.
+- **Why:** this is a single-page application (an "SPA") — React Router (`BrowserRouter` in
+  `App.tsx`) decides what to show entirely with JavaScript running *in the browser*, by reading
+  the current URL and rendering the matching page, without ever asking the server for a new
+  page. That only works once the JavaScript has already loaded, though. The very first request
+  for a page — someone typing a URL directly, opening a bookmark, clicking a shared link, or
+  even just refreshing the browser while already on `/dashboard` — is a real HTTP request the
+  *server* has to answer, before any of this app's own JavaScript is involved at all. Vercel,
+  hosting this as a set of static files, looked for an actual file at `/dashboard` (there isn't
+  one — only `index.html` exists), found nothing, and correctly reported `404` by its own
+  reasonable logic. The fix has to tell Vercel "for any path that doesn't match a real file,
+  just serve `index.html` anyway" — at which point the app's own JavaScript loads, sees the URL
+  is `/dashboard`, and React Router takes it from there correctly.
+- **Why every previous check missed this — a real gap, not a fluke.** Every earlier
+  browser-based check in this log (the Playwright walkthroughs) ran against the **local Vite
+  dev server**, which has this exact fallback behavior built in automatically — `vite dev`
+  always serves `index.html` for any unrecognized path, precisely so SPA routing "just works"
+  during development without anyone having to think about it. That convenience quietly hid the
+  fact that *production* hosting doesn't do this by default at all. Meanwhile, every direct
+  `curl` check against the real Vercel deployment only ever tested `/` (the homepage) — never a
+  deeper route — so the gap had no chance to surface. The bug was found by a real person
+  clicking around for real, not by any of this project's automated or manual verification,
+  which is worth being honest about rather than glossing over.
+
+#### The fix: telling Vercel explicitly, with a `rewrites` rule
+
+- `frontend/vercel.json` (new) — a config file Vercel reads automatically for a project rooted
+  at `frontend` — adds one **rewrite** rule: `{ "source": "/(.*)", "destination":
+  "/index.html" }`. A rewrite (different from a *redirect*) serves different content at the
+  same URL the browser asked for, invisibly — the browser's address bar still shows
+  `/dashboard`, but the actual file served is `index.html`. This is exactly what's needed:
+  the URL must stay whatever the user typed (React Router reads it to decide what to render),
+  while the *content* served needs to be the app's shell regardless of which path was
+  requested.
+- This is a standard, well-known requirement for hosting any client-side-routed SPA as static
+  files — not specific to Vercel, React, or this project; the same underlying problem (and the
+  same rewrite-based fix) applies to any static host serving an app that owns its own routing.
+
+### Why it's needed
+
+Without this, the deployed app was only really usable if every single visit started from the
+exact homepage — any bookmark, shared link, or browser refresh on any other page would show a
+real user a raw, unstyled Vercel error page instead of the app. For a wellness-tracking app
+someone might reasonably bookmark their dashboard or get a link sent to them, this is a
+significant real-world usability bug, not a cosmetic one.
+
+### Decisions
+
+- **A `rewrites` rule in `vercel.json`, not a change to the React app itself.** The React
+  app's own routing code is already correct — `BrowserRouter` and its routes work fine once
+  the JavaScript loads. The gap was entirely on the hosting side (what happens *before* that
+  JavaScript ever runs), which is exactly what `vercel.json` configures.
+
+### State at end of this step
+
+`frontend/vercel.json` exists with the SPA fallback rewrite. Pending: verifying against the
+real Vercel preview deployment this PR generates (Vercel deploys a preview build per PR
+automatically, confirmed by the "Vercel"/"Vercel Preview Comments" checks seen on earlier
+PRs) — testing there, before this reaches production `main`, rather than only trusting the fix
+in theory.
+
+### Verification
+
+- `curl` directly against the current production deployment, confirming the bug precisely
+  before writing any fix: `/` → `200`, `/login` / `/register` / `/dashboard` → `404`.
+- `npm run build` — compiled cleanly (this change doesn't touch application code, only hosting
+  config, so no behavior change expected here — confirmed).
+- Pending: re-running the same `curl` checks against the deployed fix once it's live, to
+  confirm `/login`/`/register`/`/dashboard` now return `200` for real, not just in theory.
+
+---
