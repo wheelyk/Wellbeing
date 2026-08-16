@@ -7000,3 +7000,125 @@ it did.
   independent of the original PR's own (also passing) checks.
 
 ---
+
+## 2026-08-16 — Phase 1: `Medication` + `MedicationLog` models + migration
+
+**Task:** [Tasks.md](Tasks.md) → Phase 1 → "Define `Medication` model: `id`, `user_id`, `name`,
+`created_at`." and "Define `MedicationLog` model: `id`, `user_id`, `medication_id`, `taken
+(boolean)`, `notes (optional)`, `logged_at`."
+
+**Delivered via branch:** `feature/1.5-medication-models` (branched from `main`). This is the
+first step of a new vertical slice — medication logging — following the exact same shape as
+the earlier mood-logging slice (model → scoped CRUD endpoint → frontend form). Unlike that
+slice, both models for this domain are defined together in one branch rather than split further,
+since `Medication` (the user's list of medication names) and `MedicationLog` (each taken/not-
+taken record) are small enough, and tightly enough coupled, that splitting them into separate
+PRs would add process overhead without adding any real independent value — the log endpoint
+can't be tested meaningfully without the medication list existing to reference in the first
+place.
+
+### Background / concepts
+
+#### Two tables, not one — why "medication" and "medication log" are different things
+
+- Requirements §6.3 describes recording "whether a medication was taken" — but a medication
+  itself (e.g. "Ibuprofen") is a *thing a user takes repeatedly*, while each taken/not-taken
+  record is a separate event in time. Collapsing these into one table (say, a `taken` column
+  directly on a `medications` row) would only be able to represent the *most recent* status,
+  losing all history — the same one-to-many relationship reasoning as `User` → `MoodLog` from
+  the earlier entry, just one level deeper here: `User` has many `Medication`s, and each
+  `Medication` has many `MedicationLog`s.
+
+#### `MedicationLog` carries both `userId` and `medicationId` — and why that's not redundant
+
+- Every `MedicationLog` already reaches its owning user indirectly, by following
+  `medicationId` → `Medication.userId`. Storing `userId` directly on `MedicationLog` too is a
+  deliberate denormalization, copying the same shape `MoodLog` already uses (a direct `userId`
+  column on every log table, not just on the "parent" record) — it's what lets `GET
+  /api/medication-logs` filter and index directly on `[userId, loggedAt]` without an extra join
+  through `Medication` on every read, exactly like `MoodLog`'s existing composite index.
+- **This column is not, on its own, a security boundary.** Nothing at the database level stops
+  a row's `userId` from disagreeing with its `medication.userId` — that would require a check
+  constraint spanning two tables, which Postgres doesn't support directly. The actual defense
+  against a user submitting *another* user's `medicationId` (the ID-tampering concern Tasks.md's
+  Phase 3 cross-cutting item calls out) has to live in the application layer, in the next task's
+  route: before creating or updating a `MedicationLog`, the code must look up the referenced
+  `Medication` scoped to `req.userId` and reject the request if it's not found or not theirs.
+  This migration only builds the storage shape that check will write into — it doesn't replace
+  the check itself.
+
+#### Cascading deletes, two levels deep
+
+- `Medication.user @relation(..., onDelete: Cascade)` means deleting a `User` also deletes all
+  of their `Medication` rows. `MedicationLog.medication @relation(..., onDelete: Cascade)` means
+  deleting a `Medication` also deletes all of *its* `MedicationLog` rows. Together, these chain:
+  deleting a `User` cascades to their `Medication`s, which cascades again to every
+  `MedicationLog` referencing those medications — satisfying Phase 1's "removing a `User`
+  removes all associated logs" requirement without the application needing to manually delete
+  in the right table order. `MedicationLog.user` also has its own direct `onDelete: Cascade` to
+  `User`, belt-and-suspenders with the same reasoning as the denormalized `userId` column above:
+  since `userId` is stored directly rather than only reachable via `medicationId`, it needs its
+  own cascade rule too, or deleting a user would leave that column's foreign key constraint
+  unsatisfiable.
+
+### What was done
+
+1. **`backend/prisma/schema.prisma`.** Added `Medication` (`id`, `userId`, `name`, `createdAt`)
+   and `MedicationLog` (`id`, `userId`, `medicationId`, `taken`, `notes`, `loggedAt` with
+   `@db.Timestamptz(3) @default(now())`, matching `MoodLog`'s timestamp handling exactly), plus
+   the reciprocal `medications`/`medicationLogs` fields on `User`. `Medication` gets a
+   `@@index([userId])` (every "list my medications" query and the ownership check both filter by
+   this); `MedicationLog` gets `@@index([userId, loggedAt])` (list/range queries, same shape as
+   `MoodLog`) and `@@index([medicationId])` (used when checking a medication's own log history,
+   and by the foreign key itself).
+2. **Migration.** `npx prisma migrate dev --name add_medication_and_medication_log` — generated
+   and applied `20260816123825_add_medication_and_medication_log` against this worktree's
+   isolated local database (`welltrack_medication` — a separate database inside the same shared
+   Postgres container other concurrent work uses, so this migration couldn't collide with
+   anyone else's in-progress schema changes).
+3. **`npm run build`** — compiled cleanly (regenerates the Prisma Client, making
+   `prisma.medication.create(...)` / `prisma.medicationLog.create(...)` etc. available with full
+   TypeScript types for the next task).
+4. **`npm test`** — 34/34 passing, unchanged (this task adds no application code, only schema).
+5. **Manual verification directly against Postgres**, not just the migration command's own
+   output: `psql \d medications` and `\d medication_logs` against the real running database,
+   confirming column types (including `timestamp(3) with time zone` on `logged_at`), both
+   indexes, and both cascading foreign keys exist for real.
+6. **Lint/format** — `npx eslint .` clean, `npx prettier --check .` clean.
+
+### Why it's needed
+
+The medication-logs endpoint (next task) needs somewhere to store data, with the ownership
+relationships already in place, before any API code is written against it — same reasoning as
+the `MoodLog` model entry.
+
+### Decisions
+
+- **One branch for both models, not two.** Documented above — `Medication` and `MedicationLog`
+  are too tightly coupled to usefully review or test independently (a `MedicationLog` can't
+  exist without a `Medication` to reference), unlike, say, the earlier auth-middleware and
+  `MoodLog` split, where the middleware had genuine standalone value and no dependency on the
+  model.
+- **Direct `userId` on `MedicationLog`, denormalized from `Medication.userId`.** Matches
+  `MoodLog`'s existing shape rather than introducing a new "look it up via a join" pattern for
+  just this one table — consistency with the established convention, plus the indexing benefit
+  described above.
+- **No `description` or dosage/schedule fields on `Medication`.** Kept to exactly what
+  `requirements.md` §6.3 and `Tasks.md` specify (name only) — the MVP is "was this medication
+  taken," not a full medication-management feature.
+
+### State at end of this step
+
+`medications` and `medication_logs` exist in the local (isolated, per-worktree) database with
+the correct shape, constraints, and indexes. No API endpoint reads or writes either table yet —
+that's the next task.
+
+### Verification
+
+- `npm run build` — compiled cleanly.
+- `npm test` — 34/34 passing (unchanged).
+- `psql \d medications` / `\d medication_logs` against the real local database — confirmed
+  column types, indexes, and both cascading foreign keys directly.
+- `npx eslint .` and `npx prettier --check .` — both clean.
+
+---
