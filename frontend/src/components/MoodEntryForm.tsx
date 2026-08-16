@@ -1,5 +1,6 @@
 import { useId, useState, type FormEvent } from "react";
 import { apiFetch } from "../api/client";
+import { toDateTimeLocalValue } from "../lib/dateTimeLocal";
 import { Button } from "./Button";
 
 export interface MoodLog {
@@ -24,14 +25,6 @@ const MOOD_OPTIONS: Array<{ value: number; emoji: string; label: string }> = [
 // a 1-5 or 1-6 range either lacks that clean center or offers too little granularity, per real
 // user feedback on the original 1-5 scale.
 const ENERGY_STRESS_VALUES = [1, 2, 3, 4, 5, 6, 7];
-
-// Formats a Date as the value a <input type="datetime-local"> expects (local time,
-// "YYYY-MM-DDTHH:mm") - the input has no concept of timezones, it just shows/edits
-// whatever local wall-clock time the browser is set to.
-function toDateTimeLocalValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
 
 interface MoodEntryFormProps {
   onSaved: (log: MoodLog) => void;
