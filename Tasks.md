@@ -24,8 +24,8 @@ Checkboxes let you track progress directly in this file.
 Reference: requirements §11.
 
 - [x] Define `User` model: `id (uuid)`, `email (unique)`, `password_hash`, `display_name`, `timezone (default UTC)`, `created_at`.
-- [ ] Define `Symptom` model: `id`, `user_id (nullable — null = system symptom)`, `name`, `description (optional)`, `created_at`.
-- [ ] Define `SymptomLog` model: `id`, `user_id`, `symptom_id`, `severity (1–10)`, `notes (optional)`, `logged_at`.
+- [x] Define `Symptom` model: `id`, `user_id (nullable — null = system symptom)`, `name`, `description (optional)`, `created_at`.
+- [x] Define `SymptomLog` model: `id`, `user_id`, `symptom_id`, `severity (1–10)`, `notes (optional)`, `logged_at`.
 - [x] Define `MoodLog` model: `id`, `user_id`, `mood (1–5)`, `energy (nullable 1–5)`, `stress (nullable 1–5)`, `notes (optional)`, `logged_at`.
 - [x] Define `Medication` model: `id`, `user_id`, `name`, `created_at`.
 - [x] Define `MedicationLog` model: `id`, `user_id`, `medication_id`, `taken (boolean)`, `notes (optional)`, `logged_at`.
@@ -34,7 +34,7 @@ Reference: requirements §11.
 - [ ] Add appropriate foreign keys, indexes (especially on `user_id` + `logged_at` for query performance), and cascading deletes so removing a `User` removes all associated logs.
 - [ ] Store `logged_at` as a timestamp with timezone (`timestamptz`) and always compute "which calendar day" using the user's stored `timezone`, not server time.
 - [ ] Write and run the initial Prisma migration.
-- [ ] Seed the database with a small set of system-default symptoms (e.g. Headache, Fatigue, Nausea) where `user_id` is null.
+- [x] Seed the database with a small set of system-default symptoms (e.g. Headache, Fatigue, Nausea) where `user_id` is null.
 
 ---
 
@@ -46,7 +46,7 @@ Reference: requirements §5, §13.
 - [x] Implement `POST /api/auth/login` — verify credentials, issue short-lived JWT access token + longer-lived refresh token.
 - [x] Implement refresh token storage/rotation strategy (e.g. HTTP-only secure cookie for the refresh token) and `POST /api/auth/refresh`.
 - [x] Implement `POST /api/auth/logout` — invalidate/clear the refresh token.
-- [ ] Implement `POST /api/auth/change-password` — for a logged-in user; requires the current password to be re-verified before updating the hash. Needs no email provider, unlike forgot/reset password below.
+- [x] Implement `POST /api/auth/change-password` — for a logged-in user; requires the current password to be re-verified before updating the hash. Needs no email provider, unlike forgot/reset password below.
 - [ ] Implement `POST /api/auth/forgot-password` — generate a time-limited reset token and send a reset email (use a placeholder/mock email provider for local dev).
 - [ ] Implement `POST /api/auth/reset-password` — validate the reset token and update the password hash.
 - [x] Implement an Express auth middleware that verifies the access token and attaches the authenticated user to the request; use it on all protected routes.
@@ -63,10 +63,10 @@ Reference: requirements §5, §13.
 Reference: requirements §6, §12.
 
 ### Symptoms
-- [ ] `GET /api/symptoms` — return system symptoms + the current user's custom symptoms.
-- [ ] `POST /api/symptoms` — create a user-specific symptom.
-- [ ] `PATCH /api/symptoms/:id` / `DELETE /api/symptoms/:id` — only allowed on symptoms owned by the current user (never on system symptoms or another user's symptoms).
-- [ ] `GET/POST/PATCH/DELETE /api/symptom-logs` — full CRUD, scoped to the authenticated user; validate `severity` is an integer 1–10.
+- [x] `GET /api/symptoms` — return system symptoms + the current user's custom symptoms.
+- [x] `POST /api/symptoms` — create a user-specific symptom.
+- [x] `PATCH /api/symptoms/:id` / `DELETE /api/symptoms/:id` — only allowed on symptoms owned by the current user (never on system symptoms or another user's symptoms).
+- [x] `GET/POST/PATCH/DELETE /api/symptom-logs` — full CRUD, scoped to the authenticated user; validate `severity` is an integer 1–10.
 
 ### Mood
 - [x] `GET/POST/PATCH/DELETE /api/mood-logs` — full CRUD, scoped to the authenticated user; validate `mood` 1–5, `energy`/`stress` 1–7 when present (widened from 1–5 after user feedback — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)).
@@ -113,6 +113,7 @@ Reference: requirements §7, §10, §12.7, §12.8.
 - [x] Set up React Router with routes for: Login, Register, Forgot/Reset Password, Dashboard (Home), History, Trends, Settings.
 - [x] Build an API client (fetch/axios wrapper) that attaches the access token, and on a 401 automatically attempts a token refresh before retrying once; on refresh failure, redirect to Login.
 - [x] Build an auth context/store (e.g. React Context or a small state library) holding the current user and auth status.
+- [ ] On app load, attempt a silent token refresh (using the `httpOnly` refresh cookie) to rehydrate the session, so a browser refresh doesn't log out a user whose session is still genuinely valid — found missing while testing the change-password flow (see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)); currently a full page reload always shows Login even with a valid refresh cookie.
 - [ ] Build a bottom navigation component (Home / History / Trends / Settings) per the wireframes, visible on mobile; adapt to a top/side nav on desktop without changing the underlying workflow.
 - [ ] Establish base Tailwind design tokens (colors, spacing, font sizes) for a calm, high-contrast, low-clutter UI, and reusable primitives: `Button`, `Card`, `RatingScale`, `Modal`, `TextField`, `DatePicker`.
 - [ ] Ensure all interactive primitives have visible focus states and meet WCAG AA color contrast.
@@ -124,7 +125,7 @@ Reference: requirements §7, §10, §12.7, §12.8.
 - [x] Registration page: email + password form with client-side validation mirroring backend rules; friendly inline error messages.
 - [x] Login page; on success store tokens/session and redirect to Dashboard.
 - [x] Logout action (clears session, calls `/api/auth/logout`).
-- [ ] Change password form on Settings page: current password + new password fields, calls `POST /api/auth/change-password`, with clear success/error feedback.
+- [x] Change password form on Settings page: current password + new password fields, calls `POST /api/auth/change-password`, with clear success/error feedback.
 - [ ] Forgot password page (request reset email) and reset password page (submit new password with reset token).
 - [ ] Settings page: view/edit display name and timezone; account deletion flow with a clear confirmation step (type-to-confirm or a two-step dialog) per §15.
 - [x] Route guarding: unauthenticated users are redirected to Login when hitting protected routes.
@@ -136,7 +137,7 @@ Reference: requirements §7, §10, §12.7, §12.8.
 Reference: requirements §6, §8.
 
 - [ ] Build the Quick Add entry point (modal or dedicated page) shared by all four log types, clearly labelling what is being logged.
-- [ ] Symptom entry form: symptom picker, large 1–10 severity control, optional notes, date/time picker (defaults to now), Save/Cancel.
+- [x] Symptom entry form: symptom picker, large 1–10 severity control, optional notes, date/time picker (defaults to now), Save/Cancel.
 - [x] Mood entry form: 5 large emoji/visual mood buttons, optional energy (1–7) and stress (1–7) controls, optional notes, date/time picker, `Save Entry` button — matching the wireframe.
 - [ ] Medication entry form: medication picker (or quick "mark as taken/not taken"), optional notes, date/time picker.
 - [ ] Habit entry form: input control adapts to habit type (toggle for boolean, number input for numeric, duration input for duration), date/time picker.
