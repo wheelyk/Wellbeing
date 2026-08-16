@@ -1,0 +1,417 @@
+# Authentication — Frontend
+
+## 2026-08-15 — Phase 5 + Phase 6: wiring the frontend to auth — and why a vertical slice
+
+**Task:** [Tasks.md](../../Tasks.md) → Phase 5 (Frontend Foundation) + Phase 6 (Frontend: Auth
+Flows), scoped specifically to make register/login/logout actually work end-to-end in a
+browser — not a full completion of either phase (see *Decisions* for exactly what was left
+out and why).
+
+**Delivered via branch:** `feature/5-6-frontend-auth`.
+
+### Why a vertical slice, not "finish Phase 5, then finish Phase 6"
+
+This is worth explaining properly, since it's a deliberate strategy choice, not just how the
+work happened to fall out.
+
+- **The alternative — "horizontal" completion — would mean finishing *all* of Phase 5 first**
+  (a fully wireframe-matching bottom nav, every design primitive including `RatingScale`,
+  `Modal`, `DatePicker`, a verified WCAG-AA color audit) before writing a single line of
+  Phase 6. Everything built that way stays untested against real usage until the very end,
+  because nothing is actually wired to a real page or a real user flow until Phase 6 exists.
+  If a design decision from Phase 5 turns out to be wrong (a primitive's API doesn't fit how
+  a real form actually needs it, the auth context's shape is awkward to consume from a real
+  page), that's only discovered once a large amount of "finished" Phase 5 work already needs
+  reworking.
+- **A vertical slice instead cuts through every layer of the stack at once, thin.** Database
+  → Prisma → Express route → HTTP → the browser's `fetch` → React state → a rendered page —
+  register/login/logout now works through *all* of these layers, even though each individual
+  layer is intentionally minimal (three real pages, three reusable primitives, no bottom nav
+  polish yet). The payoff: a genuinely working, demonstrable feature exists after one round
+  of work, instead of a pile of unconnected infrastructure that only becomes demonstrable
+  much later.
+- **It also validates earlier decisions under real conditions for the first time.** Every
+  previous Phase 2 entry in this log tested the backend auth endpoints via `curl` or
+  Supertest — neither of which enforces a real browser's security model. Wiring an actual
+  browser to them here is what surfaced the CORS/credentials gap below (a real bug that
+  `curl` and Supertest simply can't catch, since neither of them refuses wildcard-origin
+  cookies the way a browser does) and confirmed the `HttpOnly` refresh-cookie design from the
+  2.3 entry genuinely works end-to-end, not just in theory.
+- **Concretely, "thin" meant:** build enough of Phase 5 (routing, the API client, auth
+  context, three primitives) to support Phase 6's pages, and only the parts of Phase 6 that
+  make a complete register→login→logout loop — explicitly *not* forgot/reset password,
+  settings, or account deletion, none of which the backend even supports yet either. See
+  *Decisions* for the full list of what's deliberately still missing.
+
+### Background / concepts
+
+#### Client-side routing, and the "layout route" pattern used for the auth guard
+
+- **Normally, every URL your browser visits means asking a server for a whole new page.** A
+  "single-page app" (SPA) instead loads one HTML page once, and JavaScript takes over
+  deciding what to show as the URL changes — no full page reload. **React Router** is the
+  library doing that here: `<BrowserRouter>` watches the URL, `<Routes>`/`<Route>` map a URL
+  pattern (e.g. `/dashboard`) to a component to render, and `useNavigate()`/`<Navigate>` let
+  code change the URL programmatically (e.g. "go to `/dashboard` after a successful login")
+  without a page reload.
+- **`RequireAuth` (`src/auth/RequireAuth.tsx`) is a "layout route."** Wrapping a group of
+  routes in `<Route element={<RequireAuth />}>...</Route>` means every route nested inside
+  it shares one parent check, rather than every page repeating "am I logged in?" itself.
+  `RequireAuth` either renders `<Outlet />` (React Router's placeholder for "whichever nested
+  route actually matched") if `isAuthenticated`, or `<Navigate to="/login" />` if not — so
+  adding a new protected page later (e.g. the real Dashboard, History, Trends) is just adding
+  another `<Route>` inside that same wrapper, with zero extra auth code needed on the page
+  itself.
+
+#### Keeping the access token in memory only — and the gap that creates
+
+- As established back in the 2.2/2.3 log entries: the **access token** is deliberately never
+  persisted anywhere (not `localStorage`, not a cookie) — it lives only as a plain JavaScript
+  variable in `api/client.ts` and mirrored in React state via `AuthContext`. This is the
+  standard secure pattern for SPAs (nothing a page's own JavaScript can read is safe from
+  XSS, so keeping the access token *only* in memory limits how long a leak could matter — at
+  most 15 minutes, its own expiry).
+  The direct consequence: **a full browser reload currently logs the user out** — there's
+  nothing in the page's memory to restore from, and nothing yet re-fetches "who is this
+  refresh cookie for" on startup. This is a known, deliberate gap for this slice — see
+  *Decisions* for why it isn't closed yet.
+
+#### The CORS bug this step actually found (not just fixed defensively)
+
+- Recall from the 2.3 entry: `app.use(cors())` with no options sends a wildcard
+  `Access-Control-Allow-Origin: *`. Browsers have a hard rule: **a wildcard origin cannot be
+  combined with credentialed requests** (`credentials: "include"`, which is what lets
+  `fetch` send/receive cookies cross-origin — required here since the frontend on port
+  `5173` and backend on port `4000` are different origins as far as a browser's CORS logic is
+  concerned, even though they're both `localhost`). With the old wildcard config, the browser
+  would have silently refused to let the frontend ever receive or send the refresh cookie —
+  login would have appeared to work (the access token still arrives fine in the JSON body),
+  but refresh would have silently failed the moment the access token expired, with no error
+  message pointing at the real cause. Fixed by naming the frontend's exact origin explicitly
+  and turning on `credentials: true`:
+  ```ts
+  app.use(cors({ origin: FRONTEND_URL, credentials: true }));
+  ```
+  `FRONTEND_URL` is a new env var (`.env`/`.env.example`), defaulting to
+  `http://localhost:5173` for local dev — the same reasoning as `DATABASE_URL` from the
+  Phase 1 entry: a setting, not a hard-coded value, since it'll differ once the frontend is
+  actually deployed.
+
+#### Race-safe token refresh, and the auth-failure listener that closes a real gap
+
+- **Why a single shared refresh attempt, not one per failed request.** If two API calls
+  happen to both hit a `401` around the same time (plausible — the access token expires
+  after a fixed 15 minutes regardless of what the user is doing), naively refreshing
+  separately for each would mean two concurrent `POST /api/auth/refresh` calls — and because
+  refresh **rotates** the cookie (per the 2.3 entry), the second call would receive a cookie
+  that's already been superseded by the first, likely failing. `api/client.ts` avoids this by
+  holding one shared `refreshPromise`: whichever request hits `401` first kicks off the
+  refresh, and any other concurrent caller awaits that *same* promise instead of starting its
+  own.
+- **A real bug found by trying to satisfy the checklist literally, not just "close enough."**
+  `Tasks.md`'s Phase 5 wording is specific: "...on refresh failure, **redirect to Login**."
+  The first implementation only cleared `api/client.ts`'s own module-level `accessToken`
+  variable on a failed refresh — but `AuthContext`'s React state (`user`, `accessToken`,
+  `isAuthenticated`) is a *separate* copy, and nothing was telling it to update. Since
+  `RequireAuth`'s redirect logic only ever looks at `AuthContext`'s state, a failed background
+  refresh would silently leave the app *looking* logged in (stale user info still showing)
+  even though `api/client.ts` itself had already given up on the session. Fixed with a small
+  publish/subscribe pattern: `client.ts` exposes `onAuthFailure(listener)`, calls every
+  registered listener when a refresh definitively fails, and `AuthContext` subscribes on
+  mount to clear its own state when that happens — which is what actually makes `RequireAuth`
+  notice and redirect, since clearing that state triggers a re-render of every component
+  reading it, `RequireAuth` included. This was caught specifically *because* a test was
+  written to prove the literal checklist wording, not just "seems to work" — see the added
+  `RequireAuth` test below.
+
+#### Two different kinds of "prove this actually works," used for two different jobs
+
+- **Vitest + React Testing Library** (already used for the backend; now added for the
+  frontend) renders components in a simulated DOM (`jsdom` — a JavaScript implementation of
+  browser DOM APIs with no real browser underneath) and mocks `fetch` directly, so tests run
+  in milliseconds without a real network call or a real browser. This is what the 14 new
+  frontend tests use — fast, deterministic, and exactly the kind of thing that should run in
+  CI on every future change (once Phase 13 sets that up).
+- **Playwright**, used here for a genuinely different job: actually launching a real
+  (headless) Chromium browser, clicking through register → dashboard → logout → login →
+  dashboard → a protected-route redirect check, and saving screenshots — the same kind of
+  check the earlier "what's actually running" entry reached for `chromium-cli` to do and
+  couldn't, and explicitly flagged as worth adding "once Phase 5+ gives the frontend real
+  pages." That moment arrived this step. Crucially, **this was a one-off manual verification
+  script, run once and then deleted — not added as a committed test file.** Formal, permanent
+  end-to-end tests are explicitly Phase 13's job (`Tasks.md`: "End-to-end (e.g.
+  Playwright/Cypress)"); this run's purpose was purely to produce real, literal proof — actual
+  screenshots — that the vertical slice works in an actual browser, not to become part of the
+  ongoing test suite. `@playwright/test` and its Chromium browser binary remain installed as
+  dev dependencies, though, as a head start on that future Phase 13 task.
+
+#### A properly-fixed version of a previously-worked-around bug
+
+- The 2.2 (login) log entry documented hitting a Vitest/CommonJS import clash
+  caused by a stale, previously-compiled `dist/routes/auth.test.js` interfering with Vitest's
+  test discovery, and worked around it by manually deleting `dist/` before testing. Running
+  `npm run build && npm test` in this step hit the *exact same* failure again — because
+  `tsc`'s `include: ["src"]` was never actually told to skip test files, so every `npm run
+  build` regenerates the stale, interfering compiled test file right back. This time, fixed
+  it properly instead of re-applying the same manual workaround: added
+  `"src/**/*.test.ts"` to `backend/tsconfig.json`'s `exclude` array, so test files are simply
+  never part of the production build's output in the first place. Confirmed
+  `dist/routes/` now contains only `auth.js`/`auth.js.map`, never `auth.test.js`.
+
+### What was done
+
+1. **Backend CORS fix + `FRONTEND_URL`** — see *Background* above.
+2. **Routing** (`frontend/src/App.tsx`): `/login`, `/register`, `/forgot-password`,
+   `/reset-password` (public); `/dashboard`, `/history`, `/trends`, `/settings` (behind
+   `RequireAuth`). History/Trends/Settings and the forgot/reset pages are minimal
+   placeholders — real content isn't built until their own later phases.
+3. **Design tokens + primitives**: a small `@theme` block in `index.css` (brand/surface/text/
+   border/danger/success colors), and `Button`, `TextField`, `Card` components — each with
+   visible `focus-visible` outlines. `RatingScale`, `Modal`, and `DatePicker` are not built
+   yet; nothing in this slice needs them.
+4. **`api/client.ts`**: attaches `Authorization: Bearer <token>`, retries once on `401` after
+   a race-safe refresh attempt, the `onAuthFailure` listener described above, and a typed
+   `ApiError` carrying the backend's `status`/`code`/`details` so pages can show specific,
+   friendly messages instead of a generic failure.
+5. **`AuthContext`** (`src/auth/AuthContext.tsx`): holds `user`/`accessToken`/
+   `isAuthenticated`; `register()` calls the register endpoint then immediately logs in with
+   the same credentials (register doesn't issue tokens itself — see *Decisions*); `login()`
+   and `logout()` call their respective endpoints and update state; subscribes to
+   `onAuthFailure` to clear state on a failed background refresh.
+6. **`RegisterPage`/`LoginPage`**: real forms using the primitives above, client-side
+   validation mirroring the backend's actual rules (email format; password ≥ 8 chars with a
+   letter and a number — the same rule `routes/auth.ts`'s Zod schema enforces), and
+   `ApiError`-code-specific messages (`EMAIL_TAKEN` → "already exists,"
+   `INVALID_CREDENTIALS`/401 → "Incorrect email or password," etc.) rather than raw server
+   text.
+7. **`NavBar` + `DashboardPage` + `PlaceholderPage`**: a simple top nav (Home/History/Trends/
+   Settings + the current user's name + a logout button) and a Dashboard showing "Welcome,
+   {displayName}" plus a note that the real dashboard content is a later phase.
+8. **Vitest + React Testing Library setup**: `jsdom` test environment, `setupTests.ts`
+   importing `@testing-library/jest-dom/vitest` and explicitly wiring RTL's `cleanup()` into
+   `afterEach` (needed because, per the earlier `CLAUDE.md`-driven choice to match the
+   backend's explicit-import test style, Vitest's `globals` option is off — and RTL's
+   auto-cleanup relies on detecting a global `afterEach`, so without it, unmounted DOM from
+   one test was leaking into the next, which is exactly what the first test run's "found
+   multiple elements" failures turned out to be). 14 tests across `client.test.ts`,
+   `RegisterPage.test.tsx`, `LoginPage.test.tsx`, and `RequireAuth.test.tsx`.
+9. **Fixed the `tsc`-compiling-tests-into-`dist` issue for good** — see *Background* above.
+10. **Playwright real-browser verification** — see *Background* above. Registered a user,
+    confirmed the dashboard rendered with the right welcome text, logged out and confirmed
+    redirect to `/login`, logged back in and confirmed the dashboard again, then confirmed
+    visiting `/dashboard` while logged out redirects straight to `/login` — all with zero
+    browser console errors. Screenshots were sent directly to the user, then the script,
+    screenshots, and the test user row (via `psql`) were all deleted — none of that is part
+    of the committed repo.
+11. Updated `Tasks.md`: checked off the Phase 5/6 items actually complete (routing, API
+    client, auth context, registration page, login page, logout, route guarding); left
+    unchecked, deliberately: the bottom-nav/desktop-nav wireframe adaptation, the remaining
+    design primitives (`RatingScale`/`Modal`/`DatePicker`), a verified WCAG contrast pass,
+    forgot/reset password, and the settings/account-deletion page.
+
+### Why it's needed
+
+This is the moment the whole project stops being "an API you can `curl`" and becomes "an app
+a person can actually use in a browser" — directly closing the gap from the earlier "is
+anything visible" conversation, and for the first time exercising the entire Phase 2 backend
+auth stack under real browser conditions (which is exactly what caught the CORS bug above).
+
+### Decisions
+
+- **Vertical slice over horizontal phase completion.** Covered in full above — the short
+  version: working end-to-end beats a pile of finished-but-unconnected infrastructure.
+- **No session persistence across a full page reload, yet.** Rehydrating a session on cold
+  load would mean calling `POST /api/auth/refresh` on startup — but that only returns a new
+  access token, not the user's profile (email/displayName), and `GET /api/users/me` (plus the
+  auth middleware it needs) hasn't been built yet (`Tasks.md` Phase 2, remaining items).
+  Building partial rehydration now would mean an awkward "sometimes we know your name,
+  sometimes we don't" state; better to build it properly once those backend pieces exist.
+- **Register auto-logs-in with the same credentials** rather than sending the user to a
+  "please log in now" screen. The register endpoint deliberately doesn't issue tokens itself
+  (per the 2.1 entry — a new account still has to log in), but immediately chaining a real
+  `login()` call gives a much better first-run experience (straight to the dashboard) at
+  effectively zero extra cost, since the frontend already has both credentials in hand right
+  after a successful submission.
+- **Stub pages for History/Trends/Settings/Forgot/Reset**, not full implementations. Enough
+  to legitimately check off "set up routing for..." and keep `NavBar`'s links working, without
+  building UI for backend functionality (forgot/reset password, profile editing) that doesn't
+  exist yet.
+- **Deferred the rest of the design system and accessibility verification** —
+  `RatingScale`/`Modal`/`DatePicker` aren't needed until Quick Add (Phase 7) actually needs
+  them; a real WCAG contrast audit is explicitly Phase 12's job, not something to hand-wave
+  here.
+- **Playwright as a one-off manual check, not a committed suite.** Matches the boundary set
+  in the previous log entry — real end-to-end tests belong to Phase 13, once there's enough
+  UI surface and CI infrastructure to make a permanent suite worthwhile; this run's job was
+  producing real proof for *this* conversation, not ongoing regression coverage.
+- **Fixed the `dist`/test-file `tsc` issue properly** (excluding test files from the build)
+  rather than re-applying the "just delete `dist/` first" workaround noted in the login entry
+  — a workaround that has to be remembered every time isn't really fixed.
+
+### State at end of this step
+
+A complete, working local vertical slice: a visitor can register (landing straight on the
+dashboard, auto-logged-in), see their name and email, log out (redirected to `/login`), log
+back in (back to the dashboard), and cannot reach `/dashboard` at all without a valid session
+(redirected to `/login` instead). A background token-refresh failure now correctly redirects
+too, not just an explicit logout click. Nothing persists across a full browser reload yet —
+a known, documented gap. Google OAuth was explicitly not built — not in `requirements.md` or
+`Tasks.md`, and out of scope for this slice; noted as a possible future enhancement only.
+
+### Verification
+
+- **Backend:** `npm run build` — compiled cleanly, with test files now correctly excluded
+  from `dist/`. `npm test` — 18/18 passing, unchanged, confirming the CORS change didn't
+  break any existing auth behavior.
+- **Frontend:** `npm run build` — compiled cleanly. `npm test` (`vitest run`) — 14/14 passing,
+  including the new test proving a failed background refresh actually redirects to `/login`.
+  `npm run lint` (`oxlint`) — clean, aside from one harmless Fast Refresh warning about
+  `AuthContext.tsx` exporting both a component and a hook (a common, accepted pattern; not
+  worth splitting into two files for this).
+- **Real browser (Playwright, Chromium, headless):** registered a user → landed on the
+  dashboard with the correct welcome text → logged out → redirected to `/login` → logged back
+  in → dashboard again → visiting `/dashboard` directly while logged out redirected straight
+  to `/login`. Zero browser console errors throughout. Screenshots of each stage were sent
+  directly to the user as visual proof, then deleted along with the script and the test user
+  row (`psql DELETE FROM users WHERE email LIKE 'browser-check-%'`) — none of this is part of
+  the committed repo.
+
+---
+
+## 2026-08-16 — Phase 6: Settings page with change-password form (and a real race-condition bug)
+
+**Task:** [Tasks.md](../../Tasks.md) → Phase 6 → "Change password form on Settings page: current
+password + new password fields, calls `POST /api/auth/change-password`, with clear
+success/error feedback."
+
+**Delivered via branch:** `feature/6.4-settings-change-password` (stacked on
+`feature/2.5-auth-change-password`, since it calls that task's endpoint). This is where
+change-password becomes something a real person can actually use — the Settings route existed
+only as a `PlaceholderPage` until now.
+
+### Background / concepts
+
+#### Scoped deliberately: this is *a* Settings page, not *the* Settings page
+
+- Phase 6 has its own, separate, larger "Settings page: view/edit display name and timezone;
+  account deletion flow" item, not yet built. `SettingsPage.tsx` today contains *only* the
+  change-password form — matching just what this specific task asked for, not pre-building
+  pieces of that later task. Display name/timezone editing and account deletion will be added
+  to this same page/file when their own tasks come up, not invented ahead of time here.
+
+#### A real, found-by-actually-testing-it race condition between two different redirects to `/login`
+
+- The form's success handler needs to do three things: tell the backend to change the password
+  (done), end the local session, and land the user on `/login` with a helpful message. The
+  *first* version of this wrote that as `await logout(); navigate("/login", { state: {
+  message } })` — log out, then redirect. That reads perfectly reasonably and passed every
+  automated test. **It was still wrong**, caught only by actually driving a real browser through
+  the full flow and checking what happened after re-logging in.
+- **What actually happened:** `logout()` clears the app's auth state (`user: null, accessToken:
+  null`). `SettingsPage` lives behind `RequireAuth` (the route guard covered in detail in the
+  next entry) — the instant that state change is processed, `RequireAuth` notices
+  `isAuthenticated` just became `false` *while `/settings` is still the current route* and
+  fires its **own** redirect to `/login`, carrying `state: { from: location }` (so a normal
+  "you got logged out, here's where to come back to" flow works). That redirect and this
+  form's own `navigate("/login", { state: { message } })` call are now racing to decide what
+  `/login`'s `location.state` actually ends up being — and `RequireAuth`'s won, discarding the
+  success message and, worse, meaning a *subsequent* login redirected back to `/settings`
+  (reading `state.from.pathname`) instead of the expected `/dashboard`.
+- **Why the automated test suite didn't catch this.** The Vitest/Testing-Library test for this
+  flow mocks `fetch` directly and asserts on the *final* rendered state — it never actually
+  exercises React's real scheduling/timing between two competing `setState`-triggered
+  re-renders the way a real browser genuinely does. This is exactly the kind of bug real
+  end-to-end browser testing exists to catch that a mocked unit test structurally cannot —
+  not a weakness in the tests that were written, just a category of bug outside what that
+  layer of testing can see.
+- **The fix:** reorder to `navigate("/login", { state: { message } })` *first*, then `await
+  logout()`. Once the route has already changed to `/login` — a route `RequireAuth` doesn't
+  guard at all — the subsequent auth-state change has nothing left to react to. No more race,
+  because there's no longer a moment where the guarded route is still current *and* the auth
+  state has already flipped.
+
+#### A second false alarm, and the actual lesson in it
+
+- While verifying the fix, a screenshot taken immediately after `page.waitForURL("**/settings")`
+  resolved still showed the *old* Dashboard content. This looked like another real bug — until
+  checking the page's actual text content directly (rather than a screenshot) a moment later
+  showed the correct Settings content was there all along. `waitForURL` resolves the instant the
+  browser's URL changes, which can be a beat before React actually finishes re-rendering and the
+  browser repaints — a screenshot taken in that exact window can catch a stale frame. The fix
+  was to the *test script* (wait for a real, specific piece of the new page's content to appear
+  before screenshotting), not the application. Worth recording precisely because it looked
+  identical to a real bug at first glance, and the only way to tell the difference was checking
+  the DOM's actual text directly rather than trusting a single screenshot's timing.
+
+#### A genuine gap found along the way, tracked rather than silently noticed and dropped
+
+- While debugging the above, testing a **hard** page reload (not client-side navigation) at
+  `/settings` showed neither the Settings nor the Dashboard content — because this app's
+  `AuthContext` never attempts to rehydrate a session on startup. The access token lives only
+  in memory (`useState`, no `localStorage`), which is the deliberate, correct choice for
+  *storing* it (covered in the Phase 2.3 refresh-token entry — keeping it out of anything
+  JavaScript-readable-and-persistent is part of what limits XSS blast radius). But nothing
+  currently uses the still-valid `httpOnly` refresh cookie to silently re-establish a session
+  when the app first loads — meaning today, a real user who simply refreshes their browser
+  gets bounced to `/login` every time, even though their session is, from the backend's
+  perspective, still completely valid. Added as its own new `Tasks.md` item (Phase 5) rather
+  than fixed inline here, since it's a distinct, real gap deserving its own dedicated task
+  rather than a rushed fix bolted onto this one.
+
+### What was done
+
+1. **`frontend/src/pages/SettingsPage.tsx` (new).** A `Change password` card (current
+   password, new password, confirm-new-password with a client-side match check, mirroring the
+   backend's strength rules before ever hitting the network) — nothing else on the page yet,
+   per the scoping note above.
+2. **`frontend/src/App.tsx`.** Swapped the `/settings` route from `PlaceholderPage` to the new
+   `SettingsPage`.
+3. **`frontend/src/pages/LoginPage.tsx`.** Reads an optional `location.state.message` and shows
+   it above the form — generic enough to be reused by any future flow that wants to hand the
+   user a one-off note on arrival at Login (forgot/reset-password will likely want the same
+   thing).
+4. **Fixed the navigate-before-logout race** described above.
+5. **Tests (`SettingsPage.test.tsx`).** Weak new password and mismatched confirmation both
+   blocked client-side with no network call; a full success path asserting the exact request
+   body sent to `/api/auth/change-password` and that the app ends up showing the Login page; a
+   wrong-current-password error shown from the API's `INVALID_CURRENT_PASSWORD` response.
+6. **`npm test`** — 24/24 passing (20 pre-existing, 4 new).
+7. **`npm run build`, `npm run lint`, `npx prettier --check .`** — all clean.
+8. **Real, full end-to-end browser verification**, including the specific case the race
+   condition affected: register → open Settings → change password → land on Login *with the
+   confirmation message actually visible* → log in with the **new** password → land on
+   `/dashboard` (not `/settings`) — the exact sequence that exposed the bug in the first place,
+   re-run clean after the fix. Cleaned up every test user and stopped both manually-started
+   servers afterward.
+
+### Why it's needed
+
+This closes the change-password vertical slice end to end — the backend half from the previous
+entry was only reachable via `curl` until this task gave it a real, usable front door.
+
+### Decisions
+
+- **Navigate before clearing auth state, not after.** Covered in detail above — the only
+  ordering that avoids the `RequireAuth` race entirely, rather than trying to "win" a timing
+  contest against React's own scheduling.
+- **Tracked the session-rehydration gap as a new task rather than fixing it inline.** It's a
+  real, separate piece of work (almost certainly an `apiFetch`-style silent refresh attempt on
+  `AuthProvider` mount) — worth its own dedicated task and testing, not a rushed addition to a
+  change-password PR.
+
+### State at end of this step
+
+A real user can open Settings, change their password, and land back on a working login form
+with the new password active — verified directly in a real browser, including the exact
+sequence that previously exposed a real race-condition bug. That bug is fixed; the session-
+rehydration gap it led to being discovered is tracked, not fixed, as its own task.
+
+### Verification
+
+- `npm test` — 24/24 passing.
+- `npm run build`, `npm run lint`, `npx prettier --check .` — all clean.
+- Full real-browser walkthrough of the exact sequence that exposed the race condition, re-run
+  clean after the fix; confirmed via direct DOM text inspection (not just a screenshot) after
+  the screenshot-timing false alarm.
+
+---
