@@ -4,6 +4,10 @@ import { verifyAccessToken } from "../lib/jwt";
 // Declaration merging: extends Express's own Request type so every route handler downstream
 // of this middleware sees `req.userId` as a known, typed property — not an `any` grab-bag.
 declare global {
+  // This is TypeScript's own required syntax for augmenting a third-party library's global
+  // types; there's no ES2015-module equivalent for "add a property to Express's existing
+  // Request interface."
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       userId?: string;
