@@ -18,9 +18,11 @@ model User {
   timezone     String   @default("UTC")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  moodLogs    MoodLog[]
-  symptoms    Symptom[]
-  symptomLogs SymptomLog[]
+  moodLogs       MoodLog[]
+  medications    Medication[]
+  medicationLogs MedicationLog[]
+  symptoms       Symptom[]
+  symptomLogs    SymptomLog[]
 
   @@map("users")
 }
@@ -40,6 +42,48 @@ model MoodLog {
   // by date, so this composite index is what keeps those queries fast as log counts grow.
   @@index([userId, loggedAt])
   @@map("mood_logs")
+}
+
+// A user's own list of medications they take (e.g. "Ibuprofen", "Vitamin D") - just the name,
+// not dosage/schedule, matching requirements §6.3's scope for the MVP. Each MedicationLog below
+// points back at one of these to record whether it was taken on a given occasion.
+model Medication {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs MedicationLog[]
+
+  // Every "list my medications" query filters by user; logs additionally query by medication,
+  // so this index covers the "does this user own this medication" ownership check used before
+  // any medication-log write (the ID-tampering defense described on MedicationLog below).
+  @@index([userId])
+  @@map("medications")
+}
+
+model MedicationLog {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  medicationId String   @map("medication_id")
+  taken        Boolean
+  notes        String?
+  loggedAt     DateTime @default(now()) @map("logged_at") @db.Timestamptz(3)
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  medication Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+
+  // Denormalized userId (in addition to the medicationId relation) rather than joining through
+  // Medication for every read - the same shape MoodLog uses, and it's what lets a "list my
+  // medication logs" query filter directly on this table instead of joining out to Medication
+  // first. The application layer still independently verifies medicationId belongs to userId
+  // before every write (see routes/medicationLogs.ts) - this column is not, on its own, a
+  // substitute for that check, since nothing here stops userId and the medication's own owner
+  // from disagreeing unless the application enforces it.
+  @@index([userId, loggedAt])
+  @@index([medicationId])
+  @@map("medication_logs")
 }
 
 // A symptom a user can log against. `userId` is nullable specifically to represent two

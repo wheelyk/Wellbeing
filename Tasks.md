@@ -27,8 +27,8 @@ Reference: requirements §11.
 - [x] Define `Symptom` model: `id`, `user_id (nullable — null = system symptom)`, `name`, `description (optional)`, `created_at`.
 - [x] Define `SymptomLog` model: `id`, `user_id`, `symptom_id`, `severity (1–10)`, `notes (optional)`, `logged_at`.
 - [x] Define `MoodLog` model: `id`, `user_id`, `mood (1–5)`, `energy (nullable 1–5)`, `stress (nullable 1–5)`, `notes (optional)`, `logged_at`.
-- [ ] Define `Medication` model: `id`, `user_id`, `name`, `created_at`.
-- [ ] Define `MedicationLog` model: `id`, `user_id`, `medication_id`, `taken (boolean)`, `notes (optional)`, `logged_at`.
+- [x] Define `Medication` model: `id`, `user_id`, `name`, `created_at`.
+- [x] Define `MedicationLog` model: `id`, `user_id`, `medication_id`, `taken (boolean)`, `notes (optional)`, `logged_at`.
 - [ ] Define `Habit` model: `id`, `user_id`, `name`, `type (boolean | numeric | duration)`, `created_at`.
 - [ ] Define `HabitLog` model: `id`, `user_id`, `habit_id`, `value (shape depends on habit type)`, `notes (optional)`, `logged_at`.
 - [ ] Add appropriate foreign keys, indexes (especially on `user_id` + `logged_at` for query performance), and cascading deletes so removing a `User` removes all associated logs.
@@ -72,8 +72,8 @@ Reference: requirements §6, §12.
 - [x] `GET/POST/PATCH/DELETE /api/mood-logs` — full CRUD, scoped to the authenticated user; validate `mood` 1–5, `energy`/`stress` 1–7 when present (widened from 1–5 after user feedback — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)).
 
 ### Medications
-- [ ] `GET/POST/PATCH/DELETE /api/medications` — manage the user's medication list.
-- [ ] `GET/POST/PATCH/DELETE /api/medication-logs` — record taken/not-taken status per medication per date.
+- [x] `GET/POST/PATCH/DELETE /api/medications` — manage the user's medication list.
+- [x] `GET/POST/PATCH/DELETE /api/medication-logs` — record taken/not-taken status per medication per date.
 
 ### Habits
 - [ ] `GET/POST/PATCH/DELETE /api/habits` — manage user-defined habits, including `type` (boolean/numeric/duration).
@@ -137,9 +137,9 @@ Reference: requirements §7, §10, §12.7, §12.8.
 Reference: requirements §6, §8.
 
 - [ ] Build the Quick Add entry point (modal or dedicated page) shared by all four log types, clearly labelling what is being logged.
-- [ ] Symptom entry form: symptom picker, large 1–10 severity control, optional notes, date/time picker (defaults to now), Save/Cancel.
+- [x] Symptom entry form: symptom picker, large 1–10 severity control, optional notes, date/time picker (defaults to now), Save/Cancel.
 - [x] Mood entry form: 5 large emoji/visual mood buttons, optional energy (1–7) and stress (1–7) controls, optional notes, date/time picker, `Save Entry` button — matching the wireframe.
-- [ ] Medication entry form: medication picker (or quick "mark as taken/not taken"), optional notes, date/time picker.
+- [x] Medication entry form: medication picker (or quick "mark as taken/not taken"), optional notes, date/time picker.
 - [ ] Habit entry form: input control adapts to habit type (toggle for boolean, number input for numeric, duration input for duration), date/time picker.
 - [ ] Client-side validation before submit (required fields, value ranges), with clear inline error messages — no silent failures.
 - [ ] Success feedback (toast/inline confirmation) on save; clear error feedback on failure.
