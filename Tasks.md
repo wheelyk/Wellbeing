@@ -140,7 +140,7 @@ Reference: requirements §6, §8.
 - [ ] Symptom entry form: symptom picker, large 1–10 severity control, optional notes, date/time picker (defaults to now), Save/Cancel.
 - [x] Mood entry form: 5 large emoji/visual mood buttons, optional energy (1–7) and stress (1–7) controls, optional notes, date/time picker, `Save Entry` button — matching the wireframe.
 - [ ] Medication entry form: medication picker (or quick "mark as taken/not taken"), optional notes, date/time picker.
-- [ ] Habit entry form: input control adapts to habit type (toggle for boolean, number input for numeric, duration input for duration), date/time picker.
+- [x] Habit entry form: input control adapts to habit type (toggle for boolean, number input for numeric, duration input for duration), date/time picker.
 - [ ] Client-side validation before submit (required fields, value ranges), with clear inline error messages — no silent failures.
 - [ ] Success feedback (toast/inline confirmation) on save; clear error feedback on failure.
 - [ ] Edit and delete actions available from Dashboard/History for every log type, reusing the same forms pre-filled with existing values.
