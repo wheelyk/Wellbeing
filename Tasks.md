@@ -11,7 +11,7 @@ Checkboxes let you track progress directly in this file.
 - [x] Initialize a git repository and monorepo layout (`/frontend`, `/backend`, or separate repos — pick one and document it in a root `README.md`).
 - [x] Scaffold backend: Node.js + Express + TypeScript project (`npm init`, `tsconfig.json`, `ts-node-dev`/`nodemon` for local dev).
 - [x] Scaffold frontend: React + TypeScript project (Vite recommended) with Tailwind CSS configured.
-- [ ] Set up ESLint + Prettier for both projects for consistent code style.
+- [x] Set up ESLint + Prettier for both projects for consistent code style.
 - [x] Set up PostgreSQL locally (Docker Compose recommended: `docker-compose.yml` with a `postgres` service).
 - [x] Install and configure Prisma in the backend; connect it to the local PostgreSQL database via `DATABASE_URL`.
 - [ ] Create `.env.example` files for both frontend and backend documenting required environment variables (DB URL, JWT secrets, mail provider keys, etc.). Add real `.env` files to `.gitignore`.

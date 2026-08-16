@@ -5214,3 +5214,230 @@ their own PR, stacked in that order, and need merging in that same order once re
   at each step, zero browser console errors.
 
 ---
+
+## 2026-08-16 — Phase 0: ESLint + Prettier for both projects (and an unexpected TypeScript downgrade)
+
+**Task:** [Tasks.md](Tasks.md) → Phase 0 → "Set up ESLint + Prettier for both projects for
+consistent code style."
+
+**Delivered via branch:** `feature/0.4-eslint-prettier` (branched from `main`). This was the
+first genuinely unchecked item left in Phase 0 — everything checked off since then (auth,
+mood logging, deployment) had jumped ahead of it. It turned into a bigger story than expected:
+a real compatibility wall with this project's TypeScript version, and a decision to fix it at
+the root rather than work around it.
+
+### Background / concepts
+
+#### What a linter is, and why it's a different tool from the TypeScript compiler
+
+- `tsc` (the TypeScript compiler, already run by both projects' `build` scripts) checks one
+  specific thing: **are the types consistent?** Does this function actually return what its
+  signature promises, does this variable actually hold the type it's declared as. It has no
+  opinion on things that are perfectly type-safe but still bad ideas — an unused variable, an
+  `==` where `===` was clearly meant, a `catch` block that silently swallows an error.
+- **A linter (ESLint on the backend, `oxlint` on the frontend) checks a different, broader
+  category: patterns in the code that are usually mistakes, even if they're not type errors.**
+  It reads the code the same way `tsc` does (parsing it into a tree structure) but asks
+  different questions of it. The two tools are complementary, not competing — this project
+  already runs `tsc` on every build; today's task adds the second layer on top.
+
+#### Why Prettier is a *third*, separate tool from either of those
+
+- **Prettier formats code — indentation, line-wrapping, quote style — it has zero opinion on
+  whether the code is *correct*.** A linter could theoretically also enforce formatting rules
+  (many older ESLint setups did exactly that), but mixing "is this code correct" with "is this
+  code formatted consistently" tends to produce noisy, argument-inducing rule conflicts. The
+  modern convention (used here) is to let Prettier own 100% of formatting and have the linter
+  defer to it entirely — which is what `eslint-config-prettier` does in the backend's config:
+  it doesn't add any new rules, it just **turns off** every ESLint rule that would otherwise
+  fight with Prettier over formatting, so the two tools never disagree.
+- Running `npx prettier --write .` for the first time on an existing codebase reformats
+  whatever wasn't already in Prettier's preferred style — expected, one-time noise. Every
+  affected file was reviewed by hand before committing (see *What was done*) to confirm the
+  changes were genuinely just whitespace/quote-style, not anything that changed behavior.
+
+#### The real blocker: `typescript-eslint` flatly refuses to run on TypeScript 7
+
+- Installing `typescript-eslint` (the standard package for teaching ESLint to understand
+  TypeScript syntax) in the backend hit an immediate, hard failure — not a warning, a thrown
+  error that stopped ESLint from running at all: `"typescript-eslint does not support TS 7.0."`
+- **Why:** `backend/package.json` had `"typescript": "^7.0.2"` — not because anything in this
+  codebase deliberately needs a TypeScript-7-only feature, but simply because TypeScript 7 is
+  what `npm install typescript` installs today (confirmed directly: `npm view typescript
+  dist-tags` shows `latest: 7.0.2`). TypeScript 7 is a genuinely new major version — a rewritten,
+  much faster compiler — and `typescript-eslint` (a separate, independently-maintained project)
+  hasn't been updated to support it yet. This is openly, currently tracked as unresolved on
+  `typescript-eslint`'s own GitHub issue tracker (#10940) — a real, external, not-yet-closed gap
+  in the ecosystem, not a bug specific to this project or something fixable with a config tweak.
+- **The tempting-but-wrong fix:** TypeScript's own team publishes an official workaround for
+  this exact situation — alias the `typescript` package to a TypeScript-6.0-compatible shim
+  package, so tools like `typescript-eslint` (which resolve `typescript` as a normal
+  dependency) transparently get version 6 instead, while a *separate* alias
+  (`@typescript/native`) gives access to the real TypeScript 7 compiler for actual builds. This
+  was seriously considered and rejected: it means the project runs **two different TypeScript
+  installs simultaneously** — one used by `tsc`/`vitest`/`ts-node-dev`, another used only by
+  the linter — which is a lot of new moving parts and a real chance of the two subtly
+  disagreeing, all just to keep using a TypeScript version this project never actually needed
+  for any specific feature.
+- **The decision made instead: downgrade the whole backend to TypeScript 6.0.3** (the latest
+  release on the mature, widely-supported 6.x line) rather than juggling two versions. One
+  TypeScript version, used consistently everywhere — `tsc`, `vitest`, `ts-node-dev`, and now
+  ESLint too — all agreeing about what the code means. `moduleResolution: "Bundler"` (this
+  project's tsconfig setting, explained in an earlier entry) has existed since TypeScript 5 and
+  works identically under 6, so nothing about the existing configuration needed to change.
+- **An unplanned, welcome side effect: `npm run dev` (`ts-node-dev`) works again.** A much
+  earlier entry (Phase 2.3's refresh-token task) documented `ts-node-dev` crashing on startup
+  under TypeScript 7 and worked around it by always running the compiled build instead. That
+  crash is gone under TypeScript 6 — confirmed by actually starting the dev server and seeing
+  it boot cleanly (`ts-node ver. 10.9.2, typescript ver. 6.0.3`) rather than just assuming.
+  Today's task fixed a previously-known, previously-worked-around bug as a bonus, not the goal.
+
+#### Why the frontend didn't need any of this
+
+- `frontend/package.json` already pins `"typescript": "~6.0.2"` — it was never on TypeScript 7
+  in the first place, so `oxlint` (the frontend's existing linter, chosen during the original
+  Vite scaffold) was never at risk of this specific conflict.
+- **Why `oxlint` stays, instead of also adding ESLint to the frontend.** Tasks.md's wording says
+  "ESLint," but the frontend already had a working, modern linter in place before this task
+  started — `oxlint` is a newer tool built to do the same job (catch likely-mistake patterns)
+  much faster, since it's written in Rust rather than JavaScript. Installing ESLint *as well*
+  would mean two linters arguing over the same code, for no real gain — the spirit of this
+  task ("consistent code style tooling exists") is already satisfied by the existing choice.
+  Prettier is the genuinely missing piece on the frontend side, and is what this task adds.
+
+#### One real lint finding, and why it was suppressed rather than "fixed"
+
+- ESLint's `@typescript-eslint/no-namespace` rule flagged `requireAuth.ts`'s `declare global {
+  namespace Express { ... } }` block (from the auth-middleware entry — the code that lets
+  `req.userId` be a properly typed property). The rule exists because `namespace` was
+  TypeScript's *original*, now-outdated way to organize code into modules, before ES2015
+  modules (`import`/`export`) became standard — for ordinary code organization, the rule is
+  right to discourage it.
+- **This isn't that case.** "Augment a type that already exists in a third-party library" (here,
+  Express's own `Request` interface) is a different, still-current use of `namespace` — it's
+  TypeScript's own required syntax for that specific job; there genuinely is no ES2015-module
+  equivalent for it. Rewriting working, correct code just to satisfy a rule that doesn't apply
+  to this situation would make the code worse, not better. Instead, a single targeted
+  `// eslint-disable-next-line` comment suppresses the rule for that one line, with a comment
+  explaining *why* — narrow enough that a genuine, accidental `namespace` used for ordinary code
+  organization elsewhere would still be caught.
+
+### What was done
+
+1. **Backend.** Installed `eslint`, `@eslint/js`, `typescript-eslint`, `eslint-config-prettier`,
+   `prettier`; downgraded `typescript` from `^7.0.2` to `6.0.3`. Added `eslint.config.mjs`
+   (ESLint's modern "flat config" format — a single exported array of config objects, replacing
+   the older `.eslintrc` JSON format): ESLint's own recommended rules, `typescript-eslint`'s
+   recommended rules, `eslint-config-prettier` last (so it wins any rule conflicts), and
+   `src/generated/**`/`dist/**` excluded (the Prisma-generated client and compiled output —
+   code this project doesn't hand-write and has no business linting). Added `.prettierrc.json`
+   (`printWidth: 100`, `trailingComma: "all"` — chosen to roughly match this codebase's existing
+   wrapping conventions) and `.prettierignore` (also excluding `prisma/migrations`, which are
+   generated, historical, and shouldn't be reformatted after the fact). Added `lint`, `format`,
+   and `format:check` scripts to `package.json`.
+2. **Frontend.** Installed `prettier` only (kept `oxlint` as the linter, per the reasoning
+   above). Added the same `.prettierrc.json` shape and a `.prettierignore` (excluding `dist`,
+   `dist-ssr`, and `pr-screenshots-output`, the CI screenshot tool's local output directory).
+   Added `format`/`format:check` scripts.
+3. **Ran `prettier --write .` in both projects once**, reviewed every changed file's diff by
+   hand to confirm each change was purely cosmetic (line-wrapping, quote normalization from the
+   Vite scaffold's original single-quote/no-semicolon style to this codebase's existing
+   double-quote/semicolon style) — backend: 4 files reformatted; frontend: 6 files.
+4. **Fixed the one real ESLint finding** (`requireAuth.ts`'s namespace declaration) with a
+   targeted, explained suppression rather than rewriting correct code, per the reasoning above.
+5. **Full verification, both projects:** backend — `npm run build` (compiled cleanly), `npm
+   test` (33/33 passing, unchanged), `npx eslint .` (zero errors/warnings), `npx prettier
+   --check .` (all files compliant); frontend — `npm run build` (compiled cleanly), `npm test`
+   (18/18 passing, unchanged), `npm run lint` (one pre-existing `oxlint` warning on
+   `AuthContext.tsx`, unrelated to this task and not newly introduced), `npx prettier --check .`
+   (all files compliant). Also manually started `npm run dev` in the backend to directly confirm
+   the `ts-node-dev` fix described above, rather than just inferring it from the version bump.
+
+### Why it's needed
+
+Beyond satisfying the Tasks.md checklist item itself: a linter catches an entire category of
+real bugs (an accidentally-unused variable that was meant to be used, a comparison that always
+evaluates the same way) before they ever reach a human reviewer or, worse, production — exactly
+the kind of thing that's easy to miss reading a diff but obvious to a tool built to look for it.
+Prettier removes an entirely different, low-value source of friction: nobody has to think about
+or debate spacing/quote style in a PR review ever again, because there's only one style the
+tooling will produce.
+
+### Decisions
+
+- **Downgraded TypeScript rather than aliasing two versions or skipping ESLint on the backend.**
+  Covered in detail above — the simplest fix that leaves the project with one TypeScript
+  version, fully supported by every tool that touches it, rather than either an unsupported gap
+  (no backend linting) or a more fragile dual-version setup solving a problem (needing TS 7)
+  this project doesn't actually have.
+- **Kept `oxlint` on the frontend instead of adding ESLint there too.** Two linters covering the
+  same job is duplicated effort and a source of rule disagreements, not extra safety.
+- **Suppressed, not rewrote, the one real `requireAuth.ts` finding** — covered above; the
+  underlying code was already correct.
+
+### State at end of this step
+
+Both projects have working, verified lint and format tooling (`npm run lint`, `npm run format`,
+`npm run format:check` — `format`/`format:check` new to backend's script names, though
+`lint` already existed on the frontend). The backend is now on TypeScript 6.0.3 instead of 7.0.2
+project-wide, and `npm run dev` works again as a result. No application behavior changed —
+every file's diff in this task is either new config/tooling or a pure reformat.
+
+### Verification
+
+- Backend: `npm run build` (clean), `npm test` (33/33), `npx eslint .` (clean), `npx prettier
+  --check .` (clean), `npm run dev` manually started and confirmed working (previously broken).
+- Frontend: `npm run build` (clean), `npm test` (18/18), `npm run lint` (one pre-existing,
+  unrelated warning), `npx prettier --check .` (clean).
+- Every file Prettier reformatted was reviewed by hand via `git diff` to confirm the changes
+  were purely cosmetic before committing.
+
+### How to know when it's safe to move back to TypeScript 7
+
+The backend is on TypeScript 6.0.3 now, not forever — TypeScript 7 is a genuinely faster
+compiler, and re-upgrading once the ecosystem catches up is a reasonable thing to want later.
+Worth writing down *how* to judge that moment, rather than just guessing or trying again
+speculatively every so often.
+
+#### The signal that actually matters: does every tool that touches TypeScript support it?
+
+- This project's TypeScript version isn't used by one tool — it's used by `tsc` (the compiler
+  itself), `typescript-eslint` (today's blocker), `vitest` (runs `.ts` test files directly),
+  and `ts-node`/`ts-node-dev` (the dev server). **An upgrade is only actually safe once *all*
+  of them support the new version — not just the one you happen to be testing.** It's easy to
+  check the one tool that broke loudly (`typescript-eslint`, here) and miss that another tool
+  would have failed just as hard, only more quietly (e.g. producing subtly wrong output instead
+  of refusing to run).
+- **Where to check, concretely, for a package like `typescript-eslint`:**
+  - `npm view typescript-eslint peerDependencies` — shows the exact version range it currently
+    declares support for (this is what caught the problem today: it printed `typescript:
+    ">=4.8.4 <6.1.0"`, an explicit, honest statement of "I don't support anything past this").
+    Re-running this same command in the future and seeing the upper bound move past `7.0.0` is
+    the actual, concrete signal an upgrade might be safe — not a changelog claim, not a blog
+    post, the package's own declared compatibility range.
+  - The specific tracked issue for this gap — `typescript-eslint/typescript-eslint#10940` on
+    GitHub — is the most direct source: when that issue is closed (not just "commented on" or
+    "in progress"), that's the maintainers themselves confirming support landed.
+  - A package's own release notes/changelog around the version where the peer range changes
+    usually says explicitly "adds support for TypeScript 7" — worth reading, not just inferring
+    from the version number bump alone.
+
+#### What "safe to upgrade" looks like as a concrete process, not just a feeling
+
+- **Never upgrade a core dependency like this directly on `main`.** The right shape is exactly
+  what a normal Tasks.md-style task already looks like: a dedicated branch (e.g.
+  `chore/upgrade-typescript-7`), bump the version, and then run the *entire* verification
+  suite this project already relies on before ever proposing it as a PR — `npm run build`,
+  `npm test`, `npm run lint`, `npm run format:check`, and (per this project's standing
+  practice) actually starting the dev server and hitting a real endpoint, not just trusting
+  that the commands exit with code 0.
+- **If anything fails, that's the answer** — not a bug in this project's setup, just a
+  concrete, current "not yet" for that specific piece of tooling. Revert the version bump and
+  try again later, the same low-drama way today's TS 6 downgrade was reached: prove it broken,
+  choose the simplest fix, verify the fix directly, move on.
+- **A useful middle-ground check that costs nothing:** periodically running just `npm view
+  typescript-eslint peerDependencies` (or the equivalent for any pinned-down tool) doesn't
+  require touching the codebase at all — it's a single, free command that tells you whether
+  it's even worth spending time on a real upgrade attempt yet.
+
+---

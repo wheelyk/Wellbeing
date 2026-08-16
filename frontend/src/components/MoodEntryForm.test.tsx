@@ -59,9 +59,11 @@ describe("MoodEntryForm", () => {
   });
 
   it("shows a friendly error when saving fails", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse(400, { error: { message: "Invalid mood log", code: "VALIDATION_ERROR" } }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(400, { error: { message: "Invalid mood log", code: "VALIDATION_ERROR" } }),
+      );
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 

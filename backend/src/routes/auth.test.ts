@@ -102,9 +102,7 @@ describe("POST /api/auth/login", () => {
       .post("/api/auth/register")
       .send({ email, password: "Sup3rSecret", displayName: "Login Test" });
 
-    const res = await request(app)
-      .post("/api/auth/login")
-      .send({ email, password: "Sup3rSecret" });
+    const res = await request(app).post("/api/auth/login").send({ email, password: "Sup3rSecret" });
 
     expect(res.status).toBe(200);
     expect(res.body.user).toMatchObject({ email, displayName: "Login Test" });
@@ -185,7 +183,11 @@ describe("POST /api/auth/refresh", () => {
       .post("/api/auth/login")
       .send({ email, password: "Sup3rSecret" });
 
-    return { email, userId: loginRes.body.user.id, refreshCookie: getCookie(loginRes, "refreshToken") as string };
+    return {
+      email,
+      userId: loginRes.body.user.id,
+      refreshCookie: getCookie(loginRes, "refreshToken") as string,
+    };
   }
 
   it("issues a new access token and rotates the refresh cookie", async () => {
@@ -234,8 +236,10 @@ describe("POST /api/auth/refresh", () => {
   });
 
   it("rejects a token signed with the access-token secret with 401", async () => {
-    const forged = jwt.sign({ sub: "00000000-0000-0000-0000-000000000000" }, process.env
-      .JWT_ACCESS_SECRET as string);
+    const forged = jwt.sign(
+      { sub: "00000000-0000-0000-0000-000000000000" },
+      process.env.JWT_ACCESS_SECRET as string,
+    );
 
     const res = await request(app)
       .post("/api/auth/refresh")

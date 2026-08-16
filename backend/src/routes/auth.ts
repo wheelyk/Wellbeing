@@ -88,10 +88,7 @@ authRouter.post("/login", async (req, res) => {
   const { email, password } = parsed.data;
   const user = await prisma.user.findUnique({ where: { email } });
 
-  const passwordMatches = await bcrypt.compare(
-    password,
-    user?.passwordHash ?? DUMMY_PASSWORD_HASH,
-  );
+  const passwordMatches = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
   if (!user || !passwordMatches) {
     return res.status(401).json({
       error: { message: "Invalid email or password", code: "INVALID_CREDENTIALS" },

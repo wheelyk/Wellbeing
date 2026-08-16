@@ -97,13 +97,11 @@ describe("RegisterPage", () => {
   });
 
   it("shows a friendly message when the email is already registered", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        jsonResponse(409, {
-          error: { message: "Email is already registered", code: "EMAIL_TAKEN" },
-        }),
-      );
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(409, {
+        error: { message: "Email is already registered", code: "EMAIL_TAKEN" },
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderRegisterPage();
