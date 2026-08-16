@@ -6173,3 +6173,305 @@ actually makes this reachable by a real user rather than only `curl`.
   confirming the old password no longer works and the new one does.
 
 ---
+
+## 2026-08-16 — Phase 6: Settings page with change-password form (and a real race-condition bug)
+
+**Task:** [Tasks.md](Tasks.md) → Phase 6 → "Change password form on Settings page: current
+password + new password fields, calls `POST /api/auth/change-password`, with clear
+success/error feedback."
+
+**Delivered via branch:** `feature/6.4-settings-change-password` (stacked on
+`feature/2.5-auth-change-password`, since it calls that task's endpoint). This is where
+change-password becomes something a real person can actually use — the Settings route existed
+only as a `PlaceholderPage` until now.
+
+### Background / concepts
+
+#### Scoped deliberately: this is *a* Settings page, not *the* Settings page
+
+- Phase 6 has its own, separate, larger "Settings page: view/edit display name and timezone;
+  account deletion flow" item, not yet built. `SettingsPage.tsx` today contains *only* the
+  change-password form — matching just what this specific task asked for, not pre-building
+  pieces of that later task. Display name/timezone editing and account deletion will be added
+  to this same page/file when their own tasks come up, not invented ahead of time here.
+
+#### A real, found-by-actually-testing-it race condition between two different redirects to `/login`
+
+- The form's success handler needs to do three things: tell the backend to change the password
+  (done), end the local session, and land the user on `/login` with a helpful message. The
+  *first* version of this wrote that as `await logout(); navigate("/login", { state: {
+  message } })` — log out, then redirect. That reads perfectly reasonably and passed every
+  automated test. **It was still wrong**, caught only by actually driving a real browser through
+  the full flow and checking what happened after re-logging in.
+- **What actually happened:** `logout()` clears the app's auth state (`user: null, accessToken:
+  null`). `SettingsPage` lives behind `RequireAuth` (the route guard covered in detail in the
+  next entry) — the instant that state change is processed, `RequireAuth` notices
+  `isAuthenticated` just became `false` *while `/settings` is still the current route* and
+  fires its **own** redirect to `/login`, carrying `state: { from: location }` (so a normal
+  "you got logged out, here's where to come back to" flow works). That redirect and this
+  form's own `navigate("/login", { state: { message } })` call are now racing to decide what
+  `/login`'s `location.state` actually ends up being — and `RequireAuth`'s won, discarding the
+  success message and, worse, meaning a *subsequent* login redirected back to `/settings`
+  (reading `state.from.pathname`) instead of the expected `/dashboard`.
+- **Why the automated test suite didn't catch this.** The Vitest/Testing-Library test for this
+  flow mocks `fetch` directly and asserts on the *final* rendered state — it never actually
+  exercises React's real scheduling/timing between two competing `setState`-triggered
+  re-renders the way a real browser genuinely does. This is exactly the kind of bug real
+  end-to-end browser testing exists to catch that a mocked unit test structurally cannot —
+  not a weakness in the tests that were written, just a category of bug outside what that
+  layer of testing can see.
+- **The fix:** reorder to `navigate("/login", { state: { message } })` *first*, then `await
+  logout()`. Once the route has already changed to `/login` — a route `RequireAuth` doesn't
+  guard at all — the subsequent auth-state change has nothing left to react to. No more race,
+  because there's no longer a moment where the guarded route is still current *and* the auth
+  state has already flipped.
+
+#### A second false alarm, and the actual lesson in it
+
+- While verifying the fix, a screenshot taken immediately after `page.waitForURL("**/settings")`
+  resolved still showed the *old* Dashboard content. This looked like another real bug — until
+  checking the page's actual text content directly (rather than a screenshot) a moment later
+  showed the correct Settings content was there all along. `waitForURL` resolves the instant the
+  browser's URL changes, which can be a beat before React actually finishes re-rendering and the
+  browser repaints — a screenshot taken in that exact window can catch a stale frame. The fix
+  was to the *test script* (wait for a real, specific piece of the new page's content to appear
+  before screenshotting), not the application. Worth recording precisely because it looked
+  identical to a real bug at first glance, and the only way to tell the difference was checking
+  the DOM's actual text directly rather than trusting a single screenshot's timing.
+
+#### A genuine gap found along the way, tracked rather than silently noticed and dropped
+
+- While debugging the above, testing a **hard** page reload (not client-side navigation) at
+  `/settings` showed neither the Settings nor the Dashboard content — because this app's
+  `AuthContext` never attempts to rehydrate a session on startup. The access token lives only
+  in memory (`useState`, no `localStorage`), which is the deliberate, correct choice for
+  *storing* it (covered in the Phase 2.3 refresh-token entry — keeping it out of anything
+  JavaScript-readable-and-persistent is part of what limits XSS blast radius). But nothing
+  currently uses the still-valid `httpOnly` refresh cookie to silently re-establish a session
+  when the app first loads — meaning today, a real user who simply refreshes their browser
+  gets bounced to `/login` every time, even though their session is, from the backend's
+  perspective, still completely valid. Added as its own new `Tasks.md` item (Phase 5) rather
+  than fixed inline here, since it's a distinct, real gap deserving its own dedicated task
+  rather than a rushed fix bolted onto this one.
+
+### What was done
+
+1. **`frontend/src/pages/SettingsPage.tsx` (new).** A `Change password` card (current
+   password, new password, confirm-new-password with a client-side match check, mirroring the
+   backend's strength rules before ever hitting the network) — nothing else on the page yet,
+   per the scoping note above.
+2. **`frontend/src/App.tsx`.** Swapped the `/settings` route from `PlaceholderPage` to the new
+   `SettingsPage`.
+3. **`frontend/src/pages/LoginPage.tsx`.** Reads an optional `location.state.message` and shows
+   it above the form — generic enough to be reused by any future flow that wants to hand the
+   user a one-off note on arrival at Login (forgot/reset-password will likely want the same
+   thing).
+4. **Fixed the navigate-before-logout race** described above.
+5. **Tests (`SettingsPage.test.tsx`).** Weak new password and mismatched confirmation both
+   blocked client-side with no network call; a full success path asserting the exact request
+   body sent to `/api/auth/change-password` and that the app ends up showing the Login page; a
+   wrong-current-password error shown from the API's `INVALID_CURRENT_PASSWORD` response.
+6. **`npm test`** — 24/24 passing (20 pre-existing, 4 new).
+7. **`npm run build`, `npm run lint`, `npx prettier --check .`** — all clean.
+8. **Real, full end-to-end browser verification**, including the specific case the race
+   condition affected: register → open Settings → change password → land on Login *with the
+   confirmation message actually visible* → log in with the **new** password → land on
+   `/dashboard` (not `/settings`) — the exact sequence that exposed the bug in the first place,
+   re-run clean after the fix. Cleaned up every test user and stopped both manually-started
+   servers afterward.
+
+### Why it's needed
+
+This closes the change-password vertical slice end to end — the backend half from the previous
+entry was only reachable via `curl` until this task gave it a real, usable front door.
+
+### Decisions
+
+- **Navigate before clearing auth state, not after.** Covered in detail above — the only
+  ordering that avoids the `RequireAuth` race entirely, rather than trying to "win" a timing
+  contest against React's own scheduling.
+- **Tracked the session-rehydration gap as a new task rather than fixing it inline.** It's a
+  real, separate piece of work (almost certainly an `apiFetch`-style silent refresh attempt on
+  `AuthProvider` mount) — worth its own dedicated task and testing, not a rushed addition to a
+  change-password PR.
+
+### State at end of this step
+
+A real user can open Settings, change their password, and land back on a working login form
+with the new password active — verified directly in a real browser, including the exact
+sequence that previously exposed a real race-condition bug. That bug is fixed; the session-
+rehydration gap it led to being discovered is tracked, not fixed, as its own task.
+
+### Verification
+
+- `npm test` — 24/24 passing.
+- `npm run build`, `npm run lint`, `npx prettier --check .` — all clean.
+- Full real-browser walkthrough of the exact sequence that exposed the race condition, re-run
+  clean after the fix; confirmed via direct DOM text inspection (not just a screenshot) after
+  the screenshot-timing false alarm.
+
+---
+
+## 2026-08-16 — The full authentication pattern, explained end to end
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — this app's auth system has been built
+piece by piece across many earlier entries (register, login, refresh tokens, the backend
+`requireAuth` middleware, the frontend `RequireAuth` guard, the API client's automatic
+refresh-on-401). Each entry explained its own piece well, but none of them lay out the *whole
+shape* in one place. This entry does that deliberately, as a standalone reference — the goal is
+that this specific pattern (not just this specific app) is something a beginner could recognize
+and re-implement in a completely different project later.
+
+### The core problem this whole pattern solves
+
+HTTP is **stateless** — every request is a brand new, disconnected event as far as the raw
+protocol is concerned. The server that handles `POST /api/mood-logs` has no built-in memory of
+who's making that request; unless something is done deliberately, there's no way to distinguish
+"a real logged-in user" from "a stranger with the URL." Everything in this section exists to
+answer one question on every single request: **who is this, and are they allowed to do this?**
+
+### The two tokens, and why there are two instead of one
+
+- **The access token** is a short-lived (15 minutes), signed proof of identity. "Signed" means
+  it's cryptographically tamper-evident — the server can verify it hasn't been altered, without
+  needing to look anything up in a database. It's deliberately handled by the frontend's own
+  JavaScript (attached to requests, held in memory), because it's short-lived enough that even
+  if it leaked, the damage window is small.
+- **The refresh token** is longer-lived (7 days) and exists for exactly one purpose: trading
+  itself in for a new access token, so the user isn't forced to re-enter their password every
+  15 minutes. It's deliberately kept *out* of JavaScript's reach entirely — delivered only as an
+  `HttpOnly` cookie, which the browser attaches automatically but which `document.cookie` (and
+  therefore any malicious script that ends up running on the page) simply cannot read.
+- **The general principle this demonstrates:** the token that's riskier to leak (longer-lived,
+  more powerful) is the one given the stronger protection (invisible to JavaScript), even though
+  that makes it slightly less convenient to work with. The token that's cheaper to leak (short
+  lifespan) is the one handed to the more flexible but less protected mechanism. This trade-off
+  — matching the *protection* to the *risk*, not applying the same protection uniformly
+  everywhere — is a pattern worth recognizing in other security decisions generally, not just
+  this one.
+
+### Server-side protection: `requireAuth`, and what "middleware" buys here
+
+- Express (like most server frameworks) lets a request pass through a chain of functions before
+  reaching the code that actually handles it. `requireAuth` is one link in that chain: it reads
+  the `Authorization: Bearer <token>` header, verifies the token's signature, and either attaches
+  `req.userId` and lets the request continue (`next()`), or responds `401` itself and stops the
+  chain right there — the actual route handler never even runs for a rejected request.
+- **Why a shared middleware instead of checking this inside every route handler:** every
+  protected route needs the exact same check. Writing it once and attaching it wherever it's
+  needed means there's exactly one place that logic can have a bug, instead of a dozen
+  near-identical copies silently drifting apart over time. This is the same reasoning behind
+  reusable functions in general, just applied specifically to "a check every protected endpoint
+  needs."
+- **The generic version of this pattern, for a different project:** any server framework will
+  have some equivalent concept (middleware, a decorator, a guard, an interceptor — the name
+  varies) for "run this check before the real handler, and let it short-circuit the request."
+  Whatever it's called in a given framework, the shape is the same: verify identity once, in one
+  place, before any route-specific logic runs.
+
+### Client-side protection: `RequireAuth`, and the trick that makes it work
+
+```tsx
+export function RequireAuth() {
+  const { isAuthenticated } = useAuth();
+  const location = useLocation();
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  return <Outlet />;
+}
+```
+
+- This is a **route guard**, the frontend's equivalent of the backend's `requireAuth`
+  middleware — but it has to work completely differently, because there's no request/response
+  chain on the frontend to hook into. Instead, it's just an ordinary React component, placed as
+  a *wrapping* route in `App.tsx`:
+  ```tsx
+  <Route element={<RequireAuth />}>
+    <Route path="/dashboard" element={<DashboardPage />} />
+    <Route path="/settings" element={<SettingsPage />} />
+    {/* ...every other protected page... */}
+  </Route>
+  ```
+- **`<Outlet />` is the key piece to understand.** It's React Router's placeholder for "render
+  whichever nested route actually matched" — when a signed-in user visits `/settings`,
+  `RequireAuth` renders, sees `isAuthenticated` is `true`, and renders `<Outlet />`, which React
+  Router then fills in with `<SettingsPage />`. When `isAuthenticated` is `false`, `RequireAuth`
+  never renders `<Outlet />` at all — it renders `<Navigate>` instead, which redirects before
+  the protected page's component is ever mounted. The protected page's own code doesn't need to
+  know or check anything about auth itself; simply being nested inside this wrapping route *is*
+  the protection.
+- **`state={{ from: location }}`** carries "where the user was trying to go" along with the
+  redirect, so `LoginPage` can send them back to that exact page after a successful login
+  instead of always dumping them on the dashboard regardless of what they actually clicked.
+- **This is also exactly the mechanism that caused the real race-condition bug in the previous
+  entry**, worth restating here as a caution: because `RequireAuth` re-evaluates on *every*
+  render, the instant `isAuthenticated` becomes `false` while a guarded route is still current,
+  it fires its own redirect — regardless of whether some *other* code is also trying to
+  navigate away at that same moment. Any code that logs a user out should navigate to an
+  unguarded route *first*, then clear auth state, to avoid competing with `RequireAuth`'s own
+  redirect over what `/login` ends up showing.
+
+### A full walkthrough: one user, from cold page load to logging out
+
+Tying every piece together as a single continuous story, in order:
+
+1. **Cold load, not yet logged in.** `AuthProvider` initializes `{ user: null, accessToken:
+   null }`. Visiting `/dashboard` — a guarded route — `RequireAuth` sees `isAuthenticated:
+   false` and redirects to `/login`, remembering `/dashboard` as `state.from`.
+2. **Logging in.** `LoginPage` calls `POST /api/auth/login`. The server verifies the password,
+   and responds with a fresh access token in the JSON body *and* sets the refresh token as an
+   `HttpOnly` cookie via `Set-Cookie` — the browser stores that cookie automatically; nothing in
+   the frontend's own code ever touches it directly. `AuthContext` stores the access token in
+   memory and updates `user`. `LoginPage` reads `state.from` and navigates there — back to
+   `/dashboard`, exactly where the user originally tried to go.
+3. **Using the app.** Every `apiFetch` call now attaches `Authorization: Bearer <accessToken>`
+   automatically. The backend's `requireAuth` verifies it on each request; nothing needs to be
+   done differently by any individual page or component.
+4. **15 minutes pass; the access token expires.** The next API call gets back a `401`.
+   `apiFetch` (not the calling code, not the component) notices this itself, and automatically
+   calls `POST /api/auth/refresh` — which reads the still-valid refresh cookie the browser has
+   been quietly holding onto, verifies it, and returns a *new* access token (while also rotating
+   the refresh cookie to a new value — see the Phase 2.3 entry for why). `apiFetch` retries the
+   original request once with the new token. **None of this is visible to the user or to
+   whatever page triggered the original request** — it just looks like the request quietly
+   succeeded, possibly a beat slower than usual.
+5. **7 days pass, or the user explicitly logs out; the refresh token is gone too.** The next
+   refresh attempt now fails for real (`401 MISSING_REFRESH_TOKEN` or `INVALID_REFRESH_TOKEN`).
+   `apiFetch` reports this via `onAuthFailure` — `AuthContext` is listening for exactly that
+   signal, and clears its state (`user: null, accessToken: null`) the moment it fires. On the
+   *next* render, `RequireAuth` (wrapping whatever protected page the user still happens to be
+   looking at) notices `isAuthenticated` is now `false` and redirects to `/login` — even though
+   the user never explicitly clicked anything. This is the same mechanism from step 1, just
+   triggered by session expiry instead of a fresh page load.
+
+### The pattern, stripped down to what's worth carrying to a different project
+
+- Two tokens, not one: a short-lived one the frontend actively manages, a long-lived one the
+  browser handles automatically and JavaScript never touches.
+- One shared server-side check (middleware/guard/interceptor — whatever the framework calls it)
+  that every protected endpoint uses, rather than each one checking auth itself.
+- One shared client-side wrapper component that every protected page is nested inside, rather
+  than each page checking auth itself.
+- One central place (the API client) that knows how to retry a request after silently
+  refreshing an expired token — so *no other code in the entire app* needs to know or care that
+  tokens expire at all.
+- One shared "the session just ended" signal that the auth store listens for, so expiry
+  discovered *anywhere* (a background request, an explicit logout, a failed refresh) all funnel
+  through the exact same "log the user out" code path.
+
+### An honest, current limitation, not glossed over
+
+This app's version of the pattern is missing one normal piece, found while testing the previous
+entry's change-password flow and now tracked as its own `Tasks.md` item (Phase 5): **there's no
+attempt to silently re-establish a session on a fresh page load using the refresh cookie.**
+Right now, a browser refresh always starts from `{ user: null, accessToken: null }` and shows
+`Login`, even though the refresh cookie sitting in the browser might still be completely valid.
+The fix (not yet built) is a straightforward extension of the exact pattern above: on
+`AuthProvider`'s first mount, attempt the same `POST /api/auth/refresh` call step 4 already
+performs reactively, proactively instead — and only fall back to showing `Login` if that attempt
+itself fails.
+
+---
