@@ -7,6 +7,10 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
+    // Runs after `prisma migrate dev`/`reset`, and via `npx prisma db seed` directly. Uses
+    // ts-node rather than requiring a compiled JS file first, matching how `npm run dev`
+    // already runs backend TypeScript directly via ts-node-dev.
+    seed: "ts-node prisma/seed.ts",
   },
   datasource: {
     url: process.env["DATABASE_URL"],

@@ -5,6 +5,7 @@ import { Prisma } from "../generated/prisma/client";
 import { prisma } from "../lib/prisma";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/jwt";
 import { clearRefreshTokenCookie, setRefreshTokenCookie } from "../lib/cookies";
+import { requireAuth } from "../middleware/requireAuth";
 
 const SALT_ROUNDS = 12;
 
@@ -14,19 +15,26 @@ const SALT_ROUNDS = 12;
 // "wrong password" apart from "no such account" by measuring response time.
 const DUMMY_PASSWORD_HASH = "$2a$12$CwTycUXWue0Thq9StjUM0uJ8Y6Y3VtZ44Q4XdrOTLPfPT2mDcMYVK";
 
+const passwordField = z
+  .string()
+  .min(8, "Password must be at least 8 characters long")
+  .regex(/[A-Za-z]/, "Password must contain at least one letter")
+  .regex(/[0-9]/, "Password must contain at least one number");
+
 const registerSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters long")
-    .regex(/[A-Za-z]/, "Password must contain at least one letter")
-    .regex(/[0-9]/, "Password must contain at least one number"),
+  password: passwordField,
   displayName: z.string().trim().min(1).optional(),
 });
 
 const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   password: z.string().min(1, "Password is required"),
+});
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: passwordField,
 });
 
 export const authRouter = Router();
@@ -150,4 +158,39 @@ authRouter.post("/logout", (_req, res) => {
   // sending the refresh cookie. Clearing is safe to call even with no cookie present.
   clearRefreshTokenCookie(res);
   return res.status(200).json({ message: "Logged out" });
+});
+
+authRouter.post("/change-password", requireAuth, async (req, res) => {
+  const parsed = changePasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: {
+        message: "Invalid password change request",
+        code: "VALIDATION_ERROR",
+        details: parsed.error.flatten().fieldErrors,
+      },
+    });
+  }
+
+  const { currentPassword, newPassword } = parsed.data;
+  const user = await prisma.user.findUnique({ where: { id: req.userId } });
+
+  const passwordMatches = await bcrypt.compare(
+    currentPassword,
+    user?.passwordHash ?? DUMMY_PASSWORD_HASH,
+  );
+  if (!user || !passwordMatches) {
+    return res.status(401).json({
+      error: { message: "Current password is incorrect", code: "INVALID_CURRENT_PASSWORD" },
+    });
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+
+  // Stateless JWTs mean an existing session on another device can't be individually revoked
+  // (same limitation as logout, above) - but clearing this browser's refresh cookie forces a
+  // fresh login with the new password here, which is the one thing that can be done.
+  clearRefreshTokenCookie(res);
+  return res.status(200).json({ message: "Password updated" });
 });

@@ -21,6 +21,8 @@ model User {
   moodLogs       MoodLog[]
   medications    Medication[]
   medicationLogs MedicationLog[]
+  symptoms       Symptom[]
+  symptomLogs    SymptomLog[]
 
   @@map("users")
 }
@@ -82,4 +84,54 @@ model MedicationLog {
   @@index([userId, loggedAt])
   @@index([medicationId])
   @@map("medication_logs")
+}
+
+// A symptom a user can log against. `userId` is nullable specifically to represent two
+// different kinds of row in the same table: a system-default symptom (e.g. "Headache",
+// seeded once, available to every user, `userId` null) versus a user's own custom symptom
+// (e.g. "Joint pain," `userId` set to whoever created it). Every symptom-log write must
+// verify the symptom it references is one of these two cases for the calling user -
+// enforced in the symptom-logs routes, not here at the schema level.
+model Symptom {
+  id          String   @id @default(uuid())
+  userId      String?  @map("user_id")
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // onDelete: Cascade here means deleting a user also deletes any custom symptoms they
+  // created - consistent with the account-deletion requirement (Phase 2) that removing a
+  // user removes everything they own. System symptoms (userId null) have no user row to
+  // cascade from, so they're unaffected by any user's deletion.
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  symptomLogs SymptomLog[]
+
+  // Every "list my symptoms" query (GET /api/symptoms) filters on userId (including the
+  // NULL case for system symptoms), so this index keeps that lookup fast as the symptom
+  // list grows across many users.
+  @@index([userId])
+  @@map("symptoms")
+}
+
+model SymptomLog {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  symptomId String   @map("symptom_id")
+  severity  Int
+  notes     String?
+  loggedAt  DateTime @default(now()) @map("logged_at") @db.Timestamptz(3)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // No onDelete: Cascade from Symptom - a symptom (especially a user's own custom one)
+  // being deleted shouldn't silently destroy the user's historical severity logs against
+  // it. Restrict is Prisma's default for a relation with no onDelete specified, and it's
+  // the right choice here: deleting a symptom that still has logs against it fails at the
+  // database level rather than either cascading (losing history) or leaving orphaned rows.
+  symptom Symptom @relation(fields: [symptomId], references: [id])
+
+  // Same reasoning as MoodLog's composite index: every dashboard/history/trends query
+  // filters by user and orders/ranges by date together.
+  @@index([userId, loggedAt])
+  @@map("symptom_logs")
 }
