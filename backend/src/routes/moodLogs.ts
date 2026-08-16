@@ -2,12 +2,16 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 
-const ratingField = z.number().int().min(1).max(5);
+const moodField = z.number().int().min(1).max(5);
+// Energy/stress get one more point of resolution than mood (1-7, not 1-5) specifically so a
+// midpoint exists (4) for "neither low nor high" - a 1-5 or 1-6 range either lacks that clean
+// center or offers too little granularity, per real user feedback on the original 1-5 scale.
+const energyStressField = z.number().int().min(1).max(7);
 
 const createSchema = z.object({
-  mood: ratingField,
-  energy: ratingField.nullable().optional(),
-  stress: ratingField.nullable().optional(),
+  mood: moodField,
+  energy: energyStressField.nullable().optional(),
+  stress: energyStressField.nullable().optional(),
   notes: z.string().trim().min(1).optional(),
   // Accepts an explicit past (or future) timestamp for backfilling; omitted entirely means
   // "now", handled below rather than as a Zod default so "now" means the moment the request

@@ -77,7 +77,7 @@ describe("mood-logs routes", () => {
     expect(backfillRes.body.loggedAt).toBe(past);
   });
 
-  it("rejects mood outside 1-5, and energy/stress outside 1-5 when present", async () => {
+  it("rejects mood outside 1-5, and energy/stress outside 1-7 when present", async () => {
     const { accessToken } = await registerAndLogin("validation");
 
     const badMood = await request(app)
@@ -87,11 +87,29 @@ describe("mood-logs routes", () => {
     expect(badMood.status).toBe(400);
     expect(badMood.body.error.code).toBe("VALIDATION_ERROR");
 
-    const badEnergy = await request(app)
+    const badEnergyTooLow = await request(app)
       .post("/api/mood-logs")
       .set(authed(accessToken))
       .send({ mood: 3, energy: 0 });
-    expect(badEnergy.status).toBe(400);
+    expect(badEnergyTooLow.status).toBe(400);
+
+    const badEnergyTooHigh = await request(app)
+      .post("/api/mood-logs")
+      .set(authed(accessToken))
+      .send({ mood: 3, energy: 8 });
+    expect(badEnergyTooHigh.status).toBe(400);
+  });
+
+  it("accepts energy/stress up to 7, one point past mood's 1-5 range", async () => {
+    const { accessToken } = await registerAndLogin("energy-stress-range");
+
+    const res = await request(app)
+      .post("/api/mood-logs")
+      .set(authed(accessToken))
+      .send({ mood: 5, energy: 7, stress: 6 });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ mood: 5, energy: 7, stress: 6 });
   });
 
   it("lists only the authenticated user's mood logs, most recent first", async () => {
