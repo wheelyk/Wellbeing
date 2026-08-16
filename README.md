@@ -35,26 +35,37 @@ deployment quirk this branch caused and how it was fixed.
 
 ## Running locally
 
-> Scaffolding for `/frontend` and `/backend` is added in later setup tasks (see
-> [Tasks.md](Tasks.md), Phase 0). Once in place, local setup will be:
-
-1. Start PostgreSQL (see `docker-compose.yml`, once added).
-2. Copy `backend/.env.example` to `backend/.env` and fill in `DATABASE_URL` and JWT secrets.
-3. Install and run the backend:
+1. Start PostgreSQL: `docker compose up -d` (see `docker-compose.yml`).
+2. Copy `backend/.env.example` to `backend/.env` — the default `DATABASE_URL` already matches
+   `docker-compose.yml`'s credentials, but generate your own `JWT_ACCESS_SECRET` and
+   `JWT_REFRESH_SECRET` (a command for doing that is in the example file's comments — never
+   commit real secret values).
+3. Install dependencies, apply migrations (creates the database tables — only needed once, or
+   whenever a new migration is added), then run the backend:
    ```
    cd backend
    npm install
+   npx prisma migrate dev
    npm run dev
    ```
-4. Copy `frontend/.env.example` to `frontend/.env` and set the backend API URL.
+   (`npm run dev` itself doesn't apply migrations automatically — only the production `npm
+   start` script does, via `prisma migrate deploy`.)
+4. Copy `frontend/.env.example` to `frontend/.env` (the default already points at the backend's
+   local dev URL, `http://localhost:4000`).
 5. Install and run the frontend:
    ```
    cd frontend
    npm install
    npm run dev
    ```
+6. Open `http://localhost:5173` and register an account.
+
+Each project also has `npm test`, `npm run lint`, `npm run format:check` — see
+[IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md) for what each one does and why.
 
 ## Status
 
 Early-stage MVP under active development. See [Tasks.md](Tasks.md) for the current
-implementation plan and progress.
+implementation plan and progress. A live deployment tracking `main` runs at
+[wellbeing-blue.vercel.app](https://wellbeing-blue.vercel.app) (frontend, on Vercel), backed by
+a Node/Express API on Railway.
