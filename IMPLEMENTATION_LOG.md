@@ -7410,3 +7410,111 @@ own PR, stacked in that order, and need merging in that same order once reviewed
   console errors.
 
 ---
+
+## 2026-08-16 — Retrospective: why PRs, stacking, and parallel agents kept colliding, and what to actually do about it
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — a step back, after resolving the same
+handful of conflict types repeatedly across the three parallel-agent vertical slices, to name
+the pattern plainly and think through real structural fixes rather than just continuing to
+pay the same tax by hand each time.
+
+### Background / concepts
+
+#### The pattern, named directly
+
+Three distinct problems kept showing up, and they're worth telling apart because they don't
+share the same fix:
+
+1. **Stranded PRs** (the `postinstall`/PR #19 incident, then PR #45, recovered the same way
+   twice) — a stacked PR's base branch survives its own merge, so GitHub never retargets the
+   next PR onto `main`, and it silently merges into an orphaned branch instead. **This one is
+   now actually fixed**, not just documented around: `delete_branch_on_merge` (enabled a few
+   entries back) removes the human "remember to delete it" step entirely.
+2. **Cascading conflicts through a stack.** Every time one PR in a chain merges, the *next*
+   one needs `main` merged back into it before it can merge cleanly — normal, expected, and
+   explained back in the very first stacked-PR entry. What changed today is the *volume*: three
+   independent vertical slices, each its own 3-deep stack, all open at once, meant this
+   happened **six separate times** in one sitting (once per link, per stack) rather than the
+   occasional single occurrence it was earlier in the project.
+3. **The same handful of files being the conflict every single time.** Not random — a small,
+   consistent set of "hot" files: `IMPLEMENTATION_LOG.md` (every task appends to the same
+   growing file — pure-append conflicts, but *guaranteed* whenever two branches are open on the
+   same day), `backend/prisma/schema.prisma` (every new model touches the shared `User`
+   relations block and gets appended near the end), `backend/src/app.ts` (every new router
+   touches the shared import/mount blocks), and worst of all `frontend/src/pages/
+   DashboardPage.tsx` (genuine multi-hunk structural conflicts mixing state, effects, handlers,
+   and JSX — not just appends, real interleaved code that needed careful manual reconciliation
+   each time).
+
+#### Why this got sharply worse with parallel agents specifically, not just "more work happening"
+
+- Sequential work (one task, branch, merge, next task) naturally keeps the window between
+  "branch created" and "branch merged" small — `main` hasn't moved far by the time a PR is
+  ready, so conflicts are rare and small when they happen.
+- Three agents working **simultaneously**, each building a genuine 3-PR stack, inverted that:
+  by the time any one slice's PRs were ready for review, `main` had already moved forward
+  significantly from the *other two* slices' work landing first. The three slices never
+  touched each other's actual business logic (routes, models, forms) — but they all touched
+  the same small set of shared "front door" files, and elapsed time is exactly what turns
+  "touches the same file" into "produces a conflict."
+- **This is a genuine, honest trade-off, not a mistake to regret.** Three full vertical slices
+  (new Prisma models, full CRUD APIs with ID-tampering defenses, frontend forms, all fully
+  tested) landed in roughly the time sequential work would have taken for one, maybe one and a
+  half. The cost was a bounded, fixable amount of conflict-resolution work paid afterward —
+  worth naming plainly as the actual price of that speedup, not hidden or glossed over.
+
+### Why it's needed
+
+Paying the same conflict-resolution tax by hand, the same way, every time this pattern repeats
+is a real, recurring cost — worth spending some effort *reducing the collision surface itself*
+rather than only getting faster at resolving conflicts once they happen.
+
+### Decisions — options considered, and what's actually recommended
+
+- **Split `IMPLEMENTATION_LOG.md` into multiple files (highest-leverage, lowest-risk option).**
+  This single file has been the *most consistent* conflict of the entire session — it conflicts
+  essentially every time two branches are both open on the same day, because every task appends
+  to the same growing tail. A natural split: one file per phase (or per major feature) under a
+  `docs/log/` directory, with a short `IMPLEMENTATION_LOG.md` remaining at the root as an index
+  linking to each. Two branches adding entries to *different* feature files would never conflict
+  at all; two adding to the *same* feature file would still occasionally conflict, but far less
+  often than the current single-file-forever design. **Recommended as the first thing to
+  actually do** — it's a pure reorganization (no content changes), low-risk, and would have
+  prevented the large majority of today's log conflicts specifically.
+- **Decompose `DashboardPage.tsx` into one component per log type, each in its own file.**
+  Today, adding a new log type means editing the *same* function body's state, effects,
+  handlers, and JSX all at once — exactly the shape that produces multi-hunk structural
+  conflicts. If each log type instead exported its own self-contained `<MoodSection />`,
+  `<HabitSection />`, etc. (each owning its own state/effects/handlers internally), adding a new
+  one would mean creating a new file (no conflict possible on a file that didn't exist before)
+  plus one line adding it to a list in `DashboardPage.tsx` itself (a small, mechanical,
+  easy-to-auto-merge addition instead of a large structural one). **Recommended as the second
+  priority** — Phase 8 (the real Dashboard build-out) is going to touch this file heavily
+  regardless, so this is worth doing as groundwork before that phase starts, not just as a
+  conflict-avoidance measure.
+- **`schema.prisma` and `app.ts` — considered, not recommended yet.** Prisma does support
+  splitting a schema across multiple files (a preview feature), and `app.ts`'s router
+  registration could be made more automatic (e.g. auto-discovering route modules instead of a
+  hand-written import/mount per router). Both are real options, but with only seven models and
+  seven routers so far, the conflicts they've produced have been small and mechanical (a few
+  lines, quick to resolve) rather than genuinely costly — the added complexity of either change
+  isn't clearly worth it yet at this scale. Worth revisiting if this phase's growth continues
+  and these conflicts start costing more than a couple of minutes each.
+- **Process discipline, regardless of any structural change:** when running multiple parallel
+  stacks again, resolve and merge each stack's conflicts as soon as it's ready rather than
+  letting several sit open at once — the *volume* problem (six cascade-resolutions in one
+  sitting) is a direct function of how many stacks were simultaneously in flight, independent
+  of any file-structure fix.
+
+### State at end of this step
+
+Nothing implemented yet in this entry — this is the analysis and recommendation, written down
+before deciding whether/when to act on it, the same way the very first stacked-PR entry was
+written *before* acting, back when that pattern was new. `delete_branch_on_merge` (already
+enabled) is the one concrete fix already in place from this whole retrospective.
+
+### Verification
+
+N/A — this entry is analysis, not a code or configuration change.
+
+---
