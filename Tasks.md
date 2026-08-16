@@ -76,8 +76,8 @@ Reference: requirements §6, §12.
 - [ ] `GET/POST/PATCH/DELETE /api/medication-logs` — record taken/not-taken status per medication per date.
 
 ### Habits
-- [ ] `GET/POST/PATCH/DELETE /api/habits` — manage user-defined habits, including `type` (boolean/numeric/duration).
-- [ ] `GET/POST/PATCH/DELETE /api/habit-logs` — record a value appropriate to the habit's type; validate the value shape server-side based on `type`.
+- [x] `GET/POST/PATCH/DELETE /api/habits` — manage user-defined habits, including `type` (boolean/numeric/duration).
+- [x] `GET/POST/PATCH/DELETE /api/habit-logs` — record a value appropriate to the habit's type; validate the value shape server-side based on `type`.
 
 ### Cross-cutting for this phase
 - [ ] For every log endpoint, verify the referenced `symptom_id` / `medication_id` / `habit_id` belongs to the authenticated user (or is a valid system symptom) before creating/updating a log — this is the key defense against ID-tampering (§13).
