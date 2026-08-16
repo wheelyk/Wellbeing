@@ -297,6 +297,80 @@ describe("POST /api/auth/logout", () => {
   });
 });
 
+describe("POST /api/auth/change-password", () => {
+  async function registerAndLogin(label: string) {
+    const email = uniqueEmail(label);
+    createdEmails.push(email);
+    await request(app).post("/api/auth/register").send({ email, password: "Sup3rSecret" });
+    const loginRes = await request(app)
+      .post("/api/auth/login")
+      .send({ email, password: "Sup3rSecret" });
+    return { email, accessToken: loginRes.body.accessToken as string };
+  }
+
+  it("rejects a request with no access token", async () => {
+    const res = await request(app)
+      .post("/api/auth/change-password")
+      .send({ currentPassword: "Sup3rSecret", newPassword: "NewPass1234" });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("MISSING_ACCESS_TOKEN");
+  });
+
+  it("rejects an incorrect current password", async () => {
+    const { accessToken } = await registerAndLogin("changepw-wrong-current");
+
+    const res = await request(app)
+      .post("/api/auth/change-password")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ currentPassword: "NotMyPassword1", newPassword: "NewPass1234" });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("INVALID_CURRENT_PASSWORD");
+  });
+
+  it("rejects a new password that doesn't meet the strength rules", async () => {
+    const { accessToken } = await registerAndLogin("changepw-weak-new");
+
+    const res = await request(app)
+      .post("/api/auth/change-password")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ currentPassword: "Sup3rSecret", newPassword: "short1" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("changes the password, clears the refresh cookie, and the old password stops working", async () => {
+    const { email, accessToken } = await registerAndLogin("changepw-success");
+
+    const changeRes = await request(app)
+      .post("/api/auth/change-password")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ currentPassword: "Sup3rSecret", newPassword: "NewPass1234" });
+
+    expect(changeRes.status).toBe(200);
+    const clearedCookie = (changeRes.headers["set-cookie"] as unknown as string[]).find((c) =>
+      c.startsWith("refreshToken="),
+    );
+    expect(clearedCookie).toMatch(/refreshToken=;/);
+
+    const oldPasswordLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ email, password: "Sup3rSecret" });
+    expect(oldPasswordLogin.status).toBe(401);
+
+    const newPasswordLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ email, password: "NewPass1234" });
+    expect(newPasswordLogin.status).toBe(200);
+
+    const stored = await prisma.user.findUniqueOrThrow({ where: { email } });
+    expect(stored.passwordHash).not.toBe("NewPass1234");
+    expect(stored.passwordHash.startsWith("$2")).toBe(true);
+  });
+});
+
 afterAll(async () => {
   await prisma.user.deleteMany({ where: { email: { in: createdEmails } } });
   await prisma.$disconnect();
