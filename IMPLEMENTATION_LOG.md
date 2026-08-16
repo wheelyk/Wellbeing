@@ -6071,3 +6071,105 @@ correct. The local Prisma migration history is back in sync with the actual migr
 - `npm run build`, `npm test` (34/34) — unchanged, confirming no application behavior shifted.
 
 ---
+
+## 2026-08-16 — Phase 2: `POST /api/auth/change-password`
+
+**Task:** [Tasks.md](Tasks.md) → Phase 2 → "Implement `POST /api/auth/change-password` — for a
+logged-in user; requires the current password to be re-verified before updating the hash."
+
+**Delivered via branch:** `feature/2.5-auth-change-password`. First half of the change-password
+vertical slice added to `Tasks.md` in the previous entry — this is the backend piece; the
+Settings-page form is next.
+
+### Background / concepts
+
+#### Why this route needs `requireAuth`, and why it re-checks the password anyway
+
+- This is the first route in `auth.ts` itself to use `requireAuth` — every route in this file
+  before now (register, login, refresh, logout) is deliberately reachable *without* being
+  logged in, since their whole job is establishing or ending a session. Change-password is
+  different: it only makes sense for someone who already has a session, so it's mounted behind
+  `requireAuth` like the mood-logs routes are.
+- **Being logged in isn't the same as proving you should be allowed to change the password,
+  though** — an access token only proves "a request came from whoever holds this token," which
+  could be a browser someone left signed in, or a stolen (but not yet expired) token. Requiring
+  the *current* password as well as a valid session is a second, independent factor — someone
+  with just the access token, but not the actual password, still can't take over the account by
+  changing its password out from under the real owner.
+
+#### Clearing the refresh cookie on success — the one thing that actually can be revoked here
+
+- The refresh-token entry (Phase 2.3) already covers why this app's JWTs can't be individually
+  revoked server-side: they're stateless, verified by signature alone, with no database record
+  of which ones are "still good." That means changing a password can't retroactively invalidate
+  some other device's already-issued access token, or force that device to know a change even
+  happened — a genuine, previously-documented limitation, not new here.
+- **What *can* be done: clear the refresh cookie on the browser making the change**, the exact
+  same mechanism `logout` already uses. This doesn't revoke anything happening elsewhere, but it
+  does mean *this* browser session ends the moment the password changes, forcing a fresh login
+  with the new password — a reasonable, standard expectation after a password change, achieved
+  with a function this route already had available rather than any new mechanism.
+
+#### Reusing `passwordField` instead of duplicating the strength rules
+
+- `registerSchema`'s password validation (min 8 characters, at least one letter, at least one
+  number) got pulled out into a standalone `passwordField` Zod schema, referenced by both
+  `registerSchema` and the new `changePasswordSchema`. Without this, a future change to password
+  strength rules would need updating in two places by memory, with real risk of only one
+  actually getting updated — the same "single source of truth" reasoning already applied
+  elsewhere in this codebase (e.g. `ENERGY_STRESS_VALUES` driving both the button count and the
+  caption text in `MoodEntryForm.tsx`).
+
+### What was done
+
+1. **`backend/src/routes/auth.ts`.** Extracted `passwordField`; added `changePasswordSchema`
+   (`currentPassword`, `newPassword`); added `POST /change-password` behind `requireAuth` —
+   verifies `currentPassword` against the stored hash (`401 INVALID_CURRENT_PASSWORD` if it
+   doesn't match, reusing the same constant-time-comparison-via-dummy-hash trick already used by
+   login for the "no such user" case, here covering the theoretical case of the token's user
+   having been deleted mid-session), hashes and stores `newPassword` on success, clears the
+   refresh cookie, returns `200 { message: "Password updated" }`.
+2. **Tests.** No access token → `401 MISSING_ACCESS_TOKEN`; wrong current password → `401
+   INVALID_CURRENT_PASSWORD`; a new password failing the strength rules → `400
+   VALIDATION_ERROR`; full success path — asserts the refresh cookie is cleared in the response,
+   that a subsequent login with the *old* password now fails, that a login with the *new*
+   password succeeds, and that the stored hash is neither the plaintext new password nor
+   unchanged (a real bcrypt hash).
+3. **`npm test`** — 38/38 passing (34 pre-existing, 4 new).
+4. **`npm run build`, `npx eslint .`, `npx prettier --check .`** — all clean.
+5. **Manual end-to-end verification against the compiled, running server**, via `curl`:
+   registered a real user, confirmed no-token and wrong-current-password rejections, performed a
+   real password change (inspecting the raw response headers to confirm the refresh cookie
+   clear), then confirmed directly that logging in with the old password now fails and the new
+   password succeeds. Cleaned up the manually-created test user afterward and stopped the
+   manually-started server.
+
+### Why it's needed
+
+The app now has real users outside of testing, and until this task, there was no way to change
+a password without going through the (still unbuilt) email-based forgot-password flow — meaning
+a user who simply wanted to update their password for routine security hygiene had no way to do
+so at all.
+
+### Decisions
+
+- **Clearing the refresh cookie rather than leaving the session active.** Covered above — the
+  one meaningful "revoke" available given this app's stateless-JWT design, and matches the
+  reasonable expectation that changing a password should require logging back in.
+- **Reused `passwordField` rather than duplicating the strength regex.** Covered above.
+
+### State at end of this step
+
+A real, working, tested, auth-protected `POST /api/auth/change-password` endpoint exists.
+Nothing on the frontend calls it yet — the Settings-page form is the next task, which is what
+actually makes this reachable by a real user rather than only `curl`.
+
+### Verification
+
+- `npm test` — 38/38 passing (34 pre-existing, 4 new).
+- `npm run build`, `npx eslint .`, `npx prettier --check .` — all clean.
+- Manual `curl` round-trip against the compiled, running server, covering every case: missing
+  token, wrong current password, weak new password, and a full successful change followed by
+  confirming the old password no longer works and the new one does.
+
+---
