@@ -29,8 +29,8 @@ Reference: requirements §11.
 - [x] Define `MoodLog` model: `id`, `user_id`, `mood (1–5)`, `energy (nullable 1–5)`, `stress (nullable 1–5)`, `notes (optional)`, `logged_at`.
 - [x] Define `Medication` model: `id`, `user_id`, `name`, `created_at`.
 - [x] Define `MedicationLog` model: `id`, `user_id`, `medication_id`, `taken (boolean)`, `notes (optional)`, `logged_at`.
-- [ ] Define `Habit` model: `id`, `user_id`, `name`, `type (boolean | numeric | duration)`, `created_at`.
-- [ ] Define `HabitLog` model: `id`, `user_id`, `habit_id`, `value (shape depends on habit type)`, `notes (optional)`, `logged_at`.
+- [x] Define `Habit` model: `id`, `user_id`, `name`, `type (boolean | numeric | duration)`, `created_at`.
+- [x] Define `HabitLog` model: `id`, `user_id`, `habit_id`, `value (shape depends on habit type)`, `notes (optional)`, `logged_at`.
 - [ ] Add appropriate foreign keys, indexes (especially on `user_id` + `logged_at` for query performance), and cascading deletes so removing a `User` removes all associated logs.
 - [ ] Store `logged_at` as a timestamp with timezone (`timestamptz`) and always compute "which calendar day" using the user's stored `timezone`, not server time.
 - [ ] Write and run the initial Prisma migration.
@@ -76,8 +76,8 @@ Reference: requirements §6, §12.
 - [x] `GET/POST/PATCH/DELETE /api/medication-logs` — record taken/not-taken status per medication per date.
 
 ### Habits
-- [ ] `GET/POST/PATCH/DELETE /api/habits` — manage user-defined habits, including `type` (boolean/numeric/duration).
-- [ ] `GET/POST/PATCH/DELETE /api/habit-logs` — record a value appropriate to the habit's type; validate the value shape server-side based on `type`.
+- [x] `GET/POST/PATCH/DELETE /api/habits` — manage user-defined habits, including `type` (boolean/numeric/duration).
+- [x] `GET/POST/PATCH/DELETE /api/habit-logs` — record a value appropriate to the habit's type; validate the value shape server-side based on `type`.
 
 ### Cross-cutting for this phase
 - [ ] For every log endpoint, verify the referenced `symptom_id` / `medication_id` / `habit_id` belongs to the authenticated user (or is a valid system symptom) before creating/updating a log — this is the key defense against ID-tampering (§13).
@@ -140,7 +140,7 @@ Reference: requirements §6, §8.
 - [x] Symptom entry form: symptom picker, large 1–10 severity control, optional notes, date/time picker (defaults to now), Save/Cancel.
 - [x] Mood entry form: 5 large emoji/visual mood buttons, optional energy (1–7) and stress (1–7) controls, optional notes, date/time picker, `Save Entry` button — matching the wireframe.
 - [x] Medication entry form: medication picker (or quick "mark as taken/not taken"), optional notes, date/time picker.
-- [ ] Habit entry form: input control adapts to habit type (toggle for boolean, number input for numeric, duration input for duration), date/time picker.
+- [x] Habit entry form: input control adapts to habit type (toggle for boolean, number input for numeric, duration input for duration), date/time picker.
 - [ ] Client-side validation before submit (required fields, value ranges), with clear inline error messages — no silent failures.
 - [ ] Success feedback (toast/inline confirmation) on save; clear error feedback on failure.
 - [ ] Edit and delete actions available from Dashboard/History for every log type, reusing the same forms pre-filled with existing values.
