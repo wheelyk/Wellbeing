@@ -5820,3 +5820,107 @@ migration are both part of the same not-yet-merged PR.
 - All test data and the test user cleaned up afterward.
 
 ---
+
+## 2026-08-16 — A harmless-but-alarming Vercel "Build Failed": the screenshot CI branch has no app in it
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — a red "Build Failed" showed up in
+Vercel's dashboard, understandably alarming to see. Worth explaining clearly why it happened,
+why it was never actually a broken deployment of the real app, and the slightly fiddly fix.
+
+### Background / concepts
+
+#### What was actually failing, and why it wasn't the real app
+
+- The failed deployment's **Source** was the `pr-screenshots` branch — not `main`, not any of
+  this project's `feature/`/`fix/` branches. That branch was created much earlier in this
+  project (see the CI screenshot workflow entries) specifically as a place to store the
+  before/after `.png` images the PR-preview screenshot workflow generates. It's a **git orphan
+  branch** — deliberately created with no shared history with `main` and no application code
+  in it at all, just image files organized by PR number (`pr-31/after/*.png`, etc.).
+- **Vercel's GitHub integration doesn't know or care that this branch is "special."** By
+  default it tries to create a deployment for *every* branch pushed to a connected repository —
+  including this one. Since this project's Vercel project is configured with Root Directory
+  `frontend` (because the real app lives in `/frontend`, per the original Vercel deployment
+  entry), and the `pr-screenshots` branch has no `frontend` folder at all, Vercel's very first
+  step — entering that directory — fails immediately. Hence "Build Failed: The specified Root
+  Directory 'frontend' does not exist," and the extremely short duration in the screenshot
+  (`1s`) — consistent with failing before any real work (install, build) even started.
+- **The real app was never at risk here.** Every actual feature/fix branch has a real
+  `frontend` directory, so this failure mode is specific to this one orphan branch and has no
+  effect on `wellbeing-blue.vercel.app` or any genuine preview deployment.
+
+#### Why the "obvious" fixes (Ignored Build Step / `ignoreCommand`) don't work here
+
+- Vercel has a built-in feature for exactly "skip deployments under some condition" — the
+  **Ignored Build Step**, configurable either from the dashboard or via `vercel.json`'s
+  `ignoreCommand`. It runs a shell command; exit code `1` means "build normally," exit code `0`
+  means "skip this build, mark it Canceled instead of Error." That sounds like the fix — except
+  Vercel's own documentation states this command **executes inside the Root Directory**. On the
+  `pr-screenshots` branch, that directory doesn't exist, so there's nowhere for the ignore
+  check itself to run — a genuine chicken-and-egg problem: the very mechanism meant to say
+  "skip this" needs the thing that's missing in order to run at all.
+
+#### The actual fix: give the branch just enough of a `frontend/` folder to be ignorable
+
+- The CI workflow's "Publish screenshots to the pr-screenshots branch" step (which already
+  creates and updates this orphan branch on every relevant PR) now also writes a tiny
+  `frontend/vercel.json` containing `{"ignoreCommand": "exit 0"}` — nothing else, no real app
+  code. This breaks the chicken-and-egg problem: the `frontend` directory now genuinely exists
+  (satisfying Vercel's Root Directory requirement), Vercel can enter it and run the ignore
+  check, and that check *always* returns "skip" (exit `0`), since this branch should never
+  actually be built, ever, unconditionally.
+- **The practical difference this makes:** instead of a red "Build Failed" (which looks like a
+  real problem, and would reasonably worry anyone glancing at the deployments list), the
+  outcome becomes a deliberate, clean "Canceled by Ignored Build Step" — confirmed directly
+  afterward via `gh api repos/.../commits/<sha>/status`, which returned exactly that as
+  Vercel's own status description.
+- **Applied in two places**, both necessary: the CI workflow file itself (so every *future*
+  push to this branch includes the stub automatically), and a one-off manual push of the same
+  stub onto the branch as it exists *right now* (so the fix takes effect immediately, rather
+  than waiting for the next PR that happens to touch `frontend/**` to trigger the workflow
+  again).
+
+### What was done
+
+1. **`.github/workflows/pr-preview.yml`.** Added two lines to the existing "Publish
+   screenshots to the pr-screenshots branch" step: create `frontend/` and write
+   `frontend/vercel.json` with the unconditional `ignoreCommand`, right after the orphan
+   branch's worktree is set up, and included it in the `git add` alongside the screenshot
+   files.
+2. **Applied the same fix directly to the live `pr-screenshots` branch**, using the identical
+   `git worktree` technique the CI workflow itself uses, so the existing failed-deployment
+   pattern stops immediately rather than only for future pushes.
+3. **Verified directly, not assumed:** `gh api repos/wheelyk/Wellbeing/commits/<sha>/status`
+   against the manually-pushed commit confirmed Vercel's own response —
+   `"Canceled by Ignored Build Step"` — rather than trusting the fix was correct just because
+   it matched the documentation's description.
+
+### Why it's needed
+
+A red "Build Failed" in a project's deployment history is the kind of thing that erodes trust
+in "is my app actually working right now" at a glance, even when — as here — it's completely
+unrelated to the real application. Fixing the noise, and writing down *why* it happened, keeps
+Vercel's dashboard trustworthy as a signal rather than something to learn to ignore.
+
+### Decisions
+
+- **A stub `vercel.json` on the orphan branch, not a Vercel dashboard setting.** Covered
+  above — the dashboard-level Ignored Build Step has exactly the same "runs inside Root
+  Directory" limitation, so it wouldn't have solved this either; the fix has to make the
+  directory exist in the first place.
+- **Fixed both the workflow and the already-existing branch.** Fixing only the workflow would
+  have left the *current* state of `pr-screenshots` (and its next few historical commits)
+  still triggering the old failure until a fresh PR happened to touch `frontend/**` again.
+
+### State at end of this step
+
+Future pushes to `pr-screenshots` (from the CI screenshot workflow, exactly as before) will
+show as a clean "Canceled" deployment in Vercel rather than a red error. No change to the real
+application or any real deployment.
+
+### Verification
+
+- `gh api repos/wheelyk/Wellbeing/commits/<sha>/status` against the manually-pushed fix commit
+  — confirmed Vercel's own status: `success` / `"Canceled by Ignored Build Step"`.
+
+---

@@ -175,6 +175,18 @@ jobs:
             (cd "$WORKTREE_DIR" && git checkout --orphan pr-screenshots && git rm -rf . > /dev/null)
           fi
 
+          # This orphan branch holds only screenshot PNGs, never real app code - but Vercel's
+          # GitHub integration still tries to deploy every branch pushed to this repo. Its
+          # configured Root Directory ("frontend") doesn't exist here, which makes every push
+          # show up as a failed "Build Failed" deployment before any ignoreCommand could even
+          # run (Vercel's own docs confirm that command executes *inside* the Root Directory -
+          # useless if that directory doesn't exist yet). A minimal frontend/vercel.json fixes
+          # the chicken-and-egg problem: the folder now exists, so Root Directory resolves, and
+          # its unconditional ignoreCommand immediately skips the build - a clean "Canceled"
+          # deployment instead of a red error.
+          mkdir -p "$WORKTREE_DIR/frontend"
+          echo '{"ignoreCommand": "exit 0"}' > "$WORKTREE_DIR/frontend/vercel.json"
+
           EXPECTED_COUNT=3
           BEFORE_COUNT=0
           if [ -d "$SRC_DIR/before" ]; then
@@ -196,7 +208,7 @@ jobs:
           fi
 
           cd "$WORKTREE_DIR"
-          git add "pr-$PR_NUMBER"
+          git add "pr-$PR_NUMBER" frontend/vercel.json
           if git diff --cached --quiet; then
             echo "No screenshot changes to publish."
           else
