@@ -8070,3 +8070,123 @@ this entry describes the *approach*, independent of any one slice's specific out
   approach worked, not just a theoretical description of intent.
 
 ---
+
+## 2026-08-16 — A real account lockout, a manual database recovery, and why "forgot password" specifically needs email
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — a real user of the live app changed their
+password via the new Settings page, then couldn't log back in with it. With no self-service
+recovery path built yet (forgot-password is still on the checklist, unbuilt), the only way back
+in was a direct, manual database edit. Worth documenting both the recovery itself and, properly
+this time, exactly why the *real* fix for this situation is a bigger piece of work than it might
+first appear.
+
+### Background / concepts
+
+#### The manual recovery: writing a password hash directly, not a password
+
+- The `users` table never stores a password — only `password_hash`, and the two are not
+  interchangeable. Simply running `UPDATE users SET password_hash = 'Password123' ...` would
+  not have worked: the login route compares whatever a user types against this column using
+  `bcrypt.compare()`, which expects the stored value to already be a bcrypt hash in bcrypt's own
+  specific format (`$2b$12$...` — the algorithm version, the cost factor, then the actual hash),
+  not plain text. Setting the column to literal `Password123` would make login **always fail**,
+  since `bcrypt.compare("Password123", "Password123")` treats the second argument as an
+  (invalid) hash to check against, not a password to match directly.
+- **The fix:** generate the *hash* locally, using the exact same library and cost factor the
+  app itself uses (`bcryptjs`, 12 rounds — matching `SALT_ROUNDS` in `routes/auth.ts`), then
+  write that hash into the database directly:
+  ```js
+  const bcrypt = require("bcryptjs");
+  console.log(bcrypt.hashSync("Password123", 12));
+  // => $2b$12$oGwv7eT7g69M1/HrDn6H4eeMFBeCSZxuOM/ZdsMfmIYUs/vgn5gbW
+  ```
+  ```sql
+  UPDATE users SET password_hash = '$2b$12$oGwv...' WHERE email = 'wheelyk@gmail.com';
+  ```
+  Run directly against the production database via Railway's Postgres **Data** tab (the same
+  tool used for cleanup queries earlier in this project's deployment work) — logging in
+  afterward with that known password worked immediately.
+- **Why this is a "hack," worth naming plainly rather than treating as a normal feature.** This
+  bypassed every layer of the app's own logic entirely — no endpoint was called, no request was
+  validated, nothing was logged anywhere in the application. It only worked because whoever ran
+  it already had direct administrative access to the production database (via Railway's own
+  login) — which is a completely different, much stronger form of proof than "this person knows
+  the account's email," the level of proof `forgot-password` will eventually need to work with
+  for anyone who isn't a project administrator with database access.
+
+#### What "forgot password" actually requires, and why it can't be built the same way `change-password` was
+
+- `change-password` (built two entries ago) proves identity using something the user already
+  has: their *current* password. `forgot-password` starts from the opposite situation — the
+  user doesn't have a working password at all, which is the entire reason the feature needs to
+  exist. Something else has to stand in as proof of identity instead.
+- **The standard answer: prove control of the email address on file**, via a one-time,
+  time-limited link. Concretely, the pattern (not yet built) looks like:
+  1. `POST /api/auth/forgot-password` — given an email, generate a random, unguessable token,
+     store it (or encode it as a short-lived signed JWT, similar to the access/refresh tokens
+     already in this app — either is a defensible choice), and email the user a link containing
+     it (e.g. `https://wellbeing-blue.vercel.app/reset-password?token=...`).
+  2. `POST /api/auth/reset-password` — given that token and a new password, verify the token is
+     genuine and not expired, then update `password_hash` exactly the way the manual recovery
+     above did by hand, just driven by a real request instead of a person with database access.
+  3. **Critically, this endpoint must respond identically whether or not the email actually
+     matches an account** — the same "don't leak which case it is" principle already applied to
+     login's `INVALID_CREDENTIALS` and the symptom/mood-log ownership checks. Confirming
+     "yes, that email has an account here" to an anonymous caller is itself a small privacy leak
+     for a health app specifically.
+- **Why this genuinely cannot work without a real email-sending service**, restated plainly
+  since it's the actual blocker: step 1 has to deliver a real email to an inbox this project's
+  backend doesn't control. A personal email account (Gmail, etc.) can't be wired up to send
+  these automatically and reliably — mainstream mail providers actively restrict and often
+  block automated sending through personal accounts specifically because it's indistinguishable
+  from spam at scale, and even where technically possible, a personal account's sending
+  reputation isn't built for it. This is exactly what **transactional email providers** exist to
+  solve (Resend, Postmark, SendGrid, AWS SES, and others) — services built specifically to send
+  automated, one-to-one emails (password resets, receipts, confirmations) reliably and land in
+  the inbox rather than spam, each requiring its own account, API key, and — for anything beyond
+  a small free tier or a sandbox/testing mode — a verified sending domain.
+- **What actually needs deciding before this can be built**, not just coded: which provider, a
+  free-tier-suitable choice for an app this size, and where its API key gets stored (a new
+  Railway environment variable, following exactly the same pattern `JWT_ACCESS_SECRET` and the
+  database credentials already use). None of that is a coding decision — it's a product/infra
+  decision this log has deliberately left open rather than picking unilaterally, the same way
+  the Railway/Vercel hosting choice was made together earlier in this project rather than
+  assumed.
+
+### Why it's needed
+
+This wasn't a hypothetical gap — it was a real user, locked out of the real app, with the only
+way back in being a manual intervention only someone with direct production database access
+could perform. That is precisely the situation `forgot-password` exists to make self-service.
+
+### Decisions
+
+- **Fixed the immediate lockout with a direct, manual database write** rather than rushing a
+  half-built reset flow — the right call for an urgent, one-off situation, but explicitly not a
+  substitute for the real feature, and not something that scales past "the one person who
+  already has database access."
+- **Generated the replacement hash locally with the app's own hashing library and cost
+  factor**, rather than approximating it by hand, so the recovered account's password is stored
+  exactly as if it had gone through a normal `register`/`change-password` call.
+- **Left the email-provider choice as an open decision**, not picked automatically — a step that
+  costs real money or account setup beyond a free tier eventually, and ties this app to a
+  specific third party, both worth a deliberate choice rather than defaulting to whichever
+  provider happened to be mentioned first.
+
+### State at end of this step
+
+The locked-out account is recovered and working again with a known temporary password.
+`forgot-password`/`reset-password` remain unbuilt, tracked in `Tasks.md` (Phase 2) as before —
+this entry adds the *reasoning* for why they need a real email provider, as context for
+whenever that decision gets made.
+
+### Verification
+
+- The generated bcrypt hash was verified locally (`bcrypt.compareSync("Password123", hash) ===
+  true`) before being written to production, so the recovery's correctness was confirmed before
+  the user ever attempted to log in with it — not discovered by trial and error against the
+  live account.
+- Confirmed directly by the user successfully logging back in with the temporary password
+  after running the `UPDATE` in Railway's Data tab.
+
+---
