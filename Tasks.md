@@ -46,7 +46,7 @@ Reference: requirements §5, §13.
 - [x] Implement `POST /api/auth/login` — verify credentials, issue short-lived JWT access token + longer-lived refresh token.
 - [x] Implement refresh token storage/rotation strategy (e.g. HTTP-only secure cookie for the refresh token) and `POST /api/auth/refresh`.
 - [x] Implement `POST /api/auth/logout` — invalidate/clear the refresh token.
-- [ ] Implement `POST /api/auth/change-password` — for a logged-in user; requires the current password to be re-verified before updating the hash. Needs no email provider, unlike forgot/reset password below.
+- [x] Implement `POST /api/auth/change-password` — for a logged-in user; requires the current password to be re-verified before updating the hash. Needs no email provider, unlike forgot/reset password below.
 - [ ] Implement `POST /api/auth/forgot-password` — generate a time-limited reset token and send a reset email (use a placeholder/mock email provider for local dev).
 - [ ] Implement `POST /api/auth/reset-password` — validate the reset token and update the password hash.
 - [x] Implement an Express auth middleware that verifies the access token and attaches the authenticated user to the request; use it on all protected routes.
