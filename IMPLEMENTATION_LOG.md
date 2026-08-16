@@ -7264,3 +7264,149 @@ against a real running server. Nothing on the frontend calls it yet — that's t
   MEDICATION_NOT_FOUND` against the actual running server, not just the automated test.
 
 ---
+
+## 2026-08-16 — Phase 7: Medication entry form, wired into the Dashboard
+
+**Task:** [Tasks.md](Tasks.md) → Phase 7 → "Medication entry form: medication picker (or quick
+'mark as taken/not taken'), optional notes, date/time picker." → requirements §6.3.
+
+**Delivered via branch:** `feature/7.4-medication-entry-form` (stacked on
+`feature/3.6-medication-endpoints`). This is the last piece of the medication-logging vertical
+slice — the same significance the mood entry form task had for mood logging: everything built
+so far (models, CRUD endpoints, the ID-tampering defense) finally becomes something a real
+person can see and use.
+
+### Background / concepts
+
+#### What requirements §6.3 actually asks for, and how that shaped the form
+
+- §6.3 is explicit that medication logging should be low-friction: "Users must be able to
+  record whether a medication was taken," with the dashboard summary shown as a plain
+  "Medications: 1/2 taken" — the emphasis throughout is on speed (tap to record a status), not
+  on a heavy data-entry form. But the API underneath needs a real `medicationId` on every log —
+  there has to be *some* mechanism for choosing which medication a log is about. The form
+  reconciles these by keeping medication selection itself as large, single-tap buttons (a
+  `role="radiogroup"` of medication names, the same accessible-custom-control pattern
+  `MoodEntryForm`'s emoji buttons already established) rather than a `<select>` dropdown or a
+  multi-step wizard, and by making the taken/not-taken choice two big tappable tiles rather than
+  a checkbox buried in a longer form.
+- **The bootstrap problem, and how it's resolved without a separate "manage medications"
+  screen.** A brand-new user has zero medications — Tasks.md's Phase 7 item only calls for the
+  entry *form*, not a separate medication-management page (that's implied by the `/api/medications`
+  CRUD endpoints existing, but building a dedicated management UI isn't this task's scope). The
+  form solves this inline: if the user has no medications yet, it skips straight to a small
+  "add a medication" field instead of showing an empty, useless picker; once at least one
+  medication exists, picking one is the default view, with a "+ Add another medication" toggle
+  available at any time for adding more without leaving the log-entry flow.
+
+#### Why `onSaved` passes back the medication, not just the log
+
+- `MedicationLog` (from the API) only stores `medicationId` — not the medication's name. The
+  Dashboard's log list needs the name to display anything meaningful ("Ibuprofen — Taken", not
+  "5c38bf16… — Taken"). The straightforward fix would be re-fetching `/api/medications` after
+  every save, but that's an unnecessary round-trip: the form, at the moment it submits, already
+  has the full `Medication` object in memory (either from its initial fetch, or from having just
+  created it inline seconds earlier). `MedicationEntryForm`'s `onSaved: (log, medication) =>
+  void` callback signature hands both back to the Dashboard in one step, which folds the
+  medication into its own local list (skipping the add if it's already there, to avoid
+  duplicates when logging a second entry against an existing medication) without a second
+  network request.
+
+#### Why medications and medication logs are fetched together on the Dashboard
+
+- `DashboardPage`'s new `useEffect` calls `Promise.all([apiFetch("/api/medications"),
+  apiFetch("/api/medication-logs")])` rather than two independent, unrelated effects — both
+  results are needed together before the log list can render anything meaningful (a log with no
+  matching medication name to show), so tying their loading/error state together avoids a flash
+  of "Medication" placeholder text while the medications list is still in flight separately.
+
+### What was done
+
+1. **`frontend/src/components/MedicationEntryForm.tsx` (new).** Fetches the user's medications
+   on mount; if none exist, shows an inline "add a medication" field first; otherwise shows a
+   radiogroup of medication-name buttons (with a "+ Add another medication" toggle always
+   available) for picking which one this log is about. A required two-option "Was it taken?"
+   radiogroup (large tappable tiles, ✅/❌), an optional notes textarea, and a `datetime-local`
+   field defaulting to now (same `toDateTimeLocalValue` helper `MoodEntryForm` uses, duplicated
+   locally rather than shared - neither component has a shared utils module yet). Submits via
+   `apiFetch("/api/medication-logs", { method: "POST", ... })` and calls `onSaved(log,
+   medication)` on success.
+2. **`frontend/src/pages/DashboardPage.tsx` (extended).** Added medication state (medications,
+   medication logs, loading/error, form-visibility) alongside the existing mood state; a `+
+   Medication` button that reveals the form inline (same pattern as `+ Mood`); a "Recent
+   medications" list showing each log's medication name (looked up from the fetched medications
+   list), taken/not-taken status and icon, optional notes, timestamp, and a working delete
+   (optimistic removal, rolled back on failure) - directly mirroring the mood section's
+   structure line for line.
+3. **Tests (`MedicationEntryForm.test.tsx`).** Requiring a medication to be selected before
+   submit is possible; requiring taken/not-taken to be chosen; a full submission producing the
+   exact expected request body and calling `onSaved` with both the created log and the selected
+   medication; a failed save showing a friendly error; a user with zero medications adding one
+   inline and having it auto-selected; Cancel calling `onCancel`.
+4. **`npm test`** (frontend) — 26/26 passing (18 pre-existing, 8 new).
+5. **`npm run build`** (frontend) — compiled cleanly.
+6. **Lint/format** — `npm run lint` (oxlint) clean except one pre-existing warning in
+   `AuthContext.tsx`, unrelated to this change (confirmed via `git diff` against the previous
+   branch, that file is untouched here); one unsafe-optional-chaining warning in the new test
+   file, fixed by replacing a chained `?.` with an explicit `if (!postCall) throw ...` guard
+   before indexing into the mock call. `npx prettier --check .` clean after one `--write` pass
+   on `DashboardPage.tsx`.
+7. **Real browser verification**, per the project's UI-change testing rule. Started the actual
+   compiled backend (`npm start`, this worktree's isolated port `4102`) and the frontend dev
+   server, then drove a real headless Chromium browser through the full flow with a throwaway
+   Playwright script: register → land on Dashboard → open the medication form → add a first
+   medication ("Ibuprofen") inline, since none existed yet → mark it Taken with a note → Save →
+   confirm it appears in the list with the right name, status, note, and timestamp → open the
+   form again, this time picking the *existing* medication from the picker rather than adding a
+   new one → mark it Not taken → Save → confirm both entries are listed → delete both → confirm
+   the list returns to its empty state. No browser console errors at any point. Screenshots
+   taken at each step and visually reviewed, not just asserted programmatically. Cleaned up the
+   browser-created test user afterward and stopped both manually-started servers.
+
+### Why it's needed
+
+This closes out the medication-logging vertical slice, the same way the mood entry form task
+closed out mood logging - proving the whole chain (model → ID-tampering-safe endpoint →
+low-friction frontend) works end to end for a domain with a real second referenced resource,
+not just a single flat log table.
+
+### Decisions
+
+- **Inline "add a medication" within the log-entry form, no separate management page.** Covered
+  above - Tasks.md scopes this task to the entry form specifically; a dedicated "manage your
+  medications" screen (rename/delete existing medications from a list, not just add) isn't
+  called for here and would duplicate work if built ad hoc now versus deliberately later.
+- **Delete only, no edit, in this slice.** Same call as the mood entry form entry: "reusing the
+  same form pre-filled with existing values" is its own explicit, broader Tasks.md item covering
+  all four log types at once, not something to partially pre-build here.
+- **Medication picker as large tap-buttons, not a `<select>` dropdown.** A native `<select>`
+  would be more compact for a user with many medications, but requirements §6.3's low-friction
+  framing and the existing `MoodEntryForm` precedent (emoji buttons, not a dropdown, for a
+  similar "pick one of a few options" choice) both favor large, unambiguous tap targets over
+  dropdown compactness for what's expected to be a short, everyday list.
+- **`onSaved(log, medication)` two-argument callback**, instead of re-fetching medications after
+  every save or making the Dashboard respawn its own separate "did a new medication just get
+  created" tracking. Covered above - avoids an unnecessary round-trip and keeps the medication
+  the form just used as the single source of truth for that save.
+
+### State at end of this step
+
+A real user can register or log in, land on the Dashboard, add their first medication inline
+while logging it, mark subsequent doses taken or not taken (with optional notes and a backdated
+time), see each entry appear immediately with the right medication name, and delete entries -
+verified directly in a real browser, not just via tests. This closes out the medication-logging
+vertical slice: Phase 1.5 (models) → Phase 3.6 (endpoints) → Phase 7.4 (this task) are each their
+own PR, stacked in that order, and need merging in that same order once reviewed.
+
+### Verification
+
+- `npm test` (frontend, `vitest run`) — 26/26 passing (18 pre-existing, 8 new).
+- `npm run build` (frontend) — compiled cleanly.
+- `npm run lint` (oxlint) and `npx prettier --check .` — both clean (one pre-existing, unrelated
+  warning aside; one new-test-file lint warning fixed).
+- Real headless-browser walkthrough (Playwright) against the actual running backend and frontend
+  dev servers: full register → add medication inline → log taken → log not-taken (existing
+  medication) → view both → delete both cycle, screenshots reviewed at each step, zero browser
+  console errors.
+
+---
