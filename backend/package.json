@@ -8,6 +8,7 @@
     "postinstall": "prisma generate",
     "build": "prisma generate && tsc",
     "start": "prisma migrate deploy && node dist/index.js",
+    "db:seed": "prisma db seed",
     "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --write .",
