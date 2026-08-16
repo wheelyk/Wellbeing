@@ -7948,3 +7948,125 @@ the mood-logging slice's own three-PR stack took.
   console errors.
 
 ---
+
+## 2026-08-16 — Building three features at once with parallel AI agents
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — this entry explains a *process* decision
+rather than a code change: Symptom logging, Medication logging, and Habit logging (the three
+remaining log types from Phase 3/7) were each handed to a separate, independent AI agent,
+running **at the same time**, rather than built one after another the way Mood logging was.
+Worth explaining properly, since this is a genuinely different way of working than everything
+else in this log so far, and the reasoning behind *when* it's safe is more interesting than the
+mechanics.
+
+### Background / concepts
+
+#### Why these three specific tasks were safe to parallelize
+
+- Not every set of tasks can be split across independent workers safely — the whole reason
+  this was viable here is that **Symptom, Medication, and Habit logging have zero code
+  dependency on each other.** Each is its own Prisma model(s), its own API routes, its own
+  frontend form — none of them import, extend, or rely on anything the other two produce. This
+  is the same "vertical slice" shape used for Mood logging, just three of them built
+  simultaneously instead of one at a time.
+- **Contrast this with why Mood logging's own four pieces (auth middleware → model → endpoint →
+  form) were *not* parallelized.** Each of those genuinely needed the previous one's code to
+  exist first — the endpoint imports the model, the form calls the endpoint. That's a *real*
+  dependency chain, not just a convenient ordering, and trying to parallelize genuinely
+  dependent work would just mean each worker sitting idle waiting for the others, or worse,
+  building against code that doesn't exist yet. Recognizing "these are independent" versus
+  "these depend on each other" is the actual judgment call that makes parallelizing safe or not
+  — not something to do reflexively just because multiple tasks exist.
+
+#### The isolation mechanism: git worktrees, explained from scratch
+
+- Every git command so far in this project has operated on **one working copy** of the
+  repository at a time — checking out a different branch changes what files are sitting on
+  disk in that same one folder. That's completely fine for one person or one AI agent working
+  sequentially, but it breaks immediately the moment two things try to work at once: if a
+  second process checked out a different branch in that same folder while the first was
+  mid-edit, they'd be corrupting each other's work by writing to the exact same files.
+- **A git "worktree" solves this by giving each parallel task its own separate folder on disk,
+  checked out to its own branch, while all of them still share the same underlying repository
+  history** (commits, branches, tags — the actual `.git` data). Think of the normal repository
+  folder as the original, and each worktree as an independent, fully-functional copy sitting
+  next to it — separate files a process can freely edit without any risk of interfering with
+  the original or any other worktree, but all still pushing to and pulling from the exact same
+  GitHub repository underneath. This is precisely what let three agents each run their own
+  `npm test`, `npm run build`, and `git commit` simultaneously without any risk of one
+  overwriting another's in-progress files.
+- **One real hiccup while setting this up, worth recording honestly:** the very first attempt
+  to create a worktree failed outright with a git error about a "core.worktree redirect" — a
+  worktree from an earlier, aborted attempt had been left in a broken, locked state
+  (`git worktree list` showed it clearly once looked for). Fixed with the ordinary, undramatic
+  cleanup sequence: `git worktree unlock`, `git worktree remove --force`, then deleting the
+  leftover branch that attempt had created. Worth a mention mainly because it's a completely
+  normal, low-stakes thing to hit when working with worktrees — not a sign anything deeper was
+  wrong, just needing the same "check what's actually there before assuming" habit this log has
+  applied to every other unexpected error.
+
+#### What else had to be kept separate, beyond just files
+
+- A worktree solves file collisions, but three agents doing real backend work also needed to
+  run their own local Postgres database and their own local backend server at the same time —
+  and those aren't isolated by a worktree at all, since they talk to the *outside* world
+  (a database port, a network port), not just the filesystem. Each agent was explicitly given:
+  - **Its own database** inside the same running Postgres container (`welltrack_symptom`,
+    `welltrack_medication`, `welltrack_habit`) — so three concurrent `prisma migrate dev` runs
+    couldn't collide or race against each other's migration history.
+  - **Its own backend port** (4101/4102/4103) — so three concurrently-running `npm start`
+    processes couldn't fight over the same port.
+  - Its own `.env` files with real secrets (worktrees don't share gitignored files any more
+    than they share tracked ones needing separate values) and its own fresh `npm install` in
+    each project (worktrees don't share `node_modules` either).
+
+#### What was deliberately *not* isolated, and why that's fine
+
+- All three agents still shared several files that describe the *whole* app rather than one
+  slice of it: `backend/prisma/schema.prisma`, `backend/src/app.ts` (where each new router gets
+  mounted), `frontend/src/pages/DashboardPage.tsx` (where each new "+ X" button and list gets
+  added), `Tasks.md`, and this log. There was no way to avoid this — three independent features
+  genuinely do all need to register themselves in the same handful of central files.
+- **This was an accepted, expected trade-off, not an oversight.** Each agent branched from and
+  built against `main` independently, meaning their edits to those shared files can't
+  auto-merge cleanly against each other — normal, expected git conflicts were anticipated when
+  their PRs came in, to be resolved by hand the same way every other multi-branch conflict in
+  this log has been (the earlier "why deleting a merged branch is safe" and stacked-PR entries
+  cover that exact skill). Parallelizing the *thinking and typing* was the goal; parallelizing
+  the final merge into one shared `main` was never going to be possible, nor was it attempted.
+
+### Why it's needed
+
+Three independent, same-shaped features that would otherwise have taken three sequential rounds
+of the same back-and-forth (build → verify → document → PR → review) instead happened at the
+same time, with no reduction in the rigor applied to any one of them — each slice still got its
+own full build/test/lint/format verification, real browser and `curl` checks, and complete
+teaching-style log entries, exactly as if it had been built alone.
+
+### Decisions
+
+- **Parallelized only because the three tasks were genuinely independent** — the judgment call
+  described above, not a default. A future set of tasks with real dependencies between them
+  should go back to the sequential, stacked-branch approach already used successfully for Mood
+  logging and the auth flow.
+- **Isolated everything that could collide silently (files, database, network port) and
+  accepted the conflicts that couldn't be avoided (shared central files)**, rather than trying
+  to prevent every possible conflict — the second kind is cheap to resolve by hand at merge
+  time; the first kind (a genuinely corrupted file, a migration race, two processes fighting
+  over one port) would have been much harder to untangle after the fact.
+
+### State at end of this step
+
+The Symptom logging slice (one of the three) is complete, reviewed, and merged — three clean
+PRs, each built and verified with the same rigor as any sequentially-built task in this log.
+Medication logging and Habit logging were still running at the time this entry was written;
+this entry describes the *approach*, independent of any one slice's specific outcome.
+
+### Verification
+
+- The Symptom logging slice's own three PRs (models/migration, endpoints, frontend form) each
+  passed their full build/test/lint/format checks and real-environment verification
+  independently, and merged cleanly in the correct order — concrete evidence the isolation
+  approach worked, not just a theoretical description of intent.
+
+---
