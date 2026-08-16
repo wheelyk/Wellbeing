@@ -6799,3 +6799,204 @@ that's the next task.
   `409` restrict-delete case, each response matching expectations exactly.
 
 ---
+
+## 2026-08-16 — Phase 7: Symptom entry form, wired into the Dashboard
+
+**Task:** [Tasks.md](Tasks.md) → Phase 7 → "Symptom entry form: symptom picker, large 1–10
+severity control, optional notes, date/time picker (defaults to now), Save/Cancel."
+
+**Delivered via branch:** `feature/7.2-symptom-entry-form` (stacked on
+`feature/3.1-symptom-endpoints`). This is the last piece of the symptom-logging vertical
+slice — the same closing role `feature/7.3-mood-entry-form` played for mood: everything built
+so far (the `Symptom`/`SymptomLog` models, the CRUD endpoints, the ID-tampering defense)
+finally becomes something a real person can actually use.
+
+### Background / concepts
+
+#### Why the symptom picker is a `<select>`, not a row of buttons like mood's rating controls
+
+- Mood, energy, and stress each have a small, fixed number of options (5 or 7) — a row of
+  large tappable buttons works well and is what the wireframe calls for. Symptoms are
+  different: the picker's option list is open-ended (six seeded system symptoms today, plus
+  however many a given user has created for themselves) and could grow unbounded over time.
+  A native `<select>` handles an arbitrarily long list gracefully (it scrolls, it's
+  searchable-by-typing in most browsers, it doesn't need custom overflow handling) in a way a
+  row or grid of large buttons doesn't. Severity, in contrast, genuinely is a small fixed set
+  (1–10) - exactly the shape mood/energy/stress buttons already suit, so it reuses that same
+  `role="radiogroup"`/`role="radio"`/`aria-checked` pattern (in a `grid-cols-5` layout so 10
+  options read as two clean rows of 5 rather than one cramped row or an ambiguous wrap).
+- **`<optgroup>` for "Your symptoms" vs. "Common symptoms."** The backend's `GET /api/symptoms`
+  returns one flat, alphabetically-sorted list mixing system and custom symptoms together
+  (right choice for the API — a picker isn't the only thing that will ever read this endpoint).
+  The form groups them into two native `<optgroup>`s client-side specifically because the
+  distinction actually matters to a user choosing from the list — knowing "this one's mine, I
+  can edit/delete it later" vs. "this is a shared default" is useful context a flat list would
+  hide. `<optgroup>` also carries its own accessibility semantics for free (exposed to screen
+  readers as a labeled group), confirmed directly in this task's own test
+  (`screen.getByRole("group", { name: "Your symptoms" })` passes against real jsdom-rendered
+  markup, not just visually).
+
+#### Why `symptoms` is a prop, not fetched inside `SymptomEntryForm` itself
+
+- `MoodEntryForm` needs no data to render its options (mood/energy/stress are fixed, hardcoded
+  scales) — it only ever *sends* data. `SymptomEntryForm` is the first entry form in this app
+  that also needs to *receive* data first (the symptom list) before it can render anything
+  useful. Two ways to get it: have the form fetch `GET /api/symptoms` itself on mount, or have
+  `DashboardPage` fetch it once and pass it down as a prop. This task chose the latter,
+  because `DashboardPage` already needs that exact same list for a second, unrelated reason:
+  turning a saved log's `symptomId` back into a readable name in the recent-entries list below
+  the form. Fetching it once in the page and threading it down avoids two independent copies of
+  the same data that could disagree (e.g. if a symptom were created mid-session in one fetch but
+  not reflected in the other), and it also makes the form trivially easier to unit test — tests
+  pass a plain in-memory `Symptom[]` array as a prop instead of having to mock a second `fetch`
+  call just to get the picker to render any options at all.
+
+#### The two dashboard data-fetching `useEffect`s aren't accidentally duplicated
+
+- `DashboardPage` now has two separate `useEffect(() => { ... }, [])` blocks: one for mood logs
+  (pre-existing, unchanged), one new one loading symptoms *and* symptom logs together via
+  `Promise.all`. These intentionally stay independent rather than being merged into one giant
+  effect — mood and symptoms are unrelated data with no ordering dependency between them, so
+  keeping them separate means a slow or failing mood-logs fetch can't block symptoms from
+  loading (and vice versa); each section gets its own `loading`/`loadError` state and fails
+  independently, which is also why the page now visibly shows two separate "Loading…" states
+  that can resolve at different times.
+
+### What was done
+
+1. **`frontend/src/components/SymptomEntryForm.tsx` (new).** A `<select>` symptom picker (two
+   `<optgroup>`s: "Your symptoms," "Common symptoms"), a `role="radiogroup"` of ten severity
+   buttons (1–10, `grid-cols-5`, required — no deselect, unlike mood's optional energy/stress
+   rows), an optional notes textarea, a `datetime-local` field defaulting to "now" (same
+   `toDateTimeLocalValue` helper pattern as `MoodEntryForm`), and Save/Cancel. Submits via
+   `apiFetch("/api/symptom-logs", { method: "POST", ... })` and calls `onSaved(log)` on success.
+   Client-side validation requires both a chosen symptom and a chosen severity before submit,
+   with inline errors (`role="alert"`) — mirroring `MoodEntryForm`'s required-field pattern.
+2. **`frontend/src/pages/DashboardPage.tsx` (extended).** Added a second data-fetching effect
+   (symptoms + symptom logs via `Promise.all`), a `+ Symptom` button revealing the form inline
+   (same toggle pattern as `+ Mood`), a `symptomName(symptomId)` lookup helper for rendering
+   readable names in the list, and a "Recent symptom entries" section with delete (optimistic
+   removal, rolled back on failure) — structurally identical to the existing mood section, not
+   a new pattern.
+3. **Tests (`SymptomEntryForm.test.tsx`, 6 new).** Requiring both a symptom and a severity
+   before submit is possible; the `<optgroup>` split rendering correctly; a full submission
+   producing the exact expected request body and calling `onSaved` with the server's response;
+   a failed save showing a friendly error; all ten severity options 1–10 present; Cancel calling
+   `onCancel`.
+4. **`npm run build`** (frontend) — compiled cleanly.
+5. **`npm test`** (frontend) — 30/30 passing (24 pre-existing, 6 new).
+6. **`npm run lint`** (`oxlint`) — clean (one pre-existing, unrelated warning on
+   `AuthContext.tsx`, not touched by this task). **`npx prettier --check .`** — clean.
+7. **Real browser verification**, per the project's UI-change testing rule. Started the actual
+   compiled backend (`npm start`, port 4101 — this worktree's isolated port) and the frontend
+   dev server (port 5173, matching this worktree's `FRONTEND_URL`/`VITE_API_URL`), then drove a
+   real headless Chromium browser through the full flow with a throwaway Playwright script:
+   register → land on Dashboard → open the symptom form → select "Headache," severity 8, add a
+   note → Save → confirm the entry appears in the list with the right symptom name, severity,
+   note, and timestamp → delete it → confirm the list returns to its empty state. Zero browser
+   console errors at any point. Screenshots taken at each step and visually reviewed (the form
+   with its two-row severity grid and grouped picker, the filled form, the saved entry, and the
+   post-delete empty state), not just asserted programmatically. Cleaned up the browser-created
+   test user afterward via `psql` and stopped both manually-started servers.
+
+### Why it's needed
+
+This closes out the symptom-logging vertical slice the same way `feature/7.3-mood-entry-form`
+closed out mood's: the point at which a set of individually-correct backend pieces becomes a
+feature an actual person can use, end to end, in a real browser.
+
+### Decisions
+
+- **`symptoms` passed as a prop, not fetched inside the form.** Covered above — avoids two
+  independent copies of the same list and simplifies testing.
+- **Native `<select>`/`<optgroup>` for the symptom picker, not a custom `role="radiogroup"` like
+  mood's.** Covered above — the option list is open-ended in a way mood/energy/stress/severity
+  aren't, and a native select handles that without extra work.
+- **Severity has no deselect-to-clear behavior, unlike energy/stress.** Severity is a required
+  field (every symptom log needs one), the same way mood is required on `MoodEntryForm` — only
+  genuinely optional rating fields (energy, stress) get the "click again to unselect" behavior.
+- **Inline on the Dashboard, not a modal; delete only, no edit.** Same reasoning as the mood
+  entry form's own decisions section — the shared Quick Add modal and pre-filled-edit-form work
+  are their own separate, not-yet-started Tasks.md items covering all four log types at once.
+
+### State at end of this step
+
+A real user can register or log in, land on the Dashboard, log a symptom (system or their own
+custom one) with a required severity and optional notes/backdated time, see it appear
+immediately with its name and severity, and delete it — verified directly in a real browser, not
+just via tests. This closes out the symptom-logging vertical slice: `feature/1.2-symptom-models`
+→ `feature/3.1-symptom-endpoints` → `feature/7.2-symptom-entry-form` (this task) are each their
+own PR, stacked in that order, and need merging in that same order once reviewed.
+
+### Verification
+
+- `npm test` (frontend, `vitest run`) — 30/30 passing (24 pre-existing, 6 new).
+- `npm run build` (frontend) — compiled cleanly.
+- `npm run lint` (oxlint) — clean (one pre-existing, unrelated warning). `npx prettier --check .`
+  — clean.
+- Real headless-browser walkthrough (Playwright) against the actual running backend and
+  frontend dev servers: full register → log symptom → view → delete cycle, screenshots reviewed
+  at each step, zero browser console errors.
+
+---
+
+## 2026-08-16 — The exact stranded-PR bug happened again, on PR #45 — recovered the same way
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — while resolving a routine-looking merge
+conflict on PR #41 (Medication models), `main` turned out to be missing an entire piece of work
+that GitHub's own UI showed as "Merged": PR #45, the symptom entry form.
+
+### What happened, briefly (the full mechanics are already covered in an earlier entry)
+
+- This is the identical failure mode documented in detail back in "The real bug: `postinstall`
+  never reached `main` at all (a stacked-PR gotcha)" — not a new bug, the same one recurring.
+  PR #45's base was `feature/3.1-symptom-endpoints` (PR #44's branch). PR #44 merged into
+  `main`, but its branch was never deleted afterward — so GitHub never retargeted #45 to `main`,
+  and clicking "merge" on #45 merged it into that now-orphaned branch instead. Confirmed exactly
+  the same way as last time: `git merge-base --is-ancestor <PR45-merge-commit> origin/main`
+  returned false, and `git log origin/main..origin/feature/3.1-symptom-endpoints` listed the
+  three stranded commits (the form itself, its docs entry, and the merge commit) sitting on a
+  branch that was never itself merged into `main`.
+- **Why this recurred despite already being documented once:** the earlier entry's fix was
+  applied to the specific branches involved in that incident, and the *general habit* it
+  recommended — "for any stacked PR, check whether the base branch actually got deleted before
+  trusting the next one merged cleanly" — depends on someone actually doing that check each
+  time. This PR chain was reviewed and merged by a person working through a long list of
+  parallel-agent PRs; it's an easy, human step to miss under exactly that kind of volume, not a
+  sign the earlier fix was wrong.
+- **The recovery**, identical in shape to last time: cherry-picked the two real commits (the
+  merge commit itself doesn't need cherry-picking) from the stranded branch onto a fresh branch
+  off the *true* current `main`, verified independently (`npm test` — 30/30 passing, `npm run
+  build` — clean) rather than assuming a clean cherry-pick meant a working one, then opened this
+  as its own PR.
+
+### Why it's needed
+
+Without catching this, the Medication-models conflict resolution about to happen next would
+have been merged against an incomplete `main` — silently reintroducing the exact gap this
+recovery closes, just one PR later and harder to notice by then.
+
+### Decisions
+
+- **Checked `main` directly before trusting the conflict I was about to resolve**, rather than
+  assuming a "routine" conflict meant nothing more was going on — the same instinct that caught
+  this the first time, applied again rather than let familiarity with the pattern breed
+  complacency about checking for it.
+
+### State at end of this step
+
+The symptom entry form's code now exists on a branch built directly off current `main`, verified
+independently, ready to merge. Once merged, `main` will finally contain everything both PR #45
+and this project's own tracking (`Tasks.md`, the earlier symptom-form log entry) already claimed
+it did.
+
+### Verification
+
+- `git merge-base --is-ancestor <PR45-merge-commit> origin/main` — confirmed false before
+  starting the recovery, not assumed from GitHub's "Merged" badge.
+- `git log origin/main..origin/feature/3.1-symptom-endpoints` — listed the exact stranded
+  commits directly.
+- `npm test` (frontend) — 30/30 passing; `npm run build` — clean, on the recovery branch itself,
+  independent of the original PR's own (also passing) checks.
+
+---
