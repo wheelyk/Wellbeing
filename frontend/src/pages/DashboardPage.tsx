@@ -52,9 +52,9 @@ export function DashboardPage() {
       <main className="mx-auto max-w-3xl px-4 py-8">
         <h1 className="text-2xl font-semibold text-text">Welcome, {user?.displayName}</h1>
         <p className="mt-2 text-text-muted">
-          You&apos;re logged in as {user?.email}. The full dashboard (today&apos;s summary,
-          streak, all four log types) is built in a later phase — this is the first real
-          feature: mood logging.
+          You&apos;re logged in as {user?.email}. The full dashboard (today&apos;s summary, streak,
+          all four log types) is built in a later phase — this is the first real feature: mood
+          logging.
         </p>
 
         <section className="mt-6">
