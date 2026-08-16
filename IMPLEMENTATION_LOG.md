@@ -6939,3 +6939,64 @@ own PR, stacked in that order, and need merging in that same order once reviewed
   at each step, zero browser console errors.
 
 ---
+
+## 2026-08-16 — The exact stranded-PR bug happened again, on PR #45 — recovered the same way
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — while resolving a routine-looking merge
+conflict on PR #41 (Medication models), `main` turned out to be missing an entire piece of work
+that GitHub's own UI showed as "Merged": PR #45, the symptom entry form.
+
+### What happened, briefly (the full mechanics are already covered in an earlier entry)
+
+- This is the identical failure mode documented in detail back in "The real bug: `postinstall`
+  never reached `main` at all (a stacked-PR gotcha)" — not a new bug, the same one recurring.
+  PR #45's base was `feature/3.1-symptom-endpoints` (PR #44's branch). PR #44 merged into
+  `main`, but its branch was never deleted afterward — so GitHub never retargeted #45 to `main`,
+  and clicking "merge" on #45 merged it into that now-orphaned branch instead. Confirmed exactly
+  the same way as last time: `git merge-base --is-ancestor <PR45-merge-commit> origin/main`
+  returned false, and `git log origin/main..origin/feature/3.1-symptom-endpoints` listed the
+  three stranded commits (the form itself, its docs entry, and the merge commit) sitting on a
+  branch that was never itself merged into `main`.
+- **Why this recurred despite already being documented once:** the earlier entry's fix was
+  applied to the specific branches involved in that incident, and the *general habit* it
+  recommended — "for any stacked PR, check whether the base branch actually got deleted before
+  trusting the next one merged cleanly" — depends on someone actually doing that check each
+  time. This PR chain was reviewed and merged by a person working through a long list of
+  parallel-agent PRs; it's an easy, human step to miss under exactly that kind of volume, not a
+  sign the earlier fix was wrong.
+- **The recovery**, identical in shape to last time: cherry-picked the two real commits (the
+  merge commit itself doesn't need cherry-picking) from the stranded branch onto a fresh branch
+  off the *true* current `main`, verified independently (`npm test` — 30/30 passing, `npm run
+  build` — clean) rather than assuming a clean cherry-pick meant a working one, then opened this
+  as its own PR.
+
+### Why it's needed
+
+Without catching this, the Medication-models conflict resolution about to happen next would
+have been merged against an incomplete `main` — silently reintroducing the exact gap this
+recovery closes, just one PR later and harder to notice by then.
+
+### Decisions
+
+- **Checked `main` directly before trusting the conflict I was about to resolve**, rather than
+  assuming a "routine" conflict meant nothing more was going on — the same instinct that caught
+  this the first time, applied again rather than let familiarity with the pattern breed
+  complacency about checking for it.
+
+### State at end of this step
+
+The symptom entry form's code now exists on a branch built directly off current `main`, verified
+independently, ready to merge. Once merged, `main` will finally contain everything both PR #45
+and this project's own tracking (`Tasks.md`, the earlier symptom-form log entry) already claimed
+it did.
+
+### Verification
+
+- `git merge-base --is-ancestor <PR45-merge-commit> origin/main` — confirmed false before
+  starting the recovery, not assumed from GitHub's "Merged" badge.
+- `git log origin/main..origin/feature/3.1-symptom-endpoints` — listed the exact stranded
+  commits directly.
+- `npm test` (frontend) — 30/30 passing; `npm run build` — clean, on the recovery branch itself,
+  independent of the original PR's own (also passing) checks.
+
+---
