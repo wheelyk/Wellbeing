@@ -5392,4 +5392,52 @@ every file's diff in this task is either new config/tooling or a pure reformat.
 - Every file Prettier reformatted was reviewed by hand via `git diff` to confirm the changes
   were purely cosmetic before committing.
 
+### How to know when it's safe to move back to TypeScript 7
+
+The backend is on TypeScript 6.0.3 now, not forever — TypeScript 7 is a genuinely faster
+compiler, and re-upgrading once the ecosystem catches up is a reasonable thing to want later.
+Worth writing down *how* to judge that moment, rather than just guessing or trying again
+speculatively every so often.
+
+#### The signal that actually matters: does every tool that touches TypeScript support it?
+
+- This project's TypeScript version isn't used by one tool — it's used by `tsc` (the compiler
+  itself), `typescript-eslint` (today's blocker), `vitest` (runs `.ts` test files directly),
+  and `ts-node`/`ts-node-dev` (the dev server). **An upgrade is only actually safe once *all*
+  of them support the new version — not just the one you happen to be testing.** It's easy to
+  check the one tool that broke loudly (`typescript-eslint`, here) and miss that another tool
+  would have failed just as hard, only more quietly (e.g. producing subtly wrong output instead
+  of refusing to run).
+- **Where to check, concretely, for a package like `typescript-eslint`:**
+  - `npm view typescript-eslint peerDependencies` — shows the exact version range it currently
+    declares support for (this is what caught the problem today: it printed `typescript:
+    ">=4.8.4 <6.1.0"`, an explicit, honest statement of "I don't support anything past this").
+    Re-running this same command in the future and seeing the upper bound move past `7.0.0` is
+    the actual, concrete signal an upgrade might be safe — not a changelog claim, not a blog
+    post, the package's own declared compatibility range.
+  - The specific tracked issue for this gap — `typescript-eslint/typescript-eslint#10940` on
+    GitHub — is the most direct source: when that issue is closed (not just "commented on" or
+    "in progress"), that's the maintainers themselves confirming support landed.
+  - A package's own release notes/changelog around the version where the peer range changes
+    usually says explicitly "adds support for TypeScript 7" — worth reading, not just inferring
+    from the version number bump alone.
+
+#### What "safe to upgrade" looks like as a concrete process, not just a feeling
+
+- **Never upgrade a core dependency like this directly on `main`.** The right shape is exactly
+  what a normal Tasks.md-style task already looks like: a dedicated branch (e.g.
+  `chore/upgrade-typescript-7`), bump the version, and then run the *entire* verification
+  suite this project already relies on before ever proposing it as a PR — `npm run build`,
+  `npm test`, `npm run lint`, `npm run format:check`, and (per this project's standing
+  practice) actually starting the dev server and hitting a real endpoint, not just trusting
+  that the commands exit with code 0.
+- **If anything fails, that's the answer** — not a bug in this project's setup, just a
+  concrete, current "not yet" for that specific piece of tooling. Revert the version bump and
+  try again later, the same low-drama way today's TS 6 downgrade was reached: prove it broken,
+  choose the simplest fix, verify the fix directly, move on.
+- **A useful middle-ground check that costs nothing:** periodically running just `npm view
+  typescript-eslint peerDependencies` (or the equivalent for any pinned-down tool) doesn't
+  require touching the codebase at all — it's a single, free command that tells you whether
+  it's even worth spending time on a real upgrade attempt yet.
+
 ---
