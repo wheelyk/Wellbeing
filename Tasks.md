@@ -24,17 +24,17 @@ Checkboxes let you track progress directly in this file.
 Reference: requirements §11.
 
 - [x] Define `User` model: `id (uuid)`, `email (unique)`, `password_hash`, `display_name`, `timezone (default UTC)`, `created_at`.
-- [ ] Define `Symptom` model: `id`, `user_id (nullable — null = system symptom)`, `name`, `description (optional)`, `created_at`.
-- [ ] Define `SymptomLog` model: `id`, `user_id`, `symptom_id`, `severity (1–10)`, `notes (optional)`, `logged_at`.
+- [x] Define `Symptom` model: `id`, `user_id (nullable — null = system symptom)`, `name`, `description (optional)`, `created_at`.
+- [x] Define `SymptomLog` model: `id`, `user_id`, `symptom_id`, `severity (1–10)`, `notes (optional)`, `logged_at`.
 - [x] Define `MoodLog` model: `id`, `user_id`, `mood (1–5)`, `energy (nullable 1–5)`, `stress (nullable 1–5)`, `notes (optional)`, `logged_at`.
-- [ ] Define `Medication` model: `id`, `user_id`, `name`, `created_at`.
-- [ ] Define `MedicationLog` model: `id`, `user_id`, `medication_id`, `taken (boolean)`, `notes (optional)`, `logged_at`.
+- [x] Define `Medication` model: `id`, `user_id`, `name`, `created_at`.
+- [x] Define `MedicationLog` model: `id`, `user_id`, `medication_id`, `taken (boolean)`, `notes (optional)`, `logged_at`.
 - [x] Define `Habit` model: `id`, `user_id`, `name`, `type (boolean | numeric | duration)`, `created_at`.
 - [x] Define `HabitLog` model: `id`, `user_id`, `habit_id`, `value (shape depends on habit type)`, `notes (optional)`, `logged_at`.
 - [ ] Add appropriate foreign keys, indexes (especially on `user_id` + `logged_at` for query performance), and cascading deletes so removing a `User` removes all associated logs.
 - [ ] Store `logged_at` as a timestamp with timezone (`timestamptz`) and always compute "which calendar day" using the user's stored `timezone`, not server time.
 - [ ] Write and run the initial Prisma migration.
-- [ ] Seed the database with a small set of system-default symptoms (e.g. Headache, Fatigue, Nausea) where `user_id` is null.
+- [x] Seed the database with a small set of system-default symptoms (e.g. Headache, Fatigue, Nausea) where `user_id` is null.
 
 ---
 
@@ -63,17 +63,17 @@ Reference: requirements §5, §13.
 Reference: requirements §6, §12.
 
 ### Symptoms
-- [ ] `GET /api/symptoms` — return system symptoms + the current user's custom symptoms.
-- [ ] `POST /api/symptoms` — create a user-specific symptom.
-- [ ] `PATCH /api/symptoms/:id` / `DELETE /api/symptoms/:id` — only allowed on symptoms owned by the current user (never on system symptoms or another user's symptoms).
-- [ ] `GET/POST/PATCH/DELETE /api/symptom-logs` — full CRUD, scoped to the authenticated user; validate `severity` is an integer 1–10.
+- [x] `GET /api/symptoms` — return system symptoms + the current user's custom symptoms.
+- [x] `POST /api/symptoms` — create a user-specific symptom.
+- [x] `PATCH /api/symptoms/:id` / `DELETE /api/symptoms/:id` — only allowed on symptoms owned by the current user (never on system symptoms or another user's symptoms).
+- [x] `GET/POST/PATCH/DELETE /api/symptom-logs` — full CRUD, scoped to the authenticated user; validate `severity` is an integer 1–10.
 
 ### Mood
 - [x] `GET/POST/PATCH/DELETE /api/mood-logs` — full CRUD, scoped to the authenticated user; validate `mood` 1–5, `energy`/`stress` 1–7 when present (widened from 1–5 after user feedback — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)).
 
 ### Medications
-- [ ] `GET/POST/PATCH/DELETE /api/medications` — manage the user's medication list.
-- [ ] `GET/POST/PATCH/DELETE /api/medication-logs` — record taken/not-taken status per medication per date.
+- [x] `GET/POST/PATCH/DELETE /api/medications` — manage the user's medication list.
+- [x] `GET/POST/PATCH/DELETE /api/medication-logs` — record taken/not-taken status per medication per date.
 
 ### Habits
 - [ ] `GET/POST/PATCH/DELETE /api/habits` — manage user-defined habits, including `type` (boolean/numeric/duration).
@@ -137,9 +137,9 @@ Reference: requirements §7, §10, §12.7, §12.8.
 Reference: requirements §6, §8.
 
 - [ ] Build the Quick Add entry point (modal or dedicated page) shared by all four log types, clearly labelling what is being logged.
-- [ ] Symptom entry form: symptom picker, large 1–10 severity control, optional notes, date/time picker (defaults to now), Save/Cancel.
+- [x] Symptom entry form: symptom picker, large 1–10 severity control, optional notes, date/time picker (defaults to now), Save/Cancel.
 - [x] Mood entry form: 5 large emoji/visual mood buttons, optional energy (1–7) and stress (1–7) controls, optional notes, date/time picker, `Save Entry` button — matching the wireframe.
-- [ ] Medication entry form: medication picker (or quick "mark as taken/not taken"), optional notes, date/time picker.
+- [x] Medication entry form: medication picker (or quick "mark as taken/not taken"), optional notes, date/time picker.
 - [ ] Habit entry form: input control adapts to habit type (toggle for boolean, number input for numeric, duration input for duration), date/time picker.
 - [ ] Client-side validation before submit (required fields, value ranges), with clear inline error messages — no silent failures.
 - [ ] Success feedback (toast/inline confirmation) on save; clear error feedback on failure.
