@@ -6635,3 +6635,167 @@ reads or writes either table yet — that's the next task.
   output and a repeat `SELECT`) it created no duplicates.
 
 ---
+
+## 2026-08-16 — Phase 3: `GET/POST/PATCH/DELETE /api/symptoms` and `/api/symptom-logs`
+
+**Task:** [Tasks.md](Tasks.md) → Phase 3 → Symptoms → all four bullet points: symptom
+CRUD (scoped, with the system-symptom carve-out) and symptom-log CRUD (with the
+ID-tampering defense the cross-cutting section calls for).
+
+**Delivered via branch:** `feature/3.1-symptom-endpoints` (stacked on
+`feature/1.2-symptom-models`) — the second step of the symptom-logging vertical slice, the
+same shape `feature/3.5-mood-logs-endpoint` took for mood.
+
+### Background / concepts
+
+#### Two resources, two route files, because they have genuinely different ownership rules
+
+- `moodLogs.ts` only ever needed one ownership check: "does this row's `userId` match
+  `req.userId`?" Symptoms need a second, different check layered on top of that one: a
+  `Symptom` can *legitimately* have `userId: null` (a system symptom, readable and usable by
+  everyone) but must *never* be editable or deletable by anyone — not even by treating `null`
+  as "unowned, anyone may claim it." `routes/symptoms.ts` handles that (`GET` reads with an
+  `OR: [{ userId: null }, { userId: req.userId }]` filter; `PATCH`/`DELETE` look the row up
+  with a *plain* `userId: req.userId` filter — no `OR`, no `null` branch — so a system symptom
+  can never match and always 404s, exactly like another user's private one does).
+  `routes/symptomLogs.ts` is a separate concern: logs are always owned outright (never
+  system-wide), so its ownership check is the same single-condition shape `moodLogs.ts` already
+  uses. Splitting into two files keeps each router's `where` clauses simple and single-purpose
+  rather than one file juggling two different ownership shapes.
+
+#### The ID-tampering defense, concretely
+
+- This is Phase 3's cross-cutting requirement, and the reason `symptomLogs.ts` has a
+  `symptomIsAccessible(symptomId, userId)` helper that every write path calls before touching
+  the database: `POST /` calls it on the `symptomId` in the request body; `PATCH /:id` calls it
+  *only* if the update actually includes a new `symptomId` (leaving `symptomId` unchanged
+  requires no re-check, since the original create already validated it). The helper itself is
+  one query — `findFirst({ where: { id: symptomId, OR: [{ userId: null }, { userId }] } })` —
+  the same "is this null (system) or mine" shape `symptoms.ts`'s own `GET` uses, applied here to
+  guard writes instead of reads.
+- **Why this matters concretely:** without this check, a malicious or buggy client could `POST
+  /api/symptom-logs` with `{ symptomId: "<someone else's private symptom UUID>", severity: 8 }`
+  and successfully create a log under their own account pointing at data they were never shown
+  and don't own — a real information/consistency leak, since anything downstream (the dashboard,
+  trends, an eventual "which of my symptoms is worst" view) would then treat that foreign
+  symptom's name/description as if it belonged to the caller. The `symptom_logs.symptom_id`
+  foreign key (added in the previous task) stops the *database* from accepting a `symptomId`
+  that doesn't exist at all, but says nothing about *whose* symptom it is — that's exactly the
+  gap `symptomIsAccessible` closes, and it's a genuinely different failure mode from a garden-
+  variety Zod validation error, which is why it 404s (`SYMPTOM_NOT_FOUND`) rather than 400s
+  (`VALIDATION_ERROR`): the same "don't leak which case it is" reasoning already used for
+  mood-log ownership, applied here to "does this ID even refer to something you're allowed to
+  use," not just "is this JSON shaped correctly."
+- Directly tested (`symptomLogs.test.ts`): one test has user "attacker" `POST` a symptom log
+  with user "owner"'s real, private symptom ID and asserts both the `404`/`SYMPTOM_NOT_FOUND`
+  response *and* that zero rows were actually created (`prisma.symptomLog.findMany` afterward);
+  a second test does the same thing via `PATCH` (attacker tries to retarget their *own* existing
+  log onto the owner's private symptom) and confirms the log's `symptomId` is unchanged
+  afterward, not just that the response looked right.
+
+#### Why deleting a symptom with existing logs returns `409`, not `500` or a silent success
+
+- The previous task's schema deliberately left `SymptomLog → Symptom` as `Restrict` (no
+  cascade), specifically so a symptom's logging history can't vanish as a side effect of
+  deleting the symptom definition. That decision has a consequence this task has to actually
+  handle: `DELETE /api/symptoms/:id` on a symptom that still has logs pointing at it will make
+  Postgres reject the delete with a foreign-key-violation error. Left unhandled, Prisma throws
+  that as an uncaught exception and Express's default error handling would turn it into an
+  opaque `500` — technically "the delete didn't happen," but with no indication *why*, and no
+  clear thing the caller could do about it. Catching
+  `Prisma.PrismaClientKnownRequestError` with `code === "P2003"` (Prisma's code for "foreign key
+  constraint failed") and translating it into `409 Conflict` with `code: "SYMPTOM_HAS_LOGS"`
+  turns a raw database error into an actionable API response — `409` specifically because the
+  request is well-formed and the caller is allowed to make it, but it conflicts with the
+  resource's current state (logs still exist), which is exactly what `409` means.
+
+### What was done
+
+1. **`backend/src/routes/symptoms.ts` (new).** `GET /` (system + own), `POST /` (create own,
+   `name` required, `description` optional), `PATCH /:id` / `DELETE /:id` (ownership-scoped,
+   system symptoms and other users' symptoms both 404 identically; `DELETE` catches `P2003` and
+   returns `409 SYMPTOM_HAS_LOGS`).
+2. **`backend/src/routes/symptomLogs.ts` (new).** `GET /` (own logs, most recent first),
+   `POST /` (validates `symptomId`, `severity` 1–10 integer, optional `notes`, optional
+   `loggedAt` defaulting to now — same backfill pattern as mood-logs — and runs the
+   `symptomIsAccessible` check before creating), `PATCH /:id` / `DELETE /:id` (ownership-scoped
+   like mood-logs, plus the same accessibility re-check on `PATCH` if `symptomId` is part of the
+   update).
+3. **`backend/src/app.ts`.** Mounted both routers behind `requireAuth`:
+   `app.use("/api/symptoms", requireAuth, symptomsRouter)` and
+   `app.use("/api/symptom-logs", requireAuth, symptomLogsRouter)`.
+4. **Tests.** `symptoms.test.ts` (13 tests): no-token rejection; listing system + own but not
+   another user's; create with/without description; validation rejection; update; 404 on a
+   missing ID; 404 editing/deleting another user's symptom *and*, separately, 404 editing/
+   deleting a system symptom (both asserted as the identical response shape); delete; and the
+   `409 SYMPTOM_HAS_LOGS` case. `symptomLogs.test.ts` (16 tests): no-token rejection; create
+   against an owned symptom and, separately, against a system symptom; **the two ID-tampering
+   tests described above**; a nonexistent `symptomId` producing the same `404` as an
+   inaccessible one; backfill defaulting/explicit-past-date; severity range/integer validation
+   (0, 11, and `5.5` all rejected; 1 and 10 both accepted); list scoping; update; 404s on a
+   missing ID and on another user's log; delete.
+5. **`npm run build`** — compiled cleanly.
+6. **`npm test`** — 62/62 passing (38 pre-existing, 24 new).
+7. **`npx eslint .`** — clean. **`npx prettier --check .`** — clean (after running
+   `--write` once on the two new test files to match this project's formatting).
+8. **Manual end-to-end verification against the compiled, running server** (`npm start`, port
+   4101 — this worktree's isolated port), via a throwaway Node script driving `fetch` the same
+   way `curl` would: registered two real users (A, B), confirmed `GET /api/symptoms` is `401`
+   with no token and returns exactly the 6 seeded system symptoms plus zero custom ones for a
+   fresh user; A created a private custom symptom, updated it, then B attempting to `PATCH` it
+   got `404`, and A attempting to `PATCH` the system "Headache" symptom *also* got `404` (same
+   shape, proving the system-symptom carve-out actually works against a real running server, not
+   just in an in-memory test); A logged against both the system symptom and their own private
+   one; **B attempting to `POST /api/symptom-logs` against A's private symptom ID got `404`
+   `SYMPTOM_NOT_FOUND`** — the ID-tampering defense, confirmed live; A updated and listed their
+   logs; deleting A's symptom while a log still referenced it returned `409 SYMPTOM_HAS_LOGS`;
+   deleting the log first and then the (now log-free) symptom both succeeded. Cleaned up both
+   manually-created test users afterward via `psql` and stopped the manually-started server.
+
+### Why it's needed
+
+This is where the previous task's schema becomes an actual feature a client can call — and,
+notably, the first endpoint in this codebase whose central purpose *is* an authorization check
+(`symptomIsAccessible`) rather than authorization being a secondary concern layered onto CRUD
+that would otherwise be simple. Every other Phase 3 log type (medications, habits) that
+references its own "which entity does this log belong to" ID will need the exact same shape of
+check.
+
+### Decisions
+
+- **404, not 400, for an inaccessible `symptomId`.** Covered above — kept in the same "don't
+  leak which case it is" family as ownership 404s elsewhere, rather than folding it into Zod's
+  `VALIDATION_ERROR` shape, since "the JSON is malformed" and "you're not allowed to use this
+  ID" are different failure modes worth distinguishing by status/code even though both are
+  4xx.
+- **`409 SYMPTOM_HAS_LOGS` on deleting a symptom with existing logs**, rather than silently
+  cascading (which the previous task's schema decision already ruled out) or leaving it as an
+  unhandled `500`. No Tasks.md item calls for this explicitly, but it's a direct, foreseeable
+  consequence of the previous task's `Restrict` decision that needed *some* deliberate handling
+  rather than an accidental crash the first time a real user hits it.
+- **`PATCH` only re-validates `symptomId` accessibility when `symptomId` is actually part of the
+  update.** An update that only changes `severity` or `notes` doesn't re-run the check — the log
+  was already validated as pointing at an accessible symptom when it was created, and that fact
+  can't change without an explicit `symptomId` change in the same request.
+- **No route-level rate limiting or pagination added here.** Both are separate, already-tracked
+  Tasks.md items (rate limiting is auth-specific in Phase 2; pagination is Phase 9's History
+  feature) — out of scope for "build the CRUD endpoint."
+
+### State at end of this step
+
+A real, working, tested, auth-protected CRUD API for symptoms and symptom logs exists locally,
+including the ID-tampering defense and the system-symptom carve-out, both verified against a
+real running server as well as the automated test suite. Nothing on the frontend calls it yet —
+that's the next task.
+
+### Verification
+
+- `npm run build` — compiled cleanly.
+- `npm test` — 62/62 passing (38 pre-existing, 24 new).
+- `npx eslint .` — clean. `npx prettier --check .` — clean.
+- Manual end-to-end walkthrough against the compiled, running server (script-driven `fetch`
+  calls standing in for `curl`): full symptom + symptom-log lifecycle across two real user
+  accounts, including the two ID-tampering attempts (both correctly rejected with `404`) and the
+  `409` restrict-delete case, each response matching expectations exactly.
+
+---

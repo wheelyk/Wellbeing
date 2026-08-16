@@ -63,10 +63,10 @@ Reference: requirements §5, §13.
 Reference: requirements §6, §12.
 
 ### Symptoms
-- [ ] `GET /api/symptoms` — return system symptoms + the current user's custom symptoms.
-- [ ] `POST /api/symptoms` — create a user-specific symptom.
-- [ ] `PATCH /api/symptoms/:id` / `DELETE /api/symptoms/:id` — only allowed on symptoms owned by the current user (never on system symptoms or another user's symptoms).
-- [ ] `GET/POST/PATCH/DELETE /api/symptom-logs` — full CRUD, scoped to the authenticated user; validate `severity` is an integer 1–10.
+- [x] `GET /api/symptoms` — return system symptoms + the current user's custom symptoms.
+- [x] `POST /api/symptoms` — create a user-specific symptom.
+- [x] `PATCH /api/symptoms/:id` / `DELETE /api/symptoms/:id` — only allowed on symptoms owned by the current user (never on system symptoms or another user's symptoms).
+- [x] `GET/POST/PATCH/DELETE /api/symptom-logs` — full CRUD, scoped to the authenticated user; validate `severity` is an integer 1–10.
 
 ### Mood
 - [x] `GET/POST/PATCH/DELETE /api/mood-logs` — full CRUD, scoped to the authenticated user; validate `mood` 1–5, `energy`/`stress` 1–7 when present (widened from 1–5 after user feedback — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)).
