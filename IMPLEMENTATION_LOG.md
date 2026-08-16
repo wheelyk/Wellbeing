@@ -8190,3 +8190,93 @@ whenever that decision gets made.
   after running the `UPDATE` in Railway's Data tab.
 
 ---
+
+## 2026-08-16 — Turning on "automatically delete head branches," so this stops happening
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — the exact stranded-PR bug (a merged PR
+whose base branch survives, so the *next* PR in the stack never gets retargeted to `main`) had
+now happened twice in this project. Rather than relying purely on remembering to delete each
+branch by hand after every merge, GitHub has a repository setting that does it automatically.
+
+### Background / concepts
+
+#### What was actually turned on, and how
+
+- **Settings → General → Pull Requests → "Automatically delete head branches"** in the GitHub
+  UI — or, exactly equivalently, `gh repo edit wheelyk/Wellbeing --delete-branch-on-merge` from
+  the command line, which is what was actually run here. Confirmed directly afterward (not just
+  assumed from the command exiting successfully) via `gh api repos/wheelyk/Wellbeing --jq
+  '.delete_branch_on_merge'`, which returned `true`.
+- **What it actually does:** the instant a PR is merged through GitHub (the button in the PR's
+  UI, or `gh pr merge`), GitHub deletes that PR's head branch itself, automatically, with no
+  further action needed. This is the exact manual step ("delete each branch after it merges")
+  that's been repeated as advice several times in this log — now enforced by the platform
+  itself rather than depending on a person remembering to click the extra button or run the
+  extra command every single time.
+- **Why this directly prevents the bug that keeps recurring.** The earlier "why deleting a
+  merged branch is safe" entry already explained the mechanism: GitHub's stacked-PR
+  auto-retargeting is specifically triggered by the base branch's *deletion*, not by the merge
+  itself. A branch that merges but is left alive still looks, to GitHub, like a valid, ongoing
+  place the next PR in a stack is based on — nothing tells it "this is done, move on" except the
+  branch actually disappearing. With this setting on, that disappearance now happens
+  unconditionally, every time, without needing to be remembered.
+
+#### The one real downside, and why it's smaller than it sounds
+
+- **If a branch is deleted the moment its PR merges, it's gone — there's no "let me quickly
+  check that branch again" a few minutes later without recreating it.** This is the concern
+  worth naming plainly, and it's real in the sense that the *convenience* of an existing branch
+  name pointing at that exact spot is gone.
+- **But nothing about the actual work is at risk.** The "why deleting a merged branch is safe"
+  entry covers this in depth: a branch is just a movable label pointing at a commit, not a
+  container that owns it. Once merged, every commit that branch ever held is permanently part
+  of `main`'s history — reachable by `git log`, `git blame`, `git checkout <commit-sha>`, or
+  simply recreating a branch with the same name pointing at the same commit
+  (`git checkout -b old-name <sha>`) if the name itself is genuinely missed. What's lost is a
+  label of convenience, not the code.
+
+#### Smaller, genuinely worth-naming disadvantages beyond that one
+
+- **This only affects merges from now on — it does nothing retroactively.** Branches that were
+  already stranded before this setting was turned on (exactly the two recovered earlier today)
+  still needed the same manual `git merge-base --is-ancestor` / cherry-pick recovery process;
+  turning this on doesn't reach into the past and fix history that already happened.
+- **Local clones can end up with stale remote-tracking references.** When a branch is deleted
+  on GitHub, anyone who already had it fetched locally will still see `origin/<branch-name>` in
+  `git branch -r` until they run `git fetch --prune` (or `git fetch -p`), which clears out
+  local references to branches that no longer exist on the remote. Harmless — those stale
+  references don't cause incorrect behavior, they're just clutter — but worth knowing the
+  command for, rather than being confused by a locally-visible branch that's actually gone.
+- **If this project ever switched to "squash and merge" or "rebase and merge"** (it hasn't —
+  every merge so far has been an ordinary merge commit, preserving each branch's individual
+  commits), the deleted branch's *exact original commits* would only be reachable through the
+  new squashed/rebased commit(s) on `main`, not as themselves. Not a real concern under this
+  project's current merge strategy, but worth knowing as a reason some teams intentionally keep
+  branches around longer when using those other strategies specifically.
+
+### Why it's needed
+
+The exact same bug — a merged PR whose base branch survived, silently breaking the next PR in
+its stack — had now been hit and manually recovered from **twice** in this project. Turning the
+recurring manual fix into an automatic platform setting is a direct, permanent response to a
+problem that had already proven itself likely to happen again otherwise.
+
+### Decisions
+
+- **Enabled repository-wide, not applied selectively.** There's no meaningful case for wanting
+  a merged branch to survive under this project's current workflow — every branch so far has
+  existed solely to become a PR, and every PR's purpose ends once it's merged.
+
+### State at end of this step
+
+Every future PR merge on this repository will automatically delete its head branch — the
+stacked-PR retargeting mechanism this project relies on will now fire reliably every time,
+without depending on anyone remembering the extra step.
+
+### Verification
+
+- `gh api repos/wheelyk/Wellbeing --jq '.delete_branch_on_merge'` — confirmed `true` directly
+  against the repository's actual current settings, not assumed from the `gh repo edit` command
+  simply exiting without error.
+
+---
