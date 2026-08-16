@@ -6475,3 +6475,163 @@ performs reactively, proactively instead — and only fall back to showing `Logi
 itself fails.
 
 ---
+
+## 2026-08-16 — Phase 1: `Symptom` and `SymptomLog` models + migration + seed
+
+**Task:** [Tasks.md](Tasks.md) → Phase 1 → "Define `Symptom` model: `id`, `user_id (nullable —
+null = system symptom)`, `name`, `description (optional)`, `created_at`." and "Define
+`SymptomLog` model: `id`, `user_id`, `symptom_id`, `severity (1–10)`, `notes (optional)`,
+`logged_at`." Also closes the Phase 1 item "Seed the database with a small set of
+system-default symptoms... where `user_id` is null."
+
+**Delivered via branch:** `feature/1.2-symptom-models` (off `main`; this begins the
+symptom-logging vertical slice, the same shape the mood-logging slice already took: model →
+CRUD endpoint → frontend form, each its own stacked PR).
+
+### Background / concepts
+
+#### A nullable `user_id` modeling two different kinds of row in one table
+
+- Every other owned resource in this app so far (`MoodLog`, and later `Medication`/`Habit`)
+  has a `user_id` that's always set — the row always belongs to exactly one user. `Symptom` is
+  the first model where that's deliberately *not* always true: a row can either be a **system
+  symptom** (seeded once, `userId` is `null`, visible to every user — e.g. "Headache") or a
+  **user's own custom symptom** (`userId` set to whoever created it, e.g. "Joint pain" someone
+  adds for themselves). Modeling this as one table with a nullable foreign key, rather than two
+  separate tables, matches how the feature actually behaves end to end: both kinds of row are
+  fetched together (`GET /api/symptoms` returns system symptoms *plus* the caller's own), used
+  identically as the target of a `SymptomLog`, and only distinguished at the point where it
+  actually matters (edit/delete must reject anything with `userId !== req.userId`, including the
+  `null` case — covered in the next task, not this one).
+- `user User? @relation(...)` — the `?` on both the field type and the relation field itself is
+  what makes this optional; Prisma requires marking both the scalar column (`userId String?`)
+  and the relation field (`user User?`) as nullable together, not just one or the other, for a
+  genuinely optional relation.
+
+#### Why `SymptomLog → Symptom` has no `onDelete: Cascade` (unlike every other relation so far)
+
+- Every relation added in this app up to now cascades: delete the parent, its children go too
+  (`User → MoodLog`, `User → Symptom`, `User → SymptomLog` here). But `SymptomLog → Symptom` is
+  different on purpose. If a user deletes a custom symptom they created, their *historical*
+  severity logs against it shouldn't silently vanish too — that's real health-tracking history,
+  and losing it as a side effect of an unrelated cleanup action would be surprising and bad.
+  Leaving this relation at Prisma's default (`Restrict`, since no `onDelete` was specified at
+  all) means Postgres will *reject* deleting a symptom that still has logs pointing at it, rather
+  than either cascading (losing history) or leaving orphaned rows (a dangling foreign key).
+  Concretely this means: before Phase 3's `DELETE /api/symptoms/:id` can let a symptom with
+  existing logs actually be deleted, it'll need its own explicit decision (e.g. reject with a
+  clear error, or require deleting/reassigning the logs first) — deliberately left as that later
+  task's problem, not solved speculatively here.
+- System symptoms (`userId: null`) have no user row to delete in the first place, so they're
+  never affected by any user's account deletion — only the `User → Symptom` cascade (for a
+  user's *own* custom symptoms) and the `User → SymptomLog` cascade (a user's own logs) fire
+  when an account is deleted.
+
+#### The seed script: why `prisma.config.ts`'s `migrations.seed`, not `package.json`'s
+`"prisma": { "seed": ... }`
+
+- The classic Prisma seeding convention (still what most tutorials show) is a `"prisma": {
+  "seed": "ts-node prisma/seed.ts" }` block in `package.json`. This project already moved off
+  `package.json`-based Prisma configuration entirely when it adopted `prisma.config.ts` (visible
+  in that file's own `migrations.path` — the migrations folder location is configured there, not
+  in `package.json`, either). Prisma 7's own config package (`@prisma/config`) defines the
+  equivalent modern option as `migrations.seed` inside that same file — using it keeps every
+  piece of Prisma configuration in the one place this project already centralized it, rather
+  than reintroducing a second, legacy configuration surface just for this one feature.
+- `prisma/seed.ts` reuses the app's existing `prisma` singleton from `src/lib/prisma.ts` (the
+  one already wired up with the Postgres driver adapter, `PrismaPg`) instead of constructing a
+  second `PrismaClient`. This project's generated client (Prisma 7, using `@prisma/adapter-pg`)
+  requires an adapter to be passed to its constructor — calling `new PrismaClient()` with no
+  arguments, which is what most seed-script examples online show, doesn't compile against this
+  project's generated types at all. Discovered this directly: the first version of this seed
+  script did exactly that and `ts-node` refused to compile it.
+- **Idempotency.** The seed script checks `findFirst({ where: { userId: null, name } })` before
+  creating each system symptom, and skips ones that already exist, rather than assuming a clean
+  database. `name` has no uniqueness constraint at the schema level (a user is free to name their
+  own custom symptom "Headache" too, and that's a different, legitimate row) — so this check is
+  deliberately scoped to `userId: null` specifically, meaning "does this *system* symptom already
+  exist," not "does any symptom with this name exist." Verified by running the script twice in a
+  row: the second run creates nothing and prints nothing, confirmed against `psql` directly.
+
+### What was done
+
+1. **`backend/prisma/schema.prisma`.** Added `Symptom` (`id`, nullable `userId`, `name`,
+   optional `description`, `createdAt`) and `SymptomLog` (`id`, `userId`, `symptomId`,
+   `severity` as a plain `Int` — the 1–10 range is enforced by Zod in the next task, not the
+   database — optional `notes`, `loggedAt` as `@db.Timestamptz(3)`, same reasoning as `MoodLog`'s
+   timestamp). Added the reciprocal `symptoms Symptom[]` / `symptomLogs SymptomLog[]` fields on
+   `User`. Composite index `[userId, loggedAt]` on `SymptomLog` (same "filter by user, range by
+   date" pattern as `MoodLog`); single index on `Symptom.userId` (every `GET /api/symptoms`
+   query filters on it, including the `NULL` case for system symptoms).
+2. **Migration.** `npx prisma migrate dev --name add_symptom_and_symptom_log` — generated and
+   applied `20260816123743_add_symptom_and_symptom_log` against the local (isolated,
+   worktree-specific) Postgres database.
+3. **`backend/prisma/seed.ts` (new)** and **`backend/prisma.config.ts`** (added
+   `migrations.seed: "ts-node prisma/seed.ts"`). Seeds six system-default symptoms (Headache,
+   Fatigue, Nausea, Joint pain, Brain fog, Insomnia — a couple more than the three
+   `Tasks.md`/`requirements.md` name as examples, since a symptom picker with only three options
+   felt thin for a real demo). Also added `"db:seed": "prisma db seed"` to
+   `backend/package.json`'s scripts for a discoverable, explicit way to run it outside of
+   `migrate dev`/`reset`.
+4. **`npm run build`** — compiled cleanly (also regenerates the Prisma Client, adding the
+   `prisma.symptom` / `prisma.symptomLog` delegates the next task's routes will use).
+5. **`npm test`** — 38/38 passing, unchanged from the previous entry (this task adds no
+   application code, only schema + a seed script neither of which any existing test exercises).
+6. **`npx eslint .`** and **`npx prettier --check .`** — both clean.
+7. **Manual verification directly against Postgres** (not just trusting the migration/seed
+   commands' own "success" output): `psql \d symptoms` and `\d symptom_logs`, confirming exact
+   column types (`timestamp(3) with time zone` on `logged_at`, `user_id` genuinely nullable on
+   `symptoms`), both indexes, the cascading foreign keys from `users`, and the `RESTRICT` (not
+   cascade) foreign key from `symptom_logs.symptom_id` to `symptoms.id`; then `SELECT * FROM
+   symptoms` confirming all six seeded rows exist with `user_id` genuinely `NULL`.
+
+### Why it's needed
+
+Same reasoning as the `MoodLog` model entry: the symptom-logging endpoint (next task) needs
+somewhere to actually store data, with the right constraints already in place, before any API
+code is written against it. The seed step specifically is what makes `GET /api/symptoms`
+(next task) return something useful the very first time any user calls it, rather than an empty
+picker until someone manually creates symptoms.
+
+### Decisions
+
+- **Six system symptoms, not exactly the three `Tasks.md` names as examples.** "Headache,
+  Fatigue, Nausea" was explicitly worded as an example (Tasks.md: "e.g. Headache, Fatigue,
+  Nausea"), not an exhaustive list — a few more (Joint pain, Brain fog, Insomnia) makes the
+  symptom picker in the next frontend task feel like a real feature rather than a three-item
+  placeholder, without inventing an exhaustive medical taxonomy this MVP doesn't need.
+- **`Restrict`, not `Cascade`, from `SymptomLog` to `Symptom`.** Covered above — the one relation
+  in this schema so far that deliberately breaks from the "everything cascades" pattern, because
+  losing historical severity logs as a side effect of deleting a symptom definition would be a
+  real data-loss bug, not a convenience.
+- **`prisma.config.ts`'s `migrations.seed`, not `package.json`'s `"prisma"` block.** Covered
+  above — keeps Prisma configuration in the one place this project already centralized it.
+- **Reused the existing `prisma` singleton in the seed script**, rather than a second
+  `PrismaClient` instance — both because the generated client requires the adapter constructor
+  argument to even compile, and because a second client would mean two separate connection pools
+  for what's a one-shot script anyway.
+- **Stacked this branch on `main` directly, not on another in-progress branch.** Unlike the
+  `MoodLog` model (which stacked on the not-yet-merged auth-middleware branch because it needed
+  it), this task has no dependency on any other currently in-flight work — `requireAuth` is
+  already on `main`.
+
+### State at end of this step
+
+`symptoms` and `symptom_logs` exist in the local (isolated) database with the correct shape,
+constraints, and index, and `symptoms` has six real system-default rows in it. No API endpoint
+reads or writes either table yet — that's the next task.
+
+### Verification
+
+- `npm run build` — compiled cleanly.
+- `npm test` — 38/38 passing (unchanged).
+- `npx eslint .` — clean. `npx prettier --check .` — clean.
+- `psql \d symptoms` / `\d symptom_logs` against the real local database — confirmed column
+  types (including nullable `user_id` on `symptoms` and `timestamp(3) with time zone` on
+  `symptom_logs.logged_at`), both indexes, and both cascading and `RESTRICT` foreign keys
+  directly, not inferred from the migration file alone.
+- `psql SELECT * FROM symptoms` — confirmed all six seeded system symptoms present with
+  `user_id IS NULL`; re-ran the seed script a second time and confirmed (both by its silent
+  output and a repeat `SELECT`) it created no duplicates.
+
+---
