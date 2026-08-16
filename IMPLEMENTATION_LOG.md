@@ -5712,3 +5712,111 @@ matching tests on both sides and documentation updated to match. Mood is unchang
   fit in a single row without wrapping or crowding.
 
 ---
+
+## 2026-08-16 — Migrating historical energy/stress values onto the new 1–7 scale
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — a direct follow-up question on the
+previous entry: existing users had already recorded energy/stress values under the old 1–5
+scale — should those be updated to fit the new 1–7 scale, or left as originally entered?
+
+### Background / concepts
+
+#### The decision: rescale, not leave as-is
+
+- Both options were laid out plainly before doing either: leave old values untouched (honest,
+  but an old "5" — which meant *maximum* at the time — now silently reads as "5 of 7," no
+  longer the maximum, with nothing to indicate it was recorded under a different scale); or
+  proportionally rescale old values into the new range, preserving *relative* position even
+  though the exact numbers change. The choice made was to rescale — prioritizing that a
+  historical "maximum energy" entry should still *read* as maximum energy today, over
+  preserving the literal original digit.
+
+#### A real bug in this migration's own safety claim — caught by actually testing it twice
+
+- The rescale mapping is: `1→1, 2→3, 3→4, 4→6, 5→7` (endpoints and the midpoint land exactly;
+  2 and 4 need rounding, since 1–5 and 1–7 don't divide evenly, and both round up per standard
+  round-half-away-from-zero).
+- **The first version of this migration's own comment claimed it was safe to run more than
+  once.** That claim was checked directly, not just assumed — the already-applied migration's
+  `UPDATE` was run a *second* time by hand against the freshly-migrated test data, and it
+  produced *wrong* results: a row already correctly migrated to `3` shifted to `4`; a row
+  already at `4` shifted to `6`. The reason: `3` and `4` are simultaneously valid *outputs* of
+  this mapping *and* valid *inputs* to it (they're still `<=5`), so a second pass reinterprets
+  an already-migrated value as if it were still on the old scale and shifts it again.
+- **This is exactly why "add a migration" tasks in this project are always followed by
+  actually running them against real inserted data and checking the result directly** (the
+  same discipline used for every schema migration so far in this log) rather than trusting a
+  migration file's SQL to be correct by inspection alone. The comment was corrected to state
+  plainly that this migration is *not* idempotent, and that what actually prevents it from
+  running twice in practice is Prisma's own migration-tracking table
+  (`_prisma_migrations`), which records a migration as applied and never re-runs it under
+  normal `prisma migrate deploy`/`migrate dev` use — not any property of the SQL itself.
+
+#### Why this is a genuinely separate migration file, not a change to the earlier `MoodLog` one
+
+- Prisma migrations are meant to be an append-only, chronological history of exactly what
+  happened to the database and in what order — editing an already-applied migration file
+  (the original `add_mood_log` one) after the fact would rewrite history that's already been
+  applied in some environments (this local database, at least) and not in others, which is
+  precisely the kind of drift Prisma's migration system exists to prevent. A new, dedicated
+  migration — created with `npx prisma migrate dev --create-only` (which sets up the migration
+  folder and timestamp without trying to auto-generate SQL from a schema diff, since this
+  change touches data, not the schema) — is the correct, standard way to make a data change
+  like this.
+
+### What was done
+
+1. **`backend/prisma/migrations/20260816095258_rescale_energy_stress_to_1_7/migration.sql`
+   (new).** Two `UPDATE` statements (one for `energy`, one for `stress`), each a `CASE`
+   expression implementing the `1→1, 2→3, 3→4, 4→6, 5→7` mapping, `WHERE energy/stress IS NOT
+   NULL` (so rows that never recorded a value stay untouched rather than getting a fabricated
+   one).
+2. **`frontend/src/pages/DashboardPage.tsx`.** Fixed a real, separate bug this whole change
+   surfaced: the recent-entries list hard-coded `/5` after both the energy and stress values —
+   correct under the old scale, silently wrong now (a freshly-logged `7` would have displayed
+   as "Energy 7/5"). Changed to `/7` for both.
+3. **Manual verification against real inserted data, not just reading the SQL.** Inserted six
+   test rows directly into the local database covering every old-scale value (`1` through `5`)
+   plus a `NULL` case, applied the migration (`prisma migrate dev`), and queried the result —
+   confirmed the exact expected mapping (`1,3,4,6,7,NULL`). Then re-ran the same `UPDATE` a
+   second time by hand specifically to check for the non-idempotency problem described above —
+   which is how it was actually caught, not guessed at. Cleaned up all test rows and the test
+   user afterward.
+4. **`npm run build`, `npm test` (34/34, unchanged), `npx eslint .`, `npx prettier --check .`**
+   — all clean (this migration doesn't change any application code, only historical data).
+
+### Why it's needed
+
+Without this, every energy/stress value a real user had already recorded before this change
+would have a meaning that quietly shifted underneath them — the exact "5 no longer means
+maximum" problem described above — for a health-tracking app where an honest, comparable
+history over time is the entire point.
+
+### Decisions
+
+- **Rescale rather than leave as-is** — covered above; chosen so a historical "maximum" entry
+  still reads as maximum today, which matters more here than preserving the literal old digit.
+- **A new migration file, not editing the old one** — standard Prisma practice, and the only
+  way to make a data-only change without rewriting already-applied history.
+- **Documented the non-idempotency explicitly in the migration's own comment**, once the
+  double-run test revealed the first draft's claim was wrong, rather than leaving a
+  confidently-stated but incorrect safety claim for a future reader to trust.
+
+### State at end of this step
+
+Once this migration reaches production (via the same automatic `prisma migrate deploy` step
+already covered in an earlier deployment entry), every pre-existing `mood_logs` row's
+`energy`/`stress` values will be rescaled exactly once, automatically, at deploy time — with no
+window where old and new data coexist under different scales, since the dashboard fix and this
+migration are both part of the same not-yet-merged PR.
+
+### Verification
+
+- Inserted real test data covering every old-scale value directly into the local database,
+  applied the migration, and confirmed the exact expected output by querying it back.
+- Explicitly tested running the migration's logic a second time to check for (and find, and
+  document) a non-idempotency issue — not just assumed safe.
+- `npm run build`, `npm test` (34/34), `npx eslint .`, `npx prettier --check .` — all clean.
+- All test data and the test user cleaned up afterward.
+
+---
