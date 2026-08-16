@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { apiFetch } from "../api/client";
 import { Button } from "./Button";
 
@@ -107,8 +107,20 @@ export function MoodEntryForm({ onSaved, onCancel }: MoodEntryFormProps) {
         )}
       </fieldset>
 
-      <RatingRow label="Energy (optional)" value={energy} onChange={setEnergy} />
-      <RatingRow label="Stress (optional)" value={stress} onChange={setStress} />
+      <RatingRow
+        label="Energy (optional)"
+        value={energy}
+        onChange={setEnergy}
+        lowLabel="No energy"
+        highLabel="Maximum energy"
+      />
+      <RatingRow
+        label="Stress (optional)"
+        value={stress}
+        onChange={setStress}
+        lowLabel="No stress"
+        highLabel="Maximum stress"
+      />
 
       <div className="flex flex-col gap-1">
         <label htmlFor="mood-notes" className="text-sm font-medium text-text">
@@ -158,15 +170,26 @@ function RatingRow({
   label,
   value,
   onChange,
+  lowLabel,
+  highLabel,
 }: {
   label: string;
   value: number | null;
   onChange: (value: number | null) => void;
+  lowLabel: string;
+  highLabel: string;
 }) {
+  const descriptionId = useId();
+
   return (
     <fieldset>
       <legend className="text-sm font-medium text-text">{label}</legend>
-      <div className="mt-2 flex gap-2" role="radiogroup" aria-label={label}>
+      <div
+        className="mt-2 flex gap-2"
+        role="radiogroup"
+        aria-label={label}
+        aria-describedby={descriptionId}
+      >
         {RATING_VALUES.map((n) => (
           <button
             key={n}
@@ -184,6 +207,9 @@ function RatingRow({
           </button>
         ))}
       </div>
+      <p id={descriptionId} className="mt-1 text-xs text-text-muted">
+        1 = {lowLabel} · 5 = {highLabel}
+      </p>
     </fieldset>
   );
 }
