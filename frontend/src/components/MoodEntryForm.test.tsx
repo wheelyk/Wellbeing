@@ -77,8 +77,21 @@ describe("MoodEntryForm", () => {
   it("explains what each end of the energy and stress scales means", () => {
     render(<MoodEntryForm onSaved={vi.fn()} onCancel={vi.fn()} />);
 
-    expect(screen.getByText("1 = No energy · 5 = Maximum energy")).toBeInTheDocument();
-    expect(screen.getByText("1 = No stress · 5 = Maximum stress")).toBeInTheDocument();
+    expect(screen.getByText("1 = No energy · 7 = Maximum energy")).toBeInTheDocument();
+    expect(screen.getByText("1 = No stress · 7 = Maximum stress")).toBeInTheDocument();
+  });
+
+  it("offers energy/stress ratings 1 through 7, with a true midpoint at 4", async () => {
+    const user = userEvent.setup();
+    render(<MoodEntryForm onSaved={vi.fn()} onCancel={vi.fn()} />);
+
+    const energyGroup = screen.getByRole("radiogroup", { name: "Energy (optional)" });
+    const options = within(energyGroup).getAllByRole("radio");
+    expect(options.map((o) => o.textContent)).toEqual(["1", "2", "3", "4", "5", "6", "7"]);
+
+    const midpoint = within(energyGroup).getByText("4");
+    await user.click(midpoint);
+    expect(midpoint).toHaveAttribute("aria-checked", "true");
   });
 
   it("calls onCancel when Cancel is clicked", async () => {

@@ -20,7 +20,10 @@ const MOOD_OPTIONS: Array<{ value: number; emoji: string; label: string }> = [
   { value: 5, emoji: "😄", label: "Great" },
 ];
 
-const RATING_VALUES = [1, 2, 3, 4, 5];
+// One point past mood's 1-5 range so a true midpoint (4) exists for "neither low nor high" -
+// a 1-5 or 1-6 range either lacks that clean center or offers too little granularity, per real
+// user feedback on the original 1-5 scale.
+const ENERGY_STRESS_VALUES = [1, 2, 3, 4, 5, 6, 7];
 
 // Formats a Date as the value a <input type="datetime-local"> expects (local time,
 // "YYYY-MM-DDTHH:mm") - the input has no concept of timezones, it just shows/edits
@@ -190,7 +193,7 @@ function RatingRow({
         aria-label={label}
         aria-describedby={descriptionId}
       >
-        {RATING_VALUES.map((n) => (
+        {ENERGY_STRESS_VALUES.map((n) => (
           <button
             key={n}
             type="button"
@@ -208,7 +211,7 @@ function RatingRow({
         ))}
       </div>
       <p id={descriptionId} className="mt-1 text-xs text-text-muted">
-        1 = {lowLabel} · 5 = {highLabel}
+        1 = {lowLabel} · {ENERGY_STRESS_VALUES[ENERGY_STRESS_VALUES.length - 1]} = {highLabel}
       </p>
     </fieldset>
   );
