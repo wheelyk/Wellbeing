@@ -3,6 +3,8 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import { authRouter } from "./routes/auth";
 import { moodLogsRouter } from "./routes/moodLogs";
+import { medicationsRouter } from "./routes/medications";
+import { medicationLogsRouter } from "./routes/medicationLogs";
 import { symptomsRouter } from "./routes/symptoms";
 import { symptomLogsRouter } from "./routes/symptomLogs";
 import { requireAuth } from "./middleware/requireAuth";
@@ -22,6 +24,8 @@ export function createApp(): Express {
 
   app.use("/api/auth", authRouter);
   app.use("/api/mood-logs", requireAuth, moodLogsRouter);
+  app.use("/api/medications", requireAuth, medicationsRouter);
+  app.use("/api/medication-logs", requireAuth, medicationLogsRouter);
   app.use("/api/symptoms", requireAuth, symptomsRouter);
   app.use("/api/symptom-logs", requireAuth, symptomLogsRouter);
 
