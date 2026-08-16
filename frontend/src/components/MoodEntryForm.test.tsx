@@ -74,6 +74,13 @@ describe("MoodEntryForm", () => {
     expect(await screen.findByText(/something went wrong saving your mood/i)).toBeInTheDocument();
   });
 
+  it("explains what each end of the energy and stress scales means", () => {
+    render(<MoodEntryForm onSaved={vi.fn()} onCancel={vi.fn()} />);
+
+    expect(screen.getByText("1 = No energy · 5 = Maximum energy")).toBeInTheDocument();
+    expect(screen.getByText("1 = No stress · 5 = Maximum stress")).toBeInTheDocument();
+  });
+
   it("calls onCancel when Cancel is clicked", async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();
