@@ -90,6 +90,7 @@ Users must be able to:
 -   Log in.
 -   Log out.
 -   Refresh an expired access token using a refresh token.
+-   Change their password while logged in, by providing their current password and a new one.
 -   Request a password reset by email.
 -   Complete a password reset.
 -   View their profile.
