@@ -5521,7 +5521,93 @@ in theory.
   before writing any fix: `/` → `200`, `/login` / `/register` / `/dashboard` → `404`.
 - `npm run build` — compiled cleanly (this change doesn't touch application code, only hosting
   config, so no behavior change expected here — confirmed).
-- Pending: re-running the same `curl` checks against the deployed fix once it's live, to
-  confirm `/login`/`/register`/`/dashboard` now return `200` for real, not just in theory.
+- **Confirmed fixed on real production**, after this PR merged: `curl` against
+  `https://wellbeing-blue.vercel.app/dashboard` and `/login` both now return `200` (previously
+  `404`), verified directly rather than assumed from the merge alone.
+
+---
+
+## 2026-08-16 — Clarifying what 1 and 5 mean on the energy/stress scales
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — direct feedback from a real user of the
+mood entry form: the energy and stress number scales (1–5) had no indication of which end was
+"low" and which was "high," so it wasn't obvious whether `1` meant "no energy" or "very
+energetic."
+
+### Background / concepts
+
+#### Why a plain 1–5 number scale is ambiguous without labels
+
+- The mood scale right above it doesn't have this problem — each button already carries an
+  emoji *and* a word (`😞` "Bad" up to `😄` "Great"), so the direction is obvious without
+  thinking about it. The energy/stress rows only ever showed bare digits, which carry no
+  inherent direction on their own — nothing about the numeral `1` says whether it's the low end
+  or the high end of the scale it's part of. This is exactly the kind of gap that's invisible
+  to whoever built the form (the direction was obvious *to me*, because I knew what I intended)
+  but genuinely unclear to a first-time user with no other context — precisely why real user
+  feedback caught it and automated testing/code review didn't.
+- **Energy and stress can't share one fixed label pair, either.** For energy, `5` (maximum) is
+  the "good" end; for stress, `5` (maximum) is the "bad" end. A single generic caption like
+  "1 = Low, 5 = High" would technically be accurate for both but wouldn't actually resolve the
+  ambiguity the feedback was about — the fix needed to spell out what "low" and "high" concretely
+  *mean* for each specific scale.
+
+#### The fix, and how it's wired for accessibility too
+
+- `RatingRow` (the shared component behind both the energy and stress rows in
+  `MoodEntryForm.tsx`) now takes two new props, `lowLabel` and `highLabel`, and renders a small
+  line of muted text underneath the buttons: `1 = No energy · 5 = Maximum energy` for the
+  energy row, `1 = No stress · 5 = Maximum stress` for the stress row.
+- That text isn't just visual. It's given an `id` (via React's `useId()`, which generates a
+  unique, stable ID per component instance without hand-writing one) and wired to the
+  radiogroup above it with `aria-describedby` — this is how a screen reader knows that
+  paragraph is *describing* the control above it, not just unrelated nearby text, so a
+  screen-reader user hears the same clarification a sighted user now sees.
+
+### What was done
+
+1. **`frontend/src/components/MoodEntryForm.tsx`.** Added `lowLabel`/`highLabel` props to
+   `RatingRow`; energy passes `"No energy"`/`"Maximum energy"`, stress passes `"No
+   stress"`/`"Maximum stress"`. Rendered as a `text-xs text-text-muted` line beneath each
+   button row, connected to the radiogroup via `aria-describedby`.
+2. **Test.** Added a case asserting both caption strings render.
+3. **`npm test`** — 19/19 passing (18 pre-existing, 1 new).
+4. **`npm run build`**, **`npm run lint`** (`oxlint` — clean, same one pre-existing unrelated
+   `AuthContext.tsx` warning as before), **`npx prettier --check .`** — all clean.
+5. **Real browser check**, per this project's UI-change testing habit: started the actual
+   backend and frontend dev servers, registered a fresh user with Playwright, opened the mood
+   form, and took a screenshot — confirmed both caption lines render exactly as intended,
+   directly under their respective scales. Cleaned up the test user and stopped both servers
+   afterward.
+
+### Why it's needed
+
+The scale was already functionally correct — nothing was broken — but a control a real user
+can't confidently interpret is a genuine usability defect for a wellness-tracking app
+specifically, where the whole point is recording an accurate, meaningful number. This is also
+a good example of feedback that no amount of automated testing would ever have caught, since
+the tests (reasonably) already know what `1` and `5` are supposed to mean.
+
+### Decisions
+
+- **Per-scale labels, not a shared generic caption.** Covered above — "low/high" alone
+  wouldn't have actually resolved the reported confusion.
+- **Text under the buttons, not inside/on them.** Keeps the buttons themselves clean and large
+  (already sized for easy tapping), while still placing the clarification immediately adjacent
+  and impossible to miss, rather than, e.g., a tooltip that requires an extra interaction to
+  discover.
+
+### State at end of this step
+
+Both the energy and stress scales now clearly state what each end of the range means, for
+sighted and screen-reader users alike. No API or data shape changes — this is purely a
+frontend clarity fix.
+
+### Verification
+
+- `npm test` — 19/19 passing.
+- `npm run build`, `npm run lint`, `npx prettier --check .` — all clean.
+- Real headless-browser screenshot confirming both caption lines render correctly under their
+  respective scales.
 
 ---
