@@ -18,9 +18,13 @@ model User {
   timezone     String   @default("UTC")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  moodLogs  MoodLog[]
-  habits    Habit[]
-  habitLogs HabitLog[]
+  moodLogs       MoodLog[]
+  habits         Habit[]
+  habitLogs      HabitLog[]
+  medications    Medication[]
+  medicationLogs MedicationLog[]
+  symptoms       Symptom[]
+  symptomLogs    SymptomLog[]
 
   @@map("users")
 }
@@ -102,4 +106,96 @@ model HabitLog {
   // Supports "this habit's log history" lookups (e.g. a per-habit detail/trend view).
   @@index([habitId, loggedAt])
   @@map("habit_logs")
+}
+
+// A user's own list of medications they take (e.g. "Ibuprofen", "Vitamin D") - just the name,
+// not dosage/schedule, matching requirements §6.3's scope for the MVP. Each MedicationLog below
+// points back at one of these to record whether it was taken on a given occasion.
+model Medication {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs MedicationLog[]
+
+  // Every "list my medications" query filters by user; logs additionally query by medication,
+  // so this index covers the "does this user own this medication" ownership check used before
+  // any medication-log write (the ID-tampering defense described on MedicationLog below).
+  @@index([userId])
+  @@map("medications")
+}
+
+model MedicationLog {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  medicationId String   @map("medication_id")
+  taken        Boolean
+  notes        String?
+  loggedAt     DateTime @default(now()) @map("logged_at") @db.Timestamptz(3)
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  medication Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+
+  // Denormalized userId (in addition to the medicationId relation) rather than joining through
+  // Medication for every read - the same shape MoodLog uses, and it's what lets a "list my
+  // medication logs" query filter directly on this table instead of joining out to Medication
+  // first. The application layer still independently verifies medicationId belongs to userId
+  // before every write (see routes/medicationLogs.ts) - this column is not, on its own, a
+  // substitute for that check, since nothing here stops userId and the medication's own owner
+  // from disagreeing unless the application enforces it.
+  @@index([userId, loggedAt])
+  @@index([medicationId])
+  @@map("medication_logs")
+}
+
+// A symptom a user can log against. `userId` is nullable specifically to represent two
+// different kinds of row in the same table: a system-default symptom (e.g. "Headache",
+// seeded once, available to every user, `userId` null) versus a user's own custom symptom
+// (e.g. "Joint pain," `userId` set to whoever created it). Every symptom-log write must
+// verify the symptom it references is one of these two cases for the calling user -
+// enforced in the symptom-logs routes, not here at the schema level.
+model Symptom {
+  id          String   @id @default(uuid())
+  userId      String?  @map("user_id")
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // onDelete: Cascade here means deleting a user also deletes any custom symptoms they
+  // created - consistent with the account-deletion requirement (Phase 2) that removing a
+  // user removes everything they own. System symptoms (userId null) have no user row to
+  // cascade from, so they're unaffected by any user's deletion.
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  symptomLogs SymptomLog[]
+
+  // Every "list my symptoms" query (GET /api/symptoms) filters on userId (including the
+  // NULL case for system symptoms), so this index keeps that lookup fast as the symptom
+  // list grows across many users.
+  @@index([userId])
+  @@map("symptoms")
+}
+
+model SymptomLog {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  symptomId String   @map("symptom_id")
+  severity  Int
+  notes     String?
+  loggedAt  DateTime @default(now()) @map("logged_at") @db.Timestamptz(3)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // No onDelete: Cascade from Symptom - a symptom (especially a user's own custom one)
+  // being deleted shouldn't silently destroy the user's historical severity logs against
+  // it. Restrict is Prisma's default for a relation with no onDelete specified, and it's
+  // the right choice here: deleting a symptom that still has logs against it fails at the
+  // database level rather than either cascading (losing history) or leaving orphaned rows.
+  symptom Symptom @relation(fields: [symptomId], references: [id])
+
+  // Same reasoning as MoodLog's composite index: every dashboard/history/trends query
+  // filters by user and orders/ranges by date together.
+  @@index([userId, loggedAt])
+  @@map("symptom_logs")
 }

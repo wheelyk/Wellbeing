@@ -5,6 +5,12 @@ import { Button } from "../components/Button";
 import { MoodEntryForm, type MoodLog } from "../components/MoodEntryForm";
 import { HabitCreateForm, type Habit } from "../components/HabitCreateForm";
 import { HabitEntryForm, type HabitLog } from "../components/HabitEntryForm";
+import {
+  MedicationEntryForm,
+  type Medication,
+  type MedicationLog,
+} from "../components/MedicationEntryForm";
+import { SymptomEntryForm, type Symptom, type SymptomLog } from "../components/SymptomEntryForm";
 import { apiFetch } from "../api/client";
 
 const MOOD_EMOJI: Record<number, string> = { 1: "😞", 2: "😕", 3: "😐", 4: "🙂", 5: "😄" };
@@ -47,6 +53,18 @@ export function DashboardPage() {
 
   const habitsById = useMemo(() => new Map(habits.map((h) => [h.id, h])), [habits]);
 
+  const [medications, setMedications] = useState<Medication[]>([]);
+  const [medicationLogs, setMedicationLogs] = useState<MedicationLog[]>([]);
+  const [medicationLoading, setMedicationLoading] = useState(true);
+  const [medicationLoadError, setMedicationLoadError] = useState(false);
+  const [showMedicationForm, setShowMedicationForm] = useState(false);
+
+  const [symptoms, setSymptoms] = useState<Symptom[]>([]);
+  const [symptomLogs, setSymptomLogs] = useState<SymptomLog[]>([]);
+  const [symptomsLoading, setSymptomsLoading] = useState(true);
+  const [showSymptomForm, setShowSymptomForm] = useState(false);
+  const [symptomLoadError, setSymptomLoadError] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     apiFetch<MoodLog[]>("/api/mood-logs")
@@ -78,6 +96,54 @@ export function DashboardPage() {
       })
       .finally(() => {
         if (!cancelled) setHabitsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Fetched together because the log list needs each medication's name to display
+    // (MedicationLog only stores medicationId), and both are needed before the list can
+    // render meaningfully.
+    Promise.all([
+      apiFetch<Medication[]>("/api/medications"),
+      apiFetch<MedicationLog[]>("/api/medication-logs"),
+    ])
+      .then(([meds, logs]) => {
+        if (cancelled) return;
+        setMedications(meds);
+        setMedicationLogs(logs);
+      })
+      .catch(() => {
+        if (!cancelled) setMedicationLoadError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setMedicationLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Fetched together: the symptom picker inside SymptomEntryForm and the recent-entries
+    // list below both need the full symptom list (to resolve a log's symptomId to a display
+    // name), so one Promise.all keeps them from racing independently or briefly disagreeing.
+    Promise.all([apiFetch<Symptom[]>("/api/symptoms"), apiFetch<SymptomLog[]>("/api/symptom-logs")])
+      .then(([symptomsRes, symptomLogsRes]) => {
+        if (!cancelled) {
+          setSymptoms(symptomsRes);
+          setSymptomLogs(symptomLogsRes);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSymptomLoadError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setSymptomsLoading(false);
       });
     return () => {
       cancelled = true;
@@ -125,15 +191,59 @@ export function DashboardPage() {
     }
   }
 
+  function handleMedicationSaved(log: MedicationLog, medication: Medication) {
+    setMedicationLogs((prev) => [log, ...prev]);
+    // The medication may have just been created inline within the form (a user with no
+    // medications yet adding their first one) - fold it into local state instead of
+    // re-fetching, so the log list can immediately show its name.
+    setMedications((prev) =>
+      prev.some((m) => m.id === medication.id) ? prev : [...prev, medication],
+    );
+    setShowMedicationForm(false);
+  }
+
+  async function handleDeleteMedicationLog(id: string) {
+    const previous = medicationLogs;
+    setMedicationLogs((prev) => prev.filter((log) => log.id !== id));
+    try {
+      await apiFetch(`/api/medication-logs/${id}`, { method: "DELETE" });
+    } catch {
+      setMedicationLogs(previous);
+    }
+  }
+
+  const medicationNameById = new Map(
+    medications.map((medication) => [medication.id, medication.name]),
+  );
+
+  function handleSymptomSaved(log: SymptomLog) {
+    setSymptomLogs((prev) => [log, ...prev]);
+    setShowSymptomForm(false);
+  }
+
+  async function handleSymptomDelete(id: string) {
+    const previous = symptomLogs;
+    setSymptomLogs((prev) => prev.filter((log) => log.id !== id));
+    try {
+      await apiFetch(`/api/symptom-logs/${id}`, { method: "DELETE" });
+    } catch {
+      setSymptomLogs(previous);
+    }
+  }
+
+  function symptomName(symptomId: string): string {
+    return symptoms.find((s) => s.id === symptomId)?.name ?? "Unknown symptom";
+  }
+
   return (
     <div className="min-h-screen bg-surface-muted">
       <NavBar />
       <main className="mx-auto max-w-3xl px-4 py-8">
         <h1 className="text-2xl font-semibold text-text">Welcome, {user?.displayName}</h1>
         <p className="mt-2 text-text-muted">
-          You&apos;re logged in as {user?.email}. The full dashboard (today&apos;s summary, streak,
-          all four log types) is built in a later phase — this is the first real feature: mood
-          logging.
+          You&apos;re logged in as {user?.email}. The full dashboard (today&apos;s summary, streak)
+          is built in a later phase — all four log types (mood, symptoms, medications, habits) are
+          wired up here.
         </p>
 
         <section className="mt-6">
@@ -267,6 +377,121 @@ export function DashboardPage() {
                 </li>
               );
             })}
+          </ul>
+        </section>
+
+        <section className="mt-8">
+          {showMedicationForm ? (
+            <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold text-text">Log a medication</h2>
+              <MedicationEntryForm
+                onSaved={handleMedicationSaved}
+                onCancel={() => setShowMedicationForm(false)}
+              />
+            </div>
+          ) : (
+            <Button onClick={() => setShowMedicationForm(true)}>+ Medication</Button>
+          )}
+        </section>
+
+        <section className="mt-8">
+          <h2 className="mb-3 text-lg font-semibold text-text">Recent medications</h2>
+          {medicationLoading && <p className="text-text-muted">Loading…</p>}
+          {medicationLoadError && (
+            <p role="alert" className="text-danger">
+              Couldn&apos;t load your medications. Please try refreshing.
+            </p>
+          )}
+          {!medicationLoading && !medicationLoadError && medicationLogs.length === 0 && (
+            <p className="text-text-muted">
+              Nothing logged yet — use the button above to record a medication.
+            </p>
+          )}
+          <ul className="flex flex-col gap-2">
+            {medicationLogs.map((log) => (
+              <li
+                key={log.id}
+                className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl" aria-hidden="true">
+                    {log.taken ? "✅" : "❌"}
+                  </span>
+                  <div>
+                    <p className="text-text">
+                      {medicationNameById.get(log.medicationId) ?? "Medication"} —{" "}
+                      {log.taken ? "Taken" : "Not taken"}
+                    </p>
+                    {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
+                    <p className="text-xs text-text-muted">
+                      {new Date(log.loggedAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={() => handleDeleteMedicationLog(log.id)}
+                  aria-label={`Delete medication entry from ${new Date(log.loggedAt).toLocaleString()}`}
+                >
+                  Delete
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="mt-8">
+          {showSymptomForm ? (
+            <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold text-text">Log a symptom</h2>
+              <SymptomEntryForm
+                symptoms={symptoms}
+                onSaved={handleSymptomSaved}
+                onCancel={() => setShowSymptomForm(false)}
+              />
+            </div>
+          ) : (
+            <Button onClick={() => setShowSymptomForm(true)}>+ Symptom</Button>
+          )}
+        </section>
+
+        <section className="mt-8">
+          <h2 className="mb-3 text-lg font-semibold text-text">Recent symptom entries</h2>
+          {symptomsLoading && <p className="text-text-muted">Loading…</p>}
+          {symptomLoadError && (
+            <p role="alert" className="text-danger">
+              Couldn&apos;t load your symptom entries. Please try refreshing.
+            </p>
+          )}
+          {!symptomsLoading && !symptomLoadError && symptomLogs.length === 0 && (
+            <p className="text-text-muted">
+              Nothing logged yet — use the button above to record a symptom.
+            </p>
+          )}
+          <ul className="flex flex-col gap-2">
+            {symptomLogs.map((log) => (
+              <li
+                key={log.id}
+                className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm"
+              >
+                <div>
+                  <p className="text-text">
+                    {symptomName(log.symptomId)} · Severity {log.severity}/10
+                  </p>
+                  {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
+                  <p className="text-xs text-text-muted">
+                    {new Date(log.loggedAt).toLocaleString()}
+                  </p>
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={() => handleSymptomDelete(log.id)}
+                  aria-label={`Delete symptom entry from ${new Date(log.loggedAt).toLocaleString()}`}
+                >
+                  Delete
+                </Button>
+              </li>
+            ))}
           </ul>
         </section>
       </main>
