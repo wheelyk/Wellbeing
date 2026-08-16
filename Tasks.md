@@ -68,7 +68,7 @@ Reference: requirements §6, §12.
 - [ ] `GET/POST/PATCH/DELETE /api/symptom-logs` — full CRUD, scoped to the authenticated user; validate `severity` is an integer 1–10.
 
 ### Mood
-- [x] `GET/POST/PATCH/DELETE /api/mood-logs` — full CRUD, scoped to the authenticated user; validate `mood` 1–5, `energy`/`stress` 1–5 when present.
+- [x] `GET/POST/PATCH/DELETE /api/mood-logs` — full CRUD, scoped to the authenticated user; validate `mood` 1–5, `energy`/`stress` 1–7 when present (widened from 1–5 after user feedback — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)).
 
 ### Medications
 - [ ] `GET/POST/PATCH/DELETE /api/medications` — manage the user's medication list.
@@ -135,7 +135,7 @@ Reference: requirements §6, §8.
 
 - [ ] Build the Quick Add entry point (modal or dedicated page) shared by all four log types, clearly labelling what is being logged.
 - [ ] Symptom entry form: symptom picker, large 1–10 severity control, optional notes, date/time picker (defaults to now), Save/Cancel.
-- [x] Mood entry form: 5 large emoji/visual mood buttons, optional energy (1–5) and stress (1–5) controls, optional notes, date/time picker, `Save Entry` button — matching the wireframe.
+- [x] Mood entry form: 5 large emoji/visual mood buttons, optional energy (1–7) and stress (1–7) controls, optional notes, date/time picker, `Save Entry` button — matching the wireframe.
 - [ ] Medication entry form: medication picker (or quick "mark as taken/not taken"), optional notes, date/time picker.
 - [ ] Habit entry form: input control adapts to habit type (toggle for boolean, number input for numeric, duration input for duration), date/time picker.
 - [ ] Client-side validation before submit (required fields, value ranges), with clear inline error messages — no silent failures.

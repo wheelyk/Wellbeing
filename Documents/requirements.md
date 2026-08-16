@@ -171,8 +171,8 @@ illustrated emoji scale:
 
 Users may optionally record:
 
--   Energy level from 1--5.
--   Stress level from 1--5.
+-   Energy level from 1--7.
+-   Stress level from 1--7.
 -   Notes.
 
 The mood entry must support:

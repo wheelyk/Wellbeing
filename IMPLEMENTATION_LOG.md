@@ -5611,3 +5611,104 @@ frontend clarity fix.
   respective scales.
 
 ---
+
+## 2026-08-16 — Widening energy/stress from 1–5 to 1–7, after more user feedback
+
+**Task:** Not a [Tasks.md](Tasks.md) checklist item — follow-up feedback on the previous
+entry's fix: could the energy/stress scales offer more resolution than 1–5? This turned into a
+short design discussion (captured here for the reasoning, not just the result) before landing
+on 1–7 specifically, rather than the originally-suggested 1–10.
+
+### Background / concepts
+
+#### Why not just jump straight to 1–10, and why not a slider
+
+- **A slider was considered and rejected.** For a self-report health scale used on a phone,
+  a slider (`<input type="range">`) is generally a *worse* accessibility choice than discrete
+  buttons, not a better one: it's hard to land on an exact value with a fingertip (there's no
+  natural "snap" to a specific number the way a button has a fixed, unambiguous hit target),
+  and it's less immediately clear to a screen-reader user what's currently selected compared to
+  a labeled button with `aria-checked`. The large, discrete-button pattern already in place
+  (matching `requirements.md`'s own call for "large, easy-to-select visual controls") stayed.
+- **1–10 was considered and also rejected, in favor of 1–7.** Two independent reasons pointed
+  the same direction:
+  - **Layout:** doubling the current 5 buttons to 10 would either force them below a
+    comfortable tap-target size or wrap onto a second row on a narrow phone screen — working
+    directly against the "large, easy-to-select" goal the extra resolution was meant to serve.
+    7 buttons, by contrast, fit the same single-row layout at the same comfortable size
+    (confirmed directly — see *Verification*).
+  - **A genuine midpoint.** This was the deciding factor, discussed directly before making the
+    change: an *odd*-sized scale has a true center value representing "neither low nor high" —
+    1–5's center is 3, 1–7's is 4. An *even*-sized scale (1–6, or 1–10 for that matter, doesn't
+    center cleanly either — its "middle" falls between two values, 5 and 6, with neither one
+    truly representing "neutral") doesn't offer that, which would arguably make the scale
+    *harder* to use meaningfully, not easier, despite offering more raw options. 1–7 was chosen
+    specifically because it keeps a clean midpoint while still resolving the original "not
+    enough resolution" feedback — a well-established scale size for exactly this kind of
+    subjective self-rating (7-point Likert-style scales are a standard, validated choice in
+    survey design for this reason).
+- **Mood itself stays at 1–5, unchanged.** The feedback and this whole discussion was
+  specifically about energy/stress, which only ever had bare numbers. Mood already pairs each
+  option with an emoji and a word (`😞` "Bad" through `😄` "Great"), so it doesn't have the
+  ambiguity problem the previous entry's fix and this widening are both addressing.
+
+### What was done
+
+1. **Backend (`moodLogs.ts`).** Split the single shared `ratingField` Zod schema into
+   `moodField` (unchanged, 1–5) and a new `energyStressField` (1–7), applied to `energy` and
+   `stress` only.
+2. **Tests.** Updated the existing out-of-range test to also cover the new upper bound (`energy:
+   8` now correctly rejected, `energy: 0` still correctly rejected); added a case confirming
+   `energy: 7`/`stress: 6` are accepted — values that would have been rejected under the old
+   1–5 range.
+3. **Frontend (`MoodEntryForm.tsx`).** Renamed and widened the shared rating-values array
+   (`RATING_VALUES` → `ENERGY_STRESS_VALUES`, now `[1..7]`); the caption text ("`1 = No energy ·
+   7 = Maximum energy`") now reads its upper bound directly from that array instead of a
+   hard-coded `5`, so the two can never silently drift apart again.
+4. **Tests.** Updated the caption-text assertions to expect `7` instead of `5`; added a test
+   confirming all seven options render in order and that the new midpoint (4) is genuinely
+   selectable (asserting `aria-checked` toggles on click).
+5. **Docs.** Updated both `requirements.md` (§6.2: "Energy level from 1–7," "Stress level from
+   1–7") and the two relevant `Tasks.md` checklist items' wording, so both stay accurate to the
+   app's real, current behavior rather than describing the original 1–5 design after it changed.
+6. **Full verification, both projects:** backend — `npm run build`, `npm test` (34/34, 1 new),
+   `npx eslint .`, `npx prettier --check .`, all clean. Frontend — `npm test` (20/20, 2 new),
+   `npm run build`, `npm run lint` (`oxlint`, same one pre-existing unrelated warning as
+   before), `npx prettier --check .`, all clean.
+7. **Real browser check at a deliberately narrow mobile width (375px, iPhone SE-class — the
+   narrowest common target)**, specifically to confirm the layout concern from the earlier
+   design discussion: all 7 energy buttons render in a single row, comfortably sized, with no
+   wrapping or crowding — confirming the prediction rather than just assuming it.
+
+### Why it's needed
+
+Directly addresses real, follow-up user feedback — the previous entry's fix (labeling what 1
+and 5 meant) made the existing scale *clearer*, but the actual complaint underneath it was that
+5 points didn't feel expressive enough. This closes that loop with a scale that's both more
+expressive and, thanks to the genuine midpoint, arguably easier to reason about than the
+naively-larger 1–10 alternative would have been.
+
+### Decisions
+
+- **1–7, not 1–10 or 1–6.** Covered in detail above — the midpoint argument and the mobile
+  layout constraint both independently pointed at the same answer.
+- **Buttons, not a slider.** Covered above — sliders are a real accessibility downgrade for
+  this kind of precise, discrete self-rating, not an upgrade.
+- **Mood left untouched at 1–5.** The reported problem was specific to the unlabeled,
+  ambiguous number rows; mood's emoji+word buttons were never part of the complaint.
+
+### State at end of this step
+
+Energy and stress now accept 1–7 end to end — validated server-side, offered client-side, with
+matching tests on both sides and documentation updated to match. Mood is unchanged at 1–5.
+
+### Verification
+
+- Backend: `npm run build`, `npm test` (34/34), `npx eslint .`, `npx prettier --check .` — all
+  clean.
+- Frontend: `npm test` (20/20), `npm run build`, `npm run lint`, `npx prettier --check .` — all
+  clean.
+- Real headless-browser screenshot at a 375px mobile viewport width, confirming all 7 buttons
+  fit in a single row without wrapping or crowding.
+
+---
