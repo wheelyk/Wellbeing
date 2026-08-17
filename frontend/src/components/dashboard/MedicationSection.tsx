@@ -9,6 +9,9 @@ export function MedicationSection() {
   const [medicationLoading, setMedicationLoading] = useState(true);
   const [medicationLoadError, setMedicationLoadError] = useState(false);
   const [showMedicationForm, setShowMedicationForm] = useState(false);
+  // Reuses the same showMedicationForm area both create and edit render into - see
+  // MoodSection's identical editingLog state for the full explanation.
+  const [editingLog, setEditingLog] = useState<MedicationLog | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,7 +39,10 @@ export function MedicationSection() {
   }, []);
 
   function handleMedicationSaved(log: MedicationLog, medication: Medication) {
-    setMedicationLogs((prev) => [log, ...prev]);
+    setMedicationLogs((prev) => {
+      const isEdit = prev.some((l) => l.id === log.id);
+      return isEdit ? prev.map((l) => (l.id === log.id ? log : l)) : [log, ...prev];
+    });
     // The medication may have just been created inline within the form (a user with no
     // medications yet adding their first one) - fold it into local state instead of
     // re-fetching, so the log list can immediately show its name.
@@ -44,6 +50,17 @@ export function MedicationSection() {
       prev.some((m) => m.id === medication.id) ? prev : [...prev, medication],
     );
     setShowMedicationForm(false);
+    setEditingLog(null);
+  }
+
+  function handleMedicationEdit(log: MedicationLog) {
+    setEditingLog(log);
+    setShowMedicationForm(true);
+  }
+
+  function handleMedicationFormCancel() {
+    setShowMedicationForm(false);
+    setEditingLog(null);
   }
 
   async function handleDeleteMedicationLog(id: string) {
@@ -69,14 +86,25 @@ export function MedicationSection() {
       <section className="mt-8">
         {showMedicationForm ? (
           <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-semibold text-text">Log a medication</h2>
+            <h2 className="mb-4 text-lg font-semibold text-text">
+              {editingLog ? "Edit medication entry" : "Log a medication"}
+            </h2>
             <MedicationEntryForm
+              key={editingLog?.id ?? "create"}
+              editingLog={editingLog}
               onSaved={handleMedicationSaved}
-              onCancel={() => setShowMedicationForm(false)}
+              onCancel={handleMedicationFormCancel}
             />
           </div>
         ) : (
-          <Button onClick={() => setShowMedicationForm(true)}>+ Medication</Button>
+          <Button
+            onClick={() => {
+              setEditingLog(null);
+              setShowMedicationForm(true);
+            }}
+          >
+            + Medication
+          </Button>
         )}
       </section>
 
@@ -113,13 +141,22 @@ export function MedicationSection() {
                   </p>
                 </div>
               </div>
-              <Button
-                variant="secondary"
-                onClick={() => handleDeleteMedicationLog(log.id)}
-                aria-label={`Delete medication entry from ${new Date(log.loggedAt).toLocaleString()}`}
-              >
-                Delete
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => handleMedicationEdit(log)}
+                  aria-label={`Edit medication entry from ${new Date(log.loggedAt).toLocaleString()}`}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => handleDeleteMedicationLog(log.id)}
+                  aria-label={`Delete medication entry from ${new Date(log.loggedAt).toLocaleString()}`}
+                >
+                  Delete
+                </Button>
+              </div>
             </li>
           ))}
         </ul>
