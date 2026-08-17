@@ -257,4 +257,63 @@ describe("SymptomEntryForm", () => {
 
     expect(onCancel).toHaveBeenCalled();
   });
+
+  describe("editing an existing entry", () => {
+    const existingLog = {
+      id: "log-1",
+      userId: "user-1",
+      symptomId: "sys-2",
+      severity: 4,
+      notes: "After lunch",
+      loggedAt: "2026-08-16T08:30:00.000Z",
+    };
+
+    it("pre-fills the symptom, severity, and notes from the entry being edited", () => {
+      render(
+        <SymptomEntryForm
+          symptoms={SYSTEM_SYMPTOMS}
+          editingLog={existingLog}
+          onSaved={vi.fn()}
+          onCancel={vi.fn()}
+          onSymptomCreated={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByLabelText(/symptom/i)).toHaveValue("sys-2");
+      expect(screen.getByRole("radio", { name: "4" })).toHaveAttribute("aria-checked", "true");
+      expect(screen.getByLabelText(/notes/i)).toHaveValue("After lunch");
+      expect(screen.getByRole("button", { name: "Save Changes" })).toBeInTheDocument();
+    });
+
+    it("submits a PATCH to the entry's own URL instead of a POST, calling onSaved with the updated log", async () => {
+      const updatedLog = { ...existingLog, severity: 9 };
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(() => Promise.resolve(jsonResponse(200, updatedLog)));
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+      const onSaved = vi.fn();
+
+      render(
+        <SymptomEntryForm
+          symptoms={SYSTEM_SYMPTOMS}
+          editingLog={existingLog}
+          onSaved={onSaved}
+          onCancel={vi.fn()}
+          onSymptomCreated={vi.fn()}
+        />,
+      );
+      await user.click(screen.getByRole("radio", { name: "9" }));
+      await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+      await vi.waitFor(() => expect(onSaved).toHaveBeenCalledWith(updatedLog));
+
+      const [url, requestInit] = fetchMock.mock.calls[0];
+      expect(url).toContain("/api/symptom-logs/log-1");
+      expect(requestInit.method).toBe("PATCH");
+      const body = JSON.parse(requestInit.body as string);
+      expect(body.severity).toBe(9);
+      expect(body.symptomId).toBe("sys-2");
+    });
+  });
 });

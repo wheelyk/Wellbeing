@@ -9,6 +9,9 @@ export function SymptomSection() {
   const [symptomsLoading, setSymptomsLoading] = useState(true);
   const [showSymptomForm, setShowSymptomForm] = useState(false);
   const [symptomLoadError, setSymptomLoadError] = useState(false);
+  // Reuses the same showSymptomForm area both create and edit render into - see MoodSection's
+  // identical editingLog state for the full explanation.
+  const [editingLog, setEditingLog] = useState<SymptomLog | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,12 +37,26 @@ export function SymptomSection() {
   }, []);
 
   function handleSymptomSaved(log: SymptomLog) {
-    setSymptomLogs((prev) => [log, ...prev]);
+    setSymptomLogs((prev) => {
+      const isEdit = prev.some((l) => l.id === log.id);
+      return isEdit ? prev.map((l) => (l.id === log.id ? log : l)) : [log, ...prev];
+    });
     setShowSymptomForm(false);
+    setEditingLog(null);
   }
 
   function handleSymptomCreated(symptom: Symptom) {
     setSymptoms((prev) => (prev.some((s) => s.id === symptom.id) ? prev : [...prev, symptom]));
+  }
+
+  function handleSymptomEdit(log: SymptomLog) {
+    setEditingLog(log);
+    setShowSymptomForm(true);
+  }
+
+  function handleSymptomFormCancel() {
+    setShowSymptomForm(false);
+    setEditingLog(null);
   }
 
   async function handleSymptomDelete(id: string) {
@@ -61,16 +78,27 @@ export function SymptomSection() {
       <section className="mt-8">
         {showSymptomForm ? (
           <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-semibold text-text">Log a symptom</h2>
+            <h2 className="mb-4 text-lg font-semibold text-text">
+              {editingLog ? "Edit symptom entry" : "Log a symptom"}
+            </h2>
             <SymptomEntryForm
+              key={editingLog?.id ?? "create"}
               symptoms={symptoms}
+              editingLog={editingLog}
               onSaved={handleSymptomSaved}
-              onCancel={() => setShowSymptomForm(false)}
+              onCancel={handleSymptomFormCancel}
               onSymptomCreated={handleSymptomCreated}
             />
           </div>
         ) : (
-          <Button onClick={() => setShowSymptomForm(true)}>+ Symptom</Button>
+          <Button
+            onClick={() => {
+              setEditingLog(null);
+              setShowSymptomForm(true);
+            }}
+          >
+            + Symptom
+          </Button>
         )}
       </section>
 
@@ -100,13 +128,22 @@ export function SymptomSection() {
                 {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
                 <p className="text-xs text-text-muted">{new Date(log.loggedAt).toLocaleString()}</p>
               </div>
-              <Button
-                variant="secondary"
-                onClick={() => handleSymptomDelete(log.id)}
-                aria-label={`Delete symptom entry from ${new Date(log.loggedAt).toLocaleString()}`}
-              >
-                Delete
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => handleSymptomEdit(log)}
+                  aria-label={`Edit symptom entry from ${new Date(log.loggedAt).toLocaleString()}`}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => handleSymptomDelete(log.id)}
+                  aria-label={`Delete symptom entry from ${new Date(log.loggedAt).toLocaleString()}`}
+                >
+                  Delete
+                </Button>
+              </div>
             </li>
           ))}
         </ul>
