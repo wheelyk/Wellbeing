@@ -76,4 +76,43 @@ describe("HabitSection", () => {
 
     expect(await screen.findByText(/couldn't load your habits/i)).toBeInTheDocument();
   });
+
+  it("opens the edit form pre-filled when Edit is clicked, and replaces the entry in place on save", async () => {
+    const habit = { id: "habit-1", userId: "user-1", name: "Exercise", type: "boolean" };
+    const existingLog = {
+      id: "log-1",
+      userId: "user-1",
+      habitId: "habit-1",
+      valueBoolean: false,
+      valueNumeric: null,
+      valueDurationMinutes: null,
+      notes: null,
+      loggedAt: "2026-08-17T09:00:00.000Z",
+    };
+    const updatedLog = { ...existingLog, valueBoolean: true };
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return Promise.resolve(jsonResponse(200, updatedLog));
+      if (url.includes("/api/habits") && !url.includes("logs")) {
+        return Promise.resolve(jsonResponse(200, [habit]));
+      }
+      return Promise.resolve(jsonResponse(200, [existingLog]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<HabitSection />);
+    await screen.findByText(/exercise: not done/i);
+
+    await user.click(screen.getByRole("button", { name: /edit habit entry/i }));
+
+    expect(screen.getByText("Edit habit entry")).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "Yes" }));
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    expect(await screen.findByText(/exercise: done/i)).toBeInTheDocument();
+    expect(screen.queryByText(/exercise: not done/i)).not.toBeInTheDocument();
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(patchCall?.[0]).toContain("/api/habit-logs/log-1");
+  });
 });

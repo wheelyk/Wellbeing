@@ -156,6 +156,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-16 — Clarifying what 1 and 5 mean on the energy/stress scales
 - 2026-08-16 — Widening energy/stress from 1–5 to 1–7, after more user feedback
 - 2026-08-16 — Migrating historical energy/stress values onto the new 1–7 scale
+- 2026-08-17 — Phase 7: Edit action for mood entries, reusing the same form
 
 ### [Symptom Logging](docs/log/04-symptom-logging.md)
 
@@ -163,6 +164,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-16 — Phase 3: `GET/POST/PATCH/DELETE /api/symptoms` and `/api/symptom-logs`
 - 2026-08-16 — Phase 7: Symptom entry form, wired into the Dashboard
 - 2026-08-17 — Letting users add their own symptoms inline (and two new defaults: Anxiety, Depression)
+- 2026-08-17 — Phase 7: Edit action for symptom entries, reusing the same form
 
 ### [Medication Logging](docs/log/05-medication-logging.md)
 
@@ -170,12 +172,18 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-16 — Phase 3: `GET/POST/PATCH/DELETE /api/medications` and `/api/medication-logs`
 - 2026-08-16 — Phase 7: Medication entry form, wired into the Dashboard
 - 2026-08-17 — An optional dosage field, so "Diazepam 2mg" isn't crammed into the name
+- 2026-08-17 — Phase 7: Edit action for medication entries, reusing the same form
 
 ### [Habit Logging](docs/log/06-habit-logging.md)
 
 - 2026-08-16 — Phase 1: `Habit` and `HabitLog` models + migration
 - 2026-08-16 — Phase 3: `GET/POST/PATCH/DELETE /api/habits` and `/api/habit-logs`
 - 2026-08-16 — Phase 7: Habit entry form, wired into the Dashboard
+- 2026-08-17 — Phase 7: Edit action for habit entries, reusing the same form
+
+### [History](docs/log/11-history.md)
+
+- 2026-08-17 — Phase 9: `GET /api/history` and the History page
 
 ### [Deployment (Railway + Vercel)](docs/log/07-deployment.md)
 

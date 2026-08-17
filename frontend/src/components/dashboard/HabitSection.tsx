@@ -32,6 +32,9 @@ export function HabitSection() {
   // Set only right after HabitCreateForm succeeds, so the log form that follows opens with the
   // habit the user just defined already selected instead of defaulting to habits[0].
   const [habitToPreselect, setHabitToPreselect] = useState<string | null>(null);
+  // Reuses the "log" form mode for both create and edit - see MoodSection's identical
+  // editingLog state for the full explanation.
+  const [editingLog, setEditingLog] = useState<HabitLog | null>(null);
 
   const habitsById = useMemo(() => new Map(habits.map((h) => [h.id, h])), [habits]);
 
@@ -56,6 +59,7 @@ export function HabitSection() {
   }, []);
 
   function handleHabitButtonClick() {
+    setEditingLog(null);
     setHabitFormMode(habits.length === 0 ? "create-habit" : "log");
   }
 
@@ -66,9 +70,23 @@ export function HabitSection() {
   }
 
   function handleHabitLogSaved(log: HabitLog) {
-    setHabitLogs((prev) => [log, ...prev]);
+    setHabitLogs((prev) => {
+      const isEdit = prev.some((l) => l.id === log.id);
+      return isEdit ? prev.map((l) => (l.id === log.id ? log : l)) : [log, ...prev];
+    });
     setHabitFormMode("closed");
     setHabitToPreselect(null);
+    setEditingLog(null);
+  }
+
+  function handleHabitLogEdit(log: HabitLog) {
+    setEditingLog(log);
+    setHabitFormMode("log");
+  }
+
+  function handleHabitLogFormCancel() {
+    setHabitFormMode("closed");
+    setEditingLog(null);
   }
 
   async function handleHabitLogDelete(id: string) {
@@ -86,12 +104,16 @@ export function HabitSection() {
       <section className="mt-8">
         {habitFormMode === "log" && (
           <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-semibold text-text">Log a habit</h2>
+            <h2 className="mb-4 text-lg font-semibold text-text">
+              {editingLog ? "Edit habit entry" : "Log a habit"}
+            </h2>
             <HabitEntryForm
+              key={editingLog?.id ?? habitToPreselect ?? "create"}
               habits={habits}
               initialHabitId={habitToPreselect}
+              editingLog={editingLog}
               onSaved={handleHabitLogSaved}
-              onCancel={() => setHabitFormMode("closed")}
+              onCancel={handleHabitLogFormCancel}
               onAddHabit={() => setHabitFormMode("create-habit")}
             />
           </div>
@@ -146,13 +168,22 @@ export function HabitSection() {
                     {new Date(log.loggedAt).toLocaleString()}
                   </p>
                 </div>
-                <Button
-                  variant="secondary"
-                  onClick={() => handleHabitLogDelete(log.id)}
-                  aria-label={`Delete habit entry from ${new Date(log.loggedAt).toLocaleString()}`}
-                >
-                  Delete
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleHabitLogEdit(log)}
+                    aria-label={`Edit habit entry from ${new Date(log.loggedAt).toLocaleString()}`}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleHabitLogDelete(log.id)}
+                    aria-label={`Delete habit entry from ${new Date(log.loggedAt).toLocaleString()}`}
+                  >
+                    Delete
+                  </Button>
+                </div>
               </li>
             );
           })}

@@ -682,3 +682,147 @@ migration are both part of the same not-yet-merged PR.
 - All test data and the test user cleaned up afterward.
 
 ---
+
+## 2026-08-17 — Phase 7: Edit action for mood entries, reusing the same form
+
+**Task:** [Tasks.md](../../Tasks.md) → Phase 7 → "Edit and delete actions available from
+Dashboard/History for every log type, reusing the same forms pre-filled with existing values."
+This entry covers Mood specifically, and also explains the pattern shared by the equivalent
+entries in [Symptom Logging](04-symptom-logging.md), [Medication Logging](05-medication-logging.md),
+and [Habit Logging](06-habit-logging.md) — each of those references this section instead of
+repeating it.
+
+**Delivered via branch:** `feature/7-edit-log-entries` (frontend-only — the backend's `PATCH`
+endpoints for all four log types already existed and needed no changes at all; this task was
+purely about wiring the frontend up to use them).
+
+### Background / concepts
+
+#### Why this was flagged "delete already exists everywhere, edit does not" — and why that gap matters
+
+- The very first mood-logging entry above ("Delete only, no edit, in this slice") explicitly
+  deferred edit to this later, broader task, precisely so it could be built once for all four
+  log types together instead of four separate one-off versions that might not agree with each
+  other. Until this task, a mis-logged entry (wrong mood, forgot to note something, picked the
+  wrong medication) could only be *deleted and re-created from scratch* — losing the original
+  timestamp unless the user remembered and re-typed it, and generally more friction than fixing
+  a typo warrants. For a wellness-tracking app where the whole point is an accurate history,
+  that's a real usability gap, not just a missing convenience.
+
+#### "Reusing the same forms," concretely — one component, two modes
+
+- The core idea: `MoodEntryForm` (and its three siblings) gained one new optional prop,
+  `editingLog?: MoodLog | null`. When it's `null`/absent, the form behaves *exactly* as before —
+  every field starts empty/default, the submit button reads "Save Entry," and submitting sends a
+  `POST` to create a brand-new log. When `editingLog` is a real log object, every field's
+  `useState` initializer reads its starting value from that log instead (`useState(editingLog?.mood
+  ?? null)` instead of `useState(null)`, and so on for every field), the button reads "Save
+  Changes," and submitting sends a `PATCH` to `/api/mood-logs/{editingLog.id}` instead of a `POST`
+  to `/api/mood-logs`.
+- This is a **strict backward-compatibility requirement**, not just a nice-to-have: every
+  existing test for these forms had to keep passing completely unchanged, proving the "absent
+  prop = old behavior, byte for byte" claim is actually true rather than just intended.
+
+#### Why the Section components needed a `key` on the form, not just a prop
+
+- `MoodSection` already had a `showForm` boolean controlling whether the create form or the `+
+  Mood` button is visible — reused as-is for edit, by adding one more piece of state,
+  `editingLog: MoodLog | null`, alongside it. Clicking "Edit" on a list entry sets `editingLog`
+  to that log and `showForm` to `true`; clicking `+ Mood` sets `editingLog` back to `null` before
+  opening; saving or cancelling resets `editingLog` to `null` again.
+- The subtle bug this avoided: React only re-runs a component's `useState` *initializers* the
+  first time it mounts — not every time its props change. If a user opened the create form,
+  then (without closing it) clicked "Edit" on a list entry, `MoodEntryForm` would still be
+  mounted at the same position in the tree, so React would just pass it the new `editingLog`
+  prop without re-running `useState(editingLog?.mood ?? null)` — the form would keep showing
+  stale, blank fields instead of the entry actually being edited. The fix: `<MoodEntryForm
+  key={editingLog?.id ?? "create"} .../>`. React treats a changed `key` as "this is now a
+  different component instance," unmounting the old one and mounting a fresh one — which is
+  exactly what's needed here, since switching from "create" to "edit log X" (or from editing log
+  X to editing log Y) really is conceptually a different form each time, not the same one with
+  updated props.
+
+#### The "replace in place, not prepend" logic — and why it needed no extra state to track "was this an edit"
+
+- Every Section already prepended newly-created logs to the top of its list
+  (`setMoodLogs((prev) => [log, ...prev])`). For an edit, the requirement is different: replace
+  the existing entry where it already sits, not add a second copy. Rather than threading through
+  an extra "was this a create or an edit" flag, the save handler asks a simpler, self-contained
+  question of the data itself: *does a log with this exact id already exist in the list?*
+  ```ts
+  function handleSaved(log: MoodLog) {
+    setMoodLogs((prev) => {
+      const isEdit = prev.some((l) => l.id === log.id);
+      return isEdit ? prev.map((l) => (l.id === log.id ? log : l)) : [log, ...prev];
+    });
+    ...
+  }
+  ```
+  This works because a `PATCH` response always carries the same `id` it was called with, while a
+  `POST` response always carries a freshly-generated one that can't already be in the list — so
+  the check is correct by construction, not by coincidence, and there's no separate piece of
+  state that could drift out of sync with what actually happened.
+
+### What was done
+
+1. **`frontend/src/components/MoodEntryForm.tsx`.** Added the `editingLog` prop; every field's
+   initial state now reads from it when present; submit branches between `POST /api/mood-logs`
+   and `PATCH /api/mood-logs/{id}`; submit button reads "Save Changes" when editing.
+2. **`frontend/src/components/dashboard/MoodSection.tsx`.** Added `editingLog` state; an "Edit"
+   button next to each entry's existing "Delete" button (same `aria-label` pattern, e.g. `Edit
+   mood entry from 8/17/2026, 9:00:00 AM`); the form's heading switches between "Log your mood"
+   and "Edit mood entry"; `key={editingLog?.id ?? "create"}` on the rendered form, for the
+   remount-on-switch reason above; `handleSaved` does the replace-in-place-or-prepend check
+   described above.
+3. **Tests.** Added a new `describe("editing an existing entry")` block in
+   `MoodEntryForm.test.tsx` (pre-fill of every field from a sample log; the "Save Changes" label;
+   a full submit asserting the request goes to the log's own URL with `method: "PATCH"`) and one
+   new case in `MoodSection.test.tsx` (clicking Edit opens the form pre-filled, saving replaces
+   the entry in place rather than adding a second one). All pre-existing tests in both files
+   pass completely unchanged.
+4. **`npm test`** (frontend, full suite) — 82/82 passing (68 pre-existing, 14 new across all
+   four log types' forms and sections).
+5. **`npm run build`, `npm run lint` (`oxlint`), `npx prettier --check .`** — all clean.
+6. **Real browser verification**, per the project's UI-change testing habit: started the actual
+   backend and frontend dev servers, registered a fresh user with Playwright, logged a mood
+   entry, clicked Edit, changed the mood and confirmed the pre-filled form showed the original
+   value first, saved, and confirmed the entry updated in place on the dashboard (not
+   duplicated) with zero browser console errors throughout.
+
+### Why it's needed
+
+Closes the "delete and re-create" gap called out above — a corrected mood entry now keeps its
+original identity (and, unless deliberately changed, its original timestamp) instead of being
+destroyed and rebuilt from scratch, which matters for an app whose entire value is an accurate,
+trustworthy history over time.
+
+### Decisions
+
+- **One form, an optional prop — not a second, parallel "EditMoodForm" component.** Explicitly
+  what Tasks.md's own wording calls for ("reusing the same forms"), and the whole reason this
+  task was deferred until now rather than built ad hoc earlier: a single form can't drift out of
+  sync with itself the way two independently-maintained forms eventually would.
+- **`key`-based remount over a `useEffect` that resets fields when `editingLog` changes.** Both
+  would work, but the `useEffect` approach means duplicating, for every single field, the same
+  "which value should this field hold right now" logic that the initializer already expresses
+  once — the `key` approach gets a genuinely fresh component instance for free, using a feature
+  React already provides for exactly this situation, rather than hand-rolling a reset effect.
+- **Habit's habit-picker is locked during edit** — covered in full in
+  [Habit Logging](06-habit-logging.md)'s own entry, since it's specific to that one log type.
+
+### State at end of this step
+
+A user can now correct a mistake in any already-logged mood entry directly from the Dashboard,
+without deleting and re-creating it. The same underlying pattern (optional `editingLog` prop,
+`key`-forced remount, replace-in-place save handler) is used identically by Symptom, Medication,
+and Habit — see their own log entries for what's specific to each.
+
+### Verification
+
+- `npm test` (frontend, full suite) — 82/82 passing (68 pre-existing, 14 new).
+- `npm run build`, `npm run lint`, `npx prettier --check .` — all clean.
+- Real headless-browser walkthrough (Playwright) against genuinely running dev servers: logged
+  and then edited a mood entry, confirmed the pre-filled value, the in-place update, and zero
+  console errors.
+
+---

@@ -45,6 +45,10 @@ interface SymptomEntryFormProps {
   // is owned by the parent - it's reused both for this picker and for the recent-entries list,
   // per this form's existing "one fetch, one source of truth" design.
   onSymptomCreated: (symptom: Symptom) => void;
+  // When present, the form starts pre-filled with this log's values and PATCHes it on submit
+  // instead of POSTing a new one - see MoodEntryForm's identical editingLog prop for the full
+  // explanation of why one form serves both create and edit.
+  editingLog?: SymptomLog | null;
 }
 
 export function SymptomEntryForm({
@@ -52,11 +56,14 @@ export function SymptomEntryForm({
   onSaved,
   onCancel,
   onSymptomCreated,
+  editingLog,
 }: SymptomEntryFormProps) {
-  const [symptomId, setSymptomId] = useState("");
-  const [severity, setSeverity] = useState<number | null>(null);
-  const [notes, setNotes] = useState("");
-  const [loggedAt, setLoggedAt] = useState(() => toDateTimeLocalValue(new Date()));
+  const [symptomId, setSymptomId] = useState(editingLog?.symptomId ?? "");
+  const [severity, setSeverity] = useState<number | null>(editingLog?.severity ?? null);
+  const [notes, setNotes] = useState(editingLog?.notes ?? "");
+  const [loggedAt, setLoggedAt] = useState(() =>
+    toDateTimeLocalValue(editingLog ? new Date(editingLog.loggedAt) : new Date()),
+  );
   const [symptomError, setSymptomError] = useState<string | null>(null);
   const [severityError, setSeverityError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -122,15 +129,18 @@ export function SymptomEntryForm({
 
     setSubmitting(true);
     try {
-      const log = await apiFetch<SymptomLog>("/api/symptom-logs", {
-        method: "POST",
-        body: JSON.stringify({
-          symptomId,
-          severity,
-          notes: notes.trim() || undefined,
-          loggedAt: new Date(loggedAt).toISOString(),
-        }),
-      });
+      const log = await apiFetch<SymptomLog>(
+        editingLog ? `/api/symptom-logs/${editingLog.id}` : "/api/symptom-logs",
+        {
+          method: editingLog ? "PATCH" : "POST",
+          body: JSON.stringify({
+            symptomId,
+            severity,
+            notes: notes.trim() || undefined,
+            loggedAt: new Date(loggedAt).toISOString(),
+          }),
+        },
+      );
       onSaved(log);
     } catch {
       setFormError("Something went wrong saving your symptom. Please try again.");
@@ -283,7 +293,7 @@ export function SymptomEntryForm({
 
       <div className="flex gap-3">
         <Button type="submit" disabled={submitting}>
-          {submitting ? "Saving…" : "Save Entry"}
+          {submitting ? "Saving…" : editingLog ? "Save Changes" : "Save Entry"}
         </Button>
         <Button type="button" variant="secondary" onClick={onCancel} disabled={submitting}>
           Cancel
