@@ -214,6 +214,7 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Actually splitting `IMPLEMENTATION_LOG.md` into topic files
 - 2026-08-17 — Decomposing `DashboardPage.tsx` into one section component per log type
 - 2026-08-17 — Two lasting regression checks for the dashboard, not just a one-off manual verification
+- 2026-08-17 — A bug fix stranded by outage timing, and how `git cherry-pick` recovered it
 
 ### [Housekeeping & Audits](docs/log/09-housekeeping.md)
 

@@ -1945,3 +1945,118 @@ the dashboard with one real entry of each type logged, not just the empty state.
   and exited cleanly with no console errors detected.
 
 ---
+
+## 2026-08-17 — A bug fix stranded by outage timing, and how `git cherry-pick` recovered it
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a real recovery situation, worth
+documenting in detail since `git cherry-pick` hadn't come up anywhere else in this log yet, and
+this is exactly the kind of situation where it's the right tool.
+
+### Background / concepts
+
+#### What `git cherry-pick` actually is, from first principles
+
+Every git commit is really a self-contained "diff plus metadata" — the exact change it makes,
+who made it, when, and a message explaining why. Normally a commit only ever "arrives" on another
+branch as part of a whole-branch operation: a **merge** (bring in everything the other branch has
+that this one doesn't) or a **rebase** (replay this branch's own commits on top of a new
+starting point — see the earlier stacked-PR entries in this same file for both). `git cherry-pick
+<commit-sha>` is different: it takes **one specific, already-existing commit from anywhere in the
+repository's history** and re-applies just that one change on top of whatever branch you're
+currently on, as a brand-new commit with the same content and message but its own new SHA. It
+doesn't care what branch the original commit is "on," or even whether that branch still exists —
+only that the commit itself still exists somewhere in the repository's history (which, once
+committed, a plain commit essentially always does, even after its branch is deleted, until git's
+garbage collection eventually cleans up anything truly unreachable — not a practical concern for
+a commit that's only minutes old).
+
+#### The situation that created the need for it here
+
+While reviewing PR #62 (the edit-flow feature) before merging, a real bug was found — clearing an
+optional field during an edit silently didn't persist (see the dedicated entry in [Mood
+Logging](03-mood-logging.md)) — and fixed directly, as two new commits made right in that PR's
+own git worktree (the same isolation mechanism explained in this file's "Building three features
+at once with parallel AI agents" entry). Because GitHub was experiencing a real outage at the
+time (confirmed via `githubstatus.com`, not assumed), those two fix commits were deliberately
+**never pushed** — committed locally, held back on purpose until GitHub was confirmed healthy
+again, exactly the caution that outage called for.
+
+**The actual problem**: GitHub recovered *enough* for the human to merge PR #62 through the web
+UI before those fix commits were ever pushed. GitHub can only merge what's actually sitting on
+the remote branch — it had no way to know two more commits existed only on a laptop, never
+pushed. The merge went through cleanly, `feature/7-edit-log-entries` got auto-deleted (per this
+project's `delete_branch_on_merge` setting — see this file's earlier entry on why that's
+enabled), and the two fix commits were left stranded: still fully intact in the local git
+worktree's history, but with no branch — local or remote — still pointing at them, and the branch
+they were meant to reach now merged and gone.
+
+#### Diagnosing this precisely, not by guessing
+
+The same "verify, don't assume" discipline this whole log follows caught it: a direct check of
+`origin/main`'s actual commit history (`git log origin/main --oneline | grep "clearing an
+optional"`) came back empty — proof the fix genuinely never reached `main`, not just a hunch.
+Cross-checking the worktree's own local history (`git log --oneline`) confirmed the two commits
+were still sitting right there, fully intact, just orphaned.
+
+### What was done
+
+1. Confirmed the two fix commits' exact SHAs from the worktree's local history (`14091d9`,
+   `bed2be1`).
+2. Confirmed the original branch, `feature/7-edit-log-entries`, no longer existed on the remote
+   (`git ls-remote --heads origin feature/7-edit-log-entries` — empty) — expected, since it was
+   the PR's own base branch and got auto-deleted on merge.
+3. Created a **fresh branch off the current, up-to-date `main`** (which already has PR #62's
+   original content merged into it): `git checkout -b fix/clear-optional-field-during-edit`.
+4. `git cherry-pick 14091d9 bed2be1` — applied both commits, in order, directly on top of that
+   fresh branch. Both applied cleanly, with git auto-merging one minor overlap in
+   `IMPLEMENTATION_LOG.md` (a different section of that file than anything else recently
+   merged had touched) with no manual conflict resolution needed at all.
+5. Ran the full verification cycle from scratch against this recovered branch — `npm test` (both
+   projects), `npm run build`, `npm run lint`, `npx prettier --check .` — exactly as if this were
+   a brand-new PR, not a "just restore what was already proven working" shortcut.
+6. Pushed and opened a new PR (#64) with an explicit explanation of what happened and why, so
+   anyone reviewing it later (including a future instance of Claude, or the user themselves)
+   understands this isn't new, unreviewed work — it's recovering a fix that was already found,
+   fixed, and tested once, just never delivered.
+
+### Why it's needed
+
+Without cherry-pick, recovering this would have meant either re-diagnosing and re-fixing the bug
+from scratch (throwing away real, already-verified work), or manually copy-pasting the diff by
+hand into a new branch (error-prone, and loses the original commit's authorship/message/history).
+Cherry-pick is exactly the tool for "this exact change already exists and is correct, it just
+needs to land somewhere new" — a different situation from a merge or rebase, which both operate
+on *branches* as a whole rather than individually-chosen commits.
+
+### Decisions
+
+- **A brand-new branch off current `main`, not trying to resurrect the deleted
+  `feature/7-edit-log-entries`.** A deleted branch name can be recreated, but there's no reason
+  to — the fresh branch already starts from a `main` that has everything the fix depends on
+  (the original edit-flow code it patches), and starting clean avoids any confusion about
+  whether this is "the same PR reopened" versus what it actually is: a new, small, focused fix.
+- **Re-ran the entire verification cycle rather than trusting the earlier one.** The fix was
+  already fully tested once, in the worktree, before this recovery — but re-verifying against
+  the branch that will actually ship is the same discipline as any other PR in this project, not
+  a step worth skipping just because the change itself was already proven correct once before.
+- **Documented the outage-timing cause explicitly in the PR description**, not just fixed
+  silently — a reviewer (or a future maintainer reading git history later) deserves to know
+  *why* a bug that was supposedly already fixed once shows up again as a "new" PR, rather than
+  being left to wonder if it's a regression.
+
+### State at end of this step
+
+The fix exists, verified, on PR #64 — not lost, despite the branch it was originally built on
+being deleted before it ever reached GitHub.
+
+### Verification
+
+- `git log origin/main --oneline | grep "clearing an optional"` — confirmed empty *before* this
+  recovery, proving the gap was real, not assumed.
+- `git ls-remote --heads origin feature/7-edit-log-entries` — confirmed the original branch was
+  genuinely gone, not just hard to find.
+- `git cherry-pick 14091d9 bed2be1` — both applied cleanly against current `main`.
+- Full test/build/lint/format cycle re-run from scratch against the recovered branch — all clean
+  (see the dedicated fix entry in [Mood Logging](03-mood-logging.md) for exact numbers).
+
+---
