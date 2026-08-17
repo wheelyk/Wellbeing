@@ -219,4 +219,64 @@ describe("MedicationEntryForm", () => {
 
     expect(onCancel).toHaveBeenCalled();
   });
+
+  describe("editing an existing entry", () => {
+    const existingLog: MedicationLog = {
+      id: "log-1",
+      userId: "user-1",
+      medicationId: "med-1",
+      taken: false,
+      notes: "Skipped",
+      loggedAt: "2026-08-16T08:30:00.000Z",
+    };
+
+    it("pre-fills the medication, taken status, and notes from the entry being edited", async () => {
+      vi.stubGlobal("fetch", mockMedicationsList([existingMedication]));
+
+      render(<MedicationEntryForm editingLog={existingLog} onSaved={vi.fn()} onCancel={vi.fn()} />);
+
+      expect(
+        await screen.findByRole("radio", { name: "Ibuprofen", checked: true }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Not taken" })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+      expect(screen.getByLabelText(/notes/i)).toHaveValue("Skipped");
+      expect(screen.getByRole("button", { name: "Save Changes" })).toBeInTheDocument();
+    });
+
+    it("submits a PATCH to the entry's own URL instead of a POST, calling onSaved with the updated log and medication", async () => {
+      const updatedLog: MedicationLog = { ...existingLog, taken: true, notes: "Taken late" };
+      const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/medications") && !init?.method) {
+          return Promise.resolve(jsonResponse(200, [existingMedication]));
+        }
+        if (init?.method === "PATCH") {
+          return Promise.resolve(jsonResponse(200, updatedLog));
+        }
+        return Promise.resolve(jsonResponse(404, {}));
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+      const onSaved = vi.fn();
+
+      render(<MedicationEntryForm editingLog={existingLog} onSaved={onSaved} onCancel={vi.fn()} />);
+      await screen.findByRole("radio", { name: "Ibuprofen" });
+      await user.click(screen.getByRole("radio", { name: "Taken" }));
+      const notesField = screen.getByLabelText(/notes/i);
+      await user.clear(notesField);
+      await user.type(notesField, "Taken late");
+      await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+      await vi.waitFor(() => expect(onSaved).toHaveBeenCalledWith(updatedLog, existingMedication));
+
+      const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+      if (!patchCall) throw new Error("Expected a PATCH to /api/medication-logs/log-1");
+      expect(patchCall[0]).toContain("/api/medication-logs/log-1");
+      const body = JSON.parse((patchCall[1] as RequestInit).body as string);
+      expect(body.taken).toBe(true);
+      expect(body.notes).toBe("Taken late");
+    });
+  });
 });
