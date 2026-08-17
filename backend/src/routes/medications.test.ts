@@ -51,6 +51,53 @@ describe("medications routes", () => {
     expect(res.body.createdAt).toBeDefined();
   });
 
+  it("creates a medication with an optional dosage", async () => {
+    const { accessToken, userId } = await registerAndLogin("create-dosage");
+
+    const res = await request(app)
+      .post("/api/medications")
+      .set(authed(accessToken))
+      .send({ name: "Diazepam", dosage: "2mg" });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ userId, name: "Diazepam", dosage: "2mg" });
+
+    const withoutDosage = await request(app)
+      .post("/api/medications")
+      .set(authed(accessToken))
+      .send({ name: "Ibuprofen" });
+    expect(withoutDosage.status).toBe(201);
+    expect(withoutDosage.body.dosage).toBeNull();
+  });
+
+  it("rejects a dosage that's present but empty", async () => {
+    const { accessToken } = await registerAndLogin("dosage-validation");
+
+    const res = await request(app)
+      .post("/api/medications")
+      .set(authed(accessToken))
+      .send({ name: "Ibuprofen", dosage: "   " });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("updates a medication's dosage", async () => {
+    const { accessToken } = await registerAndLogin("update-dosage");
+    const created = await request(app)
+      .post("/api/medications")
+      .set(authed(accessToken))
+      .send({ name: "Diazepam", dosage: "2mg" });
+
+    const res = await request(app)
+      .patch(`/api/medications/${created.body.id}`)
+      .set(authed(accessToken))
+      .send({ dosage: "5mg" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ name: "Diazepam", dosage: "5mg" });
+  });
+
   it("rejects an empty or missing name", async () => {
     const { accessToken } = await registerAndLogin("validation");
 

@@ -14,6 +14,7 @@ const existingMedication: Medication = {
   id: "med-1",
   userId: "user-1",
   name: "Ibuprofen",
+  dosage: null,
   createdAt: "2026-08-01T00:00:00.000Z",
 };
 
@@ -130,6 +131,7 @@ describe("MedicationEntryForm", () => {
       id: "med-2",
       userId: "user-1",
       name: "Vitamin D",
+      dosage: null,
       createdAt: "2026-08-16T00:00:00.000Z",
     };
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
@@ -152,6 +154,59 @@ describe("MedicationEntryForm", () => {
     expect(
       await screen.findByRole("radio", { name: "Vitamin D", checked: true }),
     ).toBeInTheDocument();
+  });
+
+  it("shows a medication's dosage in the picker when it has one", async () => {
+    const withDosage: Medication = {
+      id: "med-3",
+      userId: "user-1",
+      name: "Diazepam",
+      dosage: "2mg",
+      createdAt: "2026-08-17T00:00:00.000Z",
+    };
+    vi.stubGlobal("fetch", mockMedicationsList([withDosage]));
+
+    render(<MedicationEntryForm onSaved={vi.fn()} onCancel={vi.fn()} />);
+
+    expect(await screen.findByRole("radio", { name: /diazepam.*2mg/i })).toBeInTheDocument();
+  });
+
+  it("lets a user add a medication with a dosage, which is included in the create request", async () => {
+    const newMedication: Medication = {
+      id: "med-4",
+      userId: "user-1",
+      name: "Diazepam",
+      dosage: "2mg",
+      createdAt: "2026-08-17T00:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/medications") && !init?.method) {
+        return Promise.resolve(jsonResponse(200, []));
+      }
+      if (url.endsWith("/api/medications") && init?.method === "POST") {
+        return Promise.resolve(jsonResponse(201, newMedication));
+      }
+      return Promise.resolve(jsonResponse(404, {}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<MedicationEntryForm onSaved={vi.fn()} onCancel={vi.fn()} />);
+    await user.type(await screen.findByLabelText(/medication name/i), "Diazepam");
+    await user.type(screen.getByLabelText(/dosage/i), "2mg");
+    await user.click(screen.getByRole("button", { name: /^add$/i }));
+
+    expect(
+      await screen.findByRole("radio", { name: /diazepam.*2mg/i, checked: true }),
+    ).toBeInTheDocument();
+
+    const postCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        (url as string).endsWith("/api/medications") && (init as RequestInit)?.method === "POST",
+    );
+    if (!postCall) throw new Error("Expected a POST to /api/medications");
+    const body = JSON.parse((postCall[1] as RequestInit).body as string);
+    expect(body).toEqual({ name: "Diazepam", dosage: "2mg" });
   });
 
   it("calls onCancel when Cancel is clicked", async () => {

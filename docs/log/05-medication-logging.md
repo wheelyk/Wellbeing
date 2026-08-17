@@ -409,3 +409,120 @@ own PR, stacked in that order, and need merging in that same order once reviewed
   console errors.
 
 ---
+
+## 2026-08-17 — An optional dosage field, so "Diazepam 2mg" isn't crammed into the name
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — the user asked whether Medication
+could get an extra field the way Habit has one, specifically for dosage, after noticing that
+without it, the only way to record "2mg" at all was typing the whole thing — name and dosage
+together — into the single `name` field.
+
+### Background / concepts
+
+#### Where the new field belongs: on `Medication`, not `MedicationLog` — the same place Habit's `type` lives
+
+- Discussed with the user directly before building anything (this was an exploratory "could we"
+  question first): the real design choice is whether dosage is a property of *which medication
+  this is* (fixed once, like `Habit.type`) or a property of *this particular occasion* (re-entered
+  every log, for doses that vary - titrating, PRN). Went with the former, matching what the user
+  described and what `Habit.type` already established as this project's pattern for "a
+  once-per-definition detail every log against it inherits" - a field on the parent record, read
+  by every log through the relation, rather than duplicated onto every individual log row.
+- **This directly answers the user's own framing of the problem.** "Diazepam 2mg" typed into the
+  one existing `name` field was the workaround forced by there being nowhere else for the dosage
+  to go. Splitting it into `name: "Diazepam"` + `dosage: "2mg"` on the same `Medication` row is
+  the minimal fix - no new table, no new relation, just one new nullable column.
+
+#### Nullable, not required - existing medications and future ones without a dosage stay valid
+
+- `dosage String?` (nullable) rather than required, so every `Medication` row created before this
+  migration (`name` only, no `dosage` at all) remains perfectly valid with no backfill needed -
+  it just reads as `dosage: null`, which the frontend already treats as "don't show it." A
+  required field would have needed either a default value (meaningless for medications where a
+  fixed dose genuinely doesn't apply, e.g. an as-needed inhaler) or a data migration to backfill
+  something into every existing row.
+
+### What was done
+
+1. **`schema.prisma` + migration.** Added `dosage String?` to `Medication`. `npx prisma migrate
+   dev --name add_medication_dosage` generated a single additive `ALTER TABLE ... ADD COLUMN`
+   statement - no data migration needed, per the nullable design above.
+2. **`backend/src/routes/medications.ts`.** Added `dosage: z.string().trim().min(1).optional()`
+   to `createSchema` (rejects a dosage that's present but empty/whitespace-only, same pattern as
+   every other optional string field in this codebase) and passed it through on create. The
+   `PATCH` route needed no changes at all - `updateSchema` is already `createSchema.partial()`
+   and passes `parsed.data` straight to Prisma, so a new optional field on `createSchema`
+   automatically becomes independently updatable too.
+3. **`MedicationEntryForm.tsx`.** Added a second, optional `TextField` ("Dosage (optional)",
+   placeholder "e.g. 2mg") right below the existing medication-name field in the inline "add a
+   medication" flow, and included `dosage` in the `POST /api/medications` body when the user
+   entered one. The medication picker's radio buttons now show the dosage next to the name (e.g.
+   "Diazepam — 2mg") when present, via a conditionally-rendered `<span>` - a medication with no
+   dosage renders exactly as before, nothing new visible.
+4. **`MedicationSection.tsx`.** Replaced the existing `medicationNameById` map (name only) with a
+   `medicationById` map plus a `medicationLabel()` helper, so the "Recent medications" list shows
+   `"Diazepam — 2mg — Taken"` when a dosage exists, or just `"Diazepam — Taken"` when it doesn't -
+   same em-dash convention the picker uses, applied consistently in both places.
+5. **Tests.** Backend: three new cases in `medications.test.ts` (creating with a dosage, rejecting
+   a present-but-empty one, updating just the dosage via `PATCH`). Frontend: two new cases in
+   `MedicationEntryForm.test.tsx` (the picker showing a medication's dosage; adding a new
+   medication with a dosage, asserting the exact POST body) and one in `MedicationSection.test.tsx`
+   (the recent-entries list including the dosage in its label). Existing `Medication`-typed test
+   fixtures across both files needed `dosage: null` added to satisfy the now-widened interface.
+6. **A test-writing detail worth remembering:** an early version of the two new picker tests
+   asserted the radio button's accessible name as the *exact* string `"Diazepam — 2mg"` and failed
+   even though the rendered markup was visibly correct (`Diazepam` then a `<span>— 2mg</span>`) -
+   the accessible-name algorithm concatenates the button's own text and its child span's text in a
+   way that didn't exactly match a hand-typed literal string (extra/different whitespace around
+   the JSX-inserted text node). Switched both assertions to a partial regex
+   (`/diazepam.*2mg/i`) instead of over-specifying the exact accessible-name string byte-for-byte -
+   the thing actually worth testing is "the dosage shows up," not the precise whitespace the
+   browser's accessible-name algorithm produces around a JSX expression.
+7. **`npm run build`, `npm run lint`, `npx prettier --check .`** (both projects) - all clean after
+   one formatting pass on a new test file.
+8. **`npm test`** - 66/66 frontend tests passing (12 new/updated across three files), 113/113
+   backend tests passing (3 new).
+9. **Real browser verification.** Rebuilt the backend (regenerating the Prisma client against the
+   new schema) and drove the actual flow with Playwright against real running dev servers:
+   registered, added "Diazepam" with dosage "2mg" via the new field, confirmed the picker showed
+   "Diazepam — 2mg" selected, logged it as taken, and confirmed the recent-entries list read
+   exactly "Diazepam — 2mg — Taken" - zero console errors throughout.
+
+### Why it's needed
+
+Without a dedicated field, dosage information either got crammed into the medication name (as the
+user described - "Diazepam 2mg" as one string) or left out entirely. Neither is a good outcome for
+an app whose whole point is tracking health information accurately: cramming it into the name
+breaks anything that might ever want to treat dosage as structured data later (filtering, display
+formatting, a future "did the dose change over time" feature), and leaving it out just loses real
+information the user wanted to record.
+
+### Decisions
+
+- **On `Medication`, fixed per medication - not re-entered on every `MedicationLog`.** Covered
+  above - matches how `Habit.type` already works in this codebase, and matches the common case
+  (most people take a consistent dose) over the less common variable-dose case, which was
+  explicitly discussed as the tradeoff before building anything.
+- **Nullable, not required**, so no backfill migration was needed and an as-needed medication with
+  no fixed dose remains representable.
+- **No `description` field added** (unlike `Symptom`, which has one) - dosage is the one specific
+  thing asked for; a general free-text description wasn't requested and would just be a second,
+  overlapping way to say the same kind of thing a future dosage-adjacent note might want.
+
+### State at end of this step
+
+A user can record a medication's dosage (e.g. "2mg") alongside its name, see it displayed
+everywhere the medication name already shows (the picker, the recent-entries list), and existing
+medications created before this change continue to work exactly as before with no dosage shown.
+
+### Verification
+
+- `npm test` (backend) - 113/113 passing, including 3 new dosage-specific cases.
+- `npm test` (frontend) - 66/66 passing, including 12 new/updated cases across
+  `MedicationEntryForm.test.tsx`, `MedicationSection.test.tsx`, and their existing fixtures.
+- `npm run build`, `npm run lint`, `npx prettier --check .` (both projects) - all clean.
+- Real headless-browser walkthrough (Playwright) against genuinely running dev servers: added a
+  medication with a dosage via the new field, confirmed it appeared correctly in both the picker
+  and the logged-entry list, zero console errors.
+
+---

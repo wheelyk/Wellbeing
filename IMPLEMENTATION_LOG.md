@@ -161,6 +161,7 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Phase 1: `Medication` + `MedicationLog` models + migration
 - 2026-08-16 — Phase 3: `GET/POST/PATCH/DELETE /api/medications` and `/api/medication-logs`
 - 2026-08-16 — Phase 7: Medication entry form, wired into the Dashboard
+- 2026-08-17 — An optional dosage field, so "Diazepam 2mg" isn't crammed into the name
 
 ### [Habit Logging](docs/log/06-habit-logging.md)
 

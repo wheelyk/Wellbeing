@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 
 const createSchema = z.object({
   name: z.string().trim().min(1),
+  dosage: z.string().trim().min(1).optional(),
 });
 
 const updateSchema = createSchema.partial();
@@ -34,6 +35,7 @@ medicationsRouter.post("/", async (req, res) => {
     data: {
       userId: req.userId as string,
       name: parsed.data.name,
+      dosage: parsed.data.dosage,
     },
   });
 
