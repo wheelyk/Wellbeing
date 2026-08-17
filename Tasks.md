@@ -27,7 +27,7 @@ Reference: requirements §11.
 - [x] Define `Symptom` model: `id`, `user_id (nullable — null = system symptom)`, `name`, `description (optional)`, `created_at`.
 - [x] Define `SymptomLog` model: `id`, `user_id`, `symptom_id`, `severity (1–10)`, `notes (optional)`, `logged_at`.
 - [x] Define `MoodLog` model: `id`, `user_id`, `mood (1–5)`, `energy (nullable 1–5)`, `stress (nullable 1–5)`, `notes (optional)`, `logged_at`.
-- [x] Define `Medication` model: `id`, `user_id`, `name`, `created_at`.
+- [x] Define `Medication` model: `id`, `user_id`, `name`, `created_at`. (Gained an optional `dosage` field later, beyond original scope — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [x] Define `MedicationLog` model: `id`, `user_id`, `medication_id`, `taken (boolean)`, `notes (optional)`, `logged_at`.
 - [x] Define `Habit` model: `id`, `user_id`, `name`, `type (boolean | numeric | duration)`, `created_at`.
 - [x] Define `HabitLog` model: `id`, `user_id`, `habit_id`, `value (shape depends on habit type)`, `notes (optional)`, `logged_at`.
@@ -143,7 +143,7 @@ Reference: requirements §6, §8.
 - [x] Habit entry form: input control adapts to habit type (toggle for boolean, number input for numeric, duration input for duration), date/time picker.
 - [ ] Client-side validation before submit (required fields, value ranges), with clear inline error messages — no silent failures.
 - [ ] Success feedback (toast/inline confirmation) on save; clear error feedback on failure.
-- [ ] Edit and delete actions available from Dashboard/History for every log type, reusing the same forms pre-filled with existing values.
+- [x] Edit and delete actions available from Dashboard/History for every log type, reusing the same forms pre-filled with existing values.
 - [ ] Delete actions require a lightweight confirmation (per §15, destructive-action confirmation).
 
 ---
@@ -165,10 +165,15 @@ Reference: requirements §7.
 
 Reference: requirements §9.
 
-- [ ] Build a History view listing past entries across all log types, grouped by date (most recent first).
-- [ ] Add filtering (by entry type and/or date range).
-- [ ] Each entry shows type, value, and time; tapping opens edit; a delete affordance is available with confirmation.
-- [ ] Pagination or infinite scroll for users with a large history.
+- [x] Build a History view listing past entries across all log types, grouped by date (most recent first).
+- [x] Add filtering (by entry type and/or date range).
+- [x] Each entry shows type, value, and time; a delete affordance is available with confirmation.
+  - [ ] Tapping opens edit — intentionally deferred: a parallel task is building shared,
+    pre-filled entry-edit forms for all four log types (see Phase 7's "Edit and delete actions
+    available from Dashboard/History for every log type" item); History's Edit button renders
+    but is disabled until that lands, to avoid a second, divergent edit implementation. See
+    [docs/log/11-history.md](docs/log/11-history.md) for the full reasoning.
+- [x] Pagination or infinite scroll for users with a large history.
 
 ---
 
@@ -245,7 +250,7 @@ Reference: requirements §19.
 
 - [ ] Choose a hosting platform (Vercel/Railway/Render) for frontend and backend/database.
 - [ ] Configure production environment variables (DB URL, JWT secrets, CORS origins, mail provider).
-- [ ] Set up production Prisma migrations (`prisma migrate deploy`) as part of the deploy pipeline.
+- [x] Set up production Prisma migrations (`prisma migrate deploy`) as part of the deploy pipeline. (`backend/package.json`'s `start` script — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [ ] Enforce HTTPS and confirm cookie flags (`Secure`, `SameSite`) work correctly on the deployed domain.
 - [ ] Smoke-test the full MVP checklist from requirements §20 against the deployed environment.
 - [ ] Write minimal privacy documentation (what data is collected, how to delete an account) before any real-user launch (§14).

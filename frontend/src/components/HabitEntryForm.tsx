@@ -23,6 +23,12 @@ interface HabitEntryFormProps {
   onCancel: () => void;
   /** Lets the user jump to "define a new habit" without leaving this form entirely. */
   onAddHabit: () => void;
+  // When present, the form starts pre-filled with this log's values and PATCHes it on submit
+  // instead of POSTing a new one - see MoodEntryForm's identical editingLog prop for the full
+  // explanation of why one form serves both create and edit. Unlike the other three log types,
+  // habitId is immutable once a log exists (see backend's habitLogs.ts updateSchema, which
+  // deliberately omits it), so the habit picker is locked to editingLog's habit while editing.
+  editingLog?: HabitLog | null;
 }
 
 export function HabitEntryForm({
@@ -31,13 +37,24 @@ export function HabitEntryForm({
   onSaved,
   onCancel,
   onAddHabit,
+  editingLog,
 }: HabitEntryFormProps) {
-  const [habitId, setHabitId] = useState(initialHabitId ?? habits[0]?.id ?? "");
-  const [booleanValue, setBooleanValue] = useState<boolean | null>(null);
-  const [numericValue, setNumericValue] = useState("");
-  const [durationValue, setDurationValue] = useState("");
-  const [notes, setNotes] = useState("");
-  const [loggedAt, setLoggedAt] = useState(() => toDateTimeLocalValue(new Date()));
+  const [habitId, setHabitId] = useState(
+    editingLog?.habitId ?? initialHabitId ?? habits[0]?.id ?? "",
+  );
+  const [booleanValue, setBooleanValue] = useState<boolean | null>(
+    editingLog?.valueBoolean ?? null,
+  );
+  const [numericValue, setNumericValue] = useState(
+    editingLog?.valueNumeric != null ? String(editingLog.valueNumeric) : "",
+  );
+  const [durationValue, setDurationValue] = useState(
+    editingLog?.valueDurationMinutes != null ? String(editingLog.valueDurationMinutes) : "",
+  );
+  const [notes, setNotes] = useState(editingLog?.notes ?? "");
+  const [loggedAt, setLoggedAt] = useState(() =>
+    toDateTimeLocalValue(editingLog ? new Date(editingLog.loggedAt) : new Date()),
+  );
   const [valueError, setValueError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -57,8 +74,7 @@ export function HabitEntryForm({
     // extractTypedValue (habitLogs.ts) - answered here first so the user gets an inline error
     // instead of a round trip to the server for a mistake the UI already knows about (the
     // server still re-validates independently; this is a UX shortcut, not the source of truth).
-    let body: {
-      habitId: string;
+    let valueFields: {
       valueBoolean?: boolean;
       valueNumeric?: number;
       valueDurationMinutes?: number;
@@ -68,34 +84,40 @@ export function HabitEntryForm({
         setValueError("Choose Yes or No.");
         return;
       }
-      body = { habitId: selectedHabit.id, valueBoolean: booleanValue };
+      valueFields = { valueBoolean: booleanValue };
     } else if (selectedHabit.type === "numeric") {
       const parsed = Number(numericValue);
       if (numericValue.trim() === "" || !Number.isFinite(parsed)) {
         setValueError("Enter a number.");
         return;
       }
-      body = { habitId: selectedHabit.id, valueNumeric: parsed };
+      valueFields = { valueNumeric: parsed };
     } else {
       const parsed = Number(durationValue);
       if (durationValue.trim() === "" || !Number.isInteger(parsed) || parsed < 0) {
         setValueError("Enter a whole number of minutes, 0 or more.");
         return;
       }
-      body = { habitId: selectedHabit.id, valueDurationMinutes: parsed };
+      valueFields = { valueDurationMinutes: parsed };
     }
     setValueError(null);
 
     setSubmitting(true);
     try {
-      const log = await apiFetch<HabitLog>("/api/habit-logs", {
-        method: "POST",
-        body: JSON.stringify({
-          ...body,
-          notes: notes.trim() || undefined,
-          loggedAt: new Date(loggedAt).toISOString(),
-        }),
-      });
+      const log = await apiFetch<HabitLog>(
+        editingLog ? `/api/habit-logs/${editingLog.id}` : "/api/habit-logs",
+        {
+          method: editingLog ? "PATCH" : "POST",
+          body: JSON.stringify({
+            // habitId is immutable on update (see updateSchema in habitLogs.ts) - only sent
+            // when creating a brand new log.
+            ...(editingLog ? {} : { habitId: selectedHabit.id }),
+            ...valueFields,
+            notes: notes.trim() || undefined,
+            loggedAt: new Date(loggedAt).toISOString(),
+          }),
+        },
+      );
       onSaved(log);
     } catch {
       setFormError("Something went wrong saving your habit entry. Please try again.");
@@ -113,6 +135,10 @@ export function HabitEntryForm({
         <select
           id="habit-picker"
           value={habitId}
+          // Which habit a log belongs to can't be changed after creation (see updateSchema in
+          // habitLogs.ts) - locking the picker while editing avoids implying a change here
+          // would actually move the log to a different habit.
+          disabled={!!editingLog}
           onChange={(e) => {
             setHabitId(e.target.value);
             setBooleanValue(null);
@@ -120,7 +146,7 @@ export function HabitEntryForm({
             setDurationValue("");
             setValueError(null);
           }}
-          className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+          className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-60"
         >
           {habits.map((habit) => (
             <option key={habit.id} value={habit.id}>
@@ -128,13 +154,15 @@ export function HabitEntryForm({
             </option>
           ))}
         </select>
-        <button
-          type="button"
-          onClick={onAddHabit}
-          className="self-start text-sm font-medium text-brand underline-offset-2 hover:underline"
-        >
-          + Add a new habit
-        </button>
+        {!editingLog && (
+          <button
+            type="button"
+            onClick={onAddHabit}
+            className="self-start text-sm font-medium text-brand underline-offset-2 hover:underline"
+          >
+            + Add a new habit
+          </button>
+        )}
       </div>
 
       {selectedHabit?.type === "boolean" && (
@@ -248,7 +276,7 @@ export function HabitEntryForm({
 
       <div className="flex gap-3">
         <Button type="submit" disabled={submitting}>
-          {submitting ? "Saving…" : "Save Entry"}
+          {submitting ? "Saving…" : editingLog ? "Save Changes" : "Save Entry"}
         </Button>
         <Button type="button" variant="secondary" onClick={onCancel} disabled={submitting}>
           Cancel

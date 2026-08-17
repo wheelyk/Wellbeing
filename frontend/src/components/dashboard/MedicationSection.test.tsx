@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MedicationSection } from "./MedicationSection";
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -84,5 +85,40 @@ describe("MedicationSection", () => {
     render(<MedicationSection />);
 
     expect(await screen.findByText(/couldn't load your medications/i)).toBeInTheDocument();
+  });
+
+  it("opens the edit form pre-filled when Edit is clicked, and replaces the entry in place on save", async () => {
+    const medication = { id: "med-1", userId: "user-1", name: "Ibuprofen", dosage: null };
+    const existingLog = {
+      id: "log-1",
+      userId: "user-1",
+      medicationId: "med-1",
+      taken: false,
+      notes: null,
+      loggedAt: "2026-08-17T09:00:00.000Z",
+    };
+    const updatedLog = { ...existingLog, taken: true };
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return Promise.resolve(jsonResponse(200, updatedLog));
+      if (url.includes("/api/medications")) return Promise.resolve(jsonResponse(200, [medication]));
+      return Promise.resolve(jsonResponse(200, [existingLog]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<MedicationSection />);
+    await screen.findByText(/ibuprofen — not taken/i);
+
+    await user.click(screen.getByRole("button", { name: /edit medication entry/i }));
+
+    expect(screen.getByText("Edit medication entry")).toBeInTheDocument();
+    await user.click(await screen.findByRole("radio", { name: "Taken" }));
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    expect(await screen.findByText(/ibuprofen — taken/i)).toBeInTheDocument();
+    expect(screen.queryByText(/not taken/i)).not.toBeInTheDocument();
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(patchCall?.[0]).toContain("/api/medication-logs/log-1");
   });
 });

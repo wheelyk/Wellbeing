@@ -36,14 +36,20 @@ interface MedicationEntryFormProps {
   // without needing a second round-trip to re-fetch the medication list.
   onSaved: (log: MedicationLog, medication: Medication) => void;
   onCancel: () => void;
+  // When present, the form starts pre-filled with this log's values and PATCHes it on submit
+  // instead of POSTing a new one - see MoodEntryForm's identical editingLog prop for the full
+  // explanation of why one form serves both create and edit.
+  editingLog?: MedicationLog | null;
 }
 
-export function MedicationEntryForm({ onSaved, onCancel }: MedicationEntryFormProps) {
+export function MedicationEntryForm({ onSaved, onCancel, editingLog }: MedicationEntryFormProps) {
   const [medications, setMedications] = useState<Medication[]>([]);
   const [medsLoading, setMedsLoading] = useState(true);
   const [medsLoadError, setMedsLoadError] = useState(false);
 
-  const [selectedMedicationId, setSelectedMedicationId] = useState<string | null>(null);
+  const [selectedMedicationId, setSelectedMedicationId] = useState<string | null>(
+    editingLog?.medicationId ?? null,
+  );
   const [medicationError, setMedicationError] = useState<string | null>(null);
 
   const [showAddMedication, setShowAddMedication] = useState(false);
@@ -52,11 +58,13 @@ export function MedicationEntryForm({ onSaved, onCancel }: MedicationEntryFormPr
   const [addingMedication, setAddingMedication] = useState(false);
   const [addMedicationError, setAddMedicationError] = useState<string | null>(null);
 
-  const [taken, setTaken] = useState<boolean | null>(null);
+  const [taken, setTaken] = useState<boolean | null>(editingLog?.taken ?? null);
   const [takenError, setTakenError] = useState<string | null>(null);
 
-  const [notes, setNotes] = useState("");
-  const [loggedAt, setLoggedAt] = useState(() => toDateTimeLocalValue(new Date()));
+  const [notes, setNotes] = useState(editingLog?.notes ?? "");
+  const [loggedAt, setLoggedAt] = useState(() =>
+    toDateTimeLocalValue(editingLog ? new Date(editingLog.loggedAt) : new Date()),
+  );
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -129,15 +137,18 @@ export function MedicationEntryForm({ onSaved, onCancel }: MedicationEntryFormPr
 
     setSubmitting(true);
     try {
-      const log = await apiFetch<MedicationLog>("/api/medication-logs", {
-        method: "POST",
-        body: JSON.stringify({
-          medicationId: selectedMedicationId,
-          taken,
-          notes: notes.trim() || undefined,
-          loggedAt: new Date(loggedAt).toISOString(),
-        }),
-      });
+      const log = await apiFetch<MedicationLog>(
+        editingLog ? `/api/medication-logs/${editingLog.id}` : "/api/medication-logs",
+        {
+          method: editingLog ? "PATCH" : "POST",
+          body: JSON.stringify({
+            medicationId: selectedMedicationId,
+            taken,
+            notes: notes.trim() || undefined,
+            loggedAt: new Date(loggedAt).toISOString(),
+          }),
+        },
+      );
       const medication = medications.find((m) => m.id === selectedMedicationId);
       if (medication) {
         onSaved(log, medication);
@@ -310,7 +321,7 @@ export function MedicationEntryForm({ onSaved, onCancel }: MedicationEntryFormPr
 
       <div className="flex gap-3">
         <Button type="submit" disabled={submitting}>
-          {submitting ? "Saving…" : "Save Entry"}
+          {submitting ? "Saving…" : editingLog ? "Save Changes" : "Save Entry"}
         </Button>
         <Button type="button" variant="secondary" onClick={onCancel} disabled={submitting}>
           Cancel

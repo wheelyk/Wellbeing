@@ -199,4 +199,105 @@ describe("HabitEntryForm", () => {
 
     expect(onCancel).toHaveBeenCalled();
   });
+
+  describe("editing an existing entry", () => {
+    it("pre-fills a boolean habit's Yes/No control, locks the habit picker, and PATCHes without habitId", async () => {
+      const existingLog = {
+        id: "log-1",
+        userId: "user-1",
+        habitId: booleanHabit.id,
+        valueBoolean: false,
+        valueNumeric: null,
+        valueDurationMinutes: null,
+        notes: "Skipped today",
+        loggedAt: "2026-08-16T08:30:00.000Z",
+      };
+      const updatedLog = { ...existingLog, valueBoolean: true };
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(() => Promise.resolve(jsonResponse(200, updatedLog)));
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+      const onSaved = vi.fn();
+
+      render(
+        <HabitEntryForm
+          habits={[booleanHabit, numericHabit]}
+          editingLog={existingLog}
+          onSaved={onSaved}
+          onCancel={vi.fn()}
+          onAddHabit={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByLabelText(/^habit$/i)).toHaveValue(booleanHabit.id);
+      expect(screen.getByLabelText(/^habit$/i)).toBeDisabled();
+      expect(screen.getByRole("radio", { name: "No" })).toHaveAttribute("aria-checked", "true");
+      expect(screen.getByLabelText(/notes/i)).toHaveValue("Skipped today");
+      expect(screen.getByRole("button", { name: "Save Changes" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /add a new habit/i })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("radio", { name: "Yes" }));
+      await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+      await vi.waitFor(() => expect(onSaved).toHaveBeenCalledWith(updatedLog));
+
+      const [url, requestInit] = fetchMock.mock.calls[0];
+      expect(url).toContain("/api/habit-logs/log-1");
+      expect(requestInit.method).toBe("PATCH");
+      const body = JSON.parse(requestInit.body as string);
+      expect(body).toMatchObject({ valueBoolean: true });
+      expect(body.habitId).toBeUndefined();
+    });
+
+    it("pre-fills a numeric habit's value control from valueNumeric", () => {
+      const existingLog = {
+        id: "log-2",
+        userId: "user-1",
+        habitId: numericHabit.id,
+        valueBoolean: null,
+        valueNumeric: 1.5,
+        valueDurationMinutes: null,
+        notes: null,
+        loggedAt: "2026-08-16T08:30:00.000Z",
+      };
+
+      render(
+        <HabitEntryForm
+          habits={[numericHabit]}
+          editingLog={existingLog}
+          onSaved={vi.fn()}
+          onCancel={vi.fn()}
+          onAddHabit={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByLabelText(/^value$/i)).toHaveValue(1.5);
+    });
+
+    it("pre-fills a duration habit's value control from valueDurationMinutes", () => {
+      const existingLog = {
+        id: "log-3",
+        userId: "user-1",
+        habitId: durationHabit.id,
+        valueBoolean: null,
+        valueNumeric: null,
+        valueDurationMinutes: 45,
+        notes: null,
+        loggedAt: "2026-08-16T08:30:00.000Z",
+      };
+
+      render(
+        <HabitEntryForm
+          habits={[durationHabit]}
+          editingLog={existingLog}
+          onSaved={vi.fn()}
+          onCancel={vi.fn()}
+          onAddHabit={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByLabelText(/duration \(minutes\)/i)).toHaveValue(45);
+    });
+  });
 });

@@ -27,16 +27,23 @@ const MOOD_OPTIONS: Array<{ value: number; emoji: string; label: string }> = [
 const ENERGY_STRESS_VALUES = [1, 2, 3, 4, 5, 6, 7];
 
 interface MoodEntryFormProps {
+  // When present, the form starts pre-filled with this log's values and PATCHes it on submit
+  // instead of POSTing a new one - the same form serves both "log a mood" and "edit a mood
+  // entry" so the two flows can never drift apart. Absent (or null), behavior is unchanged
+  // from before edit support existed.
+  editingLog?: MoodLog | null;
   onSaved: (log: MoodLog) => void;
   onCancel: () => void;
 }
 
-export function MoodEntryForm({ onSaved, onCancel }: MoodEntryFormProps) {
-  const [mood, setMood] = useState<number | null>(null);
-  const [energy, setEnergy] = useState<number | null>(null);
-  const [stress, setStress] = useState<number | null>(null);
-  const [notes, setNotes] = useState("");
-  const [loggedAt, setLoggedAt] = useState(() => toDateTimeLocalValue(new Date()));
+export function MoodEntryForm({ editingLog, onSaved, onCancel }: MoodEntryFormProps) {
+  const [mood, setMood] = useState<number | null>(editingLog?.mood ?? null);
+  const [energy, setEnergy] = useState<number | null>(editingLog?.energy ?? null);
+  const [stress, setStress] = useState<number | null>(editingLog?.stress ?? null);
+  const [notes, setNotes] = useState(editingLog?.notes ?? "");
+  const [loggedAt, setLoggedAt] = useState(() =>
+    toDateTimeLocalValue(editingLog ? new Date(editingLog.loggedAt) : new Date()),
+  );
   const [moodError, setMoodError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -53,16 +60,19 @@ export function MoodEntryForm({ onSaved, onCancel }: MoodEntryFormProps) {
 
     setSubmitting(true);
     try {
-      const log = await apiFetch<MoodLog>("/api/mood-logs", {
-        method: "POST",
-        body: JSON.stringify({
-          mood,
-          energy: energy ?? undefined,
-          stress: stress ?? undefined,
-          notes: notes.trim() || undefined,
-          loggedAt: new Date(loggedAt).toISOString(),
-        }),
-      });
+      const log = await apiFetch<MoodLog>(
+        editingLog ? `/api/mood-logs/${editingLog.id}` : "/api/mood-logs",
+        {
+          method: editingLog ? "PATCH" : "POST",
+          body: JSON.stringify({
+            mood,
+            energy: energy ?? undefined,
+            stress: stress ?? undefined,
+            notes: notes.trim() || undefined,
+            loggedAt: new Date(loggedAt).toISOString(),
+          }),
+        },
+      );
       onSaved(log);
     } catch {
       setFormError("Something went wrong saving your mood. Please try again.");
@@ -152,7 +162,7 @@ export function MoodEntryForm({ onSaved, onCancel }: MoodEntryFormProps) {
 
       <div className="flex gap-3">
         <Button type="submit" disabled={submitting}>
-          {submitting ? "Saving…" : "Save Entry"}
+          {submitting ? "Saving…" : editingLog ? "Save Changes" : "Save Entry"}
         </Button>
         <Button type="button" variant="secondary" onClick={onCancel} disabled={submitting}>
           Cancel

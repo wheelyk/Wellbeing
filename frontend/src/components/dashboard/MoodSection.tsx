@@ -14,6 +14,9 @@ export function MoodSection() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  // Reuses the same showForm area both create and edit render into - null means "creating a
+  // new entry", a log means "editing that entry" (see MoodEntryForm's editingLog prop).
+  const [editingLog, setEditingLog] = useState<MoodLog | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,8 +36,22 @@ export function MoodSection() {
   }, []);
 
   function handleSaved(log: MoodLog) {
-    setMoodLogs((prev) => [log, ...prev]);
+    setMoodLogs((prev) => {
+      const isEdit = prev.some((l) => l.id === log.id);
+      return isEdit ? prev.map((l) => (l.id === log.id ? log : l)) : [log, ...prev];
+    });
     setShowForm(false);
+    setEditingLog(null);
+  }
+
+  function handleEdit(log: MoodLog) {
+    setEditingLog(log);
+    setShowForm(true);
+  }
+
+  function handleCancel() {
+    setShowForm(false);
+    setEditingLog(null);
   }
 
   async function handleDelete(id: string) {
@@ -52,11 +69,25 @@ export function MoodSection() {
       <section className="mt-6">
         {showForm ? (
           <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-semibold text-text">Log your mood</h2>
-            <MoodEntryForm onSaved={handleSaved} onCancel={() => setShowForm(false)} />
+            <h2 className="mb-4 text-lg font-semibold text-text">
+              {editingLog ? "Edit mood entry" : "Log your mood"}
+            </h2>
+            <MoodEntryForm
+              key={editingLog?.id ?? "create"}
+              editingLog={editingLog}
+              onSaved={handleSaved}
+              onCancel={handleCancel}
+            />
           </div>
         ) : (
-          <Button onClick={() => setShowForm(true)}>+ Mood</Button>
+          <Button
+            onClick={() => {
+              setEditingLog(null);
+              setShowForm(true);
+            }}
+          >
+            + Mood
+          </Button>
         )}
       </section>
 
@@ -95,13 +126,22 @@ export function MoodSection() {
                   </p>
                 </div>
               </div>
-              <Button
-                variant="secondary"
-                onClick={() => handleDelete(log.id)}
-                aria-label={`Delete mood entry from ${new Date(log.loggedAt).toLocaleString()}`}
-              >
-                Delete
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => handleEdit(log)}
+                  aria-label={`Edit mood entry from ${new Date(log.loggedAt).toLocaleString()}`}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => handleDelete(log.id)}
+                  aria-label={`Delete mood entry from ${new Date(log.loggedAt).toLocaleString()}`}
+                >
+                  Delete
+                </Button>
+              </div>
             </li>
           ))}
         </ul>
