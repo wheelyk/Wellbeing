@@ -113,7 +113,11 @@ export function HabitEntryForm({
             // when creating a brand new log.
             ...(editingLog ? {} : { habitId: selectedHabit.id }),
             ...valueFields,
-            notes: notes.trim() || undefined,
+            // Create omits an empty value (nothing to clear yet); edit sends an explicit
+            // `null` so clearing previously-entered notes text actually clears it, rather
+            // than the omitted key silently leaving the old value in the database - see
+            // backend/src/routes/habitLogs.ts's updateSchema.
+            notes: notes.trim() || (editingLog ? null : undefined),
             loggedAt: new Date(loggedAt).toISOString(),
           }),
         },

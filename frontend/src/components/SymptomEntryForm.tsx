@@ -136,7 +136,11 @@ export function SymptomEntryForm({
           body: JSON.stringify({
             symptomId,
             severity,
-            notes: notes.trim() || undefined,
+            // Create omits an empty value (nothing to clear yet); edit sends an explicit
+            // `null` so clearing previously-entered notes text actually clears it, rather
+            // than the omitted key silently leaving the old value in the database - see
+            // backend/src/routes/symptomLogs.ts's updateSchema.
+            notes: notes.trim() || (editingLog ? null : undefined),
             loggedAt: new Date(loggedAt).toISOString(),
           }),
         },

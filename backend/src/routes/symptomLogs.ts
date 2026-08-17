@@ -15,7 +15,12 @@ const createSchema = z.object({
   loggedAt: z.string().datetime().optional(),
 });
 
-const updateSchema = createSchema.partial();
+// See moodLogs.ts's identical comment: `notes` is widened to accept an explicit `null` on
+// update only, so clearing a previously-entered note during an edit actually clears it instead
+// of the "not provided" case (key absent) silently leaving the old value untouched.
+const updateSchema = createSchema.partial().extend({
+  notes: z.string().trim().min(1).optional().nullable(),
+});
 
 export const symptomLogsRouter = Router();
 

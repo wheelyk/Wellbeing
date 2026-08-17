@@ -9,6 +9,7 @@ import { medicationsRouter } from "./routes/medications";
 import { medicationLogsRouter } from "./routes/medicationLogs";
 import { symptomsRouter } from "./routes/symptoms";
 import { symptomLogsRouter } from "./routes/symptomLogs";
+import { dashboardRouter } from "./routes/dashboard";
 import { historyRouter } from "./routes/history";
 import { requireAuth } from "./middleware/requireAuth";
 
@@ -33,6 +34,7 @@ export function createApp(): Express {
   app.use("/api/medication-logs", requireAuth, medicationLogsRouter);
   app.use("/api/symptoms", requireAuth, symptomsRouter);
   app.use("/api/symptom-logs", requireAuth, symptomLogsRouter);
+  app.use("/api/dashboard", requireAuth, dashboardRouter);
   app.use("/api/history", requireAuth, historyRouter);
 
   return app;

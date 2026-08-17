@@ -144,7 +144,11 @@ export function MedicationEntryForm({ onSaved, onCancel, editingLog }: Medicatio
           body: JSON.stringify({
             medicationId: selectedMedicationId,
             taken,
-            notes: notes.trim() || undefined,
+            // Create omits an empty value (nothing to clear yet); edit sends an explicit
+            // `null` so clearing previously-entered notes text actually clears it, rather
+            // than the omitted key silently leaving the old value in the database - see
+            // backend/src/routes/medicationLogs.ts's updateSchema.
+            notes: notes.trim() || (editingLog ? null : undefined),
             loggedAt: new Date(loggedAt).toISOString(),
           }),
         },
