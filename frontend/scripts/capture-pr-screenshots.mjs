@@ -44,6 +44,49 @@ await page.getByRole("button", { name: "Log in" }).click();
 await page.waitForURL("**/dashboard");
 await screenshot("03-login-then-dashboard");
 
+// Logs one real entry of each of the four types, so the before/after comparison this
+// screenshot feeds into actually proves the dashboard *functions* - not just that it renders
+// while empty. Mirrors the manual verification flow used when DashboardPage was decomposed
+// into per-log-type section components (see docs/log/08-git-github-workflow.md).
+await page.getByRole("button", { name: "+ Mood" }).click();
+await page.getByRole("radio", { name: "Great", exact: true }).click();
+await page.getByRole("button", { name: /save entry/i }).click();
+await page.waitForTimeout(300);
+
+await page.getByRole("button", { name: "+ Symptom" }).click();
+await page.waitForSelector("text=Log a symptom");
+await page.locator("select").first().selectOption({ index: 1 });
+await page
+  .getByRole("radiogroup", { name: /severity/i })
+  .getByRole("radio", { name: "5" })
+  .click();
+await page.getByRole("button", { name: /save entry/i }).click();
+await page.waitForTimeout(300);
+
+await page.getByRole("button", { name: "+ Medication" }).click();
+await page.waitForSelector("text=Log a medication");
+await page.getByLabel(/medication name/i).fill("Ibuprofen");
+await page.getByRole("button", { name: "Add", exact: true }).click();
+await page.waitForTimeout(300);
+await page
+  .getByRole("radiogroup", { name: /was it taken/i })
+  .getByRole("radio", { name: "Taken", exact: true })
+  .click();
+await page.getByRole("button", { name: /save entry/i }).click();
+await page.waitForSelector("text=Ibuprofen — Taken");
+
+await page.getByRole("button", { name: "+ Habit" }).click();
+await page.waitForSelector("text=Create your first habit");
+await page.getByLabel(/habit name/i).fill("Exercise");
+await page.getByRole("radio", { name: /yes \/ no/i }).click();
+await page.getByRole("button", { name: /create habit/i }).click();
+await page.waitForSelector("text=Log a habit");
+await page.getByRole("radio", { name: "Yes" }).click();
+await page.getByRole("button", { name: /save entry/i }).click();
+await page.waitForSelector("text=Exercise: Done");
+
+await screenshot("04-dashboard-functioning-with-entries");
+
 await browser.close();
 
 if (consoleErrors.length > 0) {

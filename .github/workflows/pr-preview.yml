@@ -71,6 +71,13 @@ jobs:
         working-directory: backend
         run: npx prisma generate
 
+      # Seeds the system-default symptoms (Headache, Fatigue, etc.) - the capture script picks
+      # one from the symptom dropdown while logging a real symptom entry below, and that
+      # dropdown is empty on a completely fresh CI database without this.
+      - name: Seed the database
+        working-directory: backend
+        run: npx prisma db seed
+
       - name: Build backend
         working-directory: backend
         run: npm run build
@@ -187,7 +194,7 @@ jobs:
           mkdir -p "$WORKTREE_DIR/frontend"
           echo '{"ignoreCommand": "exit 0"}' > "$WORKTREE_DIR/frontend/vercel.json"
 
-          EXPECTED_COUNT=3
+          EXPECTED_COUNT=4
           BEFORE_COUNT=0
           if [ -d "$SRC_DIR/before" ]; then
             BEFORE_COUNT=$(ls "$SRC_DIR/before"/*.png 2>/dev/null | wc -l)
@@ -232,6 +239,7 @@ jobs:
               ["01-register-then-dashboard", "Register -> Dashboard (auto-logged-in)"],
               ["02-after-logout-redirected-to-login", "Logout -> redirected to Login"],
               ["03-login-then-dashboard", "Login -> Dashboard"],
+              ["04-dashboard-functioning-with-entries", "Dashboard with a real entry logged for each type"],
             ];
             const rawUrl = (variant, file) =>
               `https://raw.githubusercontent.com/${repo}/${sha}/pr-${prNumber}/${variant}/${file}.png`;

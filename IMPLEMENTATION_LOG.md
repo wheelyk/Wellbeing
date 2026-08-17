@@ -201,6 +201,8 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Turning on "automatically delete head branches," so this stops happening
 - 2026-08-16 — Retrospective: why PRs, stacking, and parallel agents kept colliding, and what to actually do about it
 - 2026-08-16 — Actually splitting `IMPLEMENTATION_LOG.md` into topic files
+- 2026-08-17 — Decomposing `DashboardPage.tsx` into one section component per log type
+- 2026-08-17 — Two lasting regression checks for the dashboard, not just a one-off manual verification
 
 ### [Housekeeping & Audits](docs/log/09-housekeeping.md)
 
