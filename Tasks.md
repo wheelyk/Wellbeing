@@ -91,15 +91,15 @@ Reference: requirements §6, §12.
 
 Reference: requirements §7, §10, §12.7, §12.8.
 
-- [ ] Implement `GET /api/dashboard?date=YYYY-MM-DD`, returning in one response:
-  - [ ] Date (resolved using the user's timezone).
-  - [ ] Today's mood (latest mood log for the day, if any).
-  - [ ] Today's symptom count.
-  - [ ] Today's medication summary (`taken/total`).
-  - [ ] Today's habit summary.
-  - [ ] A list of recent entries across all log types, sorted by time.
-  - [ ] Current logging streak and count of days logged this week.
-- [ ] Write the streak calculation as a pure, unit-testable function (a "day" counts as logged if at least one entry of any type exists for that calendar day in the user's timezone).
+- [x] Implement `GET /api/dashboard?date=YYYY-MM-DD`, returning in one response:
+  - [x] Date (resolved using the user's timezone).
+  - [x] Today's mood (latest mood log for the day, if any).
+  - [x] Today's symptom count.
+  - [x] Today's medication summary (`taken/total`).
+  - [x] Today's habit summary.
+  - [x] A list of recent entries across all log types, sorted by time.
+  - [x] Current logging streak and count of days logged this week.
+- [x] Write the streak calculation as a pure, unit-testable function (a "day" counts as logged if at least one entry of any type exists for that calendar day in the user's timezone).
 - [ ] Implement `GET /api/trends?period=7d|30d|90d`, returning:
   - [ ] Symptom severity series + average for the period.
   - [ ] Mood series + average for the period.
@@ -152,12 +152,12 @@ Reference: requirements §6, §8.
 
 Reference: requirements §7.
 
-- [ ] Header showing today's date in the user's timezone.
-- [ ] Today's summary card: mood, symptom count, medication summary (`1/2 taken`), habit summary.
+- [x] Header showing today's date in the user's timezone.
+- [x] Today's summary card: mood, symptom count, medication summary (`1/2 taken`), habit summary.
 - [ ] Prominent Quick Add buttons (`+ Symptom`, `+ Mood`, `+ Medication`, `+ Habit`) opening the corresponding form with minimal taps.
-- [ ] Logging consistency indicator (streak + days logged this week) — informational tone, no gamified badges/pressure language.
+- [x] Logging consistency indicator (streak + days logged this week) — informational tone, no gamified badges/pressure language.
 - [ ] Recent entries list (type, value, time), each entry tappable to edit.
-- [ ] Loading and empty states (e.g. first-time user with nothing logged yet).
+- [x] Loading and empty states (e.g. first-time user with nothing logged yet).
 
 ---
 

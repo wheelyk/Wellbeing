@@ -211,3 +211,7 @@ Verification format used throughout this whole project.
 
 - 2026-08-16 — Reconciling Tasks.md/requirements.md with reality, and adding "change password"
 
+### [Dashboard & Trends](docs/log/10-dashboard-and-trends.md)
+
+- 2026-08-17 — Phase 4 + Phase 8: `GET /api/dashboard` and the real Dashboard summary card
+
