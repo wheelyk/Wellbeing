@@ -11,6 +11,7 @@ import { symptomsRouter } from "./routes/symptoms";
 import { symptomLogsRouter } from "./routes/symptomLogs";
 import { dashboardRouter } from "./routes/dashboard";
 import { historyRouter } from "./routes/history";
+import { trendsRouter } from "./routes/trends";
 import { requireAuth } from "./middleware/requireAuth";
 
 const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:5173";
@@ -36,6 +37,7 @@ export function createApp(): Express {
   app.use("/api/symptom-logs", requireAuth, symptomLogsRouter);
   app.use("/api/dashboard", requireAuth, dashboardRouter);
   app.use("/api/history", requireAuth, historyRouter);
+  app.use("/api/trends", requireAuth, trendsRouter);
 
   return app;
 }
