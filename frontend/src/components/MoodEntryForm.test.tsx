@@ -103,4 +103,63 @@ describe("MoodEntryForm", () => {
 
     expect(onCancel).toHaveBeenCalled();
   });
+
+  describe("editing an existing entry", () => {
+    const existingLog = {
+      id: "log-1",
+      userId: "user-1",
+      mood: 2,
+      energy: 5,
+      stress: 6,
+      notes: "Rough morning",
+      loggedAt: "2026-08-16T08:30:00.000Z",
+    };
+
+    it("pre-fills every field from the entry being edited", () => {
+      render(<MoodEntryForm editingLog={existingLog} onSaved={vi.fn()} onCancel={vi.fn()} />);
+
+      expect(screen.getByRole("radio", { name: "Not great" })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+      const energyGroup = screen.getByRole("radiogroup", { name: "Energy (optional)" });
+      expect(within(energyGroup).getByText("5")).toHaveAttribute("aria-checked", "true");
+      const stressGroup = screen.getByRole("radiogroup", { name: "Stress (optional)" });
+      expect(within(stressGroup).getByText("6")).toHaveAttribute("aria-checked", "true");
+      expect(screen.getByLabelText(/notes/i)).toHaveValue("Rough morning");
+    });
+
+    it("labels the submit button Save Changes instead of Save Entry", () => {
+      render(<MoodEntryForm editingLog={existingLog} onSaved={vi.fn()} onCancel={vi.fn()} />);
+
+      expect(screen.getByRole("button", { name: "Save Changes" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Save Entry" })).not.toBeInTheDocument();
+    });
+
+    it("submits a PATCH to the entry's own URL instead of a POST, calling onSaved with the updated log", async () => {
+      const updatedLog = { ...existingLog, mood: 5, notes: "Feeling better now" };
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(() => Promise.resolve(jsonResponse(200, updatedLog)));
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+      const onSaved = vi.fn();
+
+      render(<MoodEntryForm editingLog={existingLog} onSaved={onSaved} onCancel={vi.fn()} />);
+      await user.click(screen.getByRole("radio", { name: "Great" }));
+      const notesField = screen.getByLabelText(/notes/i);
+      await user.clear(notesField);
+      await user.type(notesField, "Feeling better now");
+      await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+      await vi.waitFor(() => expect(onSaved).toHaveBeenCalledWith(updatedLog));
+
+      const [url, requestInit] = fetchMock.mock.calls[0];
+      expect(url).toContain("/api/mood-logs/log-1");
+      expect(requestInit.method).toBe("PATCH");
+      const body = JSON.parse(requestInit.body as string);
+      expect(body.mood).toBe(5);
+      expect(body.notes).toBe("Feeling better now");
+    });
+  });
 });

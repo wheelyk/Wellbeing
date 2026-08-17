@@ -537,3 +537,121 @@ the mood-logging slice's own three-PR stack took.
   console errors.
 
 ---
+
+## 2026-08-17 — Phase 7: Edit action for habit entries, reusing the same form
+
+**Task:** [Tasks.md](../../Tasks.md) → Phase 7 → "Edit and delete actions available from
+Dashboard/History for every log type, reusing the same forms pre-filled with existing values."
+See [Mood Logging](03-mood-logging.md)'s entry of the same date for the full explanation of why
+this matters and how the shared pattern works (the optional `editingLog` prop, the `key`-forced
+remount, and the replace-in-place-vs-prepend save logic) — this entry covers only what's
+specific to Habit, which needed real extra care because of its type-dependent value.
+
+**Delivered via branch:** `feature/7-edit-log-entries` (same branch as the Mood, Symptom, and
+Medication edit work — one PR covering all four log types).
+
+### What's specific to Habit
+
+#### The type-dependent value pre-fill
+
+- A `HabitLog` stores its value across three separate nullable columns —
+  `valueBoolean`/`valueNumeric`/`valueDurationMinutes` — with exactly one of the three ever
+  non-null, matching whichever `type` the parent `Habit` was defined as (this is the same
+  three-column shape `formatHabitValue` in `HabitSection.tsx` already reads from to render each
+  entry in the list). Pre-filling the *right* control for editing means reading the *matching*
+  field, not just any of the three:
+  ```ts
+  const [booleanValue, setBooleanValue] = useState<boolean | null>(editingLog?.valueBoolean ?? null);
+  const [numericValue, setNumericValue] = useState(
+    editingLog?.valueNumeric != null ? String(editingLog.valueNumeric) : "",
+  );
+  const [durationValue, setDurationValue] = useState(
+    editingLog?.valueDurationMinutes != null ? String(editingLog.valueDurationMinutes) : "",
+  );
+  ```
+  This doesn't need any extra "which type is this" branching at pre-fill time — because the
+  backend guarantees only one of the three fields is ever non-null for a given log (enforced by
+  `extractTypedValue` in `habitLogs.ts`, covered in this slice's own Phase 3 entry), reading all
+  three unconditionally is safe: two of the three initializers simply produce `null`/`""` (their
+  normal "nothing entered" default) and the one matching the habit's actual type produces the
+  real value. The existing `selectedHabit?.type === "boolean"` / `"numeric"` / `"duration"`
+  conditional rendering — unchanged from the original entry form — then shows only the one
+  control that has a real pre-filled value in it.
+
+#### The habit picker is locked during edit — the one place this task diverges from Mood/Symptom/Medication
+
+- Unlike the other three log types, a habit log's `habitId` is **not** an editable field on
+  `PATCH`: the backend's `updateSchema` in `habitLogs.ts` deliberately omits `habitId` entirely
+  (see that file's own comment: "which habit a log belongs to isn't editable after creation,
+  avoiding the question of what it would even mean to 'move' a log with an already-validated
+  value shape onto a habit of a possibly different type" — moving a numeric log onto a boolean
+  habit, for instance, has no sensible interpretation). Since re-pointing a log at a different
+  habit was never going to work server-side, letting the picker stay interactively open during
+  edit would be actively misleading — it would look changeable when it isn't. The fix:
+  ```tsx
+  <select id="habit-picker" value={habitId} disabled={!!editingLog} ...>
+  ```
+  and the "+ Add a new habit" link is hidden entirely while editing (`{!editingLog && (...)}`),
+  since defining a brand-new habit mid-edit doesn't fit anywhere a locked-habitId edit could use
+  it. The submitted `PATCH` body itself never includes `habitId` either — built explicitly
+  without it (`...(editingLog ? {} : { habitId: selectedHabit.id })`) rather than relying on the
+  backend to silently ignore an extra field, so the request accurately reflects what's actually
+  being changed.
+
+### What was done
+
+1. **`frontend/src/components/HabitEntryForm.tsx`.** Added the `editingLog` prop; pre-fills
+   `habitId` and the type-matching value field as described above; submits `PATCH
+   /api/habit-logs/{id}` (without `habitId`) instead of `POST /api/habit-logs` when editing;
+   locks the habit `<select>` and hides "+ Add a new habit" during edit; "Save Changes" button
+   label.
+2. **`frontend/src/components/dashboard/HabitSection.tsx`.** Added `editingLog` state, an "Edit"
+   button per entry, the "Log a habit" / "Edit habit entry" heading switch, the `key`-forced
+   remount (keyed on `editingLog?.id ?? habitToPreselect ?? "create"`, extending the existing
+   preselect-after-create key rather than replacing it), and the replace-in-place
+   `handleHabitLogSaved` logic.
+3. **Tests.** New `describe("editing an existing entry")` block in `HabitEntryForm.test.tsx`
+   with three cases — one per habit type — confirming each type's value control pre-fills from
+   the matching field only (boolean also asserts the picker is disabled, the "+ Add a new habit"
+   link is gone, and the `PATCH` body has no `habitId`); one new case in `HabitSection.test.tsx`
+   (Edit opens the form pre-filled, saving replaces the entry in place). All pre-existing tests
+   unchanged and passing.
+4. **`npm test`** (frontend, full suite) — 82/82 passing (68 pre-existing, 14 new across all
+   four log types).
+5. **`npm run build`, `npm run lint`, `npx prettier --check .`** — all clean.
+6. **Real browser verification**: created a boolean habit ("Exercise"), logged it as not done,
+   edited it via the pre-filled form (confirmed the habit picker showed "Exercise" locked/
+   disabled and "No" pre-selected), changed it to "Yes," saved, and confirmed the entry updated
+   in place on the dashboard — zero console errors.
+
+### Why it's needed
+
+Same underlying gap as Mood — see that entry for the full reasoning. Habit logging in particular
+benefits from a quick correction path since a numeric or duration value is easy to mis-type
+(e.g. "80" minutes meant to be "8").
+
+### Decisions
+
+- **Habit picker locked during edit, unlike Symptom's and Medication's.** Not a stylistic
+  choice — directly forced by the backend's `updateSchema` genuinely not accepting `habitId` on
+  `PATCH`, for the type-safety reason quoted from `habitLogs.ts` above. Symptom and Medication
+  don't have this constraint because moving a symptom/medication log to a different
+  symptom/medication doesn't raise the same "what does the value even mean now" problem a
+  cross-type habit move would.
+- **Reading all three value fields unconditionally at pre-fill time**, relying on the backend's
+  existing "exactly one is ever non-null" guarantee, rather than branching on `selectedHabit.type`
+  first. Simpler code with the same result, since the guarantee already exists and is already
+  tested elsewhere (the Phase 3 `habitLogs.ts` entry).
+
+### State at end of this step
+
+A user can correct any already-logged habit entry's value, notes, or timestamp directly from the
+Dashboard — with the habit itself intentionally fixed, matching what the backend actually
+supports.
+
+### Verification
+
+- `npm test` (frontend, full suite) — 82/82 passing.
+- `npm run build`, `npm run lint`, `npx prettier --check .` — all clean.
+- Real headless-browser walkthrough: edited a boolean habit entry's value, confirmed the locked
+  habit picker, the in-place update, and zero console errors.
