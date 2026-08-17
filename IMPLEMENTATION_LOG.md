@@ -169,6 +169,10 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Phase 3: `GET/POST/PATCH/DELETE /api/habits` and `/api/habit-logs`
 - 2026-08-16 — Phase 7: Habit entry form, wired into the Dashboard
 
+### [History](docs/log/11-history.md)
+
+- 2026-08-17 — Phase 9: `GET /api/history` and the History page
+
 ### [Deployment (Railway + Vercel)](docs/log/07-deployment.md)
 
 - 2026-08-15 — Hosting and domains, explained (ahead of actually deploying)
