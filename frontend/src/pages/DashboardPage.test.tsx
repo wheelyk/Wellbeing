@@ -31,12 +31,29 @@ describe("DashboardPage", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the nav and all four log-type sections together", async () => {
+  it("renders the nav, the dashboard summary, and all four log-type sections together", async () => {
     // Every section fires its own fetch on mount; some (Habit, Medication, Symptom) fire two
     // simultaneous calls via Promise.all, so mockImplementation is required here (not
     // mockResolvedValue) to give each call its own fresh, independently-readable Response -
     // see docs/log/08-git-github-workflow.md for why mockResolvedValue silently breaks this.
-    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(200, [])));
+    // DashboardSummary's GET /api/dashboard expects a differently-shaped object, not an array
+    // like the other four endpoints, so it's special-cased by URL here.
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/dashboard")) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            date: "2026-08-17",
+            mood: null,
+            symptomCount: 0,
+            medicationSummary: { taken: 0, total: 0 },
+            habitSummary: { loggedCount: 0, totalHabits: 0 },
+            recentEntries: [],
+            streak: { current: 0, daysLoggedThisWeek: 0 },
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse(200, []));
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     renderDashboard();
@@ -50,6 +67,7 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("button", { name: "+ Medication" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "+ Symptom" })).toBeInTheDocument();
 
+    expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
     expect(await screen.findByText("Recent mood entries")).toBeInTheDocument();
     expect(await screen.findByText("Recent habit entries")).toBeInTheDocument();
     expect(await screen.findByText("Recent medications")).toBeInTheDocument();
