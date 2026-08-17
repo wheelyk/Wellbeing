@@ -100,11 +100,11 @@ Reference: requirements §7, §10, §12.7, §12.8.
   - [x] A list of recent entries across all log types, sorted by time.
   - [x] Current logging streak and count of days logged this week.
 - [x] Write the streak calculation as a pure, unit-testable function (a "day" counts as logged if at least one entry of any type exists for that calendar day in the user's timezone).
-- [ ] Implement `GET /api/trends?period=7d|30d|90d`, returning:
-  - [ ] Symptom severity series + average for the period.
-  - [ ] Mood series + average for the period.
-  - [ ] A day-by-day activity map (which days had any logged activity) for the calendar-style habit view.
-- [ ] Ensure all dashboard/trend queries are scoped to `user_id` and use indexed, efficient date-range queries.
+- [x] Implement `GET /api/trends?period=7d|30d|90d`, returning:
+  - [x] Symptom severity series + average for the period.
+  - [x] Mood series + average for the period.
+  - [x] A day-by-day activity map (which days had any logged activity) for the calendar-style habit view.
+- [x] Ensure all dashboard/trend queries are scoped to `user_id` and use indexed, efficient date-range queries.
 
 ---
 
@@ -181,12 +181,12 @@ Reference: requirements §9.
 
 Reference: requirements §10.
 
-- [ ] Period selector: 7 / 30 / 90 days.
-- [ ] Symptom severity chart (line/bar) with computed average displayed prominently (e.g. "Symptom Severity — Avg: 5.2").
-- [ ] Mood line chart with computed average (e.g. "Mood — Avg: 3.4").
-- [ ] Calendar-style activity view showing which days had logged activity/habits.
-- [ ] Copy review: ensure no chart or label implies causation or diagnosis — descriptive language only (§10, §14).
-- [ ] Empty/low-data states (e.g. "Not enough data yet for this period").
+- [x] Period selector: 7 / 30 / 90 days.
+- [x] Symptom severity chart (line/bar) with computed average displayed prominently (e.g. "Symptom Severity — Avg: 5.2").
+- [x] Mood line chart with computed average (e.g. "Mood — Avg: 3.4").
+- [x] Calendar-style activity view showing which days had logged activity/habits.
+- [x] Copy review: ensure no chart or label implies causation or diagnosis — descriptive language only (§10, §14).
+- [x] Empty/low-data states (e.g. "Not enough data yet for this period").
 
 ---
 
