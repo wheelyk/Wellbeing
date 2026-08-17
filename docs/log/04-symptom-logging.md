@@ -463,3 +463,146 @@ own PR, stacked in that order, and need merging in that same order once reviewed
   at each step, zero browser console errors.
 
 ---
+
+## 2026-08-17 — Letting users add their own symptoms inline (and two new defaults: Anxiety, Depression)
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — the user asked whether the symptom
+picker should be editable so people could add options like Anxiety or Depression themselves,
+rather than being limited to whatever's seeded. Turned out the backend and data model already
+fully supported this (`ownSymptoms`/`systemSymptoms` was designed for exactly this split from the
+start); only the form's UI never grew the affordance to actually create one.
+
+### Background / concepts
+
+#### The data model already drew this line — nothing there needed to change
+
+- `Symptom.userId` has been nullable since the very first Symptom Logging entry, specifically so
+  a `null` row (a "system" symptom) reads as available to everyone, while a real `userId` reads as
+  one person's own. `SymptomEntryForm` already split its `symptoms` prop into `ownSymptoms` and
+  `systemSymptoms` and rendered them as two separate `<optgroup>`s (`"Your symptoms"` /
+  `"Common symptoms"`) — and the backend's `POST /api/symptoms` (from the original endpoints
+  entry) already creates exactly that kind of user-owned row. The gap was narrow: a working
+  create endpoint and a form that already knew how to display the result, but no button anywhere
+  that actually called the endpoint.
+
+#### Confirmed Habit and Medication already had this, in two different shapes
+
+- The user asked to confirm this directly. Both already let a user add their own option, but not
+  identically, and the difference is a direct consequence of how much each thing needs to know at
+  creation time:
+  - **Medication** (`MedicationEntryForm.tsx`) adds inline, in place, inside the same form used to
+    log an entry — a "+ Add another medication" toggle reveals a name field and an "Add" button,
+    right there. A medication only ever needs a `name`, so there's nothing more to ask.
+  - **Habit** (`HabitCreateForm.tsx`, reached via `HabitEntryForm`'s "+ Add a new habit") is a
+    separate, dedicated screen instead. A habit additionally needs a **type** chosen at creation
+    (Yes/No, Number, or Duration — this determines which value field every future log against it
+    shows), which is enough extra decision-making to justify its own focused form rather than
+    cramming a type-picker into the log-entry form too.
+  - **Symptom** needed neither complexity nor a follow-up screen — like Medication, a symptom only
+    ever needs a `name` (the `description` field exists in the schema but was already
+    optional/system-only in practice, never asked for at log time) — so it follows Medication's
+    fully-inline shape, not Habit's separate-screen one.
+
+#### Why the new symptom has to be reported back to the *parent*, not just kept in this form
+
+- Unlike `MedicationEntryForm`, which fetches and owns its own `medications` list internally,
+  `SymptomEntryForm` deliberately receives `symptoms` as a prop from `SymptomSection` (see the
+  original entry's *Decisions* — one fetch shared between the picker and the recent-entries list,
+  so they can't disagree). That means this form can't just add the new symptom to its own local
+  state the way Medication's form does — `symptoms` isn't this form's to mutate. A new
+  `onSymptomCreated` callback prop reports the created symptom up to `SymptomSection`, which folds
+  it into the state *it* owns, the same "fold into local state instead of re-fetching" pattern
+  `MedicationSection.handleMedicationSaved` already uses.
+
+### What was done
+
+1. **`SymptomEntryForm.tsx`.** Added `showAddSymptom`/`newSymptomName`/`addingSymptom`/
+   `addSymptomError` state, a `handleAddSymptom` function (`POST /api/symptoms`, then
+   `onSymptomCreated(symptom)`, auto-select it via `setSymptomId`, reset and hide the inline
+   field), and the matching JSX: a "+ Add another symptom" toggle link plus a `TextField` + `Add`
+   button when open — copied directly from `MedicationEntryForm`'s equivalent block, including its
+   dynamic label (`"Symptom name"` the first time a user has none of their own yet, `"New symptom
+   name"` afterward).
+2. **`SymptomSection.tsx`.** Added `handleSymptomCreated`, folding the new symptom into local
+   `symptoms` state (guarded against duplicates, matching `MedicationSection`'s pattern exactly),
+   and passed it down as the new `onSymptomCreated` prop.
+3. **`backend/prisma/seed.ts`.** Added `Anxiety` and `Depression` to `SYSTEM_SYMPTOMS`, directly
+   answering the user's suggestion for what the shared default set should include — these show up
+   for every user under "Common symptoms" without anyone having to add them individually. Since
+   the seed script is idempotent and (per the previous deployment-log entry) now runs
+   automatically on every production deploy, this reaches production the next time this change
+   ships, with no separate manual step.
+4. **Tests.** Updated every existing `SymptomEntryForm.test.tsx` render call with the new required
+   `onSymptomCreated` prop, and added two new tests: adding a custom symptom successfully (auto-
+   selected, reported to the parent, correct POST body) and a failed add showing a friendly error
+   without clearing the typed name. The success test uses Testing Library's `rerender` to simulate
+   what `SymptomSection` does in the real app — feed the newly-created symptom back in via an
+   updated `symptoms` prop — since, unlike Medication's self-contained form, this form only tracks
+   the *id* of its own selection, not the option list itself; without that simulated rerender, the
+   test can't see the new `<option>` (a real gap in isolated component testing, not a bug in the
+   component — confirmed directly by first writing the assertion the naive way, watching it fail
+   with the select showing the *previous* first option instead, and reasoning through why: a
+   browser's `<select>` falls back to its first real option whenever its controlled `value` points
+   at an id with no matching `<option>` — exactly what happens here without the rerender).
+5. **`npm run build`, `npm run lint`, `npx prettier --check .`** (frontend) — all clean after one
+   formatting pass on the new test file.
+6. **`npm test`** — 65/65 frontend tests passing, 110/110 backend tests passing (the seed change
+   touches no backend logic, but the full suite was still run per this project's standing rule).
+7. **Real browser verification.** Re-ran the seed script against the local database (idempotent —
+   printed only `Seeded system symptom: Anxiety` / `Depression`, confirming the existing six were
+   left untouched) and drove the actual flow with Playwright against real running dev servers:
+   opened the symptom form, confirmed all eight "Common symptoms" now render (the original six
+   plus the two new ones), used "+ Add another symptom" to create "Anxiety flare" as a genuinely
+   custom, user-owned symptom, confirmed it appeared auto-selected under "Your symptoms," logged
+   it with a severity, and confirmed it appeared in the recent-entries list — zero console errors
+   throughout.
+
+### Why it's needed
+
+Without this, the only way to add a symptom like Anxiety was to edit `seed.ts` and ship a deploy —
+fine for the two the user specifically wanted added now, but not a real answer for anyone whose
+condition isn't on that list, which is exactly the situation a wellness-tracking app for chronic
+conditions should expect to hit often. Letting users add their own keeps the seeded list as
+helpful defaults rather than a hard ceiling on what's trackable.
+
+### Decisions
+
+- **Followed Medication's inline shape, not Habit's separate-screen one.** Justified directly by
+  data shape, not by a general "always match Medication" rule — a symptom needs exactly one thing
+  (a name) at creation time, same as a medication, and nothing like a habit's type choice that
+  would justify its own screen.
+- **New symptoms are always private to the user who creates them, never promoted to the shared
+  "Common symptoms" set.** The data model already draws this line (`userId: null` vs. a real
+  user id) and nothing here changes it — a user's custom "Anxiety flare" stays visible only to
+  them, so one person's specific wording never clutters everyone else's picker. Promoting a
+  frequently-added custom symptom into the shared defaults later is possible (it's just changing
+  which row has `userId: null`) but was out of scope here — nothing asked for it, and doing so
+  automatically would need some notion of "how often does a name recur across users," which
+  doesn't exist yet.
+- **Didn't collect a `description` in the inline-add flow**, even though the `Symptom` model
+  supports one. The seeded system symptoms use it for a couple of entries (Brain fog, Insomnia)
+  as a small clarifying hint, but asking a user for an optional description while they're mid-flow
+  trying to log an entry adds friction for a field that's never actually shown back to them
+  anywhere yet — matches Medication's inline-add, which also only ever asks for a name.
+
+### State at end of this step
+
+A user can add their own symptom (e.g. "Anxiety flare," or anything else not already covered)
+directly from the log-a-symptom form, with no separate settings screen and no deploy required. The
+shared default set grew from six to eight system symptoms (added Anxiety, Depression), and will
+keep including new defaults added the same way as they come up.
+
+### Verification
+
+- `npm test` (frontend) — 65/65 passing, including the two new tests and the updated existing
+  ones.
+- `npm test` (backend) — 110/110 passing, unaffected by the seed-data change.
+- `npm run build`, `npm run lint`, `npx prettier --check .` (frontend) — all clean.
+- `npx prisma db seed` (backend, local database) — printed exactly two new lines (`Seeded system
+  symptom: Anxiety` / `Depression`), confirming the idempotency guard correctly skipped the six
+  already-seeded symptoms rather than duplicating them.
+- Real headless-browser walkthrough (Playwright) against genuinely running dev servers: confirmed
+  all eight common symptoms render, created a real custom symptom via the new inline flow,
+  confirmed it was auto-selected and then successfully logged — zero console errors throughout.
+
+---
