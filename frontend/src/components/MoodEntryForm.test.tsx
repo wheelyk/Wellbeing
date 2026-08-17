@@ -161,5 +161,30 @@ describe("MoodEntryForm", () => {
       expect(body.mood).toBe(5);
       expect(body.notes).toBe("Feeling better now");
     });
+
+    it("sends explicit nulls when clearing energy, stress, and notes, so the old values don't silently survive on the server", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(() => Promise.resolve(jsonResponse(200, existingLog)));
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+
+      render(<MoodEntryForm editingLog={existingLog} onSaved={vi.fn()} onCancel={vi.fn()} />);
+      // Clicking an already-selected rating deselects it (see RatingRow) - existingLog has
+      // energy 5 and stress 6, so clicking those same values again clears them.
+      const energyGroup = screen.getByRole("radiogroup", { name: "Energy (optional)" });
+      await user.click(within(energyGroup).getByText("5"));
+      const stressGroup = screen.getByRole("radiogroup", { name: "Stress (optional)" });
+      await user.click(within(stressGroup).getByText("6"));
+      await user.clear(screen.getByLabelText(/notes/i));
+      await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      const [, requestInit] = fetchMock.mock.calls[0];
+      const body = JSON.parse(requestInit.body as string);
+      expect(body.energy).toBeNull();
+      expect(body.stress).toBeNull();
+      expect(body.notes).toBeNull();
+    });
   });
 });

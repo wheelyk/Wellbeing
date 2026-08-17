@@ -278,5 +278,32 @@ describe("MedicationEntryForm", () => {
       expect(body.taken).toBe(true);
       expect(body.notes).toBe("Taken late");
     });
+
+    it("sends an explicit null when clearing notes, so the old value doesn't silently survive on the server", async () => {
+      const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/medications") && !init?.method) {
+          return Promise.resolve(jsonResponse(200, [existingMedication]));
+        }
+        if (init?.method === "PATCH") {
+          return Promise.resolve(jsonResponse(200, existingLog));
+        }
+        return Promise.resolve(jsonResponse(404, {}));
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+
+      render(<MedicationEntryForm editingLog={existingLog} onSaved={vi.fn()} onCancel={vi.fn()} />);
+      await screen.findByRole("radio", { name: "Ibuprofen" });
+      await user.clear(screen.getByLabelText(/notes/i));
+      await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+      const patchCall = await vi.waitFor(() => {
+        const call = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+        if (!call) throw new Error("Expected a PATCH to /api/medication-logs/log-1");
+        return call;
+      });
+      const body = JSON.parse((patchCall[1] as RequestInit).body as string);
+      expect(body.notes).toBeNull();
+    });
   });
 });

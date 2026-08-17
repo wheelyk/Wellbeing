@@ -113,6 +113,14 @@ without opening every file. The actual entries live in the linked files, in chro
 within each one, following exactly the same Background/What was done/Why/Decisions/
 Verification format used throughout this whole project.
 
+**Two more ways into the same material, for different purposes:** the
+[Glossary](docs/GLOSSARY.md) is a fast lookup table for terms and tools used throughout this log
+(JWT, CORS, migrations, and so on), each pointing back to the topic file that explains it in
+full — useful when you know *what* you're looking for and just need to find where it's covered.
+[Lessons Learned](docs/LESSONS-LEARNED.md) instead collects every real bug found during this
+project's build in one place — what happened, the actual root cause, and the general lesson —
+useful for browsing what's gone wrong before, rather than looking something specific up.
+
 ### [Project Setup & Tooling](docs/log/00-project-setup.md)
 
 - 2026-08-14 — Phase 0: Initialize the git repository and folder layout
@@ -139,6 +147,7 @@ Verification format used throughout this whole project.
 
 - 2026-08-15 — Phase 5 + Phase 6: wiring the frontend to auth — and why a vertical slice
 - 2026-08-16 — Phase 6: Settings page with change-password form (and a real race-condition bug)
+- 2026-08-17 — Phase 5: rehydrating a session from the refresh cookie on page load
 
 ### [Mood Logging](docs/log/03-mood-logging.md)
 
@@ -149,6 +158,7 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Widening energy/stress from 1–5 to 1–7, after more user feedback
 - 2026-08-16 — Migrating historical energy/stress values onto the new 1–7 scale
 - 2026-08-17 — Phase 7: Edit action for mood entries, reusing the same form
+- 2026-08-17 — A real bug found in review: clearing an optional field during edit didn't actually clear it
 
 ### [Symptom Logging](docs/log/04-symptom-logging.md)
 
@@ -157,6 +167,7 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Phase 7: Symptom entry form, wired into the Dashboard
 - 2026-08-17 — Letting users add their own symptoms inline (and two new defaults: Anxiety, Depression)
 - 2026-08-17 — Phase 7: Edit action for symptom entries, reusing the same form
+- 2026-08-17 — Fixed: clearing notes during edit didn't actually clear it
 
 ### [Medication Logging](docs/log/05-medication-logging.md)
 
@@ -165,6 +176,7 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Phase 7: Medication entry form, wired into the Dashboard
 - 2026-08-17 — An optional dosage field, so "Diazepam 2mg" isn't crammed into the name
 - 2026-08-17 — Phase 7: Edit action for medication entries, reusing the same form
+- 2026-08-17 — Fixed: clearing notes during edit didn't actually clear it
 
 ### [Habit Logging](docs/log/06-habit-logging.md)
 
@@ -172,6 +184,7 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Phase 3: `GET/POST/PATCH/DELETE /api/habits` and `/api/habit-logs`
 - 2026-08-16 — Phase 7: Habit entry form, wired into the Dashboard
 - 2026-08-17 — Phase 7: Edit action for habit entries, reusing the same form
+- 2026-08-17 — Fixed: clearing notes during edit didn't actually clear it
 
 ### [History](docs/log/11-history.md)
 
@@ -214,6 +227,7 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Actually splitting `IMPLEMENTATION_LOG.md` into topic files
 - 2026-08-17 — Decomposing `DashboardPage.tsx` into one section component per log type
 - 2026-08-17 — Two lasting regression checks for the dashboard, not just a one-off manual verification
+- 2026-08-17 — A bug fix stranded by outage timing, and how `git cherry-pick` recovered it
 
 ### [Housekeeping & Audits](docs/log/09-housekeeping.md)
 
@@ -222,4 +236,10 @@ Verification format used throughout this whole project.
 ### [Dashboard & Trends](docs/log/10-dashboard-and-trends.md)
 
 - 2026-08-17 — Phase 4 + Phase 8: `GET /api/dashboard` and the real Dashboard summary card
+
+### [Security & Accessibility Audits](docs/log/12-security-and-accessibility-audits.md)
+
+- 2026-08-17 — Phase 11: a real security audit against the running codebase, not just re-reading the checklist
+- 2026-08-17 — Fixing the one real gap the audit found: no centralized error-handling middleware
+- 2026-08-17 — Phase 12: a real accessibility audit, with axe-core and actual keyboard testing
 

@@ -26,8 +26,13 @@ const createSchema = valueFieldsSchema.extend({
 // habitId is deliberately not part of this schema - which habit a log belongs to isn't
 // editable after creation, avoiding the question of what it would even mean to "move" a log
 // with an already-validated value shape onto a habit of a possibly different type.
+//
+// `notes` additionally accepts an explicit `null` here (unlike `createSchema`'s notes, which
+// only accepts a real string or absence) so clearing a previously-entered note during an edit
+// actually clears it, instead of "not provided" (key absent) silently leaving the old value in
+// place - same reasoning as moodLogs.ts/symptomLogs.ts/medicationLogs.ts.
 const updateSchema = valueFieldsSchema.extend({
-  notes: z.string().trim().min(1).optional(),
+  notes: z.string().trim().min(1).optional().nullable(),
   loggedAt: z.string().datetime().optional(),
 });
 
