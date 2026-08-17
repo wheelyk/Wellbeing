@@ -1741,3 +1741,138 @@ application or any real deployment.
   — confirmed Vercel's own status: `success` / `"Canceled by Ignored Build Step"`.
 
 ---
+
+## 2026-08-17 — A real production bug: the symptom picker was empty, because seeding never ran there
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — the user reported the symptom
+dropdown on the live site looked unselectable. Diagnosed as a genuine production data gap (not
+a UI bug), fixed the immediate gap, and — since a one-off fix doesn't stop it from happening
+again — made seeding a permanent, automatic part of every production deploy.
+
+### Background / concepts
+
+#### Diagnosing "I can't select anything" as an empty list, not a broken control
+
+- The symptom picker (`SymptomEntryForm.tsx`) is an ordinary HTML `<select>`. A `<select>` with
+  only one, disabled option (`<option value="" disabled>Select a symptom…</option>`) *looks*
+  broken to a user — clicking it opens a dropdown with nothing real to choose — but it's
+  functioning exactly as written; it just has nothing to show. Telling those two failure modes
+  apart (a genuinely broken control vs. a correctly-rendered empty one) matters, because they
+  have completely different fixes — one's a frontend bug, the other's a data problem.
+- **Confirmed which one this was by querying the real production API directly**, the same
+  technique used throughout this log rather than guessing from a screenshot: registered a
+  throwaway diagnostic account against the live backend
+  (`https://wellbeing-production-0b8f.up.railway.app`), logged in, and called
+  `GET /api/symptoms` with that account's real access token. It returned `[]` — an empty array,
+  not an error, not a permissions problem. That single response confirmed the dropdown was
+  rendering correctly; production genuinely has zero symptom rows for it to show.
+
+#### Why production specifically had none, when local and CI both did
+
+- The six system-default symptoms (Headache, Fatigue, Nausea, Joint pain, Brain fog, Insomnia)
+  come from `backend/prisma/seed.ts` (covered in the Symptom Logging entries) — `userId: null`
+  rows visible to every account. That script had been run manually, by hand, in two places: this
+  laptop's local database (several times, most recently while validating the previous entry's
+  screenshot work), and — as of the previous entry — inside `pr-preview.yml`'s CI job, which
+  seeds its own throwaway database on every run.
+- **Production was never one of those places.** Nothing in the actual deploy path — `npm run
+  build` then `npm start`, exactly what Railway runs on every push to `main` — ever invoked the
+  seed script. It's easy to lose track of a step that only needs to happen once (unlike
+  migrations, which Railway's `start` script already does run automatically via `prisma migrate
+  deploy`) — and that's exactly what happened here: the seed script existed, worked, and was
+  proven working in three different places, while production quietly never received it.
+
+#### The exact same fork this project already hit once before, with the same right answer
+
+- This is the identical "lifecycle hook vs. explicit chaining" question the postinstall/`tsc`
+  entry in [Git & GitHub Workflow](08-git-github-workflow.md) already worked through for Prisma's
+  generated client — worth applying the conclusion directly rather than re-deriving it:
+  reach for **explicit chaining inside the script that must not fail on infrastructure you don't
+  control**. `backend/package.json`'s `start` script is exactly that script for this project — it's
+  the one Railway actually runs, unattended, on every deploy. So the fix is the same shape as
+  before: fold the missing step directly into `start`, not a lifecycle hook or a note-to-self to
+  remember manually.
+- **Why this is safe to run on *every* deploy, not just the first one:** `seed.ts` was written
+  idempotently from the start (`findFirst` before each `create`, skipping any symptom that
+  already exists — see the original Symptom Logging entry) specifically so it's safe to re-run.
+  That property, decided for an unrelated reason back then, is exactly what makes "just always
+  run it" the right call here instead of something more elaborate like a one-time migration flag.
+
+### What was done
+
+1. Diagnosed the live bug against the real production API, as described above — no guessing,
+   confirmed via a real registered account and a real authenticated request.
+2. Generated SQL by hand (client-side UUIDs via Node's `crypto.randomUUID()`, since the
+   `symptoms.id` column has no database-level default — confirmed by reading the actual
+   migration SQL, `"id" TEXT NOT NULL` with no `DEFAULT` clause) and gave it to the user to run
+   directly in Railway's Postgres **Data tab**, the same manual-recovery path used for the
+   earlier account-lockout fix — this immediately unblocks the live site while the permanent fix
+   below is still only sitting in a not-yet-merged branch.
+3. Changed `backend/package.json`'s `start` script from
+   `"prisma migrate deploy && node dist/index.js"` to
+   `"prisma migrate deploy && prisma db seed && node dist/index.js"` — one additional step,
+   chained the same way migrations already were.
+4. **Validated both paths locally, not just the idempotent one already proven by daily use:**
+   - Ran the updated `npm start` against the existing local database (already migrated, already
+     seeded) — the seed step ran and printed nothing (no `Seeded system symptom: ...` lines,
+     since every row already existed), and the server started normally. Confirms the "steady
+     state, every deploy after the first" case is a safe no-op.
+   - Created a brand-new, genuinely empty Postgres database inside the same local Docker
+     container (`CREATE DATABASE welltrack_fresh_deploy_test`), pointed `DATABASE_URL` at it, and
+     ran `npm start` against it from a clean slate — all six migrations applied, all six system
+     symptoms were seeded fresh (this time *with* the `Seeded system symptom: ...` lines
+     printing), and the server started and answered `/api/health` normally. This is the specific
+     scenario production is actually in right now — confirming it end to end, not just trusting
+     the idempotent case generalizes to it — then dropped the throwaway database.
+5. Ran the full backend test suite (`npm test`) — all 110 tests still passing; this change never
+   touched application code, only the production start command.
+
+### Why it's needed
+
+The immediate fix (manual SQL) only repairs production as it exists *right now*. Without the
+`start` script change, the exact same gap reopens the moment anyone provisions a new environment,
+resets the database, or (worse) a future schema change makes hand-seeding via the Data tab
+impractical — silently, with no error anywhere, since an empty symptom list isn't a crash, just a
+quietly worse product. Chaining the seed into `start` means this specific class of bug — "a
+one-time setup step that was proven to work everywhere except the one place unattended automation
+actually runs" — can't recur here again.
+
+### Decisions
+
+- **Chained into `start`, not a new Railway-specific config or a `postinstall` hook.** Consistent
+  with the general rule already written down in this log: explicit chaining for the script that
+  runs unattended on infrastructure this project doesn't control. A hook would have the same
+  "only as reliable as how install gets invoked" weakness already learned the hard way once.
+- **Client-side UUIDs for the manual SQL, not `gen_random_uuid()`.** `gen_random_uuid()` is
+  built into Postgres core only from version 13 onward and needs the `pgcrypto` extension on
+  older versions — rather than assuming which the production instance has, generating literal
+  UUID values up front removes that uncertainty entirely from SQL the user would be pasting
+  directly into a production database.
+- **Fixed the immediate gap by hand *and* shipped the permanent fix**, rather than either alone.
+  Manual SQL alone would leave the underlying gap to reopen later; the code fix alone would leave
+  the live site broken until the next deploy happens to occur. Doing both here means the fix
+  actually merging (auto-deploying via Railway, per the earlier deploy entries) will *also*
+  correctly re-seed production on its own — so the manual SQL step turns out to be optional
+  once this PR is merged, not strictly required, but still the faster path if an immediate fix
+  is wanted before that deploy happens.
+
+### State at end of this step
+
+`backend/package.json`'s `start` script now seeds the database on every boot, safely, whether the
+database is brand new or has been seeded a hundred times before. The live production gap is fixed
+either by the manual SQL (immediately) or automatically the next time this change deploys
+(whichever happens first).
+
+### Verification
+
+- `GET /api/symptoms` against the real production backend, authenticated as a fresh throwaway
+  account — confirmed `[]`, pinpointing the actual bug before writing any fix.
+- `npm start` against the existing (already-seeded) local database — seed step ran and printed
+  no new rows, server started and answered `/api/health` normally.
+- `npm start` against a freshly created, genuinely empty local database — all migrations applied,
+  all six system symptoms seeded (printed), server started and answered `/api/health` normally —
+  the exact scenario this fix targets, confirmed directly rather than assumed from the idempotent
+  case alone.
+- `npm test` (backend) — all 110 tests passing, unaffected by this change.
+
+---
