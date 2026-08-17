@@ -606,3 +606,79 @@ keep including new defaults added the same way as they come up.
   confirmed it was auto-selected and then successfully logged — zero console errors throughout.
 
 ---
+
+## 2026-08-17 — Phase 7: Edit action for symptom entries, reusing the same form
+
+**Task:** [Tasks.md](../../Tasks.md) → Phase 7 → "Edit and delete actions available from
+Dashboard/History for every log type, reusing the same forms pre-filled with existing values."
+See [Mood Logging](03-mood-logging.md)'s entry of the same date for the full explanation of why
+this matters and how the shared pattern works (the optional `editingLog` prop, the `key`-forced
+remount when switching between create/edit or between two different entries, and the
+replace-in-place-vs-prepend save logic) — this entry covers only what's specific to Symptom.
+
+**Delivered via branch:** `feature/7-edit-log-entries` (same branch as the Mood, Medication, and
+Habit edit work — one PR covering all four log types, per Tasks.md's own wording that this is a
+single checklist item spanning all of them).
+
+### What's specific to Symptom
+
+- `SymptomEntryForm` already had a `symptoms` prop (the full picker list, owned by
+  `SymptomSection` and passed down) separate from the log being created — `editingLog` slots in
+  as a third, independent prop alongside it, pre-filling `symptomId`, `severity`, `notes`, and
+  `loggedAt` from `editingLog` exactly the same way Mood's fields do.
+- Unlike Habit (see [Habit Logging](06-habit-logging.md)'s entry), a symptom log's `symptomId`
+  *is* editable via `PATCH` — the backend's `symptomLogsRouter.patch("/:id", ...)` accepts an
+  optional `symptomId` and re-runs the same ownership check (`symptomIsAccessible`) used on
+  create, so re-pointing an entry at a different symptom is a legitimate, supported edit. The
+  symptom `<select>` is therefore left fully enabled during edit, with no equivalent of Habit's
+  locked/disabled picker.
+- The "+ Add another symptom" inline-creation flow (`showAddSymptom`) works identically whether
+  editing or creating — a user correcting an entry can still discover they need a brand-new
+  symptom mid-edit, and the newly-created symptom becomes selectable via the same
+  `onSymptomCreated` callback either way.
+
+### What was done
+
+1. **`frontend/src/components/SymptomEntryForm.tsx`.** Added the `editingLog` prop; pre-fills
+   `symptomId`/`severity`/`notes`/`loggedAt`; submits `PATCH /api/symptom-logs/{id}` instead of
+   `POST /api/symptom-logs` when editing; "Save Changes" button label.
+2. **`frontend/src/components/dashboard/SymptomSection.tsx`.** Added `editingLog` state, an
+   "Edit" button per entry, the "Log a symptom" / "Edit symptom entry" heading switch, the
+   `key`-forced remount, and the replace-in-place `handleSymptomSaved` logic — all following
+   Mood's pattern exactly.
+3. **Tests.** New `describe("editing an existing entry")` block in `SymptomEntryForm.test.tsx`
+   (pre-fill assertions, PATCH request assertions) and one new case in
+   `SymptomSection.test.tsx` (Edit opens the form pre-filled, saving replaces the entry in
+   place). All pre-existing tests unchanged and passing.
+4. **`npm test`** (frontend, full suite) — 82/82 passing (68 pre-existing, 14 new across all
+   four log types).
+5. **`npm run build`, `npm run lint`, `npx prettier --check .`** — all clean.
+6. **Real browser verification**: logged a symptom entry (Headache, severity 3), edited it to
+   severity 9 via the pre-filled form, confirmed the change persisted and displayed correctly —
+   zero console errors.
+
+### Why it's needed
+
+Same underlying gap as Mood — see that entry for the full reasoning. Symptom severity in
+particular is exactly the kind of value someone realizes they mis-tapped moments after saving
+("meant to pick 7, tapped 3") — a quick in-place correction rather than a delete-and-redo.
+
+### Decisions
+
+- **Symptom picker stays enabled during edit**, unlike Habit's locked one — justified directly
+  by what the backend actually allows (`symptomId` is a legitimate, ownership-checked `PATCH`
+  field), not by copying Mood's or Habit's choice by default.
+
+### State at end of this step
+
+A user can correct any already-logged symptom entry — including which symptom it's attributed
+to — directly from the Dashboard.
+
+### Verification
+
+- `npm test` (frontend, full suite) — 82/82 passing.
+- `npm run build`, `npm run lint`, `npx prettier --check .` — all clean.
+- Real headless-browser walkthrough: edited a symptom entry's severity, confirmed the in-place
+  update and zero console errors.
+
+---

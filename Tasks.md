@@ -143,7 +143,7 @@ Reference: requirements §6, §8.
 - [x] Habit entry form: input control adapts to habit type (toggle for boolean, number input for numeric, duration input for duration), date/time picker.
 - [ ] Client-side validation before submit (required fields, value ranges), with clear inline error messages — no silent failures.
 - [ ] Success feedback (toast/inline confirmation) on save; clear error feedback on failure.
-- [ ] Edit and delete actions available from Dashboard/History for every log type, reusing the same forms pre-filled with existing values.
+- [x] Edit and delete actions available from Dashboard/History for every log type, reusing the same forms pre-filled with existing values.
 - [ ] Delete actions require a lightweight confirmation (per §15, destructive-action confirmation).
 
 ---

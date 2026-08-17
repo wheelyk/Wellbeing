@@ -526,3 +526,83 @@ medications created before this change continue to work exactly as before with n
   and the logged-entry list, zero console errors.
 
 ---
+
+## 2026-08-17 — Phase 7: Edit action for medication entries, reusing the same form
+
+**Task:** [Tasks.md](../../Tasks.md) → Phase 7 → "Edit and delete actions available from
+Dashboard/History for every log type, reusing the same forms pre-filled with existing values."
+See [Mood Logging](03-mood-logging.md)'s entry of the same date for the full explanation of why
+this matters and how the shared pattern works (the optional `editingLog` prop, the `key`-forced
+remount, and the replace-in-place-vs-prepend save logic) — this entry covers only what's
+specific to Medication.
+
+**Delivered via branch:** `feature/7-edit-log-entries` (same branch as the Mood, Symptom, and
+Habit edit work — one PR covering all four log types).
+
+### What's specific to Medication
+
+- `MedicationEntryForm`'s `onSaved` callback has always taken *two* arguments —
+  `(log: MedicationLog, medication: Medication) => void` — because a newly-created log might
+  reference a medication that was itself just created inline, moments earlier, in the same form
+  (the "no medications yet, add one" flow from the original entry form task). That two-argument
+  shape is unchanged for edits: `onSaved` still receives both the updated log and the
+  `Medication` object it belongs to (looked up from the form's already-fetched `medications`
+  list by `selectedMedicationId`), so `MedicationSection` can keep folding a possibly-new
+  medication into its local state exactly the same way for both create and edit.
+- Like Symptom (and unlike Habit), a medication log's `medicationId` is a legitimate, editable
+  `PATCH` field on the backend (`medicationLogsRouter.patch` re-runs the same
+  `medicationBelongsToUser` ownership check used on create when `medicationId` is present in the
+  body), so the medication picker stays enabled during edit rather than being locked.
+- `selectedMedicationId` now initializes from `editingLog?.medicationId ?? null` instead of
+  always starting `null` — the one field-specific wrinkle, since this form (unlike Mood's) loads
+  its picker options asynchronously (`GET /api/medications` on mount) rather than receiving them
+  as a prop; the pre-selected id is simply matched against that list once it arrives, the same
+  way a user's own manual selection would be.
+
+### What was done
+
+1. **`frontend/src/components/MedicationEntryForm.tsx`.** Added the `editingLog` prop; pre-fills
+   `selectedMedicationId`/`taken`/`notes`/`loggedAt`; submits `PATCH
+   /api/medication-logs/{id}` instead of `POST /api/medication-logs` when editing; "Save
+   Changes" button label.
+2. **`frontend/src/components/dashboard/MedicationSection.tsx`.** Added `editingLog` state, an
+   "Edit" button per entry, the "Log a medication" / "Edit medication entry" heading switch, the
+   `key`-forced remount, and the replace-in-place `handleMedicationSaved` logic (still folding a
+   newly-created medication into local state, as before).
+3. **Tests.** New `describe("editing an existing entry")` block in
+   `MedicationEntryForm.test.tsx` (pre-fill assertions, PATCH request assertions, `onSaved`
+   called with both the updated log and the resolved medication) and one new case in
+   `MedicationSection.test.tsx` (Edit opens the form pre-filled, saving replaces the entry in
+   place). All pre-existing tests unchanged and passing.
+4. **`npm test`** (frontend, full suite) — 82/82 passing (68 pre-existing, 14 new across all
+   four log types).
+5. **`npm run build`, `npm run lint`, `npx prettier --check .`** — all clean.
+6. **Real browser verification**: logged a medication entry (Ibuprofen, Not taken), edited it to
+   Taken via the pre-filled form, confirmed the change persisted and displayed correctly — zero
+   console errors.
+
+### Why it's needed
+
+Same underlying gap as Mood — see that entry for the full reasoning. Medication adherence
+specifically is data this app's whole premise depends on being trustworthy; a quick correction
+for a mis-tapped "Taken/Not taken" beats deleting and re-logging.
+
+### Decisions
+
+- **Medication picker stays enabled during edit**, matching Symptom's reasoning (a legitimate,
+  ownership-checked `PATCH` field) rather than Habit's locked one.
+- **`onSaved`'s two-argument shape kept unchanged for edits** — reusing the exact same contract
+  `MedicationSection` already relied on, rather than inventing a different callback shape just
+  for the edit path.
+
+### State at end of this step
+
+A user can correct any already-logged medication entry — including which medication it's
+attributed to and whether it was taken — directly from the Dashboard.
+
+### Verification
+
+- `npm test` (frontend, full suite) — 82/82 passing.
+- `npm run build`, `npm run lint`, `npx prettier --check .` — all clean.
+- Real headless-browser walkthrough: edited a medication entry's taken status, confirmed the
+  in-place update and zero console errors.
