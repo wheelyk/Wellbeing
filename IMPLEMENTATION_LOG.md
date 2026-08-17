@@ -236,6 +236,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 ### [Dashboard & Trends](docs/log/10-dashboard-and-trends.md)
 
 - 2026-08-17 — Phase 4 + Phase 8: `GET /api/dashboard` and the real Dashboard summary card
+- 2026-08-17 — Phase 4 + Phase 10: `GET /api/trends` and the Trends page (charts, averages, activity calendar)
 
 ### [Security & Accessibility Audits](docs/log/12-security-and-accessibility-audits.md)
 
