@@ -154,6 +154,7 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Phase 1: `Symptom` and `SymptomLog` models + migration + seed
 - 2026-08-16 — Phase 3: `GET/POST/PATCH/DELETE /api/symptoms` and `/api/symptom-logs`
 - 2026-08-16 — Phase 7: Symptom entry form, wired into the Dashboard
+- 2026-08-17 — Letting users add their own symptoms inline (and two new defaults: Anxiety, Depression)
 
 ### [Medication Logging](docs/log/05-medication-logging.md)
 

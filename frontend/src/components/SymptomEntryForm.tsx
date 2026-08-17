@@ -1,6 +1,7 @@
 import { useId, useState, type FormEvent } from "react";
 import { apiFetch } from "../api/client";
 import { Button } from "./Button";
+import { TextField } from "./TextField";
 
 export interface Symptom {
   id: string;
@@ -38,9 +39,20 @@ interface SymptomEntryFormProps {
   symptoms: Symptom[];
   onSaved: (log: SymptomLog) => void;
   onCancel: () => void;
+  // Lets a user define their own symptom (e.g. "Anxiety") inline, without leaving this form -
+  // mirrors MedicationEntryForm's "+ Add another medication" flow. The new symptom needs to be
+  // reported back to the parent (rather than just added to local state here) because `symptoms`
+  // is owned by the parent - it's reused both for this picker and for the recent-entries list,
+  // per this form's existing "one fetch, one source of truth" design.
+  onSymptomCreated: (symptom: Symptom) => void;
 }
 
-export function SymptomEntryForm({ symptoms, onSaved, onCancel }: SymptomEntryFormProps) {
+export function SymptomEntryForm({
+  symptoms,
+  onSaved,
+  onCancel,
+  onSymptomCreated,
+}: SymptomEntryFormProps) {
   const [symptomId, setSymptomId] = useState("");
   const [severity, setSeverity] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
@@ -50,6 +62,11 @@ export function SymptomEntryForm({ symptoms, onSaved, onCancel }: SymptomEntryFo
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const [showAddSymptom, setShowAddSymptom] = useState(false);
+  const [newSymptomName, setNewSymptomName] = useState("");
+  const [addingSymptom, setAddingSymptom] = useState(false);
+  const [addSymptomError, setAddSymptomError] = useState<string | null>(null);
+
   const selectId = useId();
   const severityDescriptionId = useId();
 
@@ -58,6 +75,31 @@ export function SymptomEntryForm({ symptoms, onSaved, onCancel }: SymptomEntryFo
   // flat alphabetical list that hides the distinction PATCH/DELETE actually enforce.
   const ownSymptoms = symptoms.filter((s) => s.userId !== null);
   const systemSymptoms = symptoms.filter((s) => s.userId === null);
+
+  async function handleAddSymptom() {
+    const name = newSymptomName.trim();
+    if (!name) {
+      setAddSymptomError("Enter a symptom name.");
+      return;
+    }
+    setAddSymptomError(null);
+    setAddingSymptom(true);
+    try {
+      const symptom = await apiFetch<Symptom>("/api/symptoms", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      onSymptomCreated(symptom);
+      setSymptomId(symptom.id);
+      setSymptomError(null);
+      setNewSymptomName("");
+      setShowAddSymptom(false);
+    } catch {
+      setAddSymptomError("Couldn't add that symptom. Please try again.");
+    } finally {
+      setAddingSymptom(false);
+    }
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -141,6 +183,33 @@ export function SymptomEntryForm({ symptoms, onSaved, onCancel }: SymptomEntryFo
           <p role="alert" className="text-sm text-danger">
             {symptomError}
           </p>
+        )}
+
+        {!showAddSymptom && (
+          <button
+            type="button"
+            onClick={() => setShowAddSymptom(true)}
+            className="self-start text-sm font-medium text-brand underline-offset-2 hover:underline"
+          >
+            + Add another symptom
+          </button>
+        )}
+
+        {showAddSymptom && (
+          <div className="mt-1 flex items-end gap-2">
+            <div className="flex-1">
+              <TextField
+                label={ownSymptoms.length === 0 ? "Symptom name" : "New symptom name"}
+                value={newSymptomName}
+                onChange={(e) => setNewSymptomName(e.target.value)}
+                error={addSymptomError ?? undefined}
+                placeholder="e.g. Anxiety"
+              />
+            </div>
+            <Button type="button" onClick={handleAddSymptom} disabled={addingSymptom}>
+              {addingSymptom ? "Adding…" : "Add"}
+            </Button>
+          </div>
         )}
       </div>
 

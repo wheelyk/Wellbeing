@@ -45,7 +45,14 @@ describe("SymptomEntryForm", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<SymptomEntryForm symptoms={SYSTEM_SYMPTOMS} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    render(
+      <SymptomEntryForm
+        symptoms={SYSTEM_SYMPTOMS}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+        onSymptomCreated={vi.fn()}
+      />,
+    );
     await user.click(screen.getByRole("button", { name: /save entry/i }));
 
     expect(await screen.findByText(/choose a symptom/i)).toBeInTheDocument();
@@ -59,6 +66,7 @@ describe("SymptomEntryForm", () => {
         symptoms={[...SYSTEM_SYMPTOMS, OWN_SYMPTOM]}
         onSaved={vi.fn()}
         onCancel={vi.fn()}
+        onSymptomCreated={vi.fn()}
       />,
     );
 
@@ -82,7 +90,14 @@ describe("SymptomEntryForm", () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
 
-    render(<SymptomEntryForm symptoms={SYSTEM_SYMPTOMS} onSaved={onSaved} onCancel={vi.fn()} />);
+    render(
+      <SymptomEntryForm
+        symptoms={SYSTEM_SYMPTOMS}
+        onSaved={onSaved}
+        onCancel={vi.fn()}
+        onSymptomCreated={vi.fn()}
+      />,
+    );
     await user.selectOptions(screen.getByLabelText(/symptom/i), "sys-1");
     await user.click(screen.getByRole("radio", { name: "7" }));
     await user.type(screen.getByLabelText(/notes/i), "Started after lunch");
@@ -107,7 +122,14 @@ describe("SymptomEntryForm", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<SymptomEntryForm symptoms={SYSTEM_SYMPTOMS} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    render(
+      <SymptomEntryForm
+        symptoms={SYSTEM_SYMPTOMS}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+        onSymptomCreated={vi.fn()}
+      />,
+    );
     await user.selectOptions(screen.getByLabelText(/symptom/i), "sys-1");
     await user.click(screen.getByRole("radio", { name: "3" }));
     await user.click(screen.getByRole("button", { name: /save entry/i }));
@@ -118,7 +140,14 @@ describe("SymptomEntryForm", () => {
   });
 
   it("offers severity ratings 1 through 10", () => {
-    render(<SymptomEntryForm symptoms={SYSTEM_SYMPTOMS} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    render(
+      <SymptomEntryForm
+        symptoms={SYSTEM_SYMPTOMS}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+        onSymptomCreated={vi.fn()}
+      />,
+    );
 
     const severityGroup = screen.getByRole("radiogroup", { name: "Severity" });
     const options = severityGroup.querySelectorAll('[role="radio"]');
@@ -136,11 +165,94 @@ describe("SymptomEntryForm", () => {
     ]);
   });
 
+  it("lets a user add their own symptom, which is then auto-selected and reported to the parent", async () => {
+    const newSymptom: Symptom = {
+      id: "own-2",
+      userId: "user-1",
+      name: "Anxiety",
+      description: null,
+      createdAt: "2026-08-17T00:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/symptoms") && init?.method === "POST") {
+        return Promise.resolve(jsonResponse(201, newSymptom));
+      }
+      return Promise.resolve(jsonResponse(404, {}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    const onSymptomCreated = vi.fn();
+
+    const { rerender } = render(
+      <SymptomEntryForm
+        symptoms={SYSTEM_SYMPTOMS}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+        onSymptomCreated={onSymptomCreated}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /add another symptom/i }));
+    await user.type(screen.getByLabelText(/symptom name/i), "Anxiety");
+    await user.click(screen.getByRole("button", { name: /^add$/i }));
+
+    await vi.waitFor(() => expect(onSymptomCreated).toHaveBeenCalledWith(newSymptom));
+
+    // In the real app, onSymptomCreated causes the parent (SymptomSection) to add the new
+    // symptom to the `symptoms` array it owns and re-render this form with it - simulated here
+    // via rerender, since this form only holds the *id* of the selection, not the option list.
+    rerender(
+      <SymptomEntryForm
+        symptoms={[...SYSTEM_SYMPTOMS, newSymptom]}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+        onSymptomCreated={onSymptomCreated}
+      />,
+    );
+    expect(screen.getByRole("option", { name: "Anxiety", selected: true })).toBeInTheDocument();
+
+    const [, requestInit] = fetchMock.mock.calls[0];
+    const body = JSON.parse(requestInit.body as string);
+    expect(body.name).toBe("Anxiety");
+  });
+
+  it("shows an error and doesn't clear the field when adding a symptom fails", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/symptoms") && init?.method === "POST") {
+        return Promise.resolve(jsonResponse(500, {}));
+      }
+      return Promise.resolve(jsonResponse(404, {}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(
+      <SymptomEntryForm
+        symptoms={SYSTEM_SYMPTOMS}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+        onSymptomCreated={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /add another symptom/i }));
+    await user.type(screen.getByLabelText(/symptom name/i), "Anxiety");
+    await user.click(screen.getByRole("button", { name: /^add$/i }));
+
+    expect(await screen.findByText(/couldn't add that symptom/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/symptom name/i)).toHaveValue("Anxiety");
+  });
+
   it("calls onCancel when Cancel is clicked", async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();
 
-    render(<SymptomEntryForm symptoms={SYSTEM_SYMPTOMS} onSaved={vi.fn()} onCancel={onCancel} />);
+    render(
+      <SymptomEntryForm
+        symptoms={SYSTEM_SYMPTOMS}
+        onSaved={vi.fn()}
+        onCancel={onCancel}
+        onSymptomCreated={vi.fn()}
+      />,
+    );
     await user.click(screen.getByRole("button", { name: /cancel/i }));
 
     expect(onCancel).toHaveBeenCalled();
