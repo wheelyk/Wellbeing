@@ -147,6 +147,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 
 - 2026-08-15 — Phase 5 + Phase 6: wiring the frontend to auth — and why a vertical slice
 - 2026-08-16 — Phase 6: Settings page with change-password form (and a real race-condition bug)
+- 2026-08-17 — Phase 5: rehydrating a session from the refresh cookie on page load
 
 ### [Mood Logging](docs/log/03-mood-logging.md)
 
@@ -235,4 +236,10 @@ useful for browsing what's gone wrong before, rather than looking something spec
 ### [Dashboard & Trends](docs/log/10-dashboard-and-trends.md)
 
 - 2026-08-17 — Phase 4 + Phase 8: `GET /api/dashboard` and the real Dashboard summary card
+
+### [Security & Accessibility Audits](docs/log/12-security-and-accessibility-audits.md)
+
+- 2026-08-17 — Phase 11: a real security audit against the running codebase, not just re-reading the checklist
+- 2026-08-17 — Fixing the one real gap the audit found: no centralized error-handling middleware
+- 2026-08-17 — Phase 12: a real accessibility audit, with axe-core and actual keyboard testing
 
