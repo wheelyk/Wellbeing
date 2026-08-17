@@ -66,9 +66,19 @@ export function MoodEntryForm({ editingLog, onSaved, onCancel }: MoodEntryFormPr
           method: editingLog ? "PATCH" : "POST",
           body: JSON.stringify({
             mood,
-            energy: energy ?? undefined,
-            stress: stress ?? undefined,
-            notes: notes.trim() || undefined,
+            // energy/stress are nullable on both create and update, so sending the raw
+            // value (never coerced to `undefined`) is correct either way: on create, an
+            // explicit `null` and an omitted key both leave the column unset; on edit, only
+            // the explicit `null` actually clears a previously-set rating - `undefined` would
+            // be dropped by JSON.stringify and silently leave the old value in the database
+            // (see backend/src/routes/moodLogs.ts's updateSchema for the other half of this).
+            energy,
+            stress,
+            // notes has no database default to fall back on the way energy/stress do, and the
+            // create schema doesn't accept `null` (no "clear" concept when there's nothing yet
+            // to clear) - so create still omits an empty value, while edit sends an explicit
+            // `null` to actually clear existing notes text.
+            notes: notes.trim() || (editingLog ? null : undefined),
             loggedAt: new Date(loggedAt).toISOString(),
           }),
         },

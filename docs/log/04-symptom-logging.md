@@ -682,3 +682,22 @@ to — directly from the Dashboard.
   update and zero console errors.
 
 ---
+
+## 2026-08-17 — Fixed: clearing notes during edit didn't actually clear it
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — the same fix described in full in
+[Mood Logging](03-mood-logging.md)'s matching entry, applied here to `SymptomEntryForm.tsx` and
+`backend/src/routes/symptomLogs.ts`. Read that entry for the full explanation of the bug and the
+reasoning behind the fix; this entry covers only what's specific to Symptom.
+
+Symptom has no `energy`/`stress`-style nullable rating fields — only `notes` was affected here.
+`symptomLogs.ts`'s `updateSchema` now accepts an explicit `notes: null`, and
+`SymptomEntryForm.tsx` sends one when an existing note is cleared during edit
+(`notes.trim() || (editingLog ? null : undefined)`), matching Mood's fix exactly.
+
+**Verification:** one new backend test (`clears notes when explicitly sent as null`) and one new
+frontend test (submits an explicit `null` when notes are cleared during edit) — both passing.
+Full `npm test`/`npm run build`/`npm run lint`/`npx prettier --check .` clean in both projects
+(see the Mood entry for the combined pass/fail counts across all four types).
+
+---

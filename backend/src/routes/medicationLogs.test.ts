@@ -195,6 +195,23 @@ describe("medication-logs routes", () => {
     expect(res.body).toMatchObject({ taken: true, notes: "Actually took it later" });
   });
 
+  it("clears notes when explicitly sent as null", async () => {
+    const { accessToken } = await registerAndLogin("clear-notes");
+    const medicationId = await createMedication(accessToken);
+    const created = await request(app)
+      .post("/api/medication-logs")
+      .set(authed(accessToken))
+      .send({ medicationId, taken: false, notes: "Skipped" });
+
+    const res = await request(app)
+      .patch(`/api/medication-logs/${created.body.id}`)
+      .set(authed(accessToken))
+      .send({ notes: null });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ taken: false, notes: null });
+  });
+
   it("returns 404 updating or deleting a medication log that doesn't exist", async () => {
     const { accessToken } = await registerAndLogin("missing");
 

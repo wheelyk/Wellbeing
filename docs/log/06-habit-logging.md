@@ -655,3 +655,24 @@ supports.
 - `npm run build`, `npm run lint`, `npx prettier --check .` — all clean.
 - Real headless-browser walkthrough: edited a boolean habit entry's value, confirmed the locked
   habit picker, the in-place update, and zero console errors.
+
+---
+
+## 2026-08-17 — Fixed: clearing notes during edit didn't actually clear it
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — the same fix described in full in
+[Mood Logging](03-mood-logging.md)'s matching entry, applied here to `HabitEntryForm.tsx` and
+`backend/src/routes/habitLogs.ts`. Read that entry for the full explanation of the bug and the
+reasoning behind the fix; this entry covers only what's specific to Habit.
+
+Habit's `valueBoolean`/`valueNumeric`/`valueDurationMinutes` fields are exempt from this bug —
+exactly one of them is always required on every log, so there's no "clear the value back to
+unset" state to preserve the way there is for a genuinely optional field. Only `notes` was
+affected. `habitLogs.ts`'s `updateSchema` now accepts an explicit `notes: null`, and
+`HabitEntryForm.tsx` sends one when an existing note is cleared during edit
+(`notes.trim() || (editingLog ? null : undefined)`), matching Mood's fix exactly.
+
+**Verification:** one new backend test (`clears notes when explicitly sent as null`) and one new
+frontend test (submits an explicit `null` when notes are cleared during edit) — both passing.
+Full `npm test`/`npm run build`/`npm run lint`/`npx prettier --check .` clean in both projects
+(see the Mood entry for the combined pass/fail counts across all four types).

@@ -299,5 +299,40 @@ describe("HabitEntryForm", () => {
 
       expect(screen.getByLabelText(/duration \(minutes\)/i)).toHaveValue(45);
     });
+
+    it("sends an explicit null when clearing notes, so the old value doesn't silently survive on the server", async () => {
+      const existingLog = {
+        id: "log-1",
+        userId: "user-1",
+        habitId: booleanHabit.id,
+        valueBoolean: false,
+        valueNumeric: null,
+        valueDurationMinutes: null,
+        notes: "Skipped today",
+        loggedAt: "2026-08-16T08:30:00.000Z",
+      };
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(() => Promise.resolve(jsonResponse(200, existingLog)));
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+
+      render(
+        <HabitEntryForm
+          habits={[booleanHabit]}
+          editingLog={existingLog}
+          onSaved={vi.fn()}
+          onCancel={vi.fn()}
+          onAddHabit={vi.fn()}
+        />,
+      );
+      await user.clear(screen.getByLabelText(/notes/i));
+      await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      const [, requestInit] = fetchMock.mock.calls[0];
+      const body = JSON.parse(requestInit.body as string);
+      expect(body.notes).toBeNull();
+    });
   });
 });

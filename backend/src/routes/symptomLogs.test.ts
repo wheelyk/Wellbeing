@@ -246,6 +246,23 @@ describe("symptom-logs routes", () => {
     expect(res.body).toMatchObject({ severity: 9, notes: "Much worse now" });
   });
 
+  it("clears notes when explicitly sent as null", async () => {
+    const { accessToken } = await registerAndLogin("clear-notes");
+    const symptomId = await createSymptom(accessToken, "Clear-notes symptom");
+    const created = await request(app)
+      .post("/api/symptom-logs")
+      .set(authed(accessToken))
+      .send({ symptomId, severity: 4, notes: "Mild" });
+
+    const res = await request(app)
+      .patch(`/api/symptom-logs/${created.body.id}`)
+      .set(authed(accessToken))
+      .send({ notes: null });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ severity: 4, notes: null });
+  });
+
   it("returns 404 updating or deleting a symptom log that doesn't exist", async () => {
     const { accessToken } = await registerAndLogin("missing");
 

@@ -315,5 +315,30 @@ describe("SymptomEntryForm", () => {
       expect(body.severity).toBe(9);
       expect(body.symptomId).toBe("sys-2");
     });
+
+    it("sends an explicit null when clearing notes, so the old value doesn't silently survive on the server", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(() => Promise.resolve(jsonResponse(200, existingLog)));
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+
+      render(
+        <SymptomEntryForm
+          symptoms={SYSTEM_SYMPTOMS}
+          editingLog={existingLog}
+          onSaved={vi.fn()}
+          onCancel={vi.fn()}
+          onSymptomCreated={vi.fn()}
+        />,
+      );
+      await user.clear(screen.getByLabelText(/notes/i));
+      await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      const [, requestInit] = fetchMock.mock.calls[0];
+      const body = JSON.parse(requestInit.body as string);
+      expect(body.notes).toBeNull();
+    });
   });
 });

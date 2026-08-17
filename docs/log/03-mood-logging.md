@@ -826,3 +826,106 @@ and Habit — see their own log entries for what's specific to each.
   console errors.
 
 ---
+
+## 2026-08-17 — A real bug found in review: clearing an optional field during edit didn't actually clear it
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a follow-up fix to the edit-flow
+entry above, found by manually reviewing the PR's diff before merging rather than only trusting
+its own test suite and self-report.
+
+### Background / concepts
+
+#### The bug, in plain terms
+
+- Every entry form builds its save request the same way it always has: an optional field like
+  `notes` gets sent as `notes.trim() || undefined` — if the field is empty, the key is left out
+  of the request entirely (`JSON.stringify` drops `undefined`-valued properties). That's exactly
+  right for *creating* a new entry: "I didn't fill this in" and "leave it unset" mean the same
+  thing when there's nothing there yet.
+- **It's the wrong behavior for *editing* an entry that already has a value.** On the backend,
+  every `PATCH` route (`moodLogs.ts`, `symptomLogs.ts`, `medicationLogs.ts`, `habitLogs.ts`)
+  spreads only whatever keys are actually *present* in the parsed request body into the Prisma
+  `update` call — a key that's simply absent is treated as "don't touch this column," not "set it
+  to nothing." So: open an entry that already has notes, delete the text, hit Save Changes — the
+  request silently omits `notes` entirely, the database keeps the old text completely untouched,
+  and the UI (which reset its own local `notes` state to empty) shows the field as cleared right
+  up until the next real page load, when the old text reappears.
+- **Confirmed as a genuine, reproducible bug, not a hypothetical**: reproduced it end to end in a
+  real browser against the real running backend — log a mood with energy/stress/notes set, edit
+  it, clear all three, save, then log back in fresh (forcing a real refetch rather than trusting
+  whatever the page already had in memory) — and the old values were still there.
+
+#### Why `energy`/`stress` and `notes` needed two different fixes
+
+- `energy`/`stress` were already declared `.nullable().optional()` in the Zod schema (they've
+  always been allowed to be explicitly `null`, going all the way back to the original mood-log
+  entry). The only bug there was the *frontend* coercing a real `null` value into `undefined`
+  before sending it — fixed by simply sending the raw `energy`/`stress` state (already typed
+  `number | null`) instead of `energy ?? undefined`. No backend change needed for these two.
+- `notes` was declared `z.string().trim().min(1).optional()` — a real, non-empty string, or
+  absent — with **no `null` allowed at all**, on any of the four log types. There was no way to
+  ask the backend to clear it even if the frontend had wanted to. This needed an actual backend
+  schema change: each route's `updateSchema` (used only by `PATCH`, never `POST`) now additionally
+  accepts `notes: null`, while `createSchema` (used only by `POST`) is untouched — there's no
+  "clear" concept when creating something that doesn't have a value yet.
+
+### What was done
+
+1. **Backend** (`moodLogs.ts`, `symptomLogs.ts`, `medicationLogs.ts`, `habitLogs.ts`): widened
+   each route's `updateSchema` so `notes` accepts an explicit `null` in addition to a real string
+   or absence. No route *handler* logic needed to change — every one of them already spreads
+   `parsed.data` (or a destructured subset of it) straight into the Prisma `update` call, so once
+   the schema allows `null` through, an explicit `null` was already handled correctly; it just
+   couldn't get past validation before.
+2. **Frontend** (`MoodEntryForm.tsx`, `SymptomEntryForm.tsx`, `MedicationEntryForm.tsx`,
+   `HabitEntryForm.tsx`): `energy`/`stress` (Mood only) now send their raw, already-nullable
+   state directly. `notes` on all four now sends an explicit `null` when editing an entry and the
+   field is empty, versus `undefined` (omitted) when creating one — `notes.trim() || (editingLog
+   ? null : undefined)`.
+3. **Tests**: one new backend test per route (`clears notes when explicitly sent as null`, plus a
+   combined `energy`/`stress`/`notes` version for mood-logs) and one new frontend test per form
+   (submits explicit `null`s when every optional field is cleared during edit). Every one of
+   these tests would have caught the original bug — confirmed by checking that the assertion
+   (`expect(body.notes).toBeNull()`) is specifically false, not just unmet, against the pre-fix
+   code, since the old code produced a request body with no `notes` key at all rather than one
+   with `notes: null`.
+4. Re-ran the full verification cycle: `npm test` (both projects), `npm run build`, `npm run
+   lint`, `npx prettier --check .` — all clean — plus the real-browser reproduction described
+   above, run once against the fix to confirm the cleared fields now genuinely stay cleared after
+   a fresh login and refetch.
+
+### Why it's needed
+
+A user who clears a field, sees it clear, and saves has every reason to believe it saved that
+way — silently keeping the old value is exactly the kind of quiet data-correctness bug that's
+easy to miss in a demo (everything *looks* right immediately after saving) and only surfaces
+later, as confusing, seemingly random "why does my old note keep coming back" behavior.
+
+### Decisions
+
+- **Fixed on the same branch/PR, not a follow-up PR** — this bug only exists because of the edit
+  feature this PR adds in the first place; splitting the fix into a second PR would just mean
+  merging genuinely broken edit behavior first and repairing it moments later; there's no version
+  of this PR that ever worked correctly without it.
+- **`createSchema` deliberately left unchanged.** Making `notes` nullable everywhere (not just on
+  update) would accept `notes: null` on creation too — technically harmless, but a wider API
+  surface than anything actually needs, for a case (clearing a field that doesn't exist yet)
+  that can't meaningfully occur.
+
+### State at end of this step
+
+Clearing `energy`, `stress` (mood only), or `notes` (all four log types) during an edit now
+actually persists as cleared, confirmed both by targeted tests and a real end-to-end browser
+reproduction of the original bug.
+
+### Verification
+
+- `npm test` (backend) — 117/117 passing (113 pre-existing, 4 new).
+- `npm test` (frontend) — 86/86 passing (82 pre-existing, 4 new).
+- `npm run build`, `npm run lint`, `npx prettier --check .` (both projects) — all clean.
+- Real browser reproduction against the real running backend: logged a mood entry with
+  energy/stress/notes set, edited it to clear all three, saved, logged back in fresh (forcing a
+  real server refetch rather than trusting in-memory state) — none of the old values reappeared,
+  zero console errors.
+
+---
