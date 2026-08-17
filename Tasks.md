@@ -165,10 +165,15 @@ Reference: requirements §7.
 
 Reference: requirements §9.
 
-- [ ] Build a History view listing past entries across all log types, grouped by date (most recent first).
-- [ ] Add filtering (by entry type and/or date range).
-- [ ] Each entry shows type, value, and time; tapping opens edit; a delete affordance is available with confirmation.
-- [ ] Pagination or infinite scroll for users with a large history.
+- [x] Build a History view listing past entries across all log types, grouped by date (most recent first).
+- [x] Add filtering (by entry type and/or date range).
+- [x] Each entry shows type, value, and time; a delete affordance is available with confirmation.
+  - [ ] Tapping opens edit — intentionally deferred: a parallel task is building shared,
+    pre-filled entry-edit forms for all four log types (see Phase 7's "Edit and delete actions
+    available from Dashboard/History for every log type" item); History's Edit button renders
+    but is disabled until that lands, to avoid a second, divergent edit implementation. See
+    [docs/log/11-history.md](docs/log/11-history.md) for the full reasoning.
+- [x] Pagination or infinite scroll for users with a large history.
 
 ---
 
