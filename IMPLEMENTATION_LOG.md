@@ -149,6 +149,7 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Widening energy/stress from 1–5 to 1–7, after more user feedback
 - 2026-08-16 — Migrating historical energy/stress values onto the new 1–7 scale
 - 2026-08-17 — Phase 7: Edit action for mood entries, reusing the same form
+- 2026-08-17 — A real bug found in review: clearing an optional field during edit didn't actually clear it
 
 ### [Symptom Logging](docs/log/04-symptom-logging.md)
 
@@ -157,6 +158,7 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Phase 7: Symptom entry form, wired into the Dashboard
 - 2026-08-17 — Letting users add their own symptoms inline (and two new defaults: Anxiety, Depression)
 - 2026-08-17 — Phase 7: Edit action for symptom entries, reusing the same form
+- 2026-08-17 — Fixed: clearing notes during edit didn't actually clear it
 
 ### [Medication Logging](docs/log/05-medication-logging.md)
 
@@ -165,6 +167,7 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Phase 7: Medication entry form, wired into the Dashboard
 - 2026-08-17 — An optional dosage field, so "Diazepam 2mg" isn't crammed into the name
 - 2026-08-17 — Phase 7: Edit action for medication entries, reusing the same form
+- 2026-08-17 — Fixed: clearing notes during edit didn't actually clear it
 
 ### [Habit Logging](docs/log/06-habit-logging.md)
 
@@ -172,6 +175,7 @@ Verification format used throughout this whole project.
 - 2026-08-16 — Phase 3: `GET/POST/PATCH/DELETE /api/habits` and `/api/habit-logs`
 - 2026-08-16 — Phase 7: Habit entry form, wired into the Dashboard
 - 2026-08-17 — Phase 7: Edit action for habit entries, reusing the same form
+- 2026-08-17 — Fixed: clearing notes during edit didn't actually clear it
 
 ### [History](docs/log/11-history.md)
 
