@@ -281,6 +281,23 @@ describe("habit-logs routes", () => {
     expect(res.body).toMatchObject({ valueNumeric: 3, notes: "Three glasses" });
   });
 
+  it("clears notes when explicitly sent as null", async () => {
+    const { accessToken } = await registerAndLogin("clear-notes");
+    const habitId = await createHabit(accessToken, "numeric");
+    const created = await request(app)
+      .post("/api/habit-logs")
+      .set(authed(accessToken))
+      .send({ habitId, valueNumeric: 1, notes: "First glass" });
+
+    const res = await request(app)
+      .patch(`/api/habit-logs/${created.body.id}`)
+      .set(authed(accessToken))
+      .send({ notes: null });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ valueNumeric: 1, notes: null });
+  });
+
   it("rejects updating a log's value with a shape that doesn't match its habit's type", async () => {
     const { accessToken } = await registerAndLogin("update-mismatch");
     const habitId = await createHabit(accessToken, "duration");

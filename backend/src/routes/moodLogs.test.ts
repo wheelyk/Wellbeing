@@ -143,6 +143,22 @@ describe("mood-logs routes", () => {
     expect(res.body).toMatchObject({ mood: 4, notes: "Better now" });
   });
 
+  it("clears energy, stress, and notes when explicitly sent as null", async () => {
+    const { accessToken } = await registerAndLogin("clear-optional-fields");
+    const created = await request(app)
+      .post("/api/mood-logs")
+      .set(authed(accessToken))
+      .send({ mood: 2, energy: 5, stress: 6, notes: "Rough start" });
+
+    const res = await request(app)
+      .patch(`/api/mood-logs/${created.body.id}`)
+      .set(authed(accessToken))
+      .send({ energy: null, stress: null, notes: null });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ mood: 2, energy: null, stress: null, notes: null });
+  });
+
   it("returns 404 updating or deleting a mood log that doesn't exist", async () => {
     const { accessToken } = await registerAndLogin("missing");
 

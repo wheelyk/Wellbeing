@@ -19,7 +19,15 @@ const createSchema = z.object({
   loggedAt: z.string().datetime().optional(),
 });
 
-const updateSchema = createSchema.partial();
+// `.partial()` alone would make `notes` optional-but-still-string-only, which can express "not
+// provided" (key absent) but not "clear the existing value" (there's no string that means
+// that). Editing an entry needs the second meaning too - e.g. clicking "Save Changes" after
+// deleting existing notes text should actually clear it, not silently leave the old value in
+// place - so `notes` is widened to also accept an explicit `null` on update specifically
+// (`createSchema`, used only for POST, is untouched: there's no "clear" concept when creating).
+const updateSchema = createSchema.partial().extend({
+  notes: z.string().trim().min(1).optional().nullable(),
+});
 
 export const moodLogsRouter = Router();
 
