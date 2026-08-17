@@ -108,13 +108,16 @@ model HabitLog {
   @@map("habit_logs")
 }
 
-// A user's own list of medications they take (e.g. "Ibuprofen", "Vitamin D") - just the name,
-// not dosage/schedule, matching requirements §6.3's scope for the MVP. Each MedicationLog below
-// points back at one of these to record whether it was taken on a given occasion.
+// A user's own list of medications they take (e.g. "Ibuprofen", "Vitamin D"), with an optional
+// dosage (e.g. "200mg") - beyond requirements §6.3's original MVP scope of name-only, added so
+// "Diazepam 2mg" doesn't have to be crammed into the name field itself. No schedule/frequency
+// yet - still out of scope. Each MedicationLog below points back at one of these to record
+// whether it was taken on a given occasion.
 model Medication {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
   name      String
+  dosage    String?
   createdAt DateTime @default(now()) @map("created_at")
 
   user User            @relation(fields: [userId], references: [id], onDelete: Cascade)
