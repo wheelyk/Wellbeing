@@ -7,6 +7,7 @@ export interface Medication {
   id: string;
   userId: string;
   name: string;
+  dosage: string | null;
   createdAt: string;
 }
 
@@ -47,6 +48,7 @@ export function MedicationEntryForm({ onSaved, onCancel }: MedicationEntryFormPr
 
   const [showAddMedication, setShowAddMedication] = useState(false);
   const [newMedicationName, setNewMedicationName] = useState("");
+  const [newMedicationDosage, setNewMedicationDosage] = useState("");
   const [addingMedication, setAddingMedication] = useState(false);
   const [addMedicationError, setAddMedicationError] = useState<string | null>(null);
 
@@ -88,14 +90,16 @@ export function MedicationEntryForm({ onSaved, onCancel }: MedicationEntryFormPr
     setAddMedicationError(null);
     setAddingMedication(true);
     try {
+      const dosage = newMedicationDosage.trim();
       const medication = await apiFetch<Medication>("/api/medications", {
         method: "POST",
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, dosage: dosage || undefined }),
       });
       setMedications((prev) => [...prev, medication]);
       setSelectedMedicationId(medication.id);
       setMedicationError(null);
       setNewMedicationName("");
+      setNewMedicationDosage("");
       setShowAddMedication(false);
     } catch {
       setAddMedicationError("Couldn't add that medication. Please try again.");
@@ -180,6 +184,9 @@ export function MedicationEntryForm({ onSaved, onCancel }: MedicationEntryFormPr
                 }`}
               >
                 {medication.name}
+                {medication.dosage && (
+                  <span className="ml-2 font-normal text-text-muted">— {medication.dosage}</span>
+                )}
               </button>
             ))}
           </div>
@@ -202,17 +209,26 @@ export function MedicationEntryForm({ onSaved, onCancel }: MedicationEntryFormPr
         )}
 
         {!medsLoading && showAddMedication && (
-          <div className="mt-3 flex items-end gap-2">
-            <div className="flex-1">
-              <TextField
-                label={medications.length === 0 ? "Medication name" : "New medication name"}
-                value={newMedicationName}
-                onChange={(e) => setNewMedicationName(e.target.value)}
-                error={addMedicationError ?? undefined}
-                placeholder="e.g. Ibuprofen"
-              />
-            </div>
-            <Button type="button" onClick={handleAddMedication} disabled={addingMedication}>
+          <div className="mt-3 flex flex-col gap-2">
+            <TextField
+              label={medications.length === 0 ? "Medication name" : "New medication name"}
+              value={newMedicationName}
+              onChange={(e) => setNewMedicationName(e.target.value)}
+              error={addMedicationError ?? undefined}
+              placeholder="e.g. Diazepam"
+            />
+            <TextField
+              label="Dosage (optional)"
+              value={newMedicationDosage}
+              onChange={(e) => setNewMedicationDosage(e.target.value)}
+              placeholder="e.g. 2mg"
+            />
+            <Button
+              type="button"
+              onClick={handleAddMedication}
+              disabled={addingMedication}
+              className="self-start"
+            >
               {addingMedication ? "Adding…" : "Add"}
             </Button>
           </div>

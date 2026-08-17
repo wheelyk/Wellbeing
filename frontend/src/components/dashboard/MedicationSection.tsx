@@ -56,9 +56,13 @@ export function MedicationSection() {
     }
   }
 
-  const medicationNameById = new Map(
-    medications.map((medication) => [medication.id, medication.name]),
-  );
+  const medicationById = new Map(medications.map((medication) => [medication.id, medication]));
+
+  function medicationLabel(medicationId: string): string {
+    const medication = medicationById.get(medicationId);
+    if (!medication) return "Medication";
+    return medication.dosage ? `${medication.name} — ${medication.dosage}` : medication.name;
+  }
 
   return (
     <>
@@ -101,8 +105,7 @@ export function MedicationSection() {
                 </span>
                 <div>
                   <p className="text-text">
-                    {medicationNameById.get(log.medicationId) ?? "Medication"} —{" "}
-                    {log.taken ? "Taken" : "Not taken"}
+                    {medicationLabel(log.medicationId)} — {log.taken ? "Taken" : "Not taken"}
                   </p>
                   {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
                   <p className="text-xs text-text-muted">
