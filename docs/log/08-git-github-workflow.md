@@ -1674,3 +1674,155 @@ in the correct file, with working links throughout.
   didn't somehow affect application code.
 
 ---
+
+## 2026-08-17 — Decomposing `DashboardPage.tsx` into one section component per log type
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — acting on the retrospective's
+*second* recommendation (the log split above was the first): `DashboardPage.tsx` was named as
+the worst single conflict source of the whole parallel-agent session, and this splits it apart
+before Phase 8's real Dashboard build-out starts touching it even more.
+
+### Background / concepts
+
+#### Why one file per log type, specifically, is the fix
+
+- The retrospective diagnosed *why* `DashboardPage.tsx` conflicted so badly: every log type's
+  state (`useState`), data loading (`useEffect`), event handlers, and JSX all lived inside the
+  same single `DashboardPage()` function body. Adding a fifth log type (say, a future "sleep"
+  tracker) would mean editing that same function in four or five different places at once —
+  exactly the shape of edit that produces a real, multi-hunk structural conflict when another
+  branch is doing the same thing to the same function around the same time, as opposed to a
+  clean append.
+- **The fix is a standard React pattern: extraction into self-contained components.** Each log
+  type (Mood, Habit, Medication, Symptom) now gets its own component file under
+  `frontend/src/components/dashboard/` — `MoodSection.tsx`, `HabitSection.tsx`, etc. — each one
+  owning *all* of that log type's state, data-fetching effect, and handlers internally, and
+  rendering its own complete UI (both the "+ X" button/form and the "Recent X entries" list).
+  `DashboardPage.tsx` itself shrinks down to just the shared welcome header plus a list of
+  `<MoodSection />`, `<HabitSection />`, etc. — a thin **composition layer** with almost nothing
+  left in it to conflict over.
+- **Why this actually reduces conflicts, concretely:** a future fifth log type now means
+  *creating a new file* (`SleepSection.tsx`) — which can never conflict with anything, since no
+  other branch can simultaneously be creating a file with that exact name and content — plus
+  adding one import line and one `<SleepSection />` line to `DashboardPage.tsx`. Two branches
+  each adding a different new section would still each touch `DashboardPage.tsx`, but as two
+  independent one-line-each additions near the same spot, which git resolves automatically far
+  more often than it can with genuinely interleaved logic.
+
+### What was done
+
+1. Read the original `DashboardPage.tsx` (500 lines) in full to identify exactly which state,
+   effect, and handlers belonged to each of the four log types.
+2. Created four new components under `frontend/src/components/dashboard/`: `MoodSection.tsx`,
+   `HabitSection.tsx`, `MedicationSection.tsx`, `SymptomSection.tsx` — each a direct, behavior-
+   preserving extraction of that log type's slice of the original file (its own `useState`
+   calls, its own `useEffect` fetch, its own save/delete handlers, its own JSX for both the
+   entry-form toggle and the recent-entries list).
+3. Rewrote `DashboardPage.tsx` down to roughly 25 lines: the shared welcome header plus the four
+   section components rendered in sequence. No log-type-specific logic remains in it at all.
+4. Added a dedicated test file per new section (`MoodSection.test.tsx`, `HabitSection.test.tsx`,
+   `MedicationSection.test.tsx`, `SymptomSection.test.tsx`), each covering the loading state, the
+   empty state, the error state, and rendering a fetched entry — genuinely new coverage, since
+   this logic previously lived inline in `DashboardPage.tsx`, which had no test file of its own
+   at all.
+5. Ran the full frontend test suite and hit five failures, all `TypeError: Cannot read
+   properties of null (reading 'length')`, every one inside a section that fetches two things at
+   once via `Promise.all` (Habit, Medication, Symptom — Mood only fires a single fetch and was
+   unaffected). Diagnosed and fixed — see the dedicated explanation below.
+6. Ran `npm run build`, `npm run lint`, and `npx prettier --check .` — all clean after the test
+   fix and one formatting pass (`prettier --write` on the three files it flagged).
+7. **Verified in a real browser**, not just via the mocked test suite (per this project's
+   build-and-run-first habit): started Postgres, the backend, and the frontend dev server for
+   real, registered a fresh throwaway user via Playwright, and drove the actual UI flow —
+   logged one real entry of each of the four types (mood, a newly-created habit, a newly-created
+   medication, a symptom picked from the seeded system list) — then screenshotted the resulting
+   dashboard. All four sections rendered correctly, in the same order and style as before the
+   decomposition, with zero browser console errors logged during the entire flow.
+
+### A real test-only bug, found and fixed: reusing one mocked `Response` across two `fetch` calls
+
+- Each of the three `Promise.all`-based sections' tests originally mocked `fetch` with
+  `vi.fn().mockResolvedValue(jsonResponse(200, []))` — `mockResolvedValue` (not
+  `mockImplementation`) configures the mock to resolve to the **exact same** `Response` object
+  instance on every call, no matter how many times the mock is invoked.
+- **Why that broke specifically here and not elsewhere in this project:** a `Response` object's
+  body can only be read *once* — calling `.json()` on it a second time throws, because the
+  underlying stream has already been consumed. Every earlier component in this project only ever
+  fires one `fetch` call per load, so this was never an issue before. `HabitSection`,
+  `MedicationSection`, and `SymptomSection` all fire *two* simultaneous `fetch` calls via
+  `Promise.all` (e.g. medications + medication-logs together, so the log list can resolve each
+  log's medication name without a loading flicker) — and with the mock returning the same
+  instance both times, the second `.json()` call hit an already-consumed body.
+- **Why the failure showed up as `null`, not a thrown error, at first glance.** This project's
+  shared `apiFetch` helper wraps its `.json()` call in `.catch(() => null)`, specifically so a
+  malformed or empty response body doesn't crash the whole app — a reasonable defensive choice
+  in general, but it meant the real cause (a consumed stream throwing inside `.json()`) was
+  silently swallowed and turned into a plain `null` return value instead of a visible error.
+  The actual crash only surfaced one layer up, where the component called `.length` on what it
+  assumed would always be an array.
+- **The fix:** switched the affected tests from `.mockResolvedValue(...)` to
+  `.mockImplementation(() => Promise.resolve(jsonResponse(...)))` — `mockImplementation` runs
+  the given function fresh on *every* call, so each of the two simultaneous `fetch` calls gets
+  its own brand-new `Response` object with its own independently-readable body.
+- **The general lesson, worth remembering for any future component that fetches more than one
+  thing at once:** `mockResolvedValue`/`mockReturnValue` share one fixed value across every
+  call; `mockImplementation` (or `.mockResolvedValueOnce()` chained per call) produces a fresh
+  value each time. The two are interchangeable for a mock that's only ever called once, and
+  silently *not* interchangeable the moment a component starts calling it concurrently — worth
+  defaulting to `mockImplementation` for any endpoint a component might call more than once in
+  the same render, rather than only reaching for it after hitting this exact bug again.
+
+### Why it's needed
+
+`DashboardPage.tsx` was named directly in the retrospective as the single worst conflict source
+of the whole parallel-agent session — every one of PR #46's and PR #53's conflicts came from
+this exact file, and Phase 8 (the real Dashboard build-out, still ahead) was only ever going to
+make that worse by adding more to the same function. Splitting it now, before that phase starts,
+means Phase 8's work lands in new or narrowly-scoped files instead of deepening the same
+structural problem.
+
+### Decisions
+
+- **One component per log type, not one component for "all logging sections" together.** A
+  single combined component would still have the same interleaved-logic problem this change is
+  meant to solve, just moved one file over. Separate files per log type is what actually gives
+  each type its own independent, non-conflicting surface area.
+- **Each section owns its own data fetching, rather than `DashboardPage` fetching everything
+  once and passing it down as props.** This does mean four independent network round-trips on
+  page load instead of one combined one — a real, deliberate tradeoff of a little request
+  overhead in exchange for genuine independence: a future new section needs zero changes to any
+  existing section's code or `DashboardPage`'s props, since it manages its own data end to end.
+- **Added test files for the new sections now, rather than waiting for Phase 13.** This mirrors
+  the project's standing testing rule (light tests alongside any new testable logic, not held
+  back for the dedicated test-focused phase) — and this logic was previously *only* covered
+  implicitly, inline in an untested page component, so extracting it was a natural moment to add
+  real coverage for it for the first time.
+- **Verified with a real browser flow, not just the (now-passing) mocked test suite,** since a
+  decomposition this size is exactly the kind of change where "the mocks all pass" can still
+  hide a real integration break (a prop mismatch, a missing import, a form that silently doesn't
+  wire up to its parent) that only shows up when the actual pieces run together against a real
+  backend.
+
+### State at end of this step
+
+`DashboardPage.tsx` is now roughly 25 lines, purely composing four independent section
+components. Each log type's logic lives in its own file under
+`frontend/src/components/dashboard/`, each with its own dedicated tests. All 62 frontend tests
+pass, the build is clean, lint is clean, and a real end-to-end browser flow logging one entry of
+each type confirmed the decomposition preserved behavior exactly.
+
+### Verification
+
+- `npm run build` (frontend) — clean.
+- `npm run lint` (frontend) — clean (one pre-existing, unrelated `AuthContext.tsx` warning).
+- `npx prettier --check .` — clean, after fixing the three files it initially flagged.
+- `npm test` (frontend) — all 62 tests passing, including four new section test files, after
+  fixing the `Promise.all`/mock-reuse bug described above.
+- **Real browser verification**, driven with Playwright against genuinely running Postgres,
+  backend, and frontend dev servers: registered a fresh user, logged one real entry of each of
+  the four types (including creating a brand-new habit and a brand-new medication inline, the
+  same first-time-user path a real user would hit), and screenshotted the resulting dashboard —
+  all four sections rendered correctly, in the original order and styling, with zero console
+  errors during the entire flow.
+
+---
