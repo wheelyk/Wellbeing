@@ -1826,3 +1826,122 @@ each type confirmed the decomposition preserved behavior exactly.
   errors during the entire flow.
 
 ---
+
+## 2026-08-17 — Two lasting regression checks for the dashboard, not just a one-off manual verification
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — the previous entry's browser
+verification proved the decomposition worked *once, by hand*. This adds two things that keep
+checking it automatically, on every future change, instead of relying on someone remembering to
+repeat that manual flow.
+
+### Background / concepts
+
+#### Why one manual check isn't the same as a regression test
+
+- The previous entry's Playwright run was real, valuable proof — but it ran once, in this one
+  session, and proved nothing about the *next* change to this code. A **regression test** is
+  specifically a check that keeps running automatically after the fact, so a future edit that
+  breaks the same thing gets caught immediately rather than relying on someone remembering to
+  manually repeat the same flow again.
+- Two different kinds of regression coverage were missing for the dashboard specifically, each
+  catching a different class of future mistake:
+  1. A fast, assertion-based check that the four section components actually compose together
+     correctly inside `DashboardPage` — nothing in the existing test suite rendered
+     `DashboardPage` itself; `MoodSection.test.tsx` and friends only ever test each section in
+     isolation.
+  2. A visual, functioning check that the dashboard genuinely *works end to end* with real data
+     in it — the existing CI screenshot workflow (`pr-preview.yml`, from the earlier "GitHub
+     Actions" entries) only ever captured the dashboard immediately after registering, which is
+     always empty. It could pass while showing a blank page even if every section were silently
+     broken, since nothing about that flow ever exercises logging an actual entry.
+
+### What was done
+
+#### 1. `DashboardPage.test.tsx` — a composition-level assertion test
+
+- Added a new Vitest/Testing-Library test that renders the real `DashboardPage` (wrapped in
+  `AuthProvider` and `MemoryRouter`, the same pattern `SettingsPage.test.tsx` already
+  established) with `fetch` mocked to return an empty list for every call, then asserts that the
+  nav links, the "Log out" button, all four "+ X" buttons, and all four "Recent X" headings are
+  present.
+- **Deliberately uses `mockImplementation`, not `mockResolvedValue`, for the fetch mock** — the
+  same `Promise.all`-body-reuse bug documented in the previous entry would otherwise resurface
+  here too, since this test exercises the same three `Promise.all`-based sections at once.
+- This is intentionally a thin test, not a re-test of each section's own behavior (loading/empty
+  states, save/delete handlers, etc. are already covered per-section) — its only job is catching
+  a *composition* regression, e.g. a future edit that accidentally drops one section's import or
+  otherwise breaks how `DashboardPage` wires the four together, which nothing else in the suite
+  would catch since nothing else renders `DashboardPage` as a whole.
+
+#### 2. A functioning "after" screenshot, not just an empty one, in every future PR
+
+- Extended `frontend/scripts/capture-pr-screenshots.mjs` (already run automatically by
+  `pr-preview.yml` on every PR that touches the frontend) with a fourth step: after logging in
+  and landing on the dashboard, the script now logs one real entry of each of the four types —
+  a mood, a symptom (picked from the seeded system list), a medication (created inline), and a
+  habit (created inline) — using the exact same flow validated by hand in the previous entry —
+  before taking a `04-dashboard-functioning-with-entries` screenshot.
+- Because this reuses the *same* before/after mechanism already built (the earlier "GitHub
+  Actions" entries), this functioning-dashboard screenshot automatically gets the same
+  before/after comparison as the other three: a reviewer on any future frontend-touching PR now
+  sees, side by side, what a dashboard with real data in it looked like on `main` versus on the
+  PR's branch — not just an empty page proving the app didn't crash.
+- **This needed one real infrastructure addition, not just a script change:** the symptom-picker
+  step needs at least one real symptom to select from, and a brand-new CI Postgres database
+  starts completely empty — unlike a local development database, which has usually been seeded
+  at some point already. Added a `npx prisma db seed` step to `pr-preview.yml`, right after
+  generating the Prisma client and before building the backend, so the system-default symptoms
+  (Headache, Fatigue, etc. — from the same seed script covered in the Symptom Logging entries)
+  exist before the capture script ever runs.
+- Bumped `EXPECTED_COUNT` (the check that decides whether a real "before" comparison is
+  available, from the earlier "GitHub Actions" entry) from `3` to `4` to match, and added the
+  new screenshot's caption to the PR-comment-building script's `shots` list.
+
+### Why it's needed
+
+Without these, a future change could silently break the dashboard in two specific ways that
+nothing would have caught: a composition mistake (missing import, dropped section) with no test
+failure to flag it, or a functional break (a section that throws once real data exists, or a
+save/delete handler that stops working end to end) that the existing empty-state screenshot would
+never expose, since it never puts any real data on the page.
+
+### Decisions
+
+- **Two different checks, not one.** The assertion test runs on every `npm test` (fast, seconds,
+  every push) and catches composition mistakes precisely; the screenshot check only runs on
+  frontend-touching PRs (slower, a full browser + real backend + real database) but is the only
+  one that can show a human reviewer, visually, that the whole thing still actually works with
+  real data — neither one replaces the other.
+- **Extended the existing before/after screenshot mechanism rather than building a separate one.**
+  A brand-new e2e check would have duplicated most of what `capture-pr-screenshots.mjs` and
+  `pr-preview.yml` already do (spin up a real backend/database, drive a real browser, publish
+  and comment the result) for no real benefit — adding a fourth step to the existing flow gets
+  the same before/after comparison "for free."
+- **Validated the updated CI script locally before pushing**, the same discipline used when this
+  workflow was first built and later extended: built the frontend for production and served it
+  with `vite preview` (exactly how CI runs it, not `npm run dev`), ran the updated capture script
+  against it end to end, and confirmed all four screenshots were produced with zero console
+  errors — rather than trusting a change to shared CI infrastructure to a real GitHub Actions run
+  as the first test.
+
+### State at end of this step
+
+`DashboardPage.test.tsx` is part of the regular frontend test suite (63 tests total). Every
+future frontend-touching PR's screenshot comment now includes a fourth before/after pair showing
+the dashboard with one real entry of each type logged, not just the empty state.
+
+### Verification
+
+- `npm test` (frontend) — all 63 tests passing, including the new `DashboardPage.test.tsx`.
+- `npm run build`, `npm run lint`, `npx prettier --check .` — all clean.
+- `npx js-yaml .github/workflows/pr-preview.yml` — valid YAML after the seed-step and
+  `EXPECTED_COUNT` changes.
+- `bash -n` on the extracted publish shell script — valid syntax.
+- **Local dry run of the real CI path**: seeded a fresh database, built the frontend for
+  production, served it with `vite preview --port 5173` (not the dev server — matching exactly
+  how `pr-preview.yml` runs it), and ran the updated `capture-pr-screenshots.mjs` against it —
+  produced all four expected screenshots, including a visually-confirmed
+  `04-dashboard-functioning-with-entries.png` showing all four log types with a real entry each,
+  and exited cleanly with no console errors detected.
+
+---
