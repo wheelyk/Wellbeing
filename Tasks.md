@@ -27,7 +27,7 @@ Reference: requirements §11.
 - [x] Define `Symptom` model: `id`, `user_id (nullable — null = system symptom)`, `name`, `description (optional)`, `created_at`.
 - [x] Define `SymptomLog` model: `id`, `user_id`, `symptom_id`, `severity (1–10)`, `notes (optional)`, `logged_at`.
 - [x] Define `MoodLog` model: `id`, `user_id`, `mood (1–5)`, `energy (nullable 1–5)`, `stress (nullable 1–5)`, `notes (optional)`, `logged_at`.
-- [x] Define `Medication` model: `id`, `user_id`, `name`, `created_at`.
+- [x] Define `Medication` model: `id`, `user_id`, `name`, `created_at`. (Gained an optional `dosage` field later, beyond original scope — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [x] Define `MedicationLog` model: `id`, `user_id`, `medication_id`, `taken (boolean)`, `notes (optional)`, `logged_at`.
 - [x] Define `Habit` model: `id`, `user_id`, `name`, `type (boolean | numeric | duration)`, `created_at`.
 - [x] Define `HabitLog` model: `id`, `user_id`, `habit_id`, `value (shape depends on habit type)`, `notes (optional)`, `logged_at`.
@@ -245,7 +245,7 @@ Reference: requirements §19.
 
 - [ ] Choose a hosting platform (Vercel/Railway/Render) for frontend and backend/database.
 - [ ] Configure production environment variables (DB URL, JWT secrets, CORS origins, mail provider).
-- [ ] Set up production Prisma migrations (`prisma migrate deploy`) as part of the deploy pipeline.
+- [x] Set up production Prisma migrations (`prisma migrate deploy`) as part of the deploy pipeline. (`backend/package.json`'s `start` script — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [ ] Enforce HTTPS and confirm cookie flags (`Secure`, `SameSite`) work correctly on the deployed domain.
 - [ ] Smoke-test the full MVP checklist from requirements §20 against the deployed environment.
 - [ ] Write minimal privacy documentation (what data is collected, how to delete an account) before any real-user launch (§14).
