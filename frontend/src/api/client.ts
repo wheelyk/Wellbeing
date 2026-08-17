@@ -72,6 +72,32 @@ async function refreshAccessToken(): Promise<string | null> {
   return refreshPromise;
 }
 
+// Attempts to turn a still-valid httpOnly refresh cookie into a real session on app startup -
+// e.g. after a browser refresh, when React state (including the in-memory access token above)
+// has just been wiped and rebuilt from scratch, but the cookie a previous login set is still
+// sitting in the browser, unexpired. Deliberately not routed through the same refreshPromise
+// deduplication `refreshAccessToken` uses below: that mechanism exists for concurrent *retries*
+// of already-in-flight requests hitting a 401 together, a scenario that can't happen yet at the
+// single explicit call site this is used from (AuthProvider's mount effect, before anything
+// else has had a chance to make a request at all).
+export async function rehydrateSession<TUser>(): Promise<{
+  user: TUser;
+  accessToken: string;
+} | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { user: TUser; accessToken: string };
+    accessToken = data.accessToken;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 interface RequestOptions extends RequestInit {
   /** Skip attaching the access token and skip the refresh-on-401 retry (for auth endpoints themselves). */
   skipAuth?: boolean;

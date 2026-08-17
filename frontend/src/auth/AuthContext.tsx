@@ -7,7 +7,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { apiFetch, onAuthFailure, setAccessToken as setClientAccessToken } from "../api/client";
+import {
+  apiFetch,
+  onAuthFailure,
+  rehydrateSession,
+  setAccessToken as setClientAccessToken,
+} from "../api/client";
 
 export interface AuthUser {
   id: string;
@@ -35,6 +40,11 @@ interface LoginInput {
 
 interface AuthContextValue extends AuthState {
   isAuthenticated: boolean;
+  // True only until the mount-time rehydration attempt below finishes (success or failure) -
+  // lets RequireAuth tell "we haven't checked whether a session cookie exists yet" apart from
+  // "we checked, and there genuinely isn't one," so it doesn't redirect a real, still-valid
+  // session to /login just because that check hasn't resolved yet.
+  isLoading: boolean;
   register: (input: RegisterInput) => Promise<void>;
   login: (input: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
@@ -44,12 +54,32 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ user: null, accessToken: null });
+  const [isLoading, setIsLoading] = useState(true);
 
   // If a background API call's access token expired and the refresh attempt also failed
   // (e.g. the refresh cookie itself expired or was revoked), the session is genuinely over.
   // Clearing state here is what makes RequireAuth notice and redirect to /login on whatever
   // page the user happens to be on - not just on their next explicit action.
   useEffect(() => onAuthFailure(() => setState({ user: null, accessToken: null })), []);
+
+  // On first mount (e.g. right after a browser refresh, when this component's own state has
+  // just been rebuilt from nothing), try to turn a still-valid httpOnly refresh cookie back
+  // into a real session - without this, a page reload always shows Login even when the user's
+  // session is still genuinely valid, since nothing here previously read the one piece of
+  // evidence the browser was already holding onto.
+  useEffect(() => {
+    let cancelled = false;
+    rehydrateSession<AuthUser>().then((result) => {
+      if (cancelled) return;
+      if (result) {
+        setState({ user: result.user, accessToken: result.accessToken });
+      }
+      setIsLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const login = useCallback(async (input: LoginInput) => {
     const data = await apiFetch<{ user: AuthUser; accessToken: string }>("/api/auth/login", {
@@ -85,11 +115,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       ...state,
       isAuthenticated: Boolean(state.user && state.accessToken),
+      isLoading,
       register,
       login,
       logout,
     }),
-    [state, register, login, logout],
+    [state, isLoading, register, login, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

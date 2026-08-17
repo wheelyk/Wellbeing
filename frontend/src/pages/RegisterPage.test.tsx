@@ -41,7 +41,11 @@ describe("RegisterPage", () => {
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     expect(await screen.findByText(/valid email address/i)).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    // AuthProvider's own mount-time rehydration attempt does call fetch once, on its own,
+    // regardless of this form - only the register submission itself matters here.
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/auth/register"))).toBe(
+      false,
+    );
   });
 
   it("shows a validation error for a weak password", async () => {
@@ -55,12 +59,16 @@ describe("RegisterPage", () => {
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     expect(await screen.findByText(/at least 8 characters/i)).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/auth/register"))).toBe(
+      false,
+    );
   });
 
   it("registers, logs in automatically, and lands on the dashboard", async () => {
     const fetchMock = vi
       .fn()
+      // AuthProvider's mount-time rehydration attempt - no real session cookie in this test.
+      .mockResolvedValueOnce(jsonResponse(401, { error: { message: "no refresh cookie" } }))
       .mockResolvedValueOnce(
         jsonResponse(201, {
           id: "1",
@@ -91,9 +99,9 @@ describe("RegisterPage", () => {
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => expect(screen.getByText("Dashboard stub")).toBeInTheDocument());
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0][0]).toContain("/api/auth/register");
-    expect(fetchMock.mock.calls[1][0]).toContain("/api/auth/login");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[1][0]).toContain("/api/auth/register");
+    expect(fetchMock.mock.calls[2][0]).toContain("/api/auth/login");
   });
 
   it("shows a friendly message when the email is already registered", async () => {
