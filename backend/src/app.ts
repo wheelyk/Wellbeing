@@ -13,6 +13,7 @@ import { dashboardRouter } from "./routes/dashboard";
 import { historyRouter } from "./routes/history";
 import { trendsRouter } from "./routes/trends";
 import { requireAuth } from "./middleware/requireAuth";
+import { errorHandler } from "./middleware/errorHandler";
 
 const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:5173";
 
@@ -38,6 +39,12 @@ export function createApp(): Express {
   app.use("/api/dashboard", requireAuth, dashboardRouter);
   app.use("/api/history", requireAuth, historyRouter);
   app.use("/api/trends", requireAuth, trendsRouter);
+
+  // Must be registered last - Express only routes a request to error-handling middleware
+  // (recognized by its four-parameter signature) once every earlier layer has either handled
+  // the request or passed an error along; anything registered after this would never run for
+  // a request that already errored out.
+  app.use(errorHandler);
 
   return app;
 }
