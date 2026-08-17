@@ -415,3 +415,126 @@ rehydration gap it led to being discovered is tracked, not fixed, as its own tas
   the screenshot-timing false alarm.
 
 ---
+
+## 2026-08-17 — Phase 5: rehydrating a session from the refresh cookie on page load
+
+**Task:** [Tasks.md](../../Tasks.md) → Phase 5 — "On app load, attempt a silent token refresh
+(using the `httpOnly` refresh cookie) to rehydrate the session, so a browser refresh doesn't log
+out a user whose session is still genuinely valid." Closes the gap tracked (not fixed) in the
+previous entry.
+
+### Background / concepts
+
+#### Why a page reload always showed Login, even with a perfectly valid session
+
+`AuthContext`'s `state` (`{ user, accessToken }`) lives in a React component's own memory — a
+full page reload doesn't just re-render the app, it destroys and rebuilds the entire JavaScript
+runtime from scratch, `AuthProvider` included. Every previous version of this component started
+`state` as `{ user: null, accessToken: null }` and never tried to prove otherwise. Meanwhile, the
+one piece of evidence that a real session might still exist — the `httpOnly` refresh cookie
+`POST /api/auth/login` sets — survives a page reload just fine (that's the entire point of a
+cookie), sitting there unread. `RequireAuth` (see the earlier entry introducing it) only ever
+looks at `isAuthenticated`, which is derived from that empty starting state — so it always
+redirected to `/login`, regardless of whether the cookie was still genuinely valid.
+
+#### Why `/api/auth/refresh` needed a small backend change first
+
+The refresh endpoint already did most of the necessary work — it verifies the cookie, looks up
+the user, rotates the cookie, and issues a fresh access token — but only ever *returned* the
+access token, discarding the full user row it had already fetched to get there. Rehydrating a
+session needs both pieces: an access token to authenticate future requests, *and* a user object
+to actually populate `AuthContext`'s state with (a display name to show, an email, a timezone).
+Fixed by having `/refresh` return `user` too, in the exact same shape `/login` already returns it
+in (now shared via one `serializeUser` helper, rather than two copies of the same five fields).
+
+#### The new `isLoading` flag — why silently attempting rehydration in the background isn't enough
+
+The naive version of this fix — just fire the rehydration attempt in a `useEffect` and let
+`isAuthenticated` update whenever it resolves — has a real, visible bug: `isAuthenticated` reads
+as `false` for the entire time that attempt is still in flight, exactly the same as "genuinely
+not logged in." `RequireAuth` checking `isAuthenticated` during that window would redirect a user
+with a perfectly valid session to `/login` anyway, just because the check hadn't finished yet —
+solving the letter of the bug report while leaving a visible flash of the wrong page. `isLoading`
+(true only until the mount-time attempt resolves, success or failure) is what lets `RequireAuth`
+tell "haven't checked yet" apart from "checked, and there's genuinely no session" — rendering
+nothing for that brief moment instead of guessing wrong.
+
+### What was done
+
+1. **`backend/src/routes/auth.ts`**: extracted a `serializeUser()` helper (shared by `/login` and
+   `/refresh`) and had `/refresh` return `{ user, accessToken }` instead of just `{ accessToken }`.
+2. **`frontend/src/api/client.ts`**: added `rehydrateSession<TUser>()` — a small, deliberately
+   separate function from the existing `refreshAccessToken()` (which already handles
+   deduplicating *concurrent* 401-triggered retries, a scenario that can't happen yet at
+   `rehydrateSession`'s one call site, before anything else has had a chance to make a request at
+   all). Calls `POST /api/auth/refresh` directly and returns `{ user, accessToken } | null`.
+3. **`frontend/src/auth/AuthContext.tsx`**: added `isLoading` (starts `true`) and a mount-time
+   `useEffect` that calls `rehydrateSession()` once, populating `state` on success, and always
+   setting `isLoading` to `false` when it resolves either way.
+4. **`frontend/src/auth/RequireAuth.tsx`**: renders `null` while `isLoading` is true, before ever
+   checking `isAuthenticated` — the fix for the "flash of the wrong redirect" problem described
+   above.
+5. **Reproduced the actual bug in a real browser before writing any of the above**: registered a
+   user, confirmed landing on the Dashboard, then did a genuine `page.reload()` (not client-side
+   navigation) — confirmed it redirected to Login despite a valid, unexpired refresh cookie still
+   sitting in the browser. Re-ran the identical script after the fix — confirmed it now stays on
+   `/dashboard`, with the welcome heading rendering the user's real display name, fetched via the
+   rehydrated session.
+6. **Updated every existing test that renders `AuthProvider`** (`RequireAuth.test.tsx`,
+   `LoginPage.test.tsx`, `RegisterPage.test.tsx`, `SettingsPage.test.tsx`) — this fix means
+   *every* `AuthProvider` mount now fires an unconditional `fetch` call to `/api/auth/refresh`
+   that didn't exist before, which several existing tests' mocks and assertions didn't account
+   for (a `.mockResolvedValue()` reused for every call now gets consumed by the new rehydration
+   attempt first; a `expect(fetchMock).not.toHaveBeenCalled()` assertion is no longer literally
+   true even when the thing it's actually checking — "the form never submitted" — still holds).
+   Each was fixed to either account for the extra call explicitly (a prepended
+   `mockResolvedValueOnce` simulating "no session yet") or assert more precisely on what actually
+   matters (e.g. "never called *with* `/api/auth/change-password`", not "never called at all").
+7. **Added a new, dedicated test** for the actual behavior being fixed: a fresh mount with a
+   valid session cookie lands directly on the protected route, never showing `/login` at all —
+   the only existing coverage before this was the *unauthenticated* redirect case and the
+   *explicit-login* case, neither of which exercised silent rehydration on mount at all.
+
+### Why it's needed
+
+Every other web app a user has ever used stays logged in across a browser refresh — this project
+not doing that wasn't just an inconvenience, it actively taught users to distrust the "logged in"
+state entirely, since it could vanish on an ordinary refresh with no warning.
+
+### Decisions
+
+- **A dedicated `rehydrateSession()`, not reusing `refreshAccessToken()`'s deduplication
+  machinery.** Covered above — that mechanism solves a different problem (concurrent retries of
+  already-in-flight requests) that structurally can't occur at this call site, so reusing it
+  would add complexity without solving anything this specific case needs.
+- **`isLoading` renders nothing, not a spinner.** The window this actually covers is a single
+  fast local request in the overwhelming common case; a spinner that only ever flashes for a
+  fraction of a second is more visual noise than useful feedback. Worth revisiting if real-world
+  latency ever makes that assumption wrong.
+- **Fixed the ripple through every existing `AuthProvider`-rendering test**, rather than only the
+  tests for the new behavior itself — an untouched test that silently started passing for the
+  wrong reason (or worse, started failing) is exactly the kind of regression this project's
+  "run the full suite, not just new tests" rule exists to catch.
+
+### State at end of this step
+
+A user who reloads the page, closes and reopens the tab, or otherwise triggers a fresh page load
+stays logged in for as long as their refresh cookie remains valid (7 days, per the existing
+rotation policy) — the last remaining gap from Phase 5's original checklist.
+
+### Verification
+
+- `npm test` (backend) — 114/114 passing (1 new: `/refresh` now returns a matching `user` shape).
+- `npm test` (frontend) — 69/69 passing (1 new dedicated rehydration test; every existing
+  `AuthProvider`-rendering test updated and still passing).
+- `npm run build`, `npm run lint`, `npx prettier --check .` (both projects) — all clean.
+- Real browser reproduction: registered a user, confirmed a hard `page.reload()` previously
+  landed on `/login` despite a valid cookie; re-ran the identical script after the fix and
+  confirmed it now stays on `/dashboard`, with zero console errors during the reload itself (two
+  expected, harmless `401` console messages appear only from the *very first* page load before
+  any account exists yet — the mount-time rehydration attempt correctly, honestly reporting "no
+  session yet" for a brand-new visitor, doubled by React StrictMode's dev-only double-effect
+  invocation; neither is a real error, and neither reproduces around the actual reload event this
+  fix targets).
+
+---

@@ -80,10 +80,10 @@ Reference: requirements §6, §12.
 - [x] `GET/POST/PATCH/DELETE /api/habit-logs` — record a value appropriate to the habit's type; validate the value shape server-side based on `type`.
 
 ### Cross-cutting for this phase
-- [ ] For every log endpoint, verify the referenced `symptom_id` / `medication_id` / `habit_id` belongs to the authenticated user (or is a valid system symptom) before creating/updating a log — this is the key defense against ID-tampering (§13).
-- [ ] Support backfilling: all log creation endpoints must accept an explicit `logged_at` in the past, defaulting to "now" if omitted.
-- [ ] Add centralized request validation (e.g. `zod` or `express-validator`) for all request bodies.
-- [ ] Add a centralized error-handling middleware returning a consistent JSON error shape (e.g. `{ error: { message, code } }`) without leaking stack traces.
+- [x] For every log endpoint, verify the referenced `symptom_id` / `medication_id` / `habit_id` belongs to the authenticated user (or is a valid system symptom) before creating/updating a log — this is the key defense against ID-tampering (§13). (Already true, stale checkbox — confirmed directly during the Phase 11 audit; see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
+- [x] Support backfilling: all log creation endpoints must accept an explicit `logged_at` in the past, defaulting to "now" if omitted. (Already true, stale checkbox — every `createSchema` accepts an optional `loggedAt`.)
+- [x] Add centralized request validation (e.g. `zod` or `express-validator`) for all request bodies. (Already true, stale checkbox — Zod on every write endpoint, confirmed during the Phase 11 audit.)
+- [x] Add a centralized error-handling middleware returning a consistent JSON error shape (e.g. `{ error: { message, code } }`) without leaking stack traces. (This one was a genuine gap — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 
 ---
 
@@ -113,10 +113,10 @@ Reference: requirements §7, §10, §12.7, §12.8.
 - [x] Set up React Router with routes for: Login, Register, Forgot/Reset Password, Dashboard (Home), History, Trends, Settings.
 - [x] Build an API client (fetch/axios wrapper) that attaches the access token, and on a 401 automatically attempts a token refresh before retrying once; on refresh failure, redirect to Login.
 - [x] Build an auth context/store (e.g. React Context or a small state library) holding the current user and auth status.
-- [ ] On app load, attempt a silent token refresh (using the `httpOnly` refresh cookie) to rehydrate the session, so a browser refresh doesn't log out a user whose session is still genuinely valid — found missing while testing the change-password flow (see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)); currently a full page reload always shows Login even with a valid refresh cookie.
+- [x] On app load, attempt a silent token refresh (using the `httpOnly` refresh cookie) to rehydrate the session, so a browser refresh doesn't log out a user whose session is still genuinely valid — found missing while testing the change-password flow, fixed later (see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)).
 - [ ] Build a bottom navigation component (Home / History / Trends / Settings) per the wireframes, visible on mobile; adapt to a top/side nav on desktop without changing the underlying workflow.
 - [ ] Establish base Tailwind design tokens (colors, spacing, font sizes) for a calm, high-contrast, low-clutter UI, and reusable primitives: `Button`, `Card`, `RatingScale`, `Modal`, `TextField`, `DatePicker`.
-- [ ] Ensure all interactive primitives have visible focus states and meet WCAG AA color contrast.
+- [x] Ensure all interactive primitives have visible focus states and meet WCAG AA color contrast. (Confirmed during the Phase 12 audit — `focus-visible:outline` used consistently across every interactive element; zero axe-core WCAG 2AA contrast violations across six real pages/states. See [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 
 ---
 
@@ -189,14 +189,14 @@ Reference: requirements §10.
 
 Reference: requirements §13.
 
-- [ ] Audit every data-returning endpoint to confirm queries are filtered by the authenticated `user_id` (no trusting client-supplied user/owner IDs).
-- [ ] Add automated tests specifically for cross-user access attempts (user A requests/edits/deletes user B's log by ID → expect 403/404).
-- [ ] Confirm refresh tokens are stored as HTTP-only, `Secure`, `SameSite` cookies (not `localStorage`).
-- [ ] Confirm password hashing uses bcrypt/argon2 with an appropriate cost factor.
-- [ ] Confirm input validation/sanitization is applied on every write endpoint (reject unexpected fields, enforce types/ranges).
-- [ ] Confirm rate limiting is active on auth endpoints in a staging-like environment.
-- [ ] Review server logs to confirm no health data or credentials are ever logged.
-- [ ] Configure HTTPS at the hosting/proxy layer for production.
+- [x] Audit every data-returning endpoint to confirm queries are filtered by the authenticated `user_id` (no trusting client-supplied user/owner IDs). (See [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
+- [x] Add automated tests specifically for cross-user access attempts (user A requests/edits/deletes user B's log by ID → expect 403/404). (Already true, confirmed directly — every resource type has both ownership and ID-tampering tests.)
+- [x] Confirm refresh tokens are stored as HTTP-only, `Secure`, `SameSite` cookies (not `localStorage`). (Confirmed against the real production `Set-Cookie` header, not just code.)
+- [x] Confirm password hashing uses bcrypt/argon2 with an appropriate cost factor. (`SALT_ROUNDS = 12`.)
+- [x] Confirm input validation/sanitization is applied on every write endpoint (reject unexpected fields, enforce types/ranges). (Zod on every write endpoint.)
+- [ ] Confirm rate limiting is active on auth endpoints in a staging-like environment. (Genuinely not implemented — confirmed via audit, real remaining work, not a stale checkbox.)
+- [x] Review server logs to confirm no health data or credentials are ever logged. (Exactly one `console.log` in the whole backend, logging only the port number.)
+- [x] Configure HTTPS at the hosting/proxy layer for production. (Satisfied by Railway/Vercel's automatic TLS termination.)
 
 ---
 
@@ -204,12 +204,12 @@ Reference: requirements §13.
 
 Reference: requirements §15, §16.
 
-- [ ] Keyboard-only pass: confirm every interactive element (including modals and rating controls) is reachable and operable via keyboard, with visible focus rings.
-- [ ] Screen-reader spot check on the Quick Add flow and Dashboard (labels, ARIA roles on custom rating controls).
-- [ ] Color contrast check (automated, e.g. axe or Lighthouse) across light UI states.
-- [ ] Confirm no information is conveyed by color alone (e.g. mood/severity also shown as numbers/icons/text, not just color).
-- [ ] Test on mobile viewport, tablet viewport, and desktop — confirm layout and workflow stay consistent (no desktop-only complexity creep).
-- [ ] Reduce/remove nonessential animations; confirm transitions are short and non-distracting.
+- [x] Keyboard-only pass: confirm every interactive element (including modals and rating controls) is reachable and operable via keyboard, with visible focus rings. (Every control is reachable/operable; the mood/severity/energy/stress radiogroups don't yet follow the full ARIA arrow-key pattern — a real, documented follow-up, not a blocker. See [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
+- [x] Screen-reader spot check on the Quick Add flow and Dashboard (labels, ARIA roles on custom rating controls). (Covered via automated ARIA-tree checking (axe-core), not a literal manual screen-reader session — noting that distinction honestly.)
+- [x] Color contrast check (automated, e.g. axe or Lighthouse) across light UI states. (axe-core, zero WCAG 2AA violations across six real pages/states.)
+- [x] Confirm no information is conveyed by color alone (e.g. mood/severity also shown as numbers/icons/text, not just color). (Confirmed — every value already shows as text/numbers/icons, not just color.)
+- [ ] Test on mobile viewport, tablet viewport, and desktop — confirm layout and workflow stay consistent (no desktop-only complexity creep). (Real bug found: NavBar overflows horizontally on a 375px viewport with a long display name/email — not yet fixed. See [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
+- [x] Reduce/remove nonessential animations; confirm transitions are short and non-distracting. (Confirmed — nothing beyond plain `transition-colors` exists anywhere in the codebase.)
 
 ---
 

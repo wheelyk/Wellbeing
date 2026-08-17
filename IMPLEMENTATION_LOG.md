@@ -139,6 +139,7 @@ Verification format used throughout this whole project.
 
 - 2026-08-15 — Phase 5 + Phase 6: wiring the frontend to auth — and why a vertical slice
 - 2026-08-16 — Phase 6: Settings page with change-password form (and a real race-condition bug)
+- 2026-08-17 — Phase 5: rehydrating a session from the refresh cookie on page load
 
 ### [Mood Logging](docs/log/03-mood-logging.md)
 
@@ -210,4 +211,10 @@ Verification format used throughout this whole project.
 ### [Housekeeping & Audits](docs/log/09-housekeeping.md)
 
 - 2026-08-16 — Reconciling Tasks.md/requirements.md with reality, and adding "change password"
+
+### [Security & Accessibility Audits](docs/log/12-security-and-accessibility-audits.md)
+
+- 2026-08-17 — Phase 11: a real security audit against the running codebase, not just re-reading the checklist
+- 2026-08-17 — Fixing the one real gap the audit found: no centralized error-handling middleware
+- 2026-08-17 — Phase 12: a real accessibility audit, with axe-core and actual keyboard testing
 
