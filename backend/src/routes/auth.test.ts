@@ -205,6 +205,18 @@ describe("POST /api/auth/refresh", () => {
       process.env.JWT_ACCESS_SECRET as string,
     ) as jwt.JwtPayload;
     expect(accessPayload.sub).toBe(userId);
+  });
+
+  it("also returns the user object, the same shape /login returns - what makes session rehydration on page load possible", async () => {
+    const { email, userId, refreshCookie } = await loginAndGetRefreshCookie("refresh-user-shape");
+
+    const res = await request(app)
+      .post("/api/auth/refresh")
+      .set("Cookie", `refreshToken=${refreshCookie}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.user).toMatchObject({ id: userId, email });
+    expect(res.body.user.passwordHash).toBeUndefined();
 
     const newRefreshCookie = getCookie(res, "refreshToken");
     expect(newRefreshCookie).toBeDefined();
