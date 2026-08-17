@@ -38,6 +38,10 @@ export function SymptomSection() {
     setShowSymptomForm(false);
   }
 
+  function handleSymptomCreated(symptom: Symptom) {
+    setSymptoms((prev) => (prev.some((s) => s.id === symptom.id) ? prev : [...prev, symptom]));
+  }
+
   async function handleSymptomDelete(id: string) {
     const previous = symptomLogs;
     setSymptomLogs((prev) => prev.filter((log) => log.id !== id));
@@ -62,6 +66,7 @@ export function SymptomSection() {
               symptoms={symptoms}
               onSaved={handleSymptomSaved}
               onCancel={() => setShowSymptomForm(false)}
+              onSymptomCreated={handleSymptomCreated}
             />
           </div>
         ) : (

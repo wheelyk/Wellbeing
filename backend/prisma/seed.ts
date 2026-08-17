@@ -16,6 +16,8 @@ const SYSTEM_SYMPTOMS: Array<{ name: string; description?: string }> = [
   { name: "Joint pain" },
   { name: "Brain fog", description: "Difficulty concentrating or thinking clearly" },
   { name: "Insomnia", description: "Trouble falling or staying asleep" },
+  { name: "Anxiety" },
+  { name: "Depression" },
 ];
 
 async function main() {
