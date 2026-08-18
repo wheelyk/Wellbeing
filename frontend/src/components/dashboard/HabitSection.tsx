@@ -23,10 +23,24 @@ function formatHabitValue(log: HabitLog, habit: Habit | undefined): string {
 // needs an extra step mood never does - defining a habit first when the user has none yet.
 type HabitFormMode = "closed" | "log" | "create-habit";
 
+// Mirrors HistoryPage's own PAGE_SIZE/offset-pagination shape (see backend/src/lib/pagination.ts)
+// - a Quick-Add section only ever needs a short, recent slice, not a user's entire history
+// rendered on every dashboard load (see the implementation log entry on why this was added).
+const PAGE_SIZE = 10;
+
+interface HabitLogPage {
+  entries: HabitLog[];
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 export function HabitSection() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [habitLogs, setHabitLogs] = useState<HabitLog[]>([]);
   const [habitsLoading, setHabitsLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [habitLoadError, setHabitLoadError] = useState(false);
   const [habitFormMode, setHabitFormMode] = useState<HabitFormMode>("closed");
   // Set only right after HabitCreateForm succeeds, so the log form that follows opens with the
@@ -40,11 +54,15 @@ export function HabitSection() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([apiFetch<Habit[]>("/api/habits"), apiFetch<HabitLog[]>("/api/habit-logs")])
-      .then(([habitsRes, habitLogsRes]) => {
+    Promise.all([
+      apiFetch<Habit[]>("/api/habits"),
+      apiFetch<HabitLogPage>(`/api/habit-logs?limit=${PAGE_SIZE}&offset=0`),
+    ])
+      .then(([habitsRes, habitLogPage]) => {
         if (!cancelled) {
           setHabits(habitsRes);
-          setHabitLogs(habitLogsRes);
+          setHabitLogs(habitLogPage.entries);
+          setHasMore(habitLogPage.hasMore);
         }
       })
       .catch(() => {
@@ -57,6 +75,21 @@ export function HabitSection() {
       cancelled = true;
     };
   }, []);
+
+  async function handleLoadMore() {
+    setLoadingMore(true);
+    try {
+      const page = await apiFetch<HabitLogPage>(
+        `/api/habit-logs?limit=${PAGE_SIZE}&offset=${habitLogs.length}`,
+      );
+      setHabitLogs((prev) => [...prev, ...page.entries]);
+      setHasMore(page.hasMore);
+    } catch {
+      setHabitLoadError(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   function handleHabitButtonClick() {
     setEditingLog(null);
@@ -188,6 +221,13 @@ export function HabitSection() {
             );
           })}
         </ul>
+        {!habitsLoading && !habitLoadError && hasMore && (
+          <div className="mt-4 flex justify-center">
+            <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
+              {loadingMore ? "Loading…" : "Load more"}
+            </Button>
+          </div>
+        )}
       </section>
     </>
   );

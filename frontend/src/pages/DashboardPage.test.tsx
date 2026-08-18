@@ -36,8 +36,11 @@ describe("DashboardPage", () => {
     // simultaneous calls via Promise.all, so mockImplementation is required here (not
     // mockResolvedValue) to give each call its own fresh, independently-readable Response -
     // see docs/log/08-git-github-workflow.md for why mockResolvedValue silently breaks this.
-    // DashboardSummary's GET /api/dashboard expects a differently-shaped object, not an array
-    // like the other four endpoints, so it's special-cased by URL here.
+    // DashboardSummary's GET /api/dashboard expects a differently-shaped object; the four
+    // *-logs endpoints (mood/symptom/medication/habit) are paginated ({entries, limit, offset,
+    // hasMore} - see backend/src/lib/pagination.ts) while their sibling list endpoints
+    // (/api/habits, /api/medications, /api/symptoms) are still plain arrays - both special-cased
+    // by URL here.
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/api/dashboard")) {
         return Promise.resolve(
@@ -50,6 +53,11 @@ describe("DashboardPage", () => {
             recentEntries: [],
             streak: { current: 0, daysLoggedThisWeek: 0 },
           }),
+        );
+      }
+      if (url.includes("-logs")) {
+        return Promise.resolve(
+          jsonResponse(200, { entries: [], limit: 10, offset: 0, hasMore: false }),
         );
       }
       return Promise.resolve(jsonResponse(200, []));

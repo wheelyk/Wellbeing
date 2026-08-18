@@ -3,10 +3,24 @@ import { Button } from "../Button";
 import { MedicationEntryForm, type Medication, type MedicationLog } from "../MedicationEntryForm";
 import { apiFetch } from "../../api/client";
 
+// Mirrors HistoryPage's own PAGE_SIZE/offset-pagination shape (see backend/src/lib/pagination.ts)
+// - a Quick-Add section only ever needs a short, recent slice, not a user's entire history
+// rendered on every dashboard load (see the implementation log entry on why this was added).
+const PAGE_SIZE = 10;
+
+interface MedicationLogPage {
+  entries: MedicationLog[];
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 export function MedicationSection() {
   const [medications, setMedications] = useState<Medication[]>([]);
   const [medicationLogs, setMedicationLogs] = useState<MedicationLog[]>([]);
   const [medicationLoading, setMedicationLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [medicationLoadError, setMedicationLoadError] = useState(false);
   const [showMedicationForm, setShowMedicationForm] = useState(false);
   // Reuses the same showMedicationForm area both create and edit render into - see
@@ -20,12 +34,13 @@ export function MedicationSection() {
     // render meaningfully.
     Promise.all([
       apiFetch<Medication[]>("/api/medications"),
-      apiFetch<MedicationLog[]>("/api/medication-logs"),
+      apiFetch<MedicationLogPage>(`/api/medication-logs?limit=${PAGE_SIZE}&offset=0`),
     ])
-      .then(([meds, logs]) => {
+      .then(([meds, logPage]) => {
         if (cancelled) return;
         setMedications(meds);
-        setMedicationLogs(logs);
+        setMedicationLogs(logPage.entries);
+        setHasMore(logPage.hasMore);
       })
       .catch(() => {
         if (!cancelled) setMedicationLoadError(true);
@@ -37,6 +52,21 @@ export function MedicationSection() {
       cancelled = true;
     };
   }, []);
+
+  async function handleLoadMore() {
+    setLoadingMore(true);
+    try {
+      const page = await apiFetch<MedicationLogPage>(
+        `/api/medication-logs?limit=${PAGE_SIZE}&offset=${medicationLogs.length}`,
+      );
+      setMedicationLogs((prev) => [...prev, ...page.entries]);
+      setHasMore(page.hasMore);
+    } catch {
+      setMedicationLoadError(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   function handleMedicationSaved(log: MedicationLog, medication: Medication) {
     setMedicationLogs((prev) => {
@@ -160,6 +190,13 @@ export function MedicationSection() {
             </li>
           ))}
         </ul>
+        {!medicationLoading && !medicationLoadError && hasMore && (
+          <div className="mt-4 flex justify-center">
+            <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
+              {loadingMore ? "Loading…" : "Load more"}
+            </Button>
+          </div>
+        )}
       </section>
     </>
   );

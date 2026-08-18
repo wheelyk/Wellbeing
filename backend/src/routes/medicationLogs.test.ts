@@ -174,8 +174,40 @@ describe("medication-logs routes", () => {
     const res = await request(app).get("/api/medication-logs").set(authed(userA.accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(2);
-    expect(res.body.every((log: { userId: string }) => log.userId === userA.userId)).toBe(true);
+    expect(res.body.entries).toHaveLength(2);
+    expect(res.body.entries.every((log: { userId: string }) => log.userId === userA.userId)).toBe(
+      true,
+    );
+  });
+
+  it("paginates with limit/offset and reports hasMore correctly", async () => {
+    const { accessToken } = await registerAndLogin("medication-pagination");
+    const medicationId = await createMedication(accessToken);
+    // Five medication logs, one hour apart, so ordering is deterministic.
+    for (let i = 0; i < 5; i++) {
+      await request(app)
+        .post("/api/medication-logs")
+        .set(authed(accessToken))
+        .send({
+          medicationId,
+          taken: true,
+          loggedAt: new Date(Date.UTC(2026, 6, 1, i)).toISOString(),
+        });
+    }
+
+    const page1 = await request(app)
+      .get("/api/medication-logs")
+      .query({ limit: 2, offset: 0 })
+      .set(authed(accessToken));
+    expect(page1.body.entries).toHaveLength(2);
+    expect(page1.body.hasMore).toBe(true);
+
+    const page2 = await request(app)
+      .get("/api/medication-logs")
+      .query({ limit: 2, offset: 4 })
+      .set(authed(accessToken));
+    expect(page2.body.entries).toHaveLength(1);
+    expect(page2.body.hasMore).toBe(false);
   });
 
   it("updates a medication log owned by the authenticated user", async () => {

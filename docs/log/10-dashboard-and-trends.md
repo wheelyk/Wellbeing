@@ -20,7 +20,7 @@ log's first entry for why). But the dashboard needs to answer a fuzzier question
 user log **today**?" — and "today" is genuinely ambiguous without more context. The same instant
 in time is a different calendar date depending on where you are: 11pm on August 16th in Los
 Angeles is already 7am on August 17th in London. `User.timezone` (stored since the very first
-`User` model, defaulted to `"UTC"`, but never actually *used* for anything until this task) is
+`User` model, defaulted to `"UTC"`, but never actually _used_ for anything until this task) is
 what resolves that ambiguity — "today" has to mean "today, in this specific user's timezone," not
 the server's own timezone (which, on a real hosting platform, is usually UTC and has nothing to
 do with where any given user actually lives).
@@ -31,24 +31,24 @@ around JavaScript's own built-in `Intl.DateTimeFormat`, which already knows how 
 between UTC instants and any IANA timezone's wall-clock time without any extra dependency. Two
 tricks worth understanding, since they're not obvious the first time you see them:
 
-- **`formatDateInTimezone`** turns a UTC instant into a `"YYYY-MM-DD"` string *as seen from a
-  given timezone*, using `new Intl.DateTimeFormat("en-CA", { timeZone, ... })`. The `"en-CA"`
+- **`formatDateInTimezone`** turns a UTC instant into a `"YYYY-MM-DD"` string _as seen from a
+  given timezone_, using `new Intl.DateTimeFormat("en-CA", { timeZone, ... })`. The `"en-CA"`
   locale is a deliberate trick, not a typo — Canadian English happens to format dates as
   `YYYY-MM-DD` by default, which is exactly the shape needed, with no manual string-splicing.
 - **`getDayRangeUtc`** solves the harder, opposite problem: given a calendar day like
-  `"2026-08-16"` and a timezone, what UTC instant does that day's *midnight* actually correspond
+  `"2026-08-16"` and a timezone, what UTC instant does that day's _midnight_ actually correspond
   to? There's no single built-in for this, so it's solved by a "guess, measure, correct" approach
   (see the long comment in `zonedWallClockToUtc` in `timezone.ts` for the full walkthrough): guess
   the answer is "midnight, read as if it were already UTC," ask `Intl` what that guessed instant's
-  wall-clock time looks like *in the target timezone*, and the gap between the guess and that
+  wall-clock time looks like _in the target timezone_, and the gap between the guess and that
   reading is exactly the timezone's UTC offset at that moment — which is then used to correct the
   guess. This is what turns `?date=2026-08-16` into a precise `WHERE loggedAt >= start AND
-  loggedAt < end` database query.
+loggedAt < end` database query.
 
 #### What a "pure function" is, and why the streak calculation was written as one
 
 Tasks.md specifically calls for the streak calculation to be "a pure, standalone,
-unit-testable function." A **pure function** is one whose output depends *only* on its inputs —
+unit-testable function." A **pure function** is one whose output depends _only_ on its inputs —
 call it twice with the same arguments and you always get the same answer, and it never reads or
 changes anything outside itself (no database call, no `new Date()` to check "now," no network
 request). `calculateStreak(loggedDates: Set<string>, today: string)` in
@@ -69,7 +69,7 @@ the function itself knows nothing about dates in the real-world sense, only abst
 
 The route handler (`backend/src/routes/dashboard.ts`) is where the "impure" parts live: it reads
 the real database, converts real `loggedAt` timestamps into calendar-day strings using the
-timezone helpers above, and only *then* hands the resulting `Set<string>` to the pure function.
+timezone helpers above, and only _then_ hands the resulting `Set<string>` to the pure function.
 That split — impure I/O at the edges, pure logic in the middle — is a common, deliberately useful
 pattern: it's what makes the interesting logic (the actual streak math) testable in isolation from
 everything that's slow or hard to control about talking to a real database.
@@ -79,7 +79,7 @@ everything that's slow or hard to control about talking to a real database.
 The endpoint accepts an optional `?date=YYYY-MM-DD`, defaulting to "today" (in the user's
 timezone) when omitted — this is what Tasks.md's own wording flags as making the endpoint
 "trivially testable for a fixed date." That resolved date isn't just used for the day's mood/
-symptom/medication/habit summary; it's *also* used as the streak calculation's reference point for
+symptom/medication/habit summary; it's _also_ used as the streak calculation's reference point for
 "today" (see `calculateStreak(loggedDates, date)` in the route). This was a deliberate design
 choice: it means the entire response is a pure function of one input (the resolved date, plus
 whatever's actually in the database), so `dashboard.test.ts`'s integration tests can assert exact
@@ -91,15 +91,15 @@ Requirements §7 gives one worked example — `Medications: 1/2 taken` — but d
 what the two numbers mean, and gives no habit example at all. Two decisions, made explicit here
 since nothing forced a single obvious answer:
 
-- **`medicationSummary`** counts `MedicationLog` *entries* for the day, not the user's medication
-  *list*: `total` is how many medication logs exist for the day (taken or not), `taken` is how
+- **`medicationSummary`** counts `MedicationLog` _entries_ for the day, not the user's medication
+  _list_: `total` is how many medication logs exist for the day (taken or not), `taken` is how
   many of those were marked taken. A user who takes the same medication twice a day and logs both
   will see `2/2`, not `1/1` capped at their medication count — this matches a log-entry-centric
-  reading of "medications: 1/2 taken," the same way `symptomCount` counts symptom *log* entries,
+  reading of "medications: 1/2 taken," the same way `symptomCount` counts symptom _log_ entries,
   not distinct symptoms.
 - **`habitSummary`** is the one place this task's own instructions explicitly left the shape
   open ("design this reasonably … e.g. count of habits logged today vs. total habits defined").
-  It returns `{ loggedCount, totalHabits }` — how many *distinct* habits (not raw log rows) have
+  It returns `{ loggedCount, totalHabits }` — how many _distinct_ habits (not raw log rows) have
   at least one entry today, versus how many habits the user has defined in total. Distinct habits,
   not raw log count, so logging the same habit twice in a day doesn't inflate "how many of my
   habits did I touch today" past the number of habits that actually exist.
@@ -108,7 +108,7 @@ since nothing forced a single obvious answer:
 
 Computing a streak correctly requires knowing about every calendar day with at least one entry,
 going back as far as the streak could possibly extend — in principle, a user's entire history.
-Querying a user's *entire* logging history on every single dashboard load gets slower the longer
+Querying a user's _entire_ logging history on every single dashboard load gets slower the longer
 someone uses the app, which runs directly against Phase 4's own cross-cutting requirement to keep
 these queries efficient and bounded. `STREAK_LOOKBACK_DAYS = 90` caps the query at the same 90-day
 ceiling this app's own Trends feature already uses as its longest period (`?period=90d`), on the
@@ -155,7 +155,7 @@ Verification below) rather than left as a theoretical fix.
 3. **`backend/src/routes/dashboard.ts` (new).** `GET /` (mounted at `/api/dashboard`, behind
    `requireAuth`): validates an optional `?date=` with Zod, fetches the caller's `timezone`,
    resolves the target calendar day, and returns `{ date, mood, symptomCount,
-   medicationSummary, habitSummary, recentEntries, streak }` — all four log tables queried
+medicationSummary, habitSummary, recentEntries, streak }` — all four log tables queried
    in parallel via `Promise.all`, all scoped to `req.userId`. `recentEntries` merges the ten
    most recent rows from each of the four log tables, sorts them together by `loggedAt`, and
    caps the combined result at 10. Covered by `dashboard.test.ts`: missing-token rejection,
@@ -285,12 +285,12 @@ library code.
 `GET /api/trends`'s response includes both a **per-day average** (one number for each calendar
 day in the period, used to plot the line chart) and a single **overall period average** (the
 "Avg: 5.2" headline number, per requirements §10's own example). These are two genuinely different
-calculations, not the same number reused: the overall average is the mean of *every individual
-logged value* in the period, while each day's plotted point is the mean of *just that day's*
+calculations, not the same number reused: the overall average is the mean of _every individual
+logged value_ in the period, while each day's plotted point is the mean of _just that day's_
 values. Concretely, a day with three same-symptom logs (severities 4, 8, and — say — a third one)
 contributes all three raw values to the overall average, weighted equally with every other log,
 but only one plotted point (its own day's mean) to the line chart. The alternative — averaging the
-*daily averages* together for the headline number — would let a single lightly-logged day count
+_daily averages_ together for the headline number — would let a single lightly-logged day count
 exactly as much as a heavily-logged day, which reads less intuitively as "my average severity this
 period." `trends.test.ts`'s "computes per-day averages and an overall period average" test spells
 out a worked example of this distinction with three symptom logs across two days.
@@ -322,11 +322,11 @@ focusable `<rect role="button" aria-label="...">` per day, layered under the vis
 marks. The first working version wrapped the entire `<svg>` in `aria-hidden="true"` (intending to
 silence the purely decorative line/circles/gridlines, since the wrapping `<div role="group"
 aria-label="...">` already announces the chart's overall purpose) — but `aria-hidden` on an
-ancestor hides *every* descendant from the accessibility tree, including ones that are themselves
+ancestor hides _every_ descendant from the accessibility tree, including ones that are themselves
 interactive and focusable. That silently made every one of those hit-target buttons unreachable by
 assistive technology, while looking completely correct by eye (the chart still rendered and looked
 right) and even still receiving actual keyboard focus in a real browser (tabIndex isn't blocked by
-aria-hidden, only *announcement* is) — the kind of bug that's easy to miss without a test that
+aria-hidden, only _announcement_ is) — the kind of bug that's easy to miss without a test that
 specifically queries the accessibility tree. `TrendLineChart.test.tsx`'s
 `getByRole("button", { name: ... })` assertions caught this immediately (the elements simply
 couldn't be found), which is what led to the fix: `aria-hidden="true"` was moved off the `<svg>`
@@ -341,7 +341,7 @@ jsdom (the DOM implementation the frontend's Vitest suite runs against) doesn't 
 bugs can pass every automated test and still be wrong on screen. Real Playwright browser
 verification (see below) caught exactly one such bug here: the chart's leftmost and rightmost data
 points were plotted with their x-coordinate exactly on the SVG's own left/right edge (`x = 0` and
-`x = CHART_WIDTH`), which puts a 4px-radius circle marker's *center* on the boundary — half the
+`x = CHART_WIDTH`), which puts a 4px-radius circle marker's _center_ on the boundary — half the
 circle rendered outside the visible chart, clipped off. The fix was a `HORIZONTAL_PADDING`
 constant (mirroring the vertical padding that already existed for the same reason on the y-axis),
 so the plotted x-range is inset from both edges by a few pixels. This is called out explicitly as
@@ -357,7 +357,7 @@ see.
    four `Promise.all`-parallel, `userId`-scoped, `loggedAt`-range-bounded queries (symptom logs,
    mood logs, medication logs, habit logs — the same four log types and the same bounded-query
    discipline `dashboard.ts` already established). Returns `{ period, startDate, endDate, days,
-   symptomSeverity: { series, average }, mood: { series, average }, activity: { days } }` —
+symptomSeverity: { series, average }, mood: { series, average }, activity: { days } }` —
    `days` is the single ordered list of "YYYY-MM-DD" strings every other series lines up against,
    so the frontend never has to re-derive its own date math for x-axis alignment. Covered by
    `trends.test.ts`: missing-token rejection, an invalid `?period=`, the default-to-7d behavior,
@@ -489,13 +489,13 @@ queries with two different, both-intentional scopes:
 - The summary line's counts (`medicationSummary`, `habitSummary`) only ever count logs whose
   `loggedAt` falls within **today's** date range (`getDayRangeUtc(date, user.timezone)`).
 - `recentEntries` has **no date filter at all** — it deliberately pulls the most recent 10 logs
-  across a user's *entire history*, precisely so the list isn't empty on a day someone hasn't
+  across a user's _entire history_, precisely so the list isn't empty on a day someone hasn't
   logged much yet (see that route's own comments).
 
 So "0/1 habits today" next to a habit entry in Recent Entries isn't a contradiction once you know
-Recent Entries can show *any* day, not just today — the Nap and Diazepam entries were actually
+Recent Entries can show _any_ day, not just today — the Nap and Diazepam entries were actually
 from the day before. The screenshot itself had the proof, once looked at carefully: sorted
-most-recent-first, its second row showed a *later* clock time than its first row (a mood log at
+most-recent-first, its second row showed a _later_ clock time than its first row (a mood log at
 17:07 listed right after one at 10:04) — only possible if the 17:07 entry was from an earlier
 calendar day, since the two rows only ever showed a time, never a date.
 
@@ -516,7 +516,7 @@ than assumed from the report alone.
 3. Three new tests in `DashboardSummary.test.tsx`, computed relative to the real current time
    (`daysAgoIso(n)`) rather than mocking the clock, so they stay correct no matter when the suite
    actually runs: an entry from today labels as "Today," one from yesterday labels as "Yesterday"
-   (and explicitly *not* "Today"), and one from 10 days back shows an actual date with neither
+   (and explicitly _not_ "Today"), and one from 10 days back shows an actual date with neither
    relative word.
 4. Verified against the real backend, not just the component's own tests: registered a throwaway
    user, logged one mood entry with today's timestamp and one with yesterday's via the real
@@ -537,7 +537,7 @@ real usability bug, even though nothing in the code was throwing errors or retur
 
 - **Fixed the display, not the query.** `recentEntries` staying unscoped by date is a deliberate,
   already-documented design choice (see the original dashboard entry above) — the fix belongs in
-  how it's *labeled*, not in narrowing what it returns, which would have quietly changed a
+  how it's _labeled_, not in narrowing what it returns, which would have quietly changed a
   different, working feature (a genuinely empty-feeling dashboard on a light-logging day) to fix
   an unrelated display gap.
 - **Local-timezone comparison, matching `formatEntryTime`'s existing convention** — this component
@@ -561,5 +561,92 @@ real usability bug, even though nothing in the code was throwing errors or retur
   and one timestamped yesterday via the actual `POST /api/mood-logs` endpoint, confirmed
   `GET /api/dashboard`'s real response returns both with the exact, correctly-different `loggedAt`
   values the component's tests already prove render as "Today" and "Yesterday."
+
+---
+
+## 2026-08-18 — Bounding the Dashboard's per-type log lists: real pagination, not just a display fix
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a follow-up performance/usability fix
+against an existing gap, found and fixed the same way the "Recent entries" bug above was: read the
+real code, confirm the actual cause, then fix it.
+
+### Background / concepts
+
+Each Dashboard section component (`MoodSection`, `SymptomSection`, `MedicationSection`,
+`HabitSection`) renders "Recent \_\_\_ entries" by calling its own single-table endpoint —
+`GET /api/mood-logs`, `/api/symptom-logs`, `/api/medication-logs`, `/api/habit-logs`. Unlike
+`GET /api/history` (paginated from the start — see the History log) or `GET /api/dashboard`'s own
+`recentEntries` (deliberately capped at 10 across all types), these four endpoints had never been
+bounded at all: each one ran a plain `findMany` scoped only by `userId`, returning a user's _entire_
+history of that log type on every single Dashboard visit. Fine for a new user with a handful of
+entries; a real problem for someone who has been logging daily for months — a slower query on every
+page load and an ever-taller page.
+
+The fix follows the same offset/limit shape History already established, via a new shared helper
+(`backend/src/lib/pagination.ts`) rather than duplicating the pattern four times: `fetchPage()`
+asks Prisma for one row more than the page size (`take: limit + 1`); if that extra row comes back,
+there's more to load (`hasMore: true`) — this answers "is there more?" without a second `COUNT(*)`
+query per page.
+
+### What was done
+
+1. Added `backend/src/lib/pagination.ts`: `paginationQuerySchema` (zod — coerces `limit`/`offset`
+   from query-string values, `limit` clamped 1-100, `offset` >= 0, both optional),
+   `DEFAULT_LOG_LIST_LIMIT = 10`, and the `fetchPage()` helper described above.
+2. Updated all four single-table GET routes (`moodLogs.ts`, `symptomLogs.ts`, `medicationLogs.ts`,
+   `habitLogs.ts`) to validate `req.query` against that schema, default to `limit=10, offset=0`, and
+   return `{ entries, limit, offset, hasMore }` instead of a bare array.
+3. Updated the four matching Dashboard section components to fetch the first page of 10 on mount,
+   track `hasMore`, and render a "Load more" button (only when `hasMore` is true) that fetches the
+   next page at `offset = <current entry count>` and appends the results.
+4. New/updated tests: backend route tests cover the default-limit page, a custom `limit`/`offset`,
+   and the `hasMore` boundary (exactly `limit` rows left vs. more remaining); frontend section tests
+   cover the initial bounded render, a "Load more" click appending the next page, and the button
+   disappearing once `hasMore` is false.
+
+### Why it's needed
+
+An unbounded per-type query is the same problem the History page already solved, just not yet
+applied to the Dashboard's own section lists — left alone, it would keep getting slower and the
+page keep getting taller for exactly the users who have used the app the longest, which is the
+opposite of what should happen.
+
+### Decisions
+
+- **Reused History's page shape (`{ entries, limit, offset, hasMore }`) instead of inventing a new
+  one** — a future shared data-fetching layer won't need to special-case these four endpoints
+  differently from `/api/history`.
+- **Default limit of 10, smaller than History's 20** — these lists back a compact "recent entries"
+  section under a Quick-Add button, not a full browsing page (see the comment at the top of
+  `pagination.ts`).
+- **Verified no other consumer read these four endpoints' old bare-array shape before changing it.**
+  `HistoryPage.tsx` references the same four URL paths, but only as `DELETE` targets after fetching
+  its own list from the separate, already-paginated `/api/history` endpoint — so changing what
+  `GET /api/mood-logs` (etc.) returns doesn't break it. Checked this before making the change, not
+  discovered as a break afterward.
+
+### Verification
+
+- Hit an unrelated environment snag first: the local Postgres test database is a Docker container,
+  and Docker Desktop wasn't running, so the entire backend suite initially failed with
+  `ECONNREFUSED` — nothing to do with this change. Started Docker Desktop, confirmed the
+  `wellbeing-postgres-1` container came up, then reran.
+- `npm test` (backend): 169/169 passing (16 files).
+- `npm test` (frontend): 125/125 passing (21 files).
+- `npm run build` in both `/backend` and `/frontend` — clean.
+- Real end-to-end check against a live, Postgres-backed dev server — not mocks: registered a
+  throwaway user via the real API, created one medication and 15 medication logs through the actual
+  `POST` endpoints, confirmed `GET /api/medication-logs` returns exactly 10 entries with
+  `hasMore: true` at offset 0, 5 more with `hasMore: false` at offset 10, and an empty page beyond
+  that. Then, through a headless-browser script driving the real running frontend, logged in through
+  the actual login form and confirmed the Medication section rendered exactly 10 entries with a
+  "Load more" button, clicking it appended the remaining 5 (15 total), and the button then
+  disappeared — matching the direct API check.
+- The browser check surfaced two console 401s on `/api/auth/refresh`; traced to
+  `frontend/src/api/client.ts`, a file this change never touches, so a pre-existing behavior, not a
+  regression introduced here.
+- The throwaway browser-created user and its test data were left in the local dev database (not the
+  shared one); the one-off Playwright verification script used for the manual browser check was not
+  committed.
 
 ---

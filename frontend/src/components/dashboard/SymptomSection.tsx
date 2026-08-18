@@ -3,10 +3,24 @@ import { Button } from "../Button";
 import { SymptomEntryForm, type Symptom, type SymptomLog } from "../SymptomEntryForm";
 import { apiFetch } from "../../api/client";
 
+// Mirrors HistoryPage's own PAGE_SIZE/offset-pagination shape (see backend/src/lib/pagination.ts)
+// - a Quick-Add section only ever needs a short, recent slice, not a user's entire history
+// rendered on every dashboard load (see the implementation log entry on why this was added).
+const PAGE_SIZE = 10;
+
+interface SymptomLogPage {
+  entries: SymptomLog[];
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 export function SymptomSection() {
   const [symptoms, setSymptoms] = useState<Symptom[]>([]);
   const [symptomLogs, setSymptomLogs] = useState<SymptomLog[]>([]);
   const [symptomsLoading, setSymptomsLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [showSymptomForm, setShowSymptomForm] = useState(false);
   const [symptomLoadError, setSymptomLoadError] = useState(false);
   // Reuses the same showSymptomForm area both create and edit render into - see MoodSection's
@@ -18,11 +32,15 @@ export function SymptomSection() {
     // Fetched together: the symptom picker inside SymptomEntryForm and the recent-entries
     // list below both need the full symptom list (to resolve a log's symptomId to a display
     // name), so one Promise.all keeps them from racing independently or briefly disagreeing.
-    Promise.all([apiFetch<Symptom[]>("/api/symptoms"), apiFetch<SymptomLog[]>("/api/symptom-logs")])
-      .then(([symptomsRes, symptomLogsRes]) => {
+    Promise.all([
+      apiFetch<Symptom[]>("/api/symptoms"),
+      apiFetch<SymptomLogPage>(`/api/symptom-logs?limit=${PAGE_SIZE}&offset=0`),
+    ])
+      .then(([symptomsRes, symptomLogPage]) => {
         if (!cancelled) {
           setSymptoms(symptomsRes);
-          setSymptomLogs(symptomLogsRes);
+          setSymptomLogs(symptomLogPage.entries);
+          setHasMore(symptomLogPage.hasMore);
         }
       })
       .catch(() => {
@@ -35,6 +53,21 @@ export function SymptomSection() {
       cancelled = true;
     };
   }, []);
+
+  async function handleLoadMore() {
+    setLoadingMore(true);
+    try {
+      const page = await apiFetch<SymptomLogPage>(
+        `/api/symptom-logs?limit=${PAGE_SIZE}&offset=${symptomLogs.length}`,
+      );
+      setSymptomLogs((prev) => [...prev, ...page.entries]);
+      setHasMore(page.hasMore);
+    } catch {
+      setSymptomLoadError(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   function handleSymptomSaved(log: SymptomLog) {
     setSymptomLogs((prev) => {
@@ -147,6 +180,13 @@ export function SymptomSection() {
             </li>
           ))}
         </ul>
+        {!symptomsLoading && !symptomLoadError && hasMore && (
+          <div className="mt-4 flex justify-center">
+            <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
+              {loadingMore ? "Loading…" : "Load more"}
+            </Button>
+          </div>
+        )}
       </section>
     </>
   );
