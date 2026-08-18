@@ -252,3 +252,220 @@ future entry to be appended here too.
   verification script was not committed.
 
 ---
+
+## 2026-08-17 — Phase 4 + Phase 10: `GET /api/trends` and the Trends page
+
+**Task:** [Tasks.md](../../Tasks.md) → Phase 4 → "Implement `GET /api/trends?period=7d|30d|90d`…"
+and → Phase 10 → "Period selector," "Symptom severity chart," "Mood line chart," "Calendar-style
+activity view," "Copy review," "Empty/low-data states."
+
+**Delivered via branch:** `feature/10-trends`, branched off the not-yet-merged
+`feature/4-8-dashboard-summary-streak` rather than off `main`, specifically to reuse two pieces
+that branch had just built: `backend/src/lib/timezone.ts` (the timezone-aware calendar-day
+helpers) and `backend/src/routes/dashboard.ts` (the reference implementation of "resolve the
+user's timezone, then query a date range" that this task's own route follows).
+
+### Background / concepts
+
+#### Why this task reuses `timezone.ts` instead of writing its own date math
+
+The previous log entry above explains in detail why "which calendar day does a timestamp belong
+to" needs the user's own timezone, not the server's or UTC's, and why this project hand-rolls that
+logic around `Intl.DateTimeFormat` rather than installing a timezone library. Trends needs exactly
+the same building blocks — `todayInTimezone` to resolve "today" for whichever user is asking,
+`addDaysToDateStr` to walk backward from today to build a 7/30/90-day window, and `getDayRangeUtc`
+to turn that window into a bounded `WHERE loggedAt >= start AND loggedAt < end` query — so this
+task imports the existing module rather than re-deriving any of it. This is the same "impure I/O
+at the edges, pure/shared logic in the middle" idea the Dashboard entry describes: the route
+handler is the only new "impure" code here; the date-math itself is untouched, already-tested
+library code.
+
+#### Two different averages, and why they're not the same number
+
+`GET /api/trends`'s response includes both a **per-day average** (one number for each calendar
+day in the period, used to plot the line chart) and a single **overall period average** (the
+"Avg: 5.2" headline number, per requirements §10's own example). These are two genuinely different
+calculations, not the same number reused: the overall average is the mean of *every individual
+logged value* in the period, while each day's plotted point is the mean of *just that day's*
+values. Concretely, a day with three same-symptom logs (severities 4, 8, and — say — a third one)
+contributes all three raw values to the overall average, weighted equally with every other log,
+but only one plotted point (its own day's mean) to the line chart. The alternative — averaging the
+*daily averages* together for the headline number — would let a single lightly-logged day count
+exactly as much as a heavily-logged day, which reads less intuitively as "my average severity this
+period." `trends.test.ts`'s "computes per-day averages and an overall period average" test spells
+out a worked example of this distinction with three symptom logs across two days.
+
+#### `null`, not `0`, for a day/period with nothing logged
+
+Symptom severity and mood are both 1-based scales (1–10 and 1–5 respectively) — there is no valid
+"0" reading, so a `0` average would be ambiguous between "actually logged some very-low readings"
+(impossible on this scale, but still a bad precedent) and "nothing was logged here." Every average
+in the response — per-day and overall — is `number | null`, with `null` meaning "no data," so the
+frontend can render an honest empty state ("No data yet" / "Not enough data yet for this period")
+instead of a misleading `Avg: 0.0`. This is the same reasoning `dashboard.ts` uses for `mood: null`
+when nothing's logged for the day, applied consistently here.
+
+#### Why the line chart breaks at gaps instead of interpolating across them
+
+A day with no entry is plotted as a gap in the line, not bridged by a straight line to the next
+real reading. Drawing a continuous line across several unlogged days would visually suggest a
+smooth, gradual trend on days when, in reality, nothing is known at all — exactly the kind of
+unsupported implication requirements §10/§14 rule out ("must avoid claiming that one factor causes
+another," "descriptive rather than diagnostic"). `TrendLineChart.tsx` builds the SVG path as
+several separate contiguous segments (broken at every `null`), rather than one path spanning the
+whole period.
+
+#### A real accessibility bug caught only by testing the hit targets, not by reading the code
+
+The line chart's data points are exposed to keyboard/screen-reader users via one invisible,
+focusable `<rect role="button" aria-label="...">` per day, layered under the visible line/circle
+marks. The first working version wrapped the entire `<svg>` in `aria-hidden="true"` (intending to
+silence the purely decorative line/circles/gridlines, since the wrapping `<div role="group"
+aria-label="...">` already announces the chart's overall purpose) — but `aria-hidden` on an
+ancestor hides *every* descendant from the accessibility tree, including ones that are themselves
+interactive and focusable. That silently made every one of those hit-target buttons unreachable by
+assistive technology, while looking completely correct by eye (the chart still rendered and looked
+right) and even still receiving actual keyboard focus in a real browser (tabIndex isn't blocked by
+aria-hidden, only *announcement* is) — the kind of bug that's easy to miss without a test that
+specifically queries the accessibility tree. `TrendLineChart.test.tsx`'s
+`getByRole("button", { name: ... })` assertions caught this immediately (the elements simply
+couldn't be found), which is what led to the fix: `aria-hidden="true"` was moved off the `<svg>`
+and onto each individual decorative mark (the gridlines, the path, the circles, the axis-label
+text) instead, leaving the `<svg>` itself and its interactive hit-target `<rect>`s in the
+accessibility tree.
+
+#### A second bug real-browser verification caught that the component tests couldn't
+
+jsdom (the DOM implementation the frontend's Vitest suite runs against) doesn't perform real layout
+— elements have no actual computed pixel size or position — so a whole category of purely-visual
+bugs can pass every automated test and still be wrong on screen. Real Playwright browser
+verification (see below) caught exactly one such bug here: the chart's leftmost and rightmost data
+points were plotted with their x-coordinate exactly on the SVG's own left/right edge (`x = 0` and
+`x = CHART_WIDTH`), which puts a 4px-radius circle marker's *center* on the boundary — half the
+circle rendered outside the visible chart, clipped off. The fix was a `HORIZONTAL_PADDING`
+constant (mirroring the vertical padding that already existed for the same reason on the y-axis),
+so the plotted x-range is inset from both edges by a few pixels. This is called out explicitly as
+an example of why this project's standing habit of real-browser verification (not just trusting a
+green test suite) matters — it's specifically the kind of defect a mocked/jsdom test suite cannot
+see.
+
+### What was done
+
+1. **`backend/src/routes/trends.ts` (new).** `GET /` (mounted at `/api/trends`, behind
+   `requireAuth`): validates an optional `?period=7d|30d|90d` with Zod (defaulting to `7d`),
+   fetches the caller's `timezone`, resolves the period's date range via `timezone.ts`, and runs
+   four `Promise.all`-parallel, `userId`-scoped, `loggedAt`-range-bounded queries (symptom logs,
+   mood logs, medication logs, habit logs — the same four log types and the same bounded-query
+   discipline `dashboard.ts` already established). Returns `{ period, startDate, endDate, days,
+   symptomSeverity: { series, average }, mood: { series, average }, activity: { days } }` —
+   `days` is the single ordered list of "YYYY-MM-DD" strings every other series lines up against,
+   so the frontend never has to re-derive its own date math for x-axis alignment. Covered by
+   `trends.test.ts`: missing-token rejection, an invalid `?period=`, the default-to-7d behavior,
+   correct date-range/array-length resolution for all three periods, a fully empty (`null`
+   averages, all-`false` activity) response for a brand-new user, the per-day-vs-overall-average
+   distinction described above (with a hand-checked worked example), the activity map correctly
+   marking a day active from a habit log alone, entries outside the requested period being
+   excluded, timezone-aware day resolution (mirroring `dashboard.test.ts`'s own LA timezone case),
+   and cross-user isolation.
+2. **`backend/src/app.ts`.** One new import, one new mounted route
+   (`app.use("/api/trends", requireAuth, trendsRouter)`) — no other changes.
+3. **`frontend/src/components/trends/PeriodSelector.tsx` (new).** A `role="radiogroup"` of three
+   plain buttons (7/30/90 days) — the same accessible "choose exactly one of a small fixed set"
+   pattern `MoodEntryForm.tsx`'s mood-choice control already uses, reused here rather than a
+   native `<select>` for the same large-tap-target reasoning (requirements §15).
+4. **`frontend/src/components/trends/TrendLineChart.tsx` (new).** A small hand-rolled SVG line
+   chart — no charting library is installed in this project (see Decisions below for why one
+   wasn't added). Renders a single series against a fixed domain (1–10 for severity, 1–5 for
+   mood), with gap-broken line segments (see above), a keyboard-focusable/hoverable tooltip per
+   data point (including days with no data, announced as "No data logged" rather than silently
+   doing nothing), sparse first/middle/last x-axis date labels, and the "Not enough data yet for
+   this period" empty state when every point in the period is null.
+5. **`frontend/src/components/trends/ActivityCalendar.tsx` (new).** A Monday-first
+   (matching `streak.ts`'s own week convention) calendar grid, one cell per day in the period,
+   with a checkmark glyph (not just a color change) marking a logged day — so the distinction
+   doesn't rely on color alone, per requirements §15.
+6. **`frontend/src/pages/TrendsPage.tsx` (new), replacing `<PlaceholderPage title="Trends" />`
+   in `frontend/src/App.tsx`.** Fetches `GET /api/trends` on mount and whenever the selected
+   period changes, and composes the three components above into three cards, each with a
+   requirements-§10-formatted average headline ("Symptom Severity — Avg: 5.2" / "Mood — Avg:
+   3.4"). An explicit "not a diagnosis, not a claim about what's causing what" sentence sits under
+   the page's own heading, once, rather than repeated per chart.
+7. **Full verification**, both projects — see below.
+8. **Real browser verification** — see below, including the two bugs described above that it
+   specifically caught.
+
+### Why it's needed
+
+This is the last piece of the MVP's three core screens (Dashboard, History, Trends) that turns raw
+logged entries into the "simple visual analytics" requirements §10 calls for — without it, a
+user's only way to see how they've been doing over time would be scrolling through raw History
+entries by hand.
+
+### Decisions
+
+- **No charting library installed.** The two line charts are hand-rolled SVG (~150 lines total),
+  not a dependency like Recharts/Chart.js/Victory. For two single-series line charts and one
+  calendar grid, a library's bundle-size and API-learning cost outweighed the benefit; the app's
+  existing visual style (plain Tailwind utility classes, no component library) also made a
+  hand-rolled chart easier to keep visually consistent with the rest of the app than adapting a
+  library's own theming system. This is a judgment call the task instructions explicitly left
+  open, documented here per that instruction, not a default assumed without consideration — a
+  richer future trends feature (e.g. multi-series overlays, zooming) would likely tip this
+  decision the other way.
+- **Overall period average = mean of every raw log value, not mean-of-daily-averages** — covered
+  above; chosen to match the more intuitive reading of a single "average this period" number.
+- **`null`, not `0`, for "nothing logged"** — covered above; consistent with `dashboard.ts`'s own
+  `mood: null` precedent.
+- **The line breaks at data gaps rather than interpolating** — covered above; a deliberate
+  requirements-§10/§14 compliance choice (descriptive, not suggestive of an invented trend across
+  unlogged days), not just an implementation shortcut.
+- **`aria-hidden` moved from the whole `<svg>` onto each individual decorative mark** — covered
+  above; a real accessibility bug fix, not a style preference, caught by the component's own tests
+  before it ever reached a real browser.
+- **Horizontal chart padding, matching the pre-existing vertical padding** — covered above; a
+  visual-only fix that only real-browser verification (not the jsdom-based test suite) could have
+  caught.
+- **`TrendsPage.tsx`'s edit footprint to `App.tsx` kept to one line** (swapping the `/trends`
+  route's element), and `dashboard.ts`/`DashboardPage.tsx`/the four Section components were left
+  completely untouched — per this task's own shared-file discipline, to minimize collision risk
+  with the still-unmerged Dashboard branch this one was built on top of.
+
+### State at end of this step
+
+`GET /api/trends` is live, tested, and scoped correctly per-user for all three periods; the Trends
+page now renders real symptom-severity and mood line charts with correct period averages, plus a
+calendar-style activity view, verified end to end in a real browser: registered a throwaway user,
+backdated symptom/mood/medication/habit entries across the last ~20 days via direct API calls,
+then drove the actual Trends page — confirmed the 7-day, 30-day, and 90-day views each show a
+sensible date range and a correctly-recomputed average, confirmed the activity calendar's checkmark
+grid lines up with the seeded days, and confirmed a data point's tooltip appears correctly on
+keyboard focus — with zero browser console errors throughout. `docs/log/10-dashboard-and-trends.md`
+(this file) now has both halves of its originally-reserved scope filled in.
+
+### Verification
+
+- Backend: `npm run build` — compiled cleanly. `npm test` (`vitest run`) — 149/149 passing (all
+  pre-existing tests unaffected, plus new coverage in `trends.test.ts`). `npx eslint .` — clean.
+  `npx prettier --check .` — clean.
+- Frontend: `npm run build` (`tsc -b && vite build`) — compiled cleanly. `npm test`
+  (`vitest run`) — 90/90 passing (all pre-existing tests unaffected, plus new coverage in
+  `PeriodSelector.test.tsx`, `TrendLineChart.test.tsx`, `ActivityCalendar.test.tsx`, and
+  `TrendsPage.test.tsx`). `npm run lint` (`oxlint`) — clean (same one pre-existing, unrelated
+  `AuthContext.tsx` warning as every prior entry). `npx prettier --check .` — clean.
+- Real browser verification (Playwright, against the actual running dev servers, in this task's
+  own isolated backend/frontend ports and database): registered a throwaway user via the API,
+  backdated 7 rounds of symptom/mood/medication/habit entries across the last 20 days (also via
+  the API, faster and more reliable than driving ~28 individual form submissions through the UI),
+  then logged in and navigated to Trends through the real UI. Confirmed the 7-day view's computed
+  averages ("Symptom Severity — Avg: 5.0", "Mood — Avg: 3.0") matched the seeded data, switched to
+  30-day and 90-day (averages correctly shifted to 5.1/2.9 once the further-back entry entered the
+  window), confirmed the activity calendar's weekly grid and checkmarks lined up with the seeded
+  days for all three periods, and confirmed a data point's tooltip renders the right value on
+  keyboard focus. Screenshotted all three periods plus the tooltip state. Zero browser console
+  errors observed at any point. This pass is what caught both bugs described above (the
+  `aria-hidden` accessibility bug was actually caught earlier, by the component test suite itself;
+  the edge-clipped marker was caught only here). The throwaway browser-created user was left in
+  this task's own isolated per-task database (not the shared local one), and the manual
+  verification script was not committed.
+
+---

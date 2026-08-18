@@ -7,8 +7,8 @@ import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { TrendsPage } from "./pages/TrendsPage";
 
 function App() {
   return (
@@ -23,7 +23,7 @@ function App() {
           <Route element={<RequireAuth />}>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/history" element={<HistoryPage />} />
-            <Route path="/trends" element={<PlaceholderPage title="Trends" />} />
+            <Route path="/trends" element={<TrendsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
 
