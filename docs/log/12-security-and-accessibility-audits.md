@@ -362,3 +362,89 @@ one, not just after debugging it a third time.
   been failing.
 
 ---
+
+## 2026-08-18 — Closing the rate-limiting gap the audit found
+
+**Task:** [Tasks.md](../../Tasks.md) Phase 2 — "Add rate limiting (e.g. `express-rate-limit`) to
+all `/api/auth/*` endpoints" — and the matching Phase 11 item the security audit above flagged as
+a genuine, unfixed gap.
+
+### Background / concepts
+
+**What rate limiting is, and why auth endpoints specifically need it.** Without it, nothing stops
+a script from submitting thousands of password guesses per second against `/api/auth/login` — a
+*brute-force attack*. Rate limiting counts requests from the same client over a rolling time
+window and starts rejecting them (with an HTTP `429 Too Many Requests` status) once a threshold
+is crossed, turning "try a million passwords in a minute" into "try ten, then wait." It's a
+per-route decision, not a blanket one — the right threshold, and even whether a route needs it at
+all, depends on what that specific route protects and how it's normally used (see the `/refresh`
+decision below).
+
+**`express-rate-limit`'s `skip` option** lets a request bypass counting/blocking entirely based
+on a function you provide — used here to make the limiter inert while the automated test suite
+runs (see *Decisions*), without needing a second copy of the route wiring for tests.
+
+### What was done
+
+1. **`backend/src/middleware/rateLimiter.ts`** (new): a `createAuthRateLimiter()` factory
+   wrapping `express-rate-limit`, configured for 10 requests per 15-minute window per client, with
+   a JSON `429` body matching this app's `{ error: { message, code } }` shape (not the library's
+   default plain-text response). The real app uses the single `authRateLimiter` instance this
+   file also exports.
+2. **`backend/src/routes/auth.ts`**: `authRateLimiter` applied as middleware to exactly three
+   routes — `POST /register`, `POST /login`, `POST /change-password`. **Deliberately not** applied
+   to `/refresh` or `/logout` (see *Decisions*).
+3. **`backend/src/middleware/rateLimiter.test.ts`** (new): two tests against a throwaway
+   `createAuthRateLimiter({ skip: false })` instance (never the shared real one, so tests can't
+   pollute each other's request counts) — one proves the 11th request in a window gets blocked
+   with the right status/body, the other proves the real exported instance stays inert while
+   `NODE_ENV === "test"`.
+
+### Why it's needed
+
+Login, registration, and password-change are the three places in this app where a client submits
+a secret (a password) that a script could try to guess by brute force. Without a limit, an
+attacker with a leaked list of email addresses could attempt thousands of common passwords per
+account per minute; with this limit, they get ten tries every fifteen minutes — enough for a real
+user who mistypes a password, not enough for automated guessing to be practical. This was the one
+concrete, unfixed gap the Phase 11 security audit surfaced (see the entry above) rather than a
+theoretical nice-to-have.
+
+### Decisions
+
+- **Not applied to `/refresh` or `/logout`.** `/refresh` doesn't take a password — it reads an
+  unguessable, cryptographically signed refresh token from an `httpOnly` cookie, which isn't
+  something a brute-force loop can meaningfully guess at (there's nothing to iterate over). More
+  importantly, this project's session-rehydration fix (see
+  [Auth Frontend](02-auth-frontend.md)) now calls `/refresh` automatically on every page load, plus
+  roughly every 15 minutes during ordinary use to keep the access token from expiring — a tight
+  limit here would risk locking out a real, actively-using visitor, not just an attacker.
+  `/logout` never touches a password or a guessable secret at all, so limiting it protects
+  nothing.
+- **Skip-in-tests via `NODE_ENV`, not a manually-toggled flag.** Vitest sets `NODE_ENV=test`
+  automatically for every run in this project (confirmed directly with a throwaway probe test
+  before relying on it, not assumed from documentation) — reusing that existing signal means the
+  rest of the test suite, which makes many legitimate rapid-fire requests against these same
+  routes across dozens of test files, doesn't need to know rate limiting exists at all.
+- **A factory function (`createAuthRateLimiter`), not just one hard-coded exported instance.**
+  Each `express-rate-limit` instance keeps its own private, in-memory hit-count store. Without the
+  factory, the *only* way to test the real blocking behavior would be to hammer the app's single
+  shared instance directly — which would then carry leftover hit counts into whatever test (or
+  real request, if run against a live server) came next. The factory lets the test build a second,
+  fully independent instance with the exact same real configuration.
+
+### Verification
+
+- `backend/src/middleware/rateLimiter.test.ts` — both new tests passing.
+- `npm test` (backend) — 163/163 passing (full suite, not just the two new tests).
+- `npm run build`, `eslint`/`tsc --noEmit` — clean.
+- **Verified against the real running dev server**, not just the test suite: sent 12 real
+  `POST /api/auth/login` requests over HTTP with `curl`, in sequence — the first 10 came back
+  `401` (as expected for a wrong password) carrying `RateLimit-Remaining` headers counting down
+  from 9 to 0, and requests 11 and 12 came back `429 Too Many Requests` with the configured JSON
+  body. (An earlier attempt at this same live check appeared to show no limiting at all — traced
+  to curling a dev server process that was still running from *before* the code existed, a stale
+  background process rather than a real bug. Restarting cleanly and re-testing confirmed the fix
+  actually works.)
+
+---
