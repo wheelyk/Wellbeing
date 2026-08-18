@@ -25,18 +25,23 @@ describe("HabitSection", () => {
         );
       }
       return Promise.resolve(
-        jsonResponse(200, [
-          {
-            id: "log-1",
-            userId: "user-1",
-            habitId: "habit-1",
-            valueBoolean: true,
-            valueNumeric: null,
-            valueDurationMinutes: null,
-            notes: null,
-            loggedAt: "2026-08-17T09:00:00.000Z",
-          },
-        ]),
+        jsonResponse(200, {
+          entries: [
+            {
+              id: "log-1",
+              userId: "user-1",
+              habitId: "habit-1",
+              valueBoolean: true,
+              valueNumeric: null,
+              valueDurationMinutes: null,
+              notes: null,
+              loggedAt: "2026-08-17T09:00:00.000Z",
+            },
+          ],
+          limit: 10,
+          offset: 0,
+          hasMore: false,
+        }),
       );
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -47,7 +52,14 @@ describe("HabitSection", () => {
   });
 
   it("shows a 'create your first habit' empty state when the user has no habits", async () => {
-    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(200, [])));
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/habits") && !url.includes("logs")) {
+        return Promise.resolve(jsonResponse(200, []));
+      }
+      return Promise.resolve(
+        jsonResponse(200, { entries: [], limit: 10, offset: 0, hasMore: false }),
+      );
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     render(<HabitSection />);
@@ -56,7 +68,14 @@ describe("HabitSection", () => {
   });
 
   it("routes + Habit straight to habit creation when the user has none yet", async () => {
-    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(200, [])));
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/habits") && !url.includes("logs")) {
+        return Promise.resolve(jsonResponse(200, []));
+      }
+      return Promise.resolve(
+        jsonResponse(200, { entries: [], limit: 10, offset: 0, hasMore: false }),
+      );
+    });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
@@ -95,7 +114,9 @@ describe("HabitSection", () => {
       if (url.includes("/api/habits") && !url.includes("logs")) {
         return Promise.resolve(jsonResponse(200, [habit]));
       }
-      return Promise.resolve(jsonResponse(200, [existingLog]));
+      return Promise.resolve(
+        jsonResponse(200, { entries: [existingLog], limit: 10, offset: 0, hasMore: false }),
+      );
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -114,5 +135,54 @@ describe("HabitSection", () => {
 
     const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(patchCall?.[0]).toContain("/api/habit-logs/log-1");
+  });
+
+  it("loads more entries and appends them when Load more is clicked", async () => {
+    const habit = { id: "habit-1", userId: "user-1", name: "Exercise", type: "boolean" };
+    const first = {
+      id: "log-1",
+      userId: "user-1",
+      habitId: "habit-1",
+      valueBoolean: true,
+      valueNumeric: null,
+      valueDurationMinutes: null,
+      notes: null,
+      loggedAt: "2026-08-17T09:00:00.000Z",
+    };
+    const second = {
+      id: "log-2",
+      userId: "user-1",
+      habitId: "habit-1",
+      valueBoolean: false,
+      valueNumeric: null,
+      valueDurationMinutes: null,
+      notes: null,
+      loggedAt: "2026-08-16T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/habits") && !url.includes("logs")) {
+        return Promise.resolve(jsonResponse(200, [habit]));
+      }
+      if (url.includes("offset=1")) {
+        return Promise.resolve(
+          jsonResponse(200, { entries: [second], limit: 1, offset: 1, hasMore: false }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse(200, { entries: [first], limit: 1, offset: 0, hasMore: true }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<HabitSection />);
+    await screen.findByText(/exercise: done/i);
+    expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /load more/i }));
+
+    expect(await screen.findByText(/exercise: not done/i)).toBeInTheDocument();
+    expect(screen.getByText(/exercise: done/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
   });
 });

@@ -5,6 +5,18 @@ import { apiFetch } from "../../api/client";
 
 const MOOD_EMOJI: Record<number, string> = { 1: "😞", 2: "😕", 3: "😐", 4: "🙂", 5: "😄" };
 
+// Mirrors HistoryPage's own PAGE_SIZE/offset-pagination shape (see backend/src/lib/pagination.ts)
+// - a Quick-Add section only ever needs a short, recent slice, not a user's entire history
+// rendered on every dashboard load (see the implementation log entry on why this was added).
+const PAGE_SIZE = 10;
+
+interface MoodLogPage {
+  entries: MoodLog[];
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 // Self-contained: owns its own fetch, form-visibility, and save/delete handling, so adding
 // another log type to the Dashboard means adding a new file like this one plus one line in
 // DashboardPage.tsx, rather than editing this component's state/effects/handlers directly -
@@ -12,6 +24,8 @@ const MOOD_EMOJI: Record<number, string> = { 1: "😞", 2: "😕", 3: "😐", 4:
 export function MoodSection() {
   const [moodLogs, setMoodLogs] = useState<MoodLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [loadError, setLoadError] = useState(false);
   // Reuses the same showForm area both create and edit render into - null means "creating a
@@ -20,9 +34,12 @@ export function MoodSection() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<MoodLog[]>("/api/mood-logs")
-      .then((logs) => {
-        if (!cancelled) setMoodLogs(logs);
+    apiFetch<MoodLogPage>(`/api/mood-logs?limit=${PAGE_SIZE}&offset=0`)
+      .then((page) => {
+        if (!cancelled) {
+          setMoodLogs(page.entries);
+          setHasMore(page.hasMore);
+        }
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -34,6 +51,21 @@ export function MoodSection() {
       cancelled = true;
     };
   }, []);
+
+  async function handleLoadMore() {
+    setLoadingMore(true);
+    try {
+      const page = await apiFetch<MoodLogPage>(
+        `/api/mood-logs?limit=${PAGE_SIZE}&offset=${moodLogs.length}`,
+      );
+      setMoodLogs((prev) => [...prev, ...page.entries]);
+      setHasMore(page.hasMore);
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   function handleSaved(log: MoodLog) {
     setMoodLogs((prev) => {
@@ -145,6 +177,13 @@ export function MoodSection() {
             </li>
           ))}
         </ul>
+        {!loading && !loadError && hasMore && (
+          <div className="mt-4 flex justify-center">
+            <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
+              {loadingMore ? "Loading…" : "Load more"}
+            </Button>
+          </div>
+        )}
       </section>
     </>
   );

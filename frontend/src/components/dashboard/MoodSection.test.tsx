@@ -17,17 +17,22 @@ describe("MoodSection", () => {
 
   it("renders fetched mood entries", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse(200, [
-        {
-          id: "log-1",
-          userId: "user-1",
-          mood: 4,
-          energy: 5,
-          stress: null,
-          notes: "Good day",
-          loggedAt: "2026-08-17T09:00:00.000Z",
-        },
-      ]),
+      jsonResponse(200, {
+        entries: [
+          {
+            id: "log-1",
+            userId: "user-1",
+            mood: 4,
+            energy: 5,
+            stress: null,
+            notes: "Good day",
+            loggedAt: "2026-08-17T09:00:00.000Z",
+          },
+        ],
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -38,12 +43,57 @@ describe("MoodSection", () => {
   });
 
   it("shows an empty state when there are no entries yet", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, []));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { entries: [], limit: 10, offset: 0, hasMore: false }));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<MoodSection />);
 
     expect(await screen.findByText(/nothing logged yet/i)).toBeInTheDocument();
+  });
+
+  it("loads more entries and appends them when Load more is clicked", async () => {
+    const first = {
+      id: "log-1",
+      userId: "user-1",
+      mood: 4,
+      energy: null,
+      stress: null,
+      notes: null,
+      loggedAt: "2026-08-17T09:00:00.000Z",
+    };
+    const second = {
+      id: "log-2",
+      userId: "user-1",
+      mood: 2,
+      energy: null,
+      stress: null,
+      notes: null,
+      loggedAt: "2026-08-16T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("offset=1")) {
+        return Promise.resolve(
+          jsonResponse(200, { entries: [second], limit: 1, offset: 1, hasMore: false }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse(200, { entries: [first], limit: 1, offset: 0, hasMore: true }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<MoodSection />);
+    await screen.findByText(/mood 4\/5/i);
+    expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /load more/i }));
+
+    expect(await screen.findByText(/mood 2\/5/i)).toBeInTheDocument();
+    expect(screen.getByText(/mood 4\/5/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
   });
 
   it("shows an error state when the fetch fails", async () => {
@@ -59,17 +109,22 @@ describe("MoodSection", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        jsonResponse(200, [
-          {
-            id: "log-1",
-            userId: "user-1",
-            mood: 3,
-            energy: null,
-            stress: null,
-            notes: null,
-            loggedAt: "2026-08-17T09:00:00.000Z",
-          },
-        ]),
+        jsonResponse(200, {
+          entries: [
+            {
+              id: "log-1",
+              userId: "user-1",
+              mood: 3,
+              energy: null,
+              stress: null,
+              notes: null,
+              loggedAt: "2026-08-17T09:00:00.000Z",
+            },
+          ],
+          limit: 10,
+          offset: 0,
+          hasMore: false,
+        }),
       )
       .mockResolvedValueOnce(jsonResponse(200, { message: "Deleted" }));
     vi.stubGlobal("fetch", fetchMock);
@@ -101,7 +156,9 @@ describe("MoodSection", () => {
       if (init?.method === "PATCH") {
         return Promise.resolve(jsonResponse(200, updatedLog));
       }
-      return Promise.resolve(jsonResponse(200, [existingLog]));
+      return Promise.resolve(
+        jsonResponse(200, { entries: [existingLog], limit: 10, offset: 0, hasMore: false }),
+      );
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
