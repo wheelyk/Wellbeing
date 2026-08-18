@@ -2060,3 +2060,134 @@ being deleted before it ever reached GitHub.
   (see the dedicated fix entry in [Mood Logging](03-mood-logging.md) for exact numbers).
 
 ---
+
+## 2026-08-18 — A third stranding variant: work that was never pushed at all, and `git rebase` to recover it
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — another real recovery, this time with
+a different root cause and a different tool than the two stranded-PR incidents documented earlier
+in this file, worth spelling out precisely because it's easy to conflate the three.
+
+### Background / concepts
+
+**Three ways work can go missing before it reaches `main`, and this project has now hit all
+three:**
+
+1. **Commits made, pushed, PR merged — but a *later* fix to that same PR never got pushed before
+   the merge happened.** This is the earlier `git cherry-pick` entry above (PR #62): the fix
+   existed and was even committed, but the outage's timing meant it missed the merge window.
+2. **A PR shows "Merged" on GitHub, but its commits landed in the wrong branch, not `main`** —
+   because its base branch was still serving as another open PR's base and so didn't get deleted
+   (see the PR #45 and PR #68/Trends entries elsewhere in this file). The commits exist on
+   *some* branch, just not the one that matters.
+3. **This entry: commits made, fully complete and correct, that were never pushed to GitHub at
+   all — no PR ever opened.** Found not by suspicious GitHub UI state (there was no PR to look
+   suspicious), but by directly comparing two things that should never disagree: `main`'s own
+   `docs/log/` files (which described a session-rehydration fix and a centralized
+   error-handling middleware as done, in detail, with file lists and reasoning) against `main`'s
+   actual source code (which had neither `rehydrateSession()` nor `errorHandler.ts` anywhere).
+   `git log --all --oneline -S "rehydrateSession"` — searching **every** local branch, not just
+   the current one — found the missing code sitting on a local-only branch,
+   `fix/session-rehydration-on-reload`, that had simply never been pushed. The `-S` flag searches
+   commit *content* (did any commit add or remove this exact string), which is what made it
+   possible to find work by what it contains rather than needing to already know which branch to
+   look on.
+
+**Why this is worth catching, not just quietly re-doing the work**: re-implementing either fix
+from scratch would have thrown away real, already-correct, already-designed work, and risked
+subtly re-deciding things (like exactly which error shape to return, or exactly which endpoints
+should skip rate limiting) differently the second time — the same waste `git cherry-pick` avoided
+in the earlier entry, just reached via a different diagnosis.
+
+### What was done
+
+For each of the two stranded branches (`fix/session-rehydration-on-reload`,
+`fix/centralized-error-handling`):
+
+1. Confirmed the branch's commits were genuinely absent from `origin/main`:
+   `git merge-base --is-ancestor <sha> origin/main` printed nothing and exited non-zero — the
+   `is-ancestor` check is exactly "is this commit reachable by walking backward from `main`,"
+   which a merged commit always would be and an unpushed one never can be.
+2. Checked out the stranded branch and ran `git rebase origin/main`.
+3. Re-ran the full verification cycle (`npm test`, `npm run build`, lint, format) against the
+   rebased result — one of the two surfaced a genuine ripple effect this way (see *Decisions*).
+4. Pushed and opened a fresh PR for each, explaining in the PR description exactly what had
+   happened and how it was found.
+
+#### What `git rebase origin/main` actually did here, precisely
+
+Both stranded branches had been created off an *old* point in `main`'s history — back before
+several other features had since merged. `git rebase origin/main` took each branch's own commits
+(one commit for the error-handling branch, two for the rehydration branch), set them aside, moved
+the branch pointer forward to wherever `origin/main` currently is, and replayed those commits one
+at a time on top of that new position — as if the branch had been created from *today's* `main`
+all along. Git rewrites each replayed commit with a brand-new SHA in the process (the original
+rehydration fix was `739c329`; after rebasing onto the current `main`, the same change became
+`b443f64` — same content and message, different SHA, because its parent commit is now different).
+
+This only works without manual intervention when nothing on `main` changed the same lines the
+stranded commits touch — both rebases here reported "Successfully rebased" with no conflicts to
+resolve, meaning nothing else had touched those exact files in the meantime.
+
+**Rebase vs. cherry-pick, for the same underlying problem — recovering commits that aren't where
+they need to be:** cherry-pick (the earlier entry) is for grabbing a specific commit (or a few)
+out of history and replaying it somewhere new, regardless of what branch it's "on" or whether that
+branch still exists. Rebase is for replaying an *entire branch's own commits*, in order, onto a
+new starting point — the natural choice here because the whole point was "this branch, unchanged,
+just needs a newer foundation," not "extract one commit from a pile of others." Both operations
+share the same underlying mechanic (take a commit's diff, reapply it elsewhere, get a new SHA) —
+the difference is just what you're telling git to move: one named commit, or a whole branch's
+worth of them at once.
+
+**Why rebasing was safe here specifically, and when it wouldn't be**: rewriting a commit's SHA is
+only safe if nobody else has a copy of the *original* SHA to get confused by. Both branches here
+were 100% local — never pushed, so no remote copy and no chance of a collaborator having them
+checked out. That's precisely why rebase was fine to use freely; rebasing (or otherwise rewriting)
+commits that are already pushed and shared is a much riskier operation, generally avoided unless
+everyone who might have a copy is aware and can recover.
+
+### Why it's needed
+
+An implementation log is only trustworthy if it's read as a description of what's *actually true
+in the code*, not a record of what someone intended or believed at the time of writing. Finding
+two real gaps this way — by treating a mismatch between docs and code as a bug to investigate,
+not a documentation nitpick — is what keeps this log worth reading later, including by future
+instances of Claude picking up this project cold.
+
+### Decisions
+
+- **Rebased in place rather than cherry-picking onto a brand-new branch** (unlike the PR #62
+  recovery). The PR #62 fix's original branch was already deleted, so cherry-pick onto a fresh
+  branch was the only option. Here, both original branches still existed locally (just unpushed)
+  — rebasing them in place preserves the original branch name and full commit history/authorship
+  with less ceremony, since there was no deleted branch to work around.
+- **Re-ran the full verification cycle on both, not just re-used the summary of when they were
+  first written.** This actually mattered: rebasing the rehydration branch onto the now-much-newer
+  `main` surfaced one real ripple effect — `HistoryPage.test.tsx` (a test file that didn't exist
+  yet when the original fix was written, added later by unrelated work) asserted an exact fetch
+  call count that the new mount-time rehydration call now also contributes to, so it needed the
+  same "assert on which URL was called" fix already used elsewhere for this exact situation
+  (`SettingsPage.test.tsx`). Trusting the old "163/163 passing" from when the commit was first
+  authored would have missed this.
+- **Opened each as its own separate PR**, not bundled with unrelated same-session work (the
+  rate-limiting feature) — each recovered fix is a complete, independently reviewable unit on its
+  own, and bundling them would make the PR harder to review and re-obscure exactly what each
+  change is.
+
+### State at end of this step
+
+Both fixes recovered, verified fresh against current `main`, and opened as PR #70 (session
+rehydration) and PR #71 (centralized error handling) — no code lost, despite never having reached
+GitHub in the first place.
+
+### Verification
+
+- `git merge-base --is-ancestor <sha> origin/main` — confirmed both fixes' commits were genuinely
+  absent from `main` before recovery, not just hard to find.
+- `git log --all --oneline -S "<distinctive string>"` — located each stranded branch by content,
+  across every local branch at once.
+- `git rebase origin/main` — both rebases completed cleanly, no conflicts.
+- Full test/build/lint/format cycle re-run from scratch against each rebased branch — backend
+  162/162 passing on both (see each PR's own description for exact numbers); frontend 118/118
+  after the one ripple fix above.
+
+---

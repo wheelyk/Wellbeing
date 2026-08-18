@@ -228,6 +228,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-17 — Decomposing `DashboardPage.tsx` into one section component per log type
 - 2026-08-17 — Two lasting regression checks for the dashboard, not just a one-off manual verification
 - 2026-08-17 — A bug fix stranded by outage timing, and how `git cherry-pick` recovered it
+- 2026-08-18 — A third stranding variant: work that was never pushed at all, and `git rebase` to recover it
 
 ### [Housekeeping & Audits](docs/log/09-housekeeping.md)
 
