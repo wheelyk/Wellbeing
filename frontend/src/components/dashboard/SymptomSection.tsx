@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Button } from "../Button";
 import { SymptomEntryForm, type Symptom, type SymptomLog } from "../SymptomEntryForm";
+import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
+import { formatEntryDateTime } from "../../lib/entryDateLabel";
 
 // Mirrors HistoryPage's own PAGE_SIZE/offset-pagination shape (see backend/src/lib/pagination.ts)
 // - a Quick-Add section only ever needs a short, recent slice, not a user's entire history
@@ -107,10 +109,12 @@ export function SymptomSection() {
   }
 
   return (
-    <>
-      <section className="mt-8">
-        {showSymptomForm ? (
-          <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+    <SectionPanel
+      title="Recent symptom entries"
+      storageKey="symptom"
+      topContent={
+        showSymptomForm ? (
+          <>
             <h2 className="mb-4 text-lg font-semibold text-text">
               {editingLog ? "Edit symptom entry" : "Log a symptom"}
             </h2>
@@ -122,7 +126,7 @@ export function SymptomSection() {
               onCancel={handleSymptomFormCancel}
               onSymptomCreated={handleSymptomCreated}
             />
-          </div>
+          </>
         ) : (
           <Button
             onClick={() => {
@@ -132,62 +136,59 @@ export function SymptomSection() {
           >
             + Symptom
           </Button>
-        )}
-      </section>
-
-      <section className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold text-text">Recent symptom entries</h2>
-        {symptomsLoading && <p className="text-text-muted">Loading…</p>}
-        {symptomLoadError && (
-          <p role="alert" className="text-danger">
-            Couldn&apos;t load your symptom entries. Please try refreshing.
-          </p>
-        )}
-        {!symptomsLoading && !symptomLoadError && symptomLogs.length === 0 && (
-          <p className="text-text-muted">
-            Nothing logged yet — use the button above to record a symptom.
-          </p>
-        )}
-        <ul className="flex flex-col gap-2">
-          {symptomLogs.map((log) => (
-            <li
-              key={log.id}
-              className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm"
-            >
-              <div>
-                <p className="text-text">
-                  {symptomName(log.symptomId)} · Severity {log.severity}/10
-                </p>
-                {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
-                <p className="text-xs text-text-muted">{new Date(log.loggedAt).toLocaleString()}</p>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={() => handleSymptomEdit(log)}
-                  aria-label={`Edit symptom entry from ${new Date(log.loggedAt).toLocaleString()}`}
-                >
-                  Edit
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => handleSymptomDelete(log.id)}
-                  aria-label={`Delete symptom entry from ${new Date(log.loggedAt).toLocaleString()}`}
-                >
-                  Delete
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
-        {!symptomsLoading && !symptomLoadError && hasMore && (
-          <div className="mt-4 flex justify-center">
-            <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
-              {loadingMore ? "Loading…" : "Load more"}
-            </Button>
-          </div>
-        )}
-      </section>
-    </>
+        )
+      }
+    >
+      {symptomsLoading && <p className="text-text-muted">Loading…</p>}
+      {symptomLoadError && (
+        <p role="alert" className="text-danger">
+          Couldn&apos;t load your symptom entries. Please try refreshing.
+        </p>
+      )}
+      {!symptomsLoading && !symptomLoadError && symptomLogs.length === 0 && (
+        <p className="text-text-muted">
+          Nothing logged yet — use the button above to record a symptom.
+        </p>
+      )}
+      <ul className="flex flex-col gap-2">
+        {symptomLogs.map((log) => (
+          <li
+            key={log.id}
+            className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface-muted p-4"
+          >
+            <div>
+              <p className="text-text">
+                {symptomName(log.symptomId)} · Severity {log.severity}/10
+              </p>
+              {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
+              <p className="text-xs text-text-muted">{formatEntryDateTime(log.loggedAt)}</p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => handleSymptomEdit(log)}
+                aria-label={`Edit symptom entry from ${formatEntryDateTime(log.loggedAt)}`}
+              >
+                Edit
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => handleSymptomDelete(log.id)}
+                aria-label={`Delete symptom entry from ${formatEntryDateTime(log.loggedAt)}`}
+              >
+                Delete
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {!symptomsLoading && !symptomLoadError && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
+            {loadingMore ? "Loading…" : "Load more"}
+          </Button>
+        </div>
+      )}
+    </SectionPanel>
   );
 }
