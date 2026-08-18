@@ -448,3 +448,92 @@ theoretical nice-to-have.
   actually works.)
 
 ---
+
+## 2026-08-18 — Dependabot, explained (not yet enabled)
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a concept explainer, written
+prospectively (same pattern as the merge-queues entry in
+[Git & GitHub Workflow](08-git-github-workflow.md)), prompted by a question about whether
+Dependabot could help now that Phase 11's security hardening and this file's own audits are
+otherwise done. **Not yet enabled** — this documents the concept and the tradeoff so a decision
+can be made deliberately, not a record of it being turned on.
+
+### Background / concepts
+
+#### Two separate features under one name
+
+GitHub's Dependabot is actually two independently-toggleable things that get talked about as if
+they were one:
+
+1. **Version updates** — driven entirely by a config file (`.github/dependabot.yml`, not present
+   in this repo yet). On a schedule you set, it reads a project's manifest files (here, that
+   would mean `frontend/package.json`/`package-lock.json` and `backend/package.json`/
+   `package-lock.json` separately, since they're two independent npm projects — see
+   [CLAUDE.md](../../CLAUDE.md) on why frontend/backend are kept independent) and opens a PR per
+   outdated dependency (or a grouped batch, if configured), bumping it to the latest version
+   allowed by that dependency's own semver range.
+2. **Security updates** — a repo *setting* (Settings → Code security → Dependabot alerts /
+   Dependabot security updates in the GitHub UI), not the config file above, and not the same
+   schedule. GitHub continuously cross-references every dependency this project actually
+   resolves — including *transitive* ones nested deep in `node_modules` that nothing in
+   `package.json` names directly — against the GitHub Advisory Database (which aggregates CVEs
+   and other published vulnerability reports). The moment one of them is found to have a known
+   vulnerability, an alert appears under the repo's Security tab, and — if security updates are
+   enabled — a PR bumping straight to the first patched version opens automatically, outside the
+   normal version-update schedule entirely.
+
+#### Why this is a different threat category than Phase 11 already covered
+
+Phase 11's security audit (see the entry above this one) verified things about *this codebase's
+own logic*: are queries scoped by `user_id`, is bcrypt's cost factor reasonable, are cookies
+`HttpOnly`/`Secure`, is every write endpoint validated. All of that is about code this project
+wrote. A dependency vulnerability is a different shape of risk entirely — a security hole
+disclosed *after* the fact, in code this project didn't write and mostly never reads, three or
+four layers deep in a dependency tree nobody manually re-audits once `npm install` succeeds once.
+That gap doesn't close itself just because the application-logic audit passed; it needs its own,
+ongoing mechanism, which is specifically what Dependabot's security-updates half is for.
+
+#### What enabling it would actually mean for this specific repo
+
+A real `.github/dependabot.yml` here would need three separate `updates:` entries, not one — the
+same "two independent projects" split called out throughout this log applies to Dependabot too:
+
+```yaml
+updates:
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+```
+
+The third entry is easy to forget but matters here specifically: this project's CI/PR-screenshot
+workflows (see [Git & GitHub Workflow](08-git-github-workflow.md)) pin third-party GitHub Actions
+by version, and those pins go stale exactly the same way npm dependencies do.
+
+### Why it's worth considering, and the real cost
+
+- **The case for:** the project already has real production users, a real Postgres database with
+  real health data in it, and CI already configured to run against every PR automatically — the
+  infrastructure a Dependabot PR needs to be safely reviewable (tests, build) already exists, so
+  there's little setup cost beyond the config file itself and enabling the repo setting.
+- **The honest cost:** PR noise. npm's ecosystem moves fast; even a `weekly` schedule can mean a
+  steady trickle of small update PRs competing for review attention against actual feature work.
+  This is a real, ongoing cost, not a one-time setup tax — mitigated but not eliminated by
+  grouping config (bundling minor/patch updates into one PR instead of one-per-package) and a
+  deliberately-infrequent schedule.
+- **Security updates carry a much stronger case than version updates.** A routine version bump
+  competing for attention against feature work is a genuine tradeoff; a patch for a disclosed
+  vulnerability is not the same kind of decision — enabling *just* the security-updates setting
+  (independent of the version-updates config file above) would capture most of the safety benefit
+  with none of the routine-PR noise, and is worth treating as a separate, lower-cost decision from
+  "should this repo get weekly dependency-bump PRs."
+
+---
