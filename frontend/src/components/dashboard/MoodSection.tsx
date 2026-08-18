@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Button } from "../Button";
 import { MoodEntryForm, type MoodLog } from "../MoodEntryForm";
+import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
+import { formatEntryDateTime } from "../../lib/entryDateLabel";
 
 const MOOD_EMOJI: Record<number, string> = { 1: "😞", 2: "😕", 3: "😐", 4: "🙂", 5: "😄" };
 
@@ -97,10 +99,12 @@ export function MoodSection() {
   }
 
   return (
-    <>
-      <section className="mt-6">
-        {showForm ? (
-          <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+    <SectionPanel
+      title="Recent mood entries"
+      storageKey="mood"
+      topContent={
+        showForm ? (
+          <>
             <h2 className="mb-4 text-lg font-semibold text-text">
               {editingLog ? "Edit mood entry" : "Log your mood"}
             </h2>
@@ -110,7 +114,7 @@ export function MoodSection() {
               onSaved={handleSaved}
               onCancel={handleCancel}
             />
-          </div>
+          </>
         ) : (
           <Button
             onClick={() => {
@@ -120,71 +124,66 @@ export function MoodSection() {
           >
             + Mood
           </Button>
-        )}
-      </section>
-
-      <section className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold text-text">Recent mood entries</h2>
-        {loading && <p className="text-text-muted">Loading…</p>}
-        {loadError && (
-          <p role="alert" className="text-danger">
-            Couldn&apos;t load your mood entries. Please try refreshing.
-          </p>
-        )}
-        {!loading && !loadError && moodLogs.length === 0 && (
-          <p className="text-text-muted">
-            Nothing logged yet — use the button above to record how you&apos;re feeling.
-          </p>
-        )}
-        <ul className="flex flex-col gap-2">
-          {moodLogs.map((log) => (
-            <li
-              key={log.id}
-              className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm"
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-2xl" aria-hidden="true">
-                  {MOOD_EMOJI[log.mood]}
-                </span>
-                <div>
-                  <p className="text-text">
-                    Mood {log.mood}/5
-                    {log.energy !== null && ` · Energy ${log.energy}/7`}
-                    {log.stress !== null && ` · Stress ${log.stress}/7`}
-                  </p>
-                  {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
-                  <p className="text-xs text-text-muted">
-                    {new Date(log.loggedAt).toLocaleString()}
-                  </p>
-                </div>
+        )
+      }
+    >
+      {loading && <p className="text-text-muted">Loading…</p>}
+      {loadError && (
+        <p role="alert" className="text-danger">
+          Couldn&apos;t load your mood entries. Please try refreshing.
+        </p>
+      )}
+      {!loading && !loadError && moodLogs.length === 0 && (
+        <p className="text-text-muted">
+          Nothing logged yet — use the button above to record how you&apos;re feeling.
+        </p>
+      )}
+      <ul className="flex flex-col gap-2">
+        {moodLogs.map((log) => (
+          <li
+            key={log.id}
+            className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface-muted p-4"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-2xl" aria-hidden="true">
+                {MOOD_EMOJI[log.mood]}
+              </span>
+              <div>
+                <p className="text-text">
+                  Mood {log.mood}/5
+                  {log.energy !== null && ` · Energy ${log.energy}/7`}
+                  {log.stress !== null && ` · Stress ${log.stress}/7`}
+                </p>
+                {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
+                <p className="text-xs text-text-muted">{formatEntryDateTime(log.loggedAt)}</p>
               </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={() => handleEdit(log)}
-                  aria-label={`Edit mood entry from ${new Date(log.loggedAt).toLocaleString()}`}
-                >
-                  Edit
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => handleDelete(log.id)}
-                  aria-label={`Delete mood entry from ${new Date(log.loggedAt).toLocaleString()}`}
-                >
-                  Delete
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
-        {!loading && !loadError && hasMore && (
-          <div className="mt-4 flex justify-center">
-            <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
-              {loadingMore ? "Loading…" : "Load more"}
-            </Button>
-          </div>
-        )}
-      </section>
-    </>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => handleEdit(log)}
+                aria-label={`Edit mood entry from ${formatEntryDateTime(log.loggedAt)}`}
+              >
+                Edit
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => handleDelete(log.id)}
+                aria-label={`Delete mood entry from ${formatEntryDateTime(log.loggedAt)}`}
+              >
+                Delete
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {!loading && !loadError && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
+            {loadingMore ? "Loading…" : "Load more"}
+          </Button>
+        </div>
+      )}
+    </SectionPanel>
   );
 }

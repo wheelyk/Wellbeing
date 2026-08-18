@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "../Button";
 import { HabitCreateForm, type Habit } from "../HabitCreateForm";
 import { HabitEntryForm, type HabitLog } from "../HabitEntryForm";
+import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
+import { formatEntryDateTime } from "../../lib/entryDateLabel";
 
 // A habit log's value is spread across three nullable columns (see backend's habitLogs.ts) -
 // this picks whichever one the habit's type says is the meaningful one and renders it, rather
@@ -133,102 +135,101 @@ export function HabitSection() {
   }
 
   return (
-    <>
-      <section className="mt-8">
-        {habitFormMode === "log" && (
-          <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-semibold text-text">
-              {editingLog ? "Edit habit entry" : "Log a habit"}
-            </h2>
-            <HabitEntryForm
-              key={editingLog?.id ?? habitToPreselect ?? "create"}
-              habits={habits}
-              initialHabitId={habitToPreselect}
-              editingLog={editingLog}
-              onSaved={handleHabitLogSaved}
-              onCancel={handleHabitLogFormCancel}
-              onAddHabit={() => setHabitFormMode("create-habit")}
-            />
-          </div>
-        )}
-        {habitFormMode === "create-habit" && (
-          <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-semibold text-text">
-              {habits.length === 0 ? "Create your first habit" : "Create a new habit"}
-            </h2>
-            <HabitCreateForm
-              onCreated={handleHabitCreated}
-              onCancel={() => setHabitFormMode(habits.length === 0 ? "closed" : "log")}
-            />
-          </div>
-        )}
-        {habitFormMode === "closed" && <Button onClick={handleHabitButtonClick}>+ Habit</Button>}
-      </section>
-
-      <section className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold text-text">Recent habit entries</h2>
-        {habitsLoading && <p className="text-text-muted">Loading…</p>}
-        {habitLoadError && (
-          <p role="alert" className="text-danger">
-            Couldn&apos;t load your habits. Please try refreshing.
-          </p>
-        )}
-        {!habitsLoading && !habitLoadError && habits.length === 0 && (
-          <p className="text-text-muted">
-            You haven&apos;t created any habits yet — use the button above to define one (e.g.
-            Exercise, Water intake, Sleep) before you can log against it.
-          </p>
-        )}
-        {!habitsLoading && !habitLoadError && habits.length > 0 && habitLogs.length === 0 && (
-          <p className="text-text-muted">
-            Nothing logged yet — use the button above to record a habit entry.
-          </p>
-        )}
-        <ul className="flex flex-col gap-2">
-          {habitLogs.map((log) => {
-            const habit = habitsById.get(log.habitId);
-            return (
-              <li
-                key={log.id}
-                className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm"
-              >
-                <div>
-                  <p className="text-text">
-                    {habit?.name ?? "Unknown habit"}: {formatHabitValue(log, habit)}
-                  </p>
-                  {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
-                  <p className="text-xs text-text-muted">
-                    {new Date(log.loggedAt).toLocaleString()}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    onClick={() => handleHabitLogEdit(log)}
-                    aria-label={`Edit habit entry from ${new Date(log.loggedAt).toLocaleString()}`}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => handleHabitLogDelete(log.id)}
-                    aria-label={`Delete habit entry from ${new Date(log.loggedAt).toLocaleString()}`}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-        {!habitsLoading && !habitLoadError && hasMore && (
-          <div className="mt-4 flex justify-center">
-            <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
-              {loadingMore ? "Loading…" : "Load more"}
-            </Button>
-          </div>
-        )}
-      </section>
-    </>
+    <SectionPanel
+      title="Recent habit entries"
+      storageKey="habit"
+      topContent={
+        <>
+          {habitFormMode === "log" && (
+            <>
+              <h2 className="mb-4 text-lg font-semibold text-text">
+                {editingLog ? "Edit habit entry" : "Log a habit"}
+              </h2>
+              <HabitEntryForm
+                key={editingLog?.id ?? habitToPreselect ?? "create"}
+                habits={habits}
+                initialHabitId={habitToPreselect}
+                editingLog={editingLog}
+                onSaved={handleHabitLogSaved}
+                onCancel={handleHabitLogFormCancel}
+                onAddHabit={() => setHabitFormMode("create-habit")}
+              />
+            </>
+          )}
+          {habitFormMode === "create-habit" && (
+            <>
+              <h2 className="mb-4 text-lg font-semibold text-text">
+                {habits.length === 0 ? "Create your first habit" : "Create a new habit"}
+              </h2>
+              <HabitCreateForm
+                onCreated={handleHabitCreated}
+                onCancel={() => setHabitFormMode(habits.length === 0 ? "closed" : "log")}
+              />
+            </>
+          )}
+          {habitFormMode === "closed" && <Button onClick={handleHabitButtonClick}>+ Habit</Button>}
+        </>
+      }
+    >
+      {habitsLoading && <p className="text-text-muted">Loading…</p>}
+      {habitLoadError && (
+        <p role="alert" className="text-danger">
+          Couldn&apos;t load your habits. Please try refreshing.
+        </p>
+      )}
+      {!habitsLoading && !habitLoadError && habits.length === 0 && (
+        <p className="text-text-muted">
+          You haven&apos;t created any habits yet — use the button above to define one (e.g.
+          Exercise, Water intake, Sleep) before you can log against it.
+        </p>
+      )}
+      {!habitsLoading && !habitLoadError && habits.length > 0 && habitLogs.length === 0 && (
+        <p className="text-text-muted">
+          Nothing logged yet — use the button above to record a habit entry.
+        </p>
+      )}
+      <ul className="flex flex-col gap-2">
+        {habitLogs.map((log) => {
+          const habit = habitsById.get(log.habitId);
+          return (
+            <li
+              key={log.id}
+              className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface-muted p-4"
+            >
+              <div>
+                <p className="text-text">
+                  {habit?.name ?? "Unknown habit"}: {formatHabitValue(log, habit)}
+                </p>
+                {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
+                <p className="text-xs text-text-muted">{formatEntryDateTime(log.loggedAt)}</p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => handleHabitLogEdit(log)}
+                  aria-label={`Edit habit entry from ${formatEntryDateTime(log.loggedAt)}`}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => handleHabitLogDelete(log.id)}
+                  aria-label={`Delete habit entry from ${formatEntryDateTime(log.loggedAt)}`}
+                >
+                  Delete
+                </Button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {!habitsLoading && !habitLoadError && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
+            {loadingMore ? "Loading…" : "Load more"}
+          </Button>
+        </div>
+      )}
+    </SectionPanel>
   );
 }

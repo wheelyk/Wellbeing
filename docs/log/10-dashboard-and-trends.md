@@ -650,3 +650,142 @@ opposite of what should happen.
   committed.
 
 ---
+## 2026-08-18 — Dashboard redesign: paginating "Recent entries" too, own panels, and collapsible lists
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a follow-up design request, prompted
+directly by a screenshot of the real running app: the unified "Recent entries" summary box was
+still an unbounded-feeling fixed top-10 (see the pagination entry above, which only paginated the
+four *per-type* lists), and a question about whether the four sections below it should look and
+behave more like distinct panels, collapsible for a long page.
+
+### Background / concepts
+
+#### Why the unified "Recent entries" list can't reuse `fetchPage` as-is
+
+The per-type pagination entry above's `fetchPage()` helper works because it's pointed at *one*
+Prisma table: ask for `limit + 1` rows, `skip: offset`, done. `GET /api/dashboard`'s
+`recentEntries` is fundamentally different — it's a merge of the four separately-sorted log
+tables into one time-ordered list, and the row at merged position `offset` could come from *any*
+of them. Naively doing `take: offset + limit, skip: offset` on each table independently doesn't
+work: if, say, every entry between position 0 and `offset` happens to be a mood log, skipping
+`offset` rows *per table* skips far more than the merge actually needs from that table, and
+under-fetches from the others. The fix pulls the same "ask for one more than needed" idea from
+`fetchPage`, just applied *before* the merge instead of after: each of the four tables is asked
+for its own most recent `offset + limit + 1` rows (covering the worst case where a single type
+accounts for every entry up to one past the page), the results are merged and sorted once, and
+*then* sliced to `[offset, offset + limit)` — with `hasMore` computed from whether anything landed
+past that slice.
+
+#### Why "Load more" on this specific list can't just append a second page
+
+Every other paginated list in this app (`HistoryPage`, the four per-type Dashboard sections)
+fetches once on mount and never refetches on its own after that — "Load more" simply appends a
+second page to what's already there. `DashboardSummary` is different: it already polls
+`GET /api/dashboard` every `POLL_INTERVAL_MS` (10s) to keep its counts fresh (see the original
+Phase 4/8 entry's own reasoning for why). If "Load more" here also just appended a second page,
+the *next* poll tick would refetch page one at the default limit and overwrite it, silently
+snapping the list back down to 10 entries a few seconds after a user expanded it — a real,
+easy-to-miss interaction bug that only shows up on the one component in this app that already
+refetches state it doesn't own the pagination progression for. The fix: instead of tracking a
+separate "how many pages have I appended" counter, `DashboardSummary` tracks a single
+`recentEntriesLimit` that starts at 10 and grows by 10 each time "Load more" is clicked — every
+fetch, whether the initial load, a poll tick, or the focus-regain refetch, asks for exactly that
+many entries. A poll tick after "Load more" then keeps showing everything the user expanded to,
+because it's asking with the same larger limit, not resetting to a smaller default.
+
+#### The first use of `localStorage` in this app, and why that's fine here
+
+Every earlier entry in this log that touches persistence (see the 2.2/2.3 auth entries) is about
+*deliberately not* persisting something — the access token lives in memory only, specifically
+because anything a page's own JavaScript can read isn't safe from XSS, so the blast radius of a
+leak is capped at 15 minutes rather than indefinite. A collapsed/expanded UI preference for a
+Dashboard panel carries none of that risk profile — there's nothing sensitive in "the user
+collapsed the Symptom section" — so persisting it in `localStorage` (`useCollapsedState.ts`) is a
+plain usability win, not an exception carved into that earlier, deliberately strict rule.
+
+### What was done
+
+1. **`GET /api/dashboard` now accepts `?limit=&offset=`** (reusing `paginationQuerySchema` from
+   `lib/pagination.ts`) and returns `recentEntries` as a `{ entries, limit, offset, hasMore }` page
+   instead of a bare array, using the merge-then-slice approach described above.
+2. **`DashboardSummary.tsx`** grows a `recentEntriesLimit` state (10 → 20 → 30…) on "Load more"
+   instead of appending pages, for the polling-safety reason above, and shows a "Load more" button
+   whenever `hasMore` is true.
+3. **New `frontend/src/lib/entryDateLabel.ts`**: `formatEntryDateLabel`/`formatEntryTime`/
+   `formatEntryDateTime`, extracted from `DashboardSummary.tsx` (previously the only place this
+   existed — see the "Recent entries" date-label fix entry above) so the four per-type sections
+   could reuse the exact same "Today"/"Yesterday"/actual-date logic instead of their previous bare
+   `new Date(log.loggedAt).toLocaleString()`, which showed a full date+time and never
+   distinguished same-day from not.
+4. **New `frontend/src/components/dashboard/SectionPanel.tsx`**: wraps a section's "+ Add"
+   area and its "Recent X entries" list in one bordered card, with a chevron-toggle heading that
+   collapses only the list — the add area is a structurally separate region, outside the
+   collapsible part, so it's never hidden regardless of collapse state.
+5. **New `frontend/src/hooks/useCollapsedState.ts`**: a `localStorage`-backed
+   `[collapsed, toggle]` pair, one per section (keyed by a per-section string), degrading
+   gracefully (falls back to in-memory-only) if `localStorage` throws — covers real private-
+   browsing/storage-disabled cases, and, incidentally, this exact test environment (see
+   *Verification* below).
+6. **`MoodSection`/`SymptomSection`/`MedicationSection`/`HabitSection`** all rewired onto
+   `SectionPanel`, and switched from `toLocaleString()` to `formatEntryDateTime`.
+
+### Why it's needed
+
+The screenshot that started this conversation showed exactly the problem the earlier pagination
+entry already solved for the four per-type lists, but not for the summary box above them — a
+"Recent entries" list that still felt unboundedly long on a page that already had four more full
+lists stacked underneath it. Separating each type into its own collapsible panel is the direct
+fix for "the page is very tall with a lot of data" once pagination alone isn't enough — a user who
+only cares about, say, medications can collapse the other three sections rather than scroll past
+them.
+
+### Decisions
+
+- **Growing a shared `limit` instead of offset-based appending, only for `DashboardSummary`.**
+  Covered above — this is deliberately inconsistent with every other paginated list in this app,
+  and that inconsistency is itself deliberate: `DashboardSummary` is the only one of these
+  components that refetches on a timer it doesn't otherwise control, and offset-append pagination
+  and "silently refetch everything periodically" don't compose safely without it.
+- **The add area and the list are two separate regions, not one collapsible whole.** This was the
+  explicit ask behind the redesign — the "+ Add" button has to stay reachable regardless of
+  whether someone has collapsed a section they're not currently looking at. `SectionPanel`'s API
+  (`topContent` vs. `children`) makes that the only way to use the component, not a convention
+  that could be forgotten per-section.
+- **Collapsed state defaults to expanded and persists per-section, not globally.** Matches every
+  other list in this app on first load (nothing changes for a user who's never touched a chevron),
+  and a per-section `localStorage` key means collapsing Medications has no effect on whether Mood
+  is still expanded.
+
+### Verification
+
+- `npm test` (backend): 170/170 passing (1 new: pagination across all four merged types, proving
+  the merge-then-slice logic works even when a single type accounts for every entry on a page).
+- `npm test` (frontend): 132/132 passing (new `SectionPanel.test.tsx`: expanded-by-default,
+  collapsing hides the list but never the add area, collapse state persists across a remount
+  under the same key, and different sections' keys don't leak into each other; plus a new
+  `DashboardSummary` test for the growing-limit "Load more" behavior).
+- `npm run build`, `tsc -b`/`tsc --noEmit`, `npm run lint`, `npx prettier --check` (both
+  projects) — all clean.
+- **A real, if minor, environment quirk found and worked around while writing the `SectionPanel`
+  tests**: this project's test environment (Node 25.6.1 under Vitest/jsdom) has a broken built-in
+  `window.localStorage` — present as an object, but with no working `setItem`/`getItem`/`clear` at
+  all (`TypeError: ... is not a function`), apparently Node's own experimental global storage
+  shadowing jsdom's real implementation, inert without a `--localstorage-file` flag neither Vitest
+  nor this project's config supplies. `useCollapsedState`'s existing try/catch fallback (written
+  for real private-browsing scenarios) degrades through this cleanly on its own, but *testing*
+  actual persistence needed a real, working `Storage` stubbed in via `vi.stubGlobal` rather than
+  relying on the environment's own broken one.
+- Real end-to-end check against a live, Postgres-backed dev server: registered a throwaway user,
+  seeded 12 mood logs (to force the per-type Mood section's own "Load more") plus one symptom,
+  medication, and habit entry via the real API, then drove the actual running frontend through a
+  headless browser — confirmed the unified "Recent entries" box's own "Load more" works, clicking
+  Mood's "Load more" grew it from 10 to 12 items, collapsing the Symptom section hid its list while
+  its own "+ Symptom" button stayed visible and clickable, and — critically — a full page **reload**
+  still showed the Symptom section collapsed (real `localStorage` persistence, not just the
+  in-memory state a script restart wouldn't have caught) while Mood's expanded-to-12 state correctly
+  reset back to the first page of 10 (pagination depth was never meant to persist, only the
+  collapsed/expanded preference). Screenshotted all three states. The two console `401`s seen
+  during the check are the same already-documented, harmless first-page-load rehydration behavior
+  from the session-rehydration fix — not a regression here.
+
+---

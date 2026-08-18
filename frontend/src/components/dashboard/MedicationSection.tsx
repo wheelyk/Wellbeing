@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Button } from "../Button";
 import { MedicationEntryForm, type Medication, type MedicationLog } from "../MedicationEntryForm";
+import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
+import { formatEntryDateTime } from "../../lib/entryDateLabel";
 
 // Mirrors HistoryPage's own PAGE_SIZE/offset-pagination shape (see backend/src/lib/pagination.ts)
 // - a Quick-Add section only ever needs a short, recent slice, not a user's entire history
@@ -112,10 +114,12 @@ export function MedicationSection() {
   }
 
   return (
-    <>
-      <section className="mt-8">
-        {showMedicationForm ? (
-          <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+    <SectionPanel
+      title="Recent medications"
+      storageKey="medication"
+      topContent={
+        showMedicationForm ? (
+          <>
             <h2 className="mb-4 text-lg font-semibold text-text">
               {editingLog ? "Edit medication entry" : "Log a medication"}
             </h2>
@@ -125,7 +129,7 @@ export function MedicationSection() {
               onSaved={handleMedicationSaved}
               onCancel={handleMedicationFormCancel}
             />
-          </div>
+          </>
         ) : (
           <Button
             onClick={() => {
@@ -135,69 +139,64 @@ export function MedicationSection() {
           >
             + Medication
           </Button>
-        )}
-      </section>
-
-      <section className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold text-text">Recent medications</h2>
-        {medicationLoading && <p className="text-text-muted">Loading…</p>}
-        {medicationLoadError && (
-          <p role="alert" className="text-danger">
-            Couldn&apos;t load your medications. Please try refreshing.
-          </p>
-        )}
-        {!medicationLoading && !medicationLoadError && medicationLogs.length === 0 && (
-          <p className="text-text-muted">
-            Nothing logged yet — use the button above to record a medication.
-          </p>
-        )}
-        <ul className="flex flex-col gap-2">
-          {medicationLogs.map((log) => (
-            <li
-              key={log.id}
-              className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm"
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-2xl" aria-hidden="true">
-                  {log.taken ? "✅" : "❌"}
-                </span>
-                <div>
-                  <p className="text-text">
-                    {medicationLabel(log.medicationId)} — {log.taken ? "Taken" : "Not taken"}
-                  </p>
-                  {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
-                  <p className="text-xs text-text-muted">
-                    {new Date(log.loggedAt).toLocaleString()}
-                  </p>
-                </div>
+        )
+      }
+    >
+      {medicationLoading && <p className="text-text-muted">Loading…</p>}
+      {medicationLoadError && (
+        <p role="alert" className="text-danger">
+          Couldn&apos;t load your medications. Please try refreshing.
+        </p>
+      )}
+      {!medicationLoading && !medicationLoadError && medicationLogs.length === 0 && (
+        <p className="text-text-muted">
+          Nothing logged yet — use the button above to record a medication.
+        </p>
+      )}
+      <ul className="flex flex-col gap-2">
+        {medicationLogs.map((log) => (
+          <li
+            key={log.id}
+            className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface-muted p-4"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-2xl" aria-hidden="true">
+                {log.taken ? "✅" : "❌"}
+              </span>
+              <div>
+                <p className="text-text">
+                  {medicationLabel(log.medicationId)} — {log.taken ? "Taken" : "Not taken"}
+                </p>
+                {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
+                <p className="text-xs text-text-muted">{formatEntryDateTime(log.loggedAt)}</p>
               </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={() => handleMedicationEdit(log)}
-                  aria-label={`Edit medication entry from ${new Date(log.loggedAt).toLocaleString()}`}
-                >
-                  Edit
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => handleDeleteMedicationLog(log.id)}
-                  aria-label={`Delete medication entry from ${new Date(log.loggedAt).toLocaleString()}`}
-                >
-                  Delete
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
-        {!medicationLoading && !medicationLoadError && hasMore && (
-          <div className="mt-4 flex justify-center">
-            <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
-              {loadingMore ? "Loading…" : "Load more"}
-            </Button>
-          </div>
-        )}
-      </section>
-    </>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => handleMedicationEdit(log)}
+                aria-label={`Edit medication entry from ${formatEntryDateTime(log.loggedAt)}`}
+              >
+                Edit
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => handleDeleteMedicationLog(log.id)}
+                aria-label={`Delete medication entry from ${formatEntryDateTime(log.loggedAt)}`}
+              >
+                Delete
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {!medicationLoading && !medicationLoadError && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
+            {loadingMore ? "Loading…" : "Load more"}
+          </Button>
+        </div>
+      )}
+    </SectionPanel>
   );
 }
