@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { formatDateInTimezone, getDayRangeUtc, todayInTimezone } from "../lib/timezone";
 import { calculateStreak } from "../lib/streak";
+import { DEFAULT_LOG_LIST_LIMIT, paginationQuerySchema } from "../lib/pagination";
 
 // How far back to look for the streak calculation. Unbounded would mean scanning a user's
 // entire history on every dashboard load, which only gets slower the longer someone uses the
@@ -12,12 +13,14 @@ import { calculateStreak } from "../lib/streak";
 // keeping the query cheap regardless of account age.
 const STREAK_LOOKBACK_DAYS = 90;
 
-const querySchema = z.object({
-  date: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "date must be in YYYY-MM-DD format")
-    .optional(),
-});
+const querySchema = z
+  .object({
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "date must be in YYYY-MM-DD format")
+      .optional(),
+  })
+  .merge(paginationQuerySchema);
 
 type RecentEntryType = "mood" | "symptom" | "medication" | "habit";
 
@@ -27,12 +30,6 @@ interface RecentEntry {
   value: string;
   loggedAt: string;
 }
-
-// How many rows of recency to pull from each of the four log tables before merging - has to be
-// at least as large as the final cap (10) so that, e.g., ten same-day mood logs can't crowd out
-// a genuinely more recent symptom log that just happens to live in a different table.
-const RECENT_ENTRIES_PER_TYPE = 10;
-const RECENT_ENTRIES_CAP = 10;
 
 function formatHabitValue(log: {
   valueBoolean: boolean | null;
@@ -80,6 +77,8 @@ dashboardRouter.get("/", async (req, res) => {
   // fixed day, not just whatever the wall clock says right now.
   const date = parsedQuery.data.date ?? todayInTimezone(user.timezone);
   const { start, end } = getDayRangeUtc(date, user.timezone);
+  const { limit: recentEntriesLimit = DEFAULT_LOG_LIST_LIMIT, offset: recentEntriesOffset = 0 } =
+    parsedQuery.data;
 
   const [latestMood, symptomCount, medicationLogsToday, habitLogsToday, totalHabits] =
     await Promise.all([
@@ -113,33 +112,41 @@ dashboardRouter.get("/", async (req, res) => {
     totalHabits,
   };
 
+  // Merging four separately-sorted, separately-paginated tables into one time-ordered page can't
+  // just `take: limit, skip: offset` any single table - the entry at merged position `offset` might
+  // come from any of the four. Instead, each table is asked for enough of its own most-recent rows
+  // to cover the worst case where a single type accounts for every entry up to and including one
+  // past the requested page (`offset + limit + 1`, the same N+1 "is there more?" trick as
+  // `fetchPage` in lib/pagination.ts, just applied before the merge instead of after).
+  const perTypeFetch = recentEntriesOffset + recentEntriesLimit + 1;
+
   const [recentMood, recentSymptoms, recentMedications, recentHabits] = await Promise.all([
     prisma.moodLog.findMany({
       where: { userId: req.userId },
       orderBy: { loggedAt: "desc" },
-      take: RECENT_ENTRIES_PER_TYPE,
+      take: perTypeFetch,
     }),
     prisma.symptomLog.findMany({
       where: { userId: req.userId },
       orderBy: { loggedAt: "desc" },
-      take: RECENT_ENTRIES_PER_TYPE,
+      take: perTypeFetch,
       include: { symptom: { select: { name: true } } },
     }),
     prisma.medicationLog.findMany({
       where: { userId: req.userId },
       orderBy: { loggedAt: "desc" },
-      take: RECENT_ENTRIES_PER_TYPE,
+      take: perTypeFetch,
       include: { medication: { select: { name: true } } },
     }),
     prisma.habitLog.findMany({
       where: { userId: req.userId },
       orderBy: { loggedAt: "desc" },
-      take: RECENT_ENTRIES_PER_TYPE,
+      take: perTypeFetch,
       include: { habit: { select: { name: true } } },
     }),
   ]);
 
-  const recentEntries: RecentEntry[] = [
+  const mergedRecentEntries: RecentEntry[] = [
     ...recentMood.map((log): RecentEntry => ({
       type: "mood",
       label: "Mood",
@@ -164,9 +171,17 @@ dashboardRouter.get("/", async (req, res) => {
       value: formatHabitValue(log),
       loggedAt: log.loggedAt.toISOString(),
     })),
-  ]
-    .sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime())
-    .slice(0, RECENT_ENTRIES_CAP);
+  ].sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime());
+
+  const recentEntries = {
+    entries: mergedRecentEntries.slice(
+      recentEntriesOffset,
+      recentEntriesOffset + recentEntriesLimit,
+    ),
+    limit: recentEntriesLimit,
+    offset: recentEntriesOffset,
+    hasMore: mergedRecentEntries.length > recentEntriesOffset + recentEntriesLimit,
+  };
 
   // Every entry (of any of the four types) in the lookback window, reduced to just the set of
   // distinct calendar days (in the user's timezone) it falls on - exactly what the pure

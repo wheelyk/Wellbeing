@@ -61,7 +61,12 @@ describe("GET /api/dashboard", () => {
     expect(res.body.symptomCount).toBe(0);
     expect(res.body.medicationSummary).toEqual({ taken: 0, total: 0 });
     expect(res.body.habitSummary).toEqual({ loggedCount: 0, totalHabits: 0 });
-    expect(res.body.recentEntries).toEqual([]);
+    expect(res.body.recentEntries).toEqual({
+      entries: [],
+      limit: 10,
+      offset: 0,
+      hasMore: false,
+    });
     expect(res.body.streak).toEqual({ current: 0, daysLoggedThisWeek: 0 });
   });
 
@@ -117,10 +122,12 @@ describe("GET /api/dashboard", () => {
     expect(res.body.medicationSummary).toEqual({ taken: 1, total: 2 });
     expect(res.body.habitSummary).toEqual({ loggedCount: 1, totalHabits: 2 });
 
-    const labels = res.body.recentEntries.map((entry: { label: string; value: string }) => ({
-      label: entry.label,
-      value: entry.value,
-    }));
+    const labels = res.body.recentEntries.entries.map(
+      (entry: { label: string; value: string }) => ({
+        label: entry.label,
+        value: entry.value,
+      }),
+    );
     expect(labels).toEqual(
       expect.arrayContaining([
         { label: "Headache", value: "6/10" },
@@ -202,7 +209,47 @@ describe("GET /api/dashboard", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.mood).toBeNull();
-    expect(res.body.recentEntries).toEqual([]);
+    expect(res.body.recentEntries).toEqual({
+      entries: [],
+      limit: 10,
+      offset: 0,
+      hasMore: false,
+    });
+  });
+
+  it("paginates recentEntries across all four log types with ?limit=&offset=", async () => {
+    const { accessToken } = await registerAndLogin("paginate-recent");
+
+    // 12 mood logs, spaced an hour apart, is enough to force pagination on its own - proves the
+    // merge-then-slice logic works even when a single type accounts for every entry in a page,
+    // not just the easy case of one entry per type.
+    for (let i = 0; i < 12; i++) {
+      await request(app)
+        .post("/api/mood-logs")
+        .set(authed(accessToken))
+        .send({ mood: 3, loggedAt: `2026-08-17T${String(9 + i).padStart(2, "0")}:00:00.000Z` });
+    }
+
+    const firstPage = await request(app)
+      .get("/api/dashboard")
+      .query({ limit: 10, offset: 0 })
+      .set(authed(accessToken));
+    expect(firstPage.status).toBe(200);
+    expect(firstPage.body.recentEntries.entries).toHaveLength(10);
+    expect(firstPage.body.recentEntries.hasMore).toBe(true);
+    // Most recent first: the 11am-hour-offset-by-index entries were logged with increasing
+    // hours, so the last one logged (index 11, 20:00Z) must sort first.
+    expect(firstPage.body.recentEntries.entries[0].loggedAt).toBe("2026-08-17T20:00:00.000Z");
+
+    const secondPage = await request(app)
+      .get("/api/dashboard")
+      .query({ limit: 10, offset: 10 })
+      .set(authed(accessToken));
+    expect(secondPage.status).toBe(200);
+    expect(secondPage.body.recentEntries.entries).toHaveLength(2);
+    expect(secondPage.body.recentEntries.hasMore).toBe(false);
+    // The oldest entry (index 0, 09:00Z) must land last, on the second page.
+    expect(secondPage.body.recentEntries.entries[1].loggedAt).toBe("2026-08-17T09:00:00.000Z");
   });
 });
 
