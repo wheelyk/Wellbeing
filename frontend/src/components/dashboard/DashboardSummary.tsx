@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Button } from "../Button";
 import { apiFetch } from "../../api/client";
+import { formatEntryDateTime } from "../../lib/entryDateLabel";
 
 interface MoodLog {
   id: string;
@@ -13,15 +15,24 @@ interface RecentEntry {
   loggedAt: string;
 }
 
+interface RecentEntryPage {
+  entries: RecentEntry[];
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 interface DashboardSummaryData {
   date: string;
   mood: MoodLog | null;
   symptomCount: number;
   medicationSummary: { taken: number; total: number };
   habitSummary: { loggedCount: number; totalHabits: number };
-  recentEntries: RecentEntry[];
+  recentEntries: RecentEntryPage;
   streak: { current: number; daysLoggedThisWeek: number };
 }
+
+const RECENT_ENTRIES_PAGE_SIZE = 10;
 
 // The backend already resolves `date` to a plain "YYYY-MM-DD" string in the user's own
 // timezone (see backend/src/routes/dashboard.ts) - this only reformats that same calendar day
@@ -37,34 +48,6 @@ function formatDisplayDate(dateStr: string): string {
     year: "numeric",
     month: "long",
     day: "numeric",
-  });
-}
-
-function formatEntryTime(loggedAt: string): string {
-  return new Date(loggedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-// "Recent entries" deliberately shows the most recent entries across *all* history, not just
-// today (see backend/src/routes/dashboard.ts) - useful so the list isn't empty on a day you
-// haven't logged much yet, but it means entries from different calendar days can sit right next
-// to each other with only a same-looking time-of-day shown, easy to misread as "today" (a real
-// point of confusion this label exists to fix). Compares calendar days in the browser's own local
-// timezone, same as formatEntryTime just above - not the user's app-configured timezone, which
-// this component never fetches; entries can't be usefully split into calendar days without a
-// timezone in the first place, and the two would only actually disagree if someone were reading
-// the app from a different timezone than the one in their own profile.
-function formatEntryDateLabel(loggedAt: string): string {
-  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const entryDay = startOfDay(new Date(loggedAt));
-  const today = startOfDay(new Date());
-  const diffDays = Math.round((today.getTime() - entryDay.getTime()) / (24 * 60 * 60 * 1000));
-
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  return entryDay.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-    year: entryDay.getFullYear() === today.getFullYear() ? undefined : "numeric",
   });
 }
 
@@ -94,12 +77,21 @@ export function DashboardSummary() {
   const [data, setData] = useState<DashboardSummaryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [loadingMoreRecent, setLoadingMoreRecent] = useState(false);
+  // How many recent entries to ask for on every fetch, including background polls - "Load more"
+  // grows this instead of appending a separately-tracked page, so a poll tick 10s after clicking
+  // it doesn't silently reset the list back down to the first page (see POLL_INTERVAL_MS below).
+  // Read via a ref inside fetchSummary rather than closed over directly, since that function is
+  // created once (empty effect deps) and would otherwise always see the value from mount.
+  const [recentEntriesLimit, setRecentEntriesLimit] = useState(RECENT_ENTRIES_PAGE_SIZE);
+  const recentEntriesLimitRef = useRef(recentEntriesLimit);
+  recentEntriesLimitRef.current = recentEntriesLimit;
 
   useEffect(() => {
     let cancelled = false;
 
     function fetchSummary() {
-      apiFetch<DashboardSummaryData>("/api/dashboard")
+      apiFetch<DashboardSummaryData>(`/api/dashboard?limit=${recentEntriesLimitRef.current}`)
         .then((res) => {
           if (!cancelled) {
             setData(res);
@@ -128,6 +120,20 @@ export function DashboardSummary() {
       window.removeEventListener("focus", fetchSummary);
     };
   }, []);
+
+  async function handleLoadMoreRecent() {
+    setLoadingMoreRecent(true);
+    const nextLimit = recentEntriesLimit + RECENT_ENTRIES_PAGE_SIZE;
+    try {
+      const res = await apiFetch<DashboardSummaryData>(`/api/dashboard?limit=${nextLimit}`);
+      setData(res);
+      setRecentEntriesLimit(nextLimit);
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoadingMoreRecent(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -184,13 +190,13 @@ export function DashboardSummary() {
 
       <div className="mt-6">
         <h3 className="mb-3 text-lg font-semibold text-text">Recent entries</h3>
-        {data.recentEntries.length === 0 ? (
+        {data.recentEntries.entries.length === 0 ? (
           <p className="text-text-muted">
             You haven&apos;t logged anything yet. Your recent entries will show up here.
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {data.recentEntries.map((entry, index) => (
+            {data.recentEntries.entries.map((entry, index) => (
               // Entries have no id of their own in this response (they're a merge across four
               // different tables) - type + loggedAt + position is unique enough for a stable
               // React key here without the backend needing to invent a composite id field.
@@ -202,12 +208,18 @@ export function DashboardSummary() {
                   {ENTRY_TYPE_ICON[entry.type]}
                 </span>
                 <p className="text-text">
-                  {entry.label} — {entry.value} — {formatEntryDateLabel(entry.loggedAt)},{" "}
-                  {formatEntryTime(entry.loggedAt)}
+                  {entry.label} — {entry.value} — {formatEntryDateTime(entry.loggedAt)}
                 </p>
               </li>
             ))}
           </ul>
+        )}
+        {data.recentEntries.hasMore && (
+          <div className="mt-4 flex justify-center">
+            <Button variant="secondary" onClick={handleLoadMoreRecent} disabled={loadingMoreRecent}>
+              {loadingMoreRecent ? "Loading…" : "Load more"}
+            </Button>
+          </div>
         )}
       </div>
     </section>

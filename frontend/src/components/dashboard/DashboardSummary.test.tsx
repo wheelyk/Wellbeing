@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { DashboardSummary } from "./DashboardSummary";
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -44,7 +45,7 @@ describe("DashboardSummary", () => {
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       habitSummary: { loggedCount: 0, totalHabits: 0 },
-      recentEntries: [],
+      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
 
@@ -65,10 +66,20 @@ describe("DashboardSummary", () => {
       symptomCount: 2,
       medicationSummary: { taken: 1, total: 2 },
       habitSummary: { loggedCount: 1, totalHabits: 3 },
-      recentEntries: [
-        { type: "symptom", label: "Headache", value: "6/10", loggedAt: "2026-08-17T14:30:00.000Z" },
-        { type: "mood", label: "Mood", value: "4/5", loggedAt: "2026-08-17T09:00:00.000Z" },
-      ],
+      recentEntries: {
+        entries: [
+          {
+            type: "symptom",
+            label: "Headache",
+            value: "6/10",
+            loggedAt: "2026-08-17T14:30:00.000Z",
+          },
+          { type: "mood", label: "Mood", value: "4/5", loggedAt: "2026-08-17T09:00:00.000Z" },
+        ],
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+      },
       streak: { current: 3, daysLoggedThisWeek: 4 },
     });
 
@@ -113,7 +124,12 @@ describe("DashboardSummary", () => {
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       habitSummary: { loggedCount: 0, totalHabits: 0 },
-      recentEntries: [{ type: "mood", label: "Mood", value: "4/5", loggedAt: daysAgoIso(0) }],
+      recentEntries: {
+        entries: [{ type: "mood", label: "Mood", value: "4/5", loggedAt: daysAgoIso(0) }],
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+      },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
 
@@ -129,7 +145,12 @@ describe("DashboardSummary", () => {
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       habitSummary: { loggedCount: 0, totalHabits: 0 },
-      recentEntries: [{ type: "habit", label: "Nap", value: "30 min", loggedAt: daysAgoIso(1) }],
+      recentEntries: {
+        entries: [{ type: "habit", label: "Nap", value: "30 min", loggedAt: daysAgoIso(1) }],
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+      },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
 
@@ -146,9 +167,14 @@ describe("DashboardSummary", () => {
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       habitSummary: { loggedCount: 0, totalHabits: 0 },
-      recentEntries: [
-        { type: "medication", label: "Diazepam", value: "Taken", loggedAt: daysAgoIso(10) },
-      ],
+      recentEntries: {
+        entries: [
+          { type: "medication", label: "Diazepam", value: "Taken", loggedAt: daysAgoIso(10) },
+        ],
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+      },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
 
@@ -165,15 +191,79 @@ describe("DashboardSummary", () => {
       symptomCount: 1,
       medicationSummary: { taken: 0, total: 0 },
       habitSummary: { loggedCount: 0, totalHabits: 0 },
-      recentEntries: [
-        { type: "symptom", label: "Headache", value: "6/10", loggedAt: "2026-08-17T14:30:00.000Z" },
-      ],
+      recentEntries: {
+        entries: [
+          {
+            type: "symptom",
+            label: "Headache",
+            value: "6/10",
+            loggedAt: "2026-08-17T14:30:00.000Z",
+          },
+        ],
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+      },
       streak: { current: 0, daysLoggedThisWeek: 1 },
     });
 
     render(<DashboardSummary />);
 
     expect(await screen.findByText(/mood: not logged yet/i)).toBeInTheDocument();
+  });
+
+  it("loads more recent entries by refetching with a larger limit when Load more is clicked", async () => {
+    // Unlike the four per-type sections (offset-based, appending pages), this component
+    // re-fetches the whole summary with a bigger `limit` on every poll tick too - see
+    // DashboardSummary.tsx's own comment on why appending pages independently of polling would
+    // let a background poll silently discard anything "Load more" had added.
+    const entryA = {
+      type: "mood",
+      label: "Mood",
+      value: "4/5",
+      loggedAt: "2026-08-17T09:00:00.000Z",
+    };
+    const entryB = {
+      type: "habit",
+      label: "Nap",
+      value: "30 min",
+      loggedAt: "2026-08-16T09:00:00.000Z",
+    };
+    const baseFields = {
+      date: "2026-08-17",
+      mood: null,
+      symptomCount: 0,
+      medicationSummary: { taken: 0, total: 0 },
+      habitSummary: { loggedCount: 0, totalHabits: 0 },
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("limit=20")) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            ...baseFields,
+            recentEntries: { entries: [entryA, entryB], limit: 20, offset: 0, hasMore: false },
+          }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse(200, {
+          ...baseFields,
+          recentEntries: { entries: [entryA], limit: 10, offset: 0, hasMore: true },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<DashboardSummary />);
+
+    expect(await screen.findByText(/mood — 4\/5/i)).toBeInTheDocument();
+    expect(screen.queryByText(/nap — 30 min/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /load more/i }));
+
+    expect(await screen.findByText(/nap — 30 min/i)).toBeInTheDocument();
   });
 
   it("uses singular 'day' for a one-day streak", async () => {
@@ -183,7 +273,7 @@ describe("DashboardSummary", () => {
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       habitSummary: { loggedCount: 0, totalHabits: 0 },
-      recentEntries: [],
+      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 1, daysLoggedThisWeek: 1 },
     });
 
