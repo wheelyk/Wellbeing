@@ -213,7 +213,7 @@ Reference: requirements §15, §16.
 - [x] Screen-reader spot check on the Quick Add flow and Dashboard (labels, ARIA roles on custom rating controls). (Covered via automated ARIA-tree checking (axe-core), not a literal manual screen-reader session — noting that distinction honestly.)
 - [x] Color contrast check (automated, e.g. axe or Lighthouse) across light UI states. (axe-core, zero WCAG 2AA violations across six real pages/states.)
 - [x] Confirm no information is conveyed by color alone (e.g. mood/severity also shown as numbers/icons/text, not just color). (Confirmed — every value already shows as text/numbers/icons, not just color.)
-- [ ] Test on mobile viewport, tablet viewport, and desktop — confirm layout and workflow stay consistent (no desktop-only complexity creep). (Real bug found: NavBar overflows horizontally on a 375px viewport with a long display name/email — not yet fixed. See [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
+- [x] Test on mobile viewport, tablet viewport, and desktop — confirm layout and workflow stay consistent (no desktop-only complexity creep). (Real bug found and since fixed: NavBar overflowed horizontally on a 375px viewport with a long display name/email — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [x] Reduce/remove nonessential animations; confirm transitions are short and non-distracting. (Confirmed — nothing beyond plain `transition-colors` exists anywhere in the codebase.)
 
 ---
