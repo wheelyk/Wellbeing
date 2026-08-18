@@ -17,9 +17,28 @@ await mkdir(outDir, { recursive: true });
 const browser = await chromium.launch();
 const page = await browser.newPage();
 
+// AuthProvider now attempts a silent session rehydration (POST /api/auth/refresh) on every
+// mount, including this script's very first page load - a fresh browser with no cookie yet
+// correctly gets a 401 back, but Chrome logs any non-2xx fetch response as a console error
+// regardless of whether the app handles it gracefully. That one specific, expected 401 isn't
+// a bug, so it's tracked via the network layer (not guessed from message text) and excluded -
+// any other console error, including a 401 from a route that should be authenticated, still
+// fails the check normally.
+let expectedRehydrationFailures = 0;
+page.on("response", (res) => {
+  if (res.url().endsWith("/api/auth/refresh") && res.status() === 401) {
+    expectedRehydrationFailures += 1;
+  }
+});
+
 const consoleErrors = [];
 page.on("console", (msg) => {
-  if (msg.type() === "error") consoleErrors.push(msg.text());
+  if (msg.type() !== "error") return;
+  if (msg.text().includes("401") && expectedRehydrationFailures > 0) {
+    expectedRehydrationFailures -= 1;
+    return;
+  }
+  consoleErrors.push(msg.text());
 });
 page.on("pageerror", (err) => consoleErrors.push(String(err)));
 

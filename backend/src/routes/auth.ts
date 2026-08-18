@@ -15,6 +15,26 @@ const SALT_ROUNDS = 12;
 // "wrong password" apart from "no such account" by measuring response time.
 const DUMMY_PASSWORD_HASH = "$2a$12$CwTycUXWue0Thq9StjUM0uJ8Y6Y3VtZ44Q4XdrOTLPfPT2mDcMYVK";
 
+// Shared by /login and /refresh (both need to hand the frontend the same shape of "who is this,"
+// the second one just via a rotated cookie instead of a password) - a plain function rather
+// than a Prisma `select` clause since /refresh already has a full user row in hand from its own
+// lookup, with no reason to query the database a second time just to reshape it.
+function serializeUser(user: {
+  id: string;
+  email: string;
+  displayName: string;
+  timezone: string;
+  createdAt: Date;
+}) {
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    timezone: user.timezone,
+    createdAt: user.createdAt,
+  };
+}
+
 const passwordField = z
   .string()
   .min(8, "Password must be at least 8 characters long")
@@ -106,13 +126,7 @@ authRouter.post("/login", async (req, res) => {
   setRefreshTokenCookie(res, signRefreshToken(user.id));
 
   return res.status(200).json({
-    user: {
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      timezone: user.timezone,
-      createdAt: user.createdAt,
-    },
+    user: serializeUser(user),
     accessToken: signAccessToken(user.id),
   });
 });
@@ -149,7 +163,12 @@ authRouter.post("/refresh", async (req, res) => {
   // holding the old one, so a stolen-but-unused refresh token has a shrinking window of use.
   setRefreshTokenCookie(res, signRefreshToken(user.id));
 
-  return res.status(200).json({ accessToken: signAccessToken(user.id) });
+  // Also returning `user` here (not just `accessToken`) is what actually makes session
+  // rehydration on page load possible: AuthContext calls this same endpoint on mount to check
+  // "is there still a valid refresh cookie," and needs the full user object back, the same way
+  // /login already provides it, to populate its state - not just a token with nothing to attach
+  // a display name/email to.
+  return res.status(200).json({ user: serializeUser(user), accessToken: signAccessToken(user.id) });
 });
 
 authRouter.post("/logout", (_req, res) => {

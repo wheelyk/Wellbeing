@@ -217,7 +217,9 @@ describe("HistoryPage", () => {
     await user.click(screen.getByRole("button", { name: /delete mood entry/i }));
 
     expect(screen.getByText("Mood 4/5")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // AuthProvider's own mount-time rehydration attempt calls fetch once on its own,
+    // regardless of this page - only "was a delete request made" matters here.
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/mood-1"))).toBe(false);
   });
 
   it("loads more entries and appends them when Load more is clicked", async () => {

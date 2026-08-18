@@ -42,7 +42,11 @@ describe("SettingsPage — change password", () => {
     await user.click(screen.getByRole("button", { name: /update password/i }));
 
     expect(await screen.findByText(/at least 8 characters/i)).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    // AuthProvider's own mount-time rehydration attempt does call fetch once, on its own,
+    // regardless of this form - only the change-password submission itself matters here.
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/auth/change-password")),
+    ).toBe(false);
   });
 
   it("requires the confirmation field to match the new password", async () => {
@@ -57,12 +61,16 @@ describe("SettingsPage — change password", () => {
     await user.click(screen.getByRole("button", { name: /update password/i }));
 
     expect(await screen.findByText(/don't match/i)).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/auth/change-password")),
+    ).toBe(false);
   });
 
   it("changes the password, logs out, and redirects to login with a confirmation message", async () => {
     const fetchMock = vi
       .fn()
+      // AuthProvider's mount-time rehydration attempt - no real session cookie in this test.
+      .mockResolvedValueOnce(jsonResponse(401, { error: { message: "no refresh cookie" } }))
       .mockResolvedValueOnce(jsonResponse(200, { message: "Password updated" }))
       .mockResolvedValueOnce(jsonResponse(200, { message: "Logged out" }));
     vi.stubGlobal("fetch", fetchMock);
@@ -76,7 +84,7 @@ describe("SettingsPage — change password", () => {
 
     expect(await screen.findByText("Login stub")).toBeInTheDocument();
 
-    const [changePasswordCall] = fetchMock.mock.calls;
+    const [, changePasswordCall] = fetchMock.mock.calls;
     const [url, requestInit] = changePasswordCall;
     expect(url).toContain("/api/auth/change-password");
     const body = JSON.parse(requestInit.body as string);

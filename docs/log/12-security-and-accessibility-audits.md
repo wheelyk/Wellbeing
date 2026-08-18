@@ -316,4 +316,49 @@ overflows horizontally on narrow viewports with a long display name/email) — n
 - `grep` across every `.tsx` file for animation-related classes — confirmed none beyond plain
   color transitions.
 
+### Addendum (2026-08-18) — the same class of bug, hitting a second automated script
+
+The "session rehydration confuses an automated browser script" problem above turned out not to
+be a one-off. While getting the actual session-rehydration fix (PR #70, recovered from a
+never-pushed branch — see the *third stranding variant* entry in
+[Git & GitHub Workflow](08-git-github-workflow.md)) through CI, its required **PR Preview
+Screenshots** check (`.github/workflows/pr-preview.yml`, driving
+`frontend/scripts/capture-pr-screenshots.mjs`) started failing on every run.
+
+**Same underlying cause, different symptom.** The audit script above hit the bug via a *hard
+`page.goto` straight to a protected route* — no login had happened yet, so the route guard's
+redirect and the rehydration attempt collided. The screenshot script never does that (it always
+starts at `/register`), so it didn't fail the same way. Instead: `AuthProvider`'s new mount-time
+`rehydrateSession()` call fires on *every* page load, including that very first `/register` visit
+— a brand-new CI browser has no refresh cookie yet, so the backend correctly answers `401`. That's
+the right, expected behavior for a logged-out visitor, not a bug. But Chrome logs any non-2xx
+`fetch` response to the console as an error automatically, regardless of whether the app's own
+code handles it gracefully — and the screenshot script's check was "any console error at all fails
+the build," with no way to tell "an expected, harmless 401" apart from "something is actually
+broken."
+
+**The fix (in `capture-pr-screenshots.mjs`, not the app)**: track the one expected
+`/api/auth/refresh` 401 via `page.on("response")` — the real network layer, not by guessing from
+console message text — and exclude exactly one matching console error for it. Any other console
+error, including a 401 from a route that's supposed to be authenticated, still fails the check
+normally; this doesn't quietly widen into "ignore every 401."
+
+**Why this is worth calling out as its own addendum, not just a footnote**: two different
+automated scripts, written at two different times for two different purposes (an accessibility
+audit vs. a PR preview), both broke on the *same* new mount-time behavior, in two different ways.
+That's a real signal that any future script driving this app through a fresh, logged-out browser
+session should expect this one benign 401 on first load — worth knowing before writing the next
+one, not just after debugging it a third time.
+
+### Verification (addendum)
+
+- Reproduced first: CI's `screenshots` check failing with `Browser console errors detected:
+  Failed to load resource: the server responded with a status of 401 (Unauthorized)`.
+- Verified the fix locally before pushing — built and started the real backend and frontend
+  preview server (mirroring the CI job's own steps exactly), ran the script directly, confirmed
+  it exited `0` with all 4 expected screenshots produced.
+- Confirmed for real, not just locally: pushed the fix and watched the actual GitHub Actions run
+  (`gh run watch`) go green, including the specific `AFTER: capture screenshots` step that had
+  been failing.
+
 ---

@@ -31,18 +31,22 @@ describe("LoginPage", () => {
   });
 
   it("logs in and redirects to the dashboard on success", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse(200, {
-        user: {
-          id: "1",
-          email: "user@example.com",
-          displayName: "User",
-          timezone: "UTC",
-          createdAt: "2026-01-01T00:00:00.000Z",
-        },
-        accessToken: "token-xyz",
-      }),
-    );
+    const fetchMock = vi
+      .fn()
+      // AuthProvider's mount-time rehydration attempt - no real session cookie in this test.
+      .mockResolvedValueOnce(jsonResponse(401, { error: { message: "no refresh cookie" } }))
+      .mockResolvedValue(
+        jsonResponse(200, {
+          user: {
+            id: "1",
+            email: "user@example.com",
+            displayName: "User",
+            timezone: "UTC",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+          accessToken: "token-xyz",
+        }),
+      );
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderLoginPage();
@@ -55,11 +59,15 @@ describe("LoginPage", () => {
   });
 
   it("shows a friendly error on invalid credentials, without leaking which field was wrong", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse(401, {
-        error: { message: "Invalid email or password", code: "INVALID_CREDENTIALS" },
-      }),
-    );
+    const fetchMock = vi
+      .fn()
+      // AuthProvider's mount-time rehydration attempt - no real session cookie in this test.
+      .mockResolvedValueOnce(jsonResponse(401, { error: { message: "no refresh cookie" } }))
+      .mockResolvedValue(
+        jsonResponse(401, {
+          error: { message: "Invalid email or password", code: "INVALID_CREDENTIALS" },
+        }),
+      );
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderLoginPage();
