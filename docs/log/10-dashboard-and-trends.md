@@ -469,3 +469,97 @@ keyboard focus — with zero browser console errors throughout. `docs/log/10-das
   verification script was not committed.
 
 ---
+
+## 2026-08-18 — A real user-reported bug: "Recent entries" looked wrong, but the counts were right
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a genuine bug report against the
+deployed app, investigated and fixed the same way any other bug in this log has been: read the
+real code first, confirm the actual cause, then fix it.
+
+### Background / concepts
+
+**The report**: a screenshot of the live dashboard showing "Habits: 0/1 logged" and
+"Medications: 0/0 taken" for today, directly above a "Recent entries" list that clearly showed a
+habit ("Nap") and a medication ("Diazepam") entry. On its face, that looks like a contradiction —
+if a habit and a medication were logged, why does the summary say zero?
+
+**Reading `backend/src/routes/dashboard.ts` first, not guessing**, showed this is two different
+queries with two different, both-intentional scopes:
+
+- The summary line's counts (`medicationSummary`, `habitSummary`) only ever count logs whose
+  `loggedAt` falls within **today's** date range (`getDayRangeUtc(date, user.timezone)`).
+- `recentEntries` has **no date filter at all** — it deliberately pulls the most recent 10 logs
+  across a user's *entire history*, precisely so the list isn't empty on a day someone hasn't
+  logged much yet (see that route's own comments).
+
+So "0/1 habits today" next to a habit entry in Recent Entries isn't a contradiction once you know
+Recent Entries can show *any* day, not just today — the Nap and Diazepam entries were actually
+from the day before. The screenshot itself had the proof, once looked at carefully: sorted
+most-recent-first, its second row showed a *later* clock time than its first row (a mood log at
+17:07 listed right after one at 10:04) — only possible if the 17:07 entry was from an earlier
+calendar day, since the two rows only ever showed a time, never a date.
+
+**The actual bug, once found**: not the data or the counts — those were both correct — but that
+`frontend/src/components/dashboard/DashboardSummary.tsx` displayed only a time
+(`formatEntryTime`) next to each recent entry, with nothing to distinguish "today at 10:04" from
+"yesterday at 17:07." A real UX gap, confirmed directly against the actual rendered output rather
+than assumed from the report alone.
+
+### What was done
+
+1. Added `formatEntryDateLabel(loggedAt)` to `DashboardSummary.tsx`: compares the entry's calendar
+   day against today (in the browser's own local timezone, matching `formatEntryTime`'s existing,
+   already-established convention for this same list) and returns `"Today"`, `"Yesterday"`, or a
+   short date like `"Aug 10"` (adding the year only if it's not the current one).
+2. Each recent entry now renders as `{label} — {value} — {dateLabel}, {time}` — e.g.
+   `Nap — 30 min — Yesterday, 4:28 PM` — instead of just `{label} — {value} — {time}`.
+3. Three new tests in `DashboardSummary.test.tsx`, computed relative to the real current time
+   (`daysAgoIso(n)`) rather than mocking the clock, so they stay correct no matter when the suite
+   actually runs: an entry from today labels as "Today," one from yesterday labels as "Yesterday"
+   (and explicitly *not* "Today"), and one from 10 days back shows an actual date with neither
+   relative word.
+4. Verified against the real backend, not just the component's own tests: registered a throwaway
+   user, logged one mood entry with today's timestamp and one with yesterday's via the real
+   `POST /api/mood-logs` endpoint (backdating via an explicit `loggedAt`, same mechanism the
+   Trends verification above used), and confirmed `GET /api/dashboard`'s actual `recentEntries`
+   response carries exactly the two differently-dated timestamps the component's tests already
+   proved render correctly.
+
+### Why it's needed
+
+The underlying data and counts were never wrong — the bug was that the UI gave no way to tell
+"this happened today" apart from "this happened at some point in the past," which is exactly the
+kind of thing a user has to notice by feeling confused, not by anything failing loudly. A
+dashboard whose numbers are correct but whose list looks like it disagrees with them is still a
+real usability bug, even though nothing in the code was throwing errors or returning wrong data.
+
+### Decisions
+
+- **Fixed the display, not the query.** `recentEntries` staying unscoped by date is a deliberate,
+  already-documented design choice (see the original dashboard entry above) — the fix belongs in
+  how it's *labeled*, not in narrowing what it returns, which would have quietly changed a
+  different, working feature (a genuinely empty-feeling dashboard on a light-logging day) to fix
+  an unrelated display gap.
+- **Local-timezone comparison, matching `formatEntryTime`'s existing convention** — this component
+  never fetches the user's app-configured profile timezone, only `DashboardSummary`'s parent date
+  heading does (from the backend-resolved `date` field). Introducing a second, different notion of
+  "today" into the same card (profile timezone for the heading, browser-local for the list) would
+  be more confusing than the two only disagreeing in the rare case someone is using the app from a
+  different timezone than the one saved in their own profile.
+- **Computed test timestamps relative to real "now," not fake timers** — matches this file's (and
+  this component's test file's) existing convention of not introducing `vi.useFakeTimers()`
+  anywhere in this suite; also sidesteps a real gotcha where faking timers can interfere with
+  React Testing Library's own `findBy*`/`waitFor` polling.
+
+### Verification
+
+- `npx vitest run src/components/dashboard/DashboardSummary.test.tsx` — 9/9 passing (6 pre-existing
+  plus 3 new).
+- `npm test` (frontend, full suite) — 121/121 passing.
+- `npm run build`, `npm run lint` (`oxlint`), `npx prettier --check .` — all clean.
+- Real backend verification: registered a throwaway user, logged one mood entry timestamped today
+  and one timestamped yesterday via the actual `POST /api/mood-logs` endpoint, confirmed
+  `GET /api/dashboard`'s real response returns both with the exact, correctly-different `loggedAt`
+  values the component's tests already prove render as "Today" and "Yesterday."
+
+---
