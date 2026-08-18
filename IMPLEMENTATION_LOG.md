@@ -3,7 +3,7 @@
 ## What this document is
 
 This is a step-by-step build log for the WellTrack project, written so that someone who is
-**new to web development** can read it and understand not just *what* was done, but *why*
+**new to web development** can read it and understand not just _what_ was done, but _why_
 it was done that way. Think of it as a training manual that happens to be built alongside
 the real project.
 
@@ -20,18 +20,18 @@ the same shape:
 - **Verification** — how we proved it actually works, not just that files were created.
 
 Entries are in chronological order, oldest first. Concepts are usually only explained in
-full the *first* time they appear — later entries link back rather than repeat themselves.
+full the _first_ time they appear — later entries link back rather than repeat themselves.
 
 ---
 
 ## Big picture: how the frontend and backend actually talk to each other
 
-The individual scaffold entries below explain the backend and frontend *separately*, since
+The individual scaffold entries below explain the backend and frontend _separately_, since
 that's how they were built. But neither one is useful alone, so before diving into those
 entries, here's how the two connect — the part that ties everything together.
 
 **Two separate programs, running on two separate ports.** After Phase 0, running this
-project locally means two things are running *at the same time*, each listening on its own
+project locally means two things are running _at the same time_, each listening on its own
 "door" (**port**) on your computer:
 
 - The **backend** (Express), on port `4000` — a program whose only job is to receive
@@ -40,7 +40,7 @@ project locally means two things are running *at the same time*, each listening 
   browser displays: HTML, the React app, styling, images.
 
 When you open the app in a browser, you're only ever looking at the frontend. The backend is
-invisible to you directly — the frontend talks to it *behind the scenes*.
+invisible to you directly — the frontend talks to it _behind the scenes_.
 
 **How "talking to it behind the scenes" works: the API.** Whenever the frontend needs data
 (e.g. "show me today's mood entry") or needs to save something (e.g. "the user just logged a
@@ -61,7 +61,7 @@ full list of URLs this project's backend will expose is laid out in requirements
 `GET /api/health` (see the backend scaffold entry below) — everything else gets added
 endpoint-by-endpoint in Phases 2–4.
 
-**Why the frontend needs to be told the backend's address.** The frontend has to know *where*
+**Why the frontend needs to be told the backend's address.** The frontend has to know _where_
 to send these requests. That's the purpose of `frontend/.env.example`'s `VITE_API_URL`
 (currently `http://localhost:4000`) — a setting, not a hard-coded value, because the address
 changes between environments (your laptop during development vs. wherever the app is
@@ -70,7 +70,7 @@ prefix every API request with it, once Phase 5 builds the actual API client.
 
 **Why CORS matters here specifically.** Browsers enforce a security rule: a webpage loaded
 from one address (`http://localhost:5173`, our frontend) is blocked by default from making
-requests to a *different* address (`http://localhost:4000`, our backend) — even though
+requests to a _different_ address (`http://localhost:4000`, our backend) — even though
 they're both "localhost" and both under our control, the browser only looks at whether the
 port number matches, and `5173 ≠ 4000` counts as different. This is exactly why the backend
 scaffold entry below installs and enables the `cors` package: it makes the backend explicitly
@@ -94,7 +94,7 @@ above — never by directly importing each other's code.
 
 Up to 2026-08-16, this was a single, ever-growing file — simple, but it had a real cost once
 several PRs started being open at the same time (including [multiple AI agents working on
-different features in parallel](docs/log/08-git-github-workflow.md)): *every* task appended
+different features in parallel](docs/log/08-git-github-workflow.md)): _every_ task appended
 to the same file, so any two branches both adding an entry on the same day were now editing
 the exact same lines, which is exactly what a merge conflict is. This one file had become the
 single most common source of conflicts in the whole project (see the retrospective in
@@ -102,8 +102,8 @@ single most common source of conflicts in the whole project (see the retrospecti
 
 The fix: entries are now split across topic files under [`docs/log/`](docs/log/), grouped by
 feature area rather than kept in one continuous timeline. Two branches adding entries about
-*different* features (say, habit logging and a deployment fix) no longer touch the same file
-at all — and even two branches both working in the *same* topic file conflict far less often
+_different_ features (say, habit logging and a deployment fix) no longer touch the same file
+at all — and even two branches both working in the _same_ topic file conflict far less often
 than the old single-file-forever design did.
 
 **This file (`IMPLEMENTATION_LOG.md`) is now an index, not a log.** It stays short and
@@ -116,7 +116,7 @@ Verification format used throughout this whole project.
 **Two more ways into the same material, for different purposes:** the
 [Glossary](docs/GLOSSARY.md) is a fast lookup table for terms and tools used throughout this log
 (JWT, CORS, migrations, and so on), each pointing back to the topic file that explains it in
-full — useful when you know *what* you're looking for and just need to find where it's covered.
+full — useful when you know _what_ you're looking for and just need to find where it's covered.
 [Lessons Learned](docs/LESSONS-LEARNED.md) instead collects every real bug found during this
 project's build in one place — what happened, the actual root cause, and the general lesson —
 useful for browsing what's gone wrong before, rather than looking something specific up.
@@ -148,6 +148,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-15 — Phase 5 + Phase 6: wiring the frontend to auth — and why a vertical slice
 - 2026-08-16 — Phase 6: Settings page with change-password form (and a real race-condition bug)
 - 2026-08-17 — Phase 5: rehydrating a session from the refresh cookie on page load
+- 2026-08-18 — NavBar overflowing on mobile with a long display name/email
 
 ### [Mood Logging](docs/log/03-mood-logging.md)
 
@@ -247,4 +248,3 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-17 — Fixing the one real gap the audit found: no centralized error-handling middleware
 - 2026-08-17 — Phase 12: a real accessibility audit, with axe-core and actual keyboard testing
 - 2026-08-18 — Closing the rate-limiting gap the audit found
-
