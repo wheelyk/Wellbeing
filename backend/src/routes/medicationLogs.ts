@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { DEFAULT_LOG_LIST_LIMIT, fetchPage, paginationQuerySchema } from "../lib/pagination";
 
 const createSchema = z.object({
   medicationId: z.string().trim().min(1),
@@ -35,11 +36,31 @@ async function medicationBelongsToUser(medicationId: string, userId?: string): P
 }
 
 medicationLogsRouter.get("/", async (req, res) => {
-  const medicationLogs = await prisma.medicationLog.findMany({
-    where: { userId: req.userId },
-    orderBy: { loggedAt: "desc" },
-  });
-  res.json(medicationLogs);
+  const parsedQuery = paginationQuerySchema.safeParse(req.query);
+  if (!parsedQuery.success) {
+    return res.status(400).json({
+      error: {
+        message: "Invalid medication log query",
+        code: "VALIDATION_ERROR",
+        details: parsedQuery.error.flatten().fieldErrors,
+      },
+    });
+  }
+  const { limit = DEFAULT_LOG_LIST_LIMIT, offset = 0 } = parsedQuery.data;
+
+  const page = await fetchPage(
+    ({ take, skip }) =>
+      prisma.medicationLog.findMany({
+        where: { userId: req.userId },
+        orderBy: { loggedAt: "desc" },
+        take,
+        skip,
+      }),
+    limit,
+    offset,
+  );
+
+  res.json(page);
 });
 
 medicationLogsRouter.post("/", async (req, res) => {

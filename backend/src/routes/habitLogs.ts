@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import type { HabitType as PrismaHabitType } from "../generated/prisma/client";
 import { toApiHabitType } from "../lib/habitType";
+import { DEFAULT_LOG_LIST_LIMIT, fetchPage, paginationQuerySchema } from "../lib/pagination";
 
 // Mirrors the three nullable columns on HabitLog (see schema.prisma) - the API accepts exactly
 // the same three field names the database uses, so no separate translation layer is needed here
@@ -107,11 +108,31 @@ function hasAnyValueField(fields: ValueFields): boolean {
 export const habitLogsRouter = Router();
 
 habitLogsRouter.get("/", async (req, res) => {
-  const habitLogs = await prisma.habitLog.findMany({
-    where: { userId: req.userId },
-    orderBy: { loggedAt: "desc" },
-  });
-  res.json(habitLogs);
+  const parsedQuery = paginationQuerySchema.safeParse(req.query);
+  if (!parsedQuery.success) {
+    return res.status(400).json({
+      error: {
+        message: "Invalid habit log query",
+        code: "VALIDATION_ERROR",
+        details: parsedQuery.error.flatten().fieldErrors,
+      },
+    });
+  }
+  const { limit = DEFAULT_LOG_LIST_LIMIT, offset = 0 } = parsedQuery.data;
+
+  const page = await fetchPage(
+    ({ take, skip }) =>
+      prisma.habitLog.findMany({
+        where: { userId: req.userId },
+        orderBy: { loggedAt: "desc" },
+        take,
+        skip,
+      }),
+    limit,
+    offset,
+  );
+
+  res.json(page);
 });
 
 habitLogsRouter.post("/", async (req, res) => {

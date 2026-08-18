@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { DEFAULT_LOG_LIST_LIMIT, fetchPage, paginationQuerySchema } from "../lib/pagination";
 
 const moodField = z.number().int().min(1).max(5);
 // Energy/stress get one more point of resolution than mood (1-7, not 1-5) specifically so a
@@ -32,11 +33,31 @@ const updateSchema = createSchema.partial().extend({
 export const moodLogsRouter = Router();
 
 moodLogsRouter.get("/", async (req, res) => {
-  const moodLogs = await prisma.moodLog.findMany({
-    where: { userId: req.userId },
-    orderBy: { loggedAt: "desc" },
-  });
-  res.json(moodLogs);
+  const parsedQuery = paginationQuerySchema.safeParse(req.query);
+  if (!parsedQuery.success) {
+    return res.status(400).json({
+      error: {
+        message: "Invalid mood log query",
+        code: "VALIDATION_ERROR",
+        details: parsedQuery.error.flatten().fieldErrors,
+      },
+    });
+  }
+  const { limit = DEFAULT_LOG_LIST_LIMIT, offset = 0 } = parsedQuery.data;
+
+  const page = await fetchPage(
+    ({ take, skip }) =>
+      prisma.moodLog.findMany({
+        where: { userId: req.userId },
+        orderBy: { loggedAt: "desc" },
+        take,
+        skip,
+      }),
+    limit,
+    offset,
+  );
+
+  res.json(page);
 });
 
 moodLogsRouter.post("/", async (req, res) => {
