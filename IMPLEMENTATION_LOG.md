@@ -249,4 +249,4 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-17 — Fixing the one real gap the audit found: no centralized error-handling middleware
 - 2026-08-17 — Phase 12: a real accessibility audit, with axe-core and actual keyboard testing
 - 2026-08-18 — Closing the rate-limiting gap the audit found
-- 2026-08-18 — Dependabot, explained (not yet enabled)
+- 2026-08-18 — Dependabot: security updates enabled, version updates deferred
