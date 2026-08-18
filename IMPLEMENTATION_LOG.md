@@ -243,4 +243,5 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-17 — Phase 11: a real security audit against the running codebase, not just re-reading the checklist
 - 2026-08-17 — Fixing the one real gap the audit found: no centralized error-handling middleware
 - 2026-08-17 — Phase 12: a real accessibility audit, with axe-core and actual keyboard testing
+- 2026-08-18 — Closing the rate-limiting gap the audit found
 

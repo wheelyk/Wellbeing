@@ -52,7 +52,7 @@ Reference: requirements §5, §13.
 - [x] Implement an Express auth middleware that verifies the access token and attaches the authenticated user to the request; use it on all protected routes.
 - [ ] Implement `GET /api/users/me`, `PATCH /api/users/me` (display name, timezone), `DELETE /api/users/me`.
 - [ ] On account deletion, cascade-delete (or explicitly delete in a transaction) all of the user's symptom logs, mood logs, medication/medication logs, habits/habit logs, and user-owned symptoms.
-- [ ] Add rate limiting (e.g. `express-rate-limit`) to all `/api/auth/*` endpoints.
+- [x] Add rate limiting (e.g. `express-rate-limit`) to all `/api/auth/*` endpoints. (Applied to `/register`, `/login`, `/change-password`; deliberately not `/refresh`/`/logout` — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [x] Add CORS configuration restricting allowed origins. (Deployed and verified — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)'s FRONTEND_URL/CORS entries.)
 - [x] Ensure no endpoint or log statement ever outputs a plain-text password or raw health data. (Audited: only one `console.log` in the whole backend, logging just the port number; register/login responses never include `passwordHash`, tested explicitly.)
 
@@ -199,7 +199,7 @@ Reference: requirements §13.
 - [x] Confirm refresh tokens are stored as HTTP-only, `Secure`, `SameSite` cookies (not `localStorage`). (Confirmed against the real production `Set-Cookie` header, not just code.)
 - [x] Confirm password hashing uses bcrypt/argon2 with an appropriate cost factor. (`SALT_ROUNDS = 12`.)
 - [x] Confirm input validation/sanitization is applied on every write endpoint (reject unexpected fields, enforce types/ranges). (Zod on every write endpoint.)
-- [ ] Confirm rate limiting is active on auth endpoints in a staging-like environment. (Genuinely not implemented — confirmed via audit, real remaining work, not a stale checkbox.)
+- [x] Confirm rate limiting is active on auth endpoints in a staging-like environment. (No staging environment exists yet in this project; verified against the real local dev server instead — 12 real `curl` requests to `/api/auth/login`, the 11th and 12th correctly returned `429`. See [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [x] Review server logs to confirm no health data or credentials are ever logged. (Exactly one `console.log` in the whole backend, logging only the port number.)
 - [x] Configure HTTPS at the hosting/proxy layer for production. (Satisfied by Railway/Vercel's automatic TLS termination.)
 
