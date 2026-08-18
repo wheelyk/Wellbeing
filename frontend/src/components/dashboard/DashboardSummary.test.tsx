@@ -94,6 +94,70 @@ describe("DashboardSummary", () => {
     expect(screen.getByText(/mood — 4\/5/i)).toBeInTheDocument();
   });
 
+  // Computed relative to the real current time (rather than mocking the clock) so these stay
+  // correct no matter when the suite actually runs - the component compares calendar days using
+  // `new Date()` directly (see formatEntryDateLabel's comment on why: no fake-timer setup needed
+  // to keep this deterministic, just picking entry timestamps a known number of days back from
+  // "now," the same reference point the component itself uses.
+  function daysAgoIso(daysAgo: number): string {
+    const now = new Date();
+    // Midday, not midnight - keeps this away from a local-timezone day-boundary edge case no
+    // matter what timezone the machine running this test happens to be in.
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo, 12).toISOString();
+  }
+
+  it("labels a recent entry logged today as 'Today'", async () => {
+    mockDashboardFetch({
+      date: "2026-08-17",
+      mood: null,
+      symptomCount: 0,
+      medicationSummary: { taken: 0, total: 0 },
+      habitSummary: { loggedCount: 0, totalHabits: 0 },
+      recentEntries: [{ type: "mood", label: "Mood", value: "4/5", loggedAt: daysAgoIso(0) }],
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    });
+
+    render(<DashboardSummary />);
+
+    expect(await screen.findByText(/mood — 4\/5 — today,/i)).toBeInTheDocument();
+  });
+
+  it("labels a recent entry logged yesterday as 'Yesterday', not 'Today'", async () => {
+    mockDashboardFetch({
+      date: "2026-08-17",
+      mood: null,
+      symptomCount: 0,
+      medicationSummary: { taken: 0, total: 0 },
+      habitSummary: { loggedCount: 0, totalHabits: 0 },
+      recentEntries: [{ type: "habit", label: "Nap", value: "30 min", loggedAt: daysAgoIso(1) }],
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    });
+
+    render(<DashboardSummary />);
+
+    expect(await screen.findByText(/nap — 30 min — yesterday,/i)).toBeInTheDocument();
+    expect(screen.queryByText(/nap — 30 min — today,/i)).not.toBeInTheDocument();
+  });
+
+  it("labels an older recent entry with its actual date, not a relative word", async () => {
+    mockDashboardFetch({
+      date: "2026-08-17",
+      mood: null,
+      symptomCount: 0,
+      medicationSummary: { taken: 0, total: 0 },
+      habitSummary: { loggedCount: 0, totalHabits: 0 },
+      recentEntries: [
+        { type: "medication", label: "Diazepam", value: "Taken", loggedAt: daysAgoIso(10) },
+      ],
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    });
+
+    render(<DashboardSummary />);
+
+    const entry = await screen.findByText(/diazepam — taken —/i);
+    expect(entry.textContent).not.toMatch(/today|yesterday/i);
+  });
+
   it("shows 'Not logged yet' for mood when no mood log exists for the day", async () => {
     mockDashboardFetch({
       date: "2026-08-17",

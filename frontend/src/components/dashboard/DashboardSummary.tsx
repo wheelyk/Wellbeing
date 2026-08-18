@@ -44,6 +44,30 @@ function formatEntryTime(loggedAt: string): string {
   return new Date(loggedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+// "Recent entries" deliberately shows the most recent entries across *all* history, not just
+// today (see backend/src/routes/dashboard.ts) - useful so the list isn't empty on a day you
+// haven't logged much yet, but it means entries from different calendar days can sit right next
+// to each other with only a same-looking time-of-day shown, easy to misread as "today" (a real
+// point of confusion this label exists to fix). Compares calendar days in the browser's own local
+// timezone, same as formatEntryTime just above - not the user's app-configured timezone, which
+// this component never fetches; entries can't be usefully split into calendar days without a
+// timezone in the first place, and the two would only actually disagree if someone were reading
+// the app from a different timezone than the one in their own profile.
+function formatEntryDateLabel(loggedAt: string): string {
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const entryDay = startOfDay(new Date(loggedAt));
+  const today = startOfDay(new Date());
+  const diffDays = Math.round((today.getTime() - entryDay.getTime()) / (24 * 60 * 60 * 1000));
+
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  return entryDay.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: entryDay.getFullYear() === today.getFullYear() ? undefined : "numeric",
+  });
+}
+
 const ENTRY_TYPE_ICON: Record<RecentEntry["type"], string> = {
   mood: "🙂",
   symptom: "🩺",
@@ -178,7 +202,8 @@ export function DashboardSummary() {
                   {ENTRY_TYPE_ICON[entry.type]}
                 </span>
                 <p className="text-text">
-                  {entry.label} — {entry.value} — {formatEntryTime(entry.loggedAt)}
+                  {entry.label} — {entry.value} — {formatEntryDateLabel(entry.loggedAt)},{" "}
+                  {formatEntryTime(entry.loggedAt)}
                 </p>
               </li>
             ))}
