@@ -4,7 +4,7 @@
 
 **Task:** [Tasks.md](../../Tasks.md) → Phase 5 (Frontend Foundation) + Phase 6 (Frontend: Auth
 Flows), scoped specifically to make register/login/logout actually work end-to-end in a
-browser — not a full completion of either phase (see *Decisions* for exactly what was left
+browser — not a full completion of either phase (see _Decisions_ for exactly what was left
 out and why).
 
 **Delivered via branch:** `feature/5-6-frontend-auth`.
@@ -14,7 +14,7 @@ out and why).
 This is worth explaining properly, since it's a deliberate strategy choice, not just how the
 work happened to fall out.
 
-- **The alternative — "horizontal" completion — would mean finishing *all* of Phase 5 first**
+- **The alternative — "horizontal" completion — would mean finishing _all_ of Phase 5 first**
   (a fully wireframe-matching bottom nav, every design primitive including `RatingScale`,
   `Modal`, `DatePicker`, a verified WCAG-AA color audit) before writing a single line of
   Phase 6. Everything built that way stays untested against real usage until the very end,
@@ -25,7 +25,7 @@ work happened to fall out.
   reworking.
 - **A vertical slice instead cuts through every layer of the stack at once, thin.** Database
   → Prisma → Express route → HTTP → the browser's `fetch` → React state → a rendered page —
-  register/login/logout now works through *all* of these layers, even though each individual
+  register/login/logout now works through _all_ of these layers, even though each individual
   layer is intentionally minimal (three real pages, three reusable primitives, no bottom nav
   polish yet). The payoff: a genuinely working, demonstrable feature exists after one round
   of work, instead of a pile of unconnected infrastructure that only becomes demonstrable
@@ -39,9 +39,9 @@ work happened to fall out.
   2.3 entry genuinely works end-to-end, not just in theory.
 - **Concretely, "thin" meant:** build enough of Phase 5 (routing, the API client, auth
   context, three primitives) to support Phase 6's pages, and only the parts of Phase 6 that
-  make a complete register→login→logout loop — explicitly *not* forgot/reset password,
+  make a complete register→login→logout loop — explicitly _not_ forgot/reset password,
   settings, or account deletion, none of which the backend even supports yet either. See
-  *Decisions* for the full list of what's deliberately still missing.
+  _Decisions_ for the full list of what's deliberately still missing.
 
 ### Background / concepts
 
@@ -69,12 +69,12 @@ work happened to fall out.
   persisted anywhere (not `localStorage`, not a cookie) — it lives only as a plain JavaScript
   variable in `api/client.ts` and mirrored in React state via `AuthContext`. This is the
   standard secure pattern for SPAs (nothing a page's own JavaScript can read is safe from
-  XSS, so keeping the access token *only* in memory limits how long a leak could matter — at
+  XSS, so keeping the access token _only_ in memory limits how long a leak could matter — at
   most 15 minutes, its own expiry).
   The direct consequence: **a full browser reload currently logs the user out** — there's
   nothing in the page's memory to restore from, and nothing yet re-fetches "who is this
   refresh cookie for" on startup. This is a known, deliberate gap for this slice — see
-  *Decisions* for why it isn't closed yet.
+  _Decisions_ for why it isn't closed yet.
 
 #### The CORS bug this step actually found (not just fixed defensively)
 
@@ -106,21 +106,21 @@ work happened to fall out.
   refresh **rotates** the cookie (per the 2.3 entry), the second call would receive a cookie
   that's already been superseded by the first, likely failing. `api/client.ts` avoids this by
   holding one shared `refreshPromise`: whichever request hits `401` first kicks off the
-  refresh, and any other concurrent caller awaits that *same* promise instead of starting its
+  refresh, and any other concurrent caller awaits that _same_ promise instead of starting its
   own.
 - **A real bug found by trying to satisfy the checklist literally, not just "close enough."**
   `Tasks.md`'s Phase 5 wording is specific: "...on refresh failure, **redirect to Login**."
   The first implementation only cleared `api/client.ts`'s own module-level `accessToken`
   variable on a failed refresh — but `AuthContext`'s React state (`user`, `accessToken`,
-  `isAuthenticated`) is a *separate* copy, and nothing was telling it to update. Since
+  `isAuthenticated`) is a _separate_ copy, and nothing was telling it to update. Since
   `RequireAuth`'s redirect logic only ever looks at `AuthContext`'s state, a failed background
-  refresh would silently leave the app *looking* logged in (stale user info still showing)
+  refresh would silently leave the app _looking_ logged in (stale user info still showing)
   even though `api/client.ts` itself had already given up on the session. Fixed with a small
   publish/subscribe pattern: `client.ts` exposes `onAuthFailure(listener)`, calls every
   registered listener when a refresh definitively fails, and `AuthContext` subscribes on
   mount to clear its own state when that happens — which is what actually makes `RequireAuth`
   notice and redirect, since clearing that state triggers a re-render of every component
-  reading it, `RequireAuth` included. This was caught specifically *because* a test was
+  reading it, `RequireAuth` included. This was caught specifically _because_ a test was
   written to prove the literal checklist wording, not just "seems to work" — see the added
   `RequireAuth` test below.
 
@@ -150,9 +150,9 @@ work happened to fall out.
 - The 2.2 (login) log entry documented hitting a Vitest/CommonJS import clash
   caused by a stale, previously-compiled `dist/routes/auth.test.js` interfering with Vitest's
   test discovery, and worked around it by manually deleting `dist/` before testing. Running
-  `npm run build && npm test` in this step hit the *exact same* failure again — because
+  `npm run build && npm test` in this step hit the _exact same_ failure again — because
   `tsc`'s `include: ["src"]` was never actually told to skip test files, so every `npm run
-  build` regenerates the stale, interfering compiled test file right back. This time, fixed
+build` regenerates the stale, interfering compiled test file right back. This time, fixed
   it properly instead of re-applying the same manual workaround: added
   `"src/**/*.test.ts"` to `backend/tsconfig.json`'s `exclude` array, so test files are simply
   never part of the production build's output in the first place. Confirmed
@@ -160,7 +160,7 @@ work happened to fall out.
 
 ### What was done
 
-1. **Backend CORS fix + `FRONTEND_URL`** — see *Background* above.
+1. **Backend CORS fix + `FRONTEND_URL`** — see _Background_ above.
 2. **Routing** (`frontend/src/App.tsx`): `/login`, `/register`, `/forgot-password`,
    `/reset-password` (public); `/dashboard`, `/history`, `/trends`, `/settings` (behind
    `RequireAuth`). History/Trends/Settings and the forgot/reset pages are minimal
@@ -175,7 +175,7 @@ work happened to fall out.
    friendly messages instead of a generic failure.
 5. **`AuthContext`** (`src/auth/AuthContext.tsx`): holds `user`/`accessToken`/
    `isAuthenticated`; `register()` calls the register endpoint then immediately logs in with
-   the same credentials (register doesn't issue tokens itself — see *Decisions*); `login()`
+   the same credentials (register doesn't issue tokens itself — see _Decisions_); `login()`
    and `logout()` call their respective endpoints and update state; subscribes to
    `onAuthFailure` to clear state on a failed background refresh.
 6. **`RegisterPage`/`LoginPage`**: real forms using the primitives above, client-side
@@ -195,8 +195,8 @@ work happened to fall out.
    one test was leaking into the next, which is exactly what the first test run's "found
    multiple elements" failures turned out to be). 14 tests across `client.test.ts`,
    `RegisterPage.test.tsx`, `LoginPage.test.tsx`, and `RequireAuth.test.tsx`.
-9. **Fixed the `tsc`-compiling-tests-into-`dist` issue for good** — see *Background* above.
-10. **Playwright real-browser verification** — see *Background* above. Registered a user,
+9. **Fixed the `tsc`-compiling-tests-into-`dist` issue for good** — see _Background_ above.
+10. **Playwright real-browser verification** — see _Background_ above. Registered a user,
     confirmed the dashboard rendered with the right welcome text, logged out and confirmed
     redirect to `/login`, logged back in and confirmed the dashboard again, then confirmed
     visiting `/dashboard` while logged out redirects straight to `/login` — all with zero
@@ -243,7 +243,7 @@ auth stack under real browser conditions (which is exactly what caught the CORS 
 - **Playwright as a one-off manual check, not a committed suite.** Matches the boundary set
   in the previous log entry — real end-to-end tests belong to Phase 13, once there's enough
   UI surface and CI infrastructure to make a permanent suite worthwhile; this run's job was
-  producing real proof for *this* conversation, not ongoing regression coverage.
+  producing real proof for _this_ conversation, not ongoing regression coverage.
 - **Fixed the `dist`/test-file `tsc` issue properly** (excluding test files from the build)
   rather than re-applying the "just delete `dist/` first" workaround noted in the login entry
   — a workaround that has to be remembered every time isn't really fixed.
@@ -291,10 +291,10 @@ only as a `PlaceholderPage` until now.
 
 ### Background / concepts
 
-#### Scoped deliberately: this is *a* Settings page, not *the* Settings page
+#### Scoped deliberately: this is _a_ Settings page, not _the_ Settings page
 
 - Phase 6 has its own, separate, larger "Settings page: view/edit display name and timezone;
-  account deletion flow" item, not yet built. `SettingsPage.tsx` today contains *only* the
+  account deletion flow" item, not yet built. `SettingsPage.tsx` today contains _only_ the
   change-password form — matching just what this specific task asked for, not pre-building
   pieces of that later task. Display name/timezone editing and account deletion will be added
   to this same page/file when their own tasks come up, not invented ahead of time here.
@@ -303,42 +303,42 @@ only as a `PlaceholderPage` until now.
 
 - The form's success handler needs to do three things: tell the backend to change the password
   (done), end the local session, and land the user on `/login` with a helpful message. The
-  *first* version of this wrote that as `await logout(); navigate("/login", { state: {
-  message } })` — log out, then redirect. That reads perfectly reasonably and passed every
+  _first_ version of this wrote that as `await logout(); navigate("/login", { state: {
+message } })` — log out, then redirect. That reads perfectly reasonably and passed every
   automated test. **It was still wrong**, caught only by actually driving a real browser through
   the full flow and checking what happened after re-logging in.
 - **What actually happened:** `logout()` clears the app's auth state (`user: null, accessToken:
-  null`). `SettingsPage` lives behind `RequireAuth` (the route guard covered in detail in the
+null`). `SettingsPage` lives behind `RequireAuth` (the route guard covered in detail in the
   next entry) — the instant that state change is processed, `RequireAuth` notices
-  `isAuthenticated` just became `false` *while `/settings` is still the current route* and
+  `isAuthenticated` just became `false` _while `/settings` is still the current route_ and
   fires its **own** redirect to `/login`, carrying `state: { from: location }` (so a normal
   "you got logged out, here's where to come back to" flow works). That redirect and this
   form's own `navigate("/login", { state: { message } })` call are now racing to decide what
   `/login`'s `location.state` actually ends up being — and `RequireAuth`'s won, discarding the
-  success message and, worse, meaning a *subsequent* login redirected back to `/settings`
+  success message and, worse, meaning a _subsequent_ login redirected back to `/settings`
   (reading `state.from.pathname`) instead of the expected `/dashboard`.
 - **Why the automated test suite didn't catch this.** The Vitest/Testing-Library test for this
-  flow mocks `fetch` directly and asserts on the *final* rendered state — it never actually
+  flow mocks `fetch` directly and asserts on the _final_ rendered state — it never actually
   exercises React's real scheduling/timing between two competing `setState`-triggered
   re-renders the way a real browser genuinely does. This is exactly the kind of bug real
   end-to-end browser testing exists to catch that a mocked unit test structurally cannot —
   not a weakness in the tests that were written, just a category of bug outside what that
   layer of testing can see.
-- **The fix:** reorder to `navigate("/login", { state: { message } })` *first*, then `await
-  logout()`. Once the route has already changed to `/login` — a route `RequireAuth` doesn't
+- **The fix:** reorder to `navigate("/login", { state: { message } })` _first_, then `await
+logout()`. Once the route has already changed to `/login` — a route `RequireAuth` doesn't
   guard at all — the subsequent auth-state change has nothing left to react to. No more race,
-  because there's no longer a moment where the guarded route is still current *and* the auth
+  because there's no longer a moment where the guarded route is still current _and_ the auth
   state has already flipped.
 
 #### A second false alarm, and the actual lesson in it
 
 - While verifying the fix, a screenshot taken immediately after `page.waitForURL("**/settings")`
-  resolved still showed the *old* Dashboard content. This looked like another real bug — until
+  resolved still showed the _old_ Dashboard content. This looked like another real bug — until
   checking the page's actual text content directly (rather than a screenshot) a moment later
   showed the correct Settings content was there all along. `waitForURL` resolves the instant the
   browser's URL changes, which can be a beat before React actually finishes re-rendering and the
   browser repaints — a screenshot taken in that exact window can catch a stale frame. The fix
-  was to the *test script* (wait for a real, specific piece of the new page's content to appear
+  was to the _test script_ (wait for a real, specific piece of the new page's content to appear
   before screenshotting), not the application. Worth recording precisely because it looked
   identical to a real bug at first glance, and the only way to tell the difference was checking
   the DOM's actual text directly rather than trusting a single screenshot's timing.
@@ -349,7 +349,7 @@ only as a `PlaceholderPage` until now.
   `/settings` showed neither the Settings nor the Dashboard content — because this app's
   `AuthContext` never attempts to rehydrate a session on startup. The access token lives only
   in memory (`useState`, no `localStorage`), which is the deliberate, correct choice for
-  *storing* it (covered in the Phase 2.3 refresh-token entry — keeping it out of anything
+  _storing_ it (covered in the Phase 2.3 refresh-token entry — keeping it out of anything
   JavaScript-readable-and-persistent is part of what limits XSS blast radius). But nothing
   currently uses the still-valid `httpOnly` refresh cookie to silently re-establish a session
   when the app first loads — meaning today, a real user who simply refreshes their browser
@@ -378,8 +378,8 @@ only as a `PlaceholderPage` until now.
 6. **`npm test`** — 24/24 passing (20 pre-existing, 4 new).
 7. **`npm run build`, `npm run lint`, `npx prettier --check .`** — all clean.
 8. **Real, full end-to-end browser verification**, including the specific case the race
-   condition affected: register → open Settings → change password → land on Login *with the
-   confirmation message actually visible* → log in with the **new** password → land on
+   condition affected: register → open Settings → change password → land on Login _with the
+   confirmation message actually visible_ → log in with the **new** password → land on
    `/dashboard` (not `/settings`) — the exact sequence that exposed the bug in the first place,
    re-run clean after the fix. Cleaned up every test user and stopped both manually-started
    servers afterward.
@@ -440,9 +440,9 @@ redirected to `/login`, regardless of whether the cookie was still genuinely val
 #### Why `/api/auth/refresh` needed a small backend change first
 
 The refresh endpoint already did most of the necessary work — it verifies the cookie, looks up
-the user, rotates the cookie, and issues a fresh access token — but only ever *returned* the
+the user, rotates the cookie, and issues a fresh access token — but only ever _returned_ the
 access token, discarding the full user row it had already fetched to get there. Rehydrating a
-session needs both pieces: an access token to authenticate future requests, *and* a user object
+session needs both pieces: an access token to authenticate future requests, _and_ a user object
 to actually populate `AuthContext`'s state with (a display name to show, an email, a timezone).
 Fixed by having `/refresh` return `user` too, in the exact same shape `/login` already returns it
 in (now shared via one `serializeUser` helper, rather than two copies of the same five fields).
@@ -465,7 +465,7 @@ nothing for that brief moment instead of guessing wrong.
    `/refresh`) and had `/refresh` return `{ user, accessToken }` instead of just `{ accessToken }`.
 2. **`frontend/src/api/client.ts`**: added `rehydrateSession<TUser>()` — a small, deliberately
    separate function from the existing `refreshAccessToken()` (which already handles
-   deduplicating *concurrent* 401-triggered retries, a scenario that can't happen yet at
+   deduplicating _concurrent_ 401-triggered retries, a scenario that can't happen yet at
    `rehydrateSession`'s one call site, before anything else has had a chance to make a request at
    all). Calls `POST /api/auth/refresh` directly and returns `{ user, accessToken } | null`.
 3. **`frontend/src/auth/AuthContext.tsx`**: added `isLoading` (starts `true`) and a mount-time
@@ -482,18 +482,18 @@ nothing for that brief moment instead of guessing wrong.
    rehydrated session.
 6. **Updated every existing test that renders `AuthProvider`** (`RequireAuth.test.tsx`,
    `LoginPage.test.tsx`, `RegisterPage.test.tsx`, `SettingsPage.test.tsx`) — this fix means
-   *every* `AuthProvider` mount now fires an unconditional `fetch` call to `/api/auth/refresh`
+   _every_ `AuthProvider` mount now fires an unconditional `fetch` call to `/api/auth/refresh`
    that didn't exist before, which several existing tests' mocks and assertions didn't account
    for (a `.mockResolvedValue()` reused for every call now gets consumed by the new rehydration
    attempt first; a `expect(fetchMock).not.toHaveBeenCalled()` assertion is no longer literally
    true even when the thing it's actually checking — "the form never submitted" — still holds).
    Each was fixed to either account for the extra call explicitly (a prepended
    `mockResolvedValueOnce` simulating "no session yet") or assert more precisely on what actually
-   matters (e.g. "never called *with* `/api/auth/change-password`", not "never called at all").
+   matters (e.g. "never called _with_ `/api/auth/change-password`", not "never called at all").
 7. **Added a new, dedicated test** for the actual behavior being fixed: a fresh mount with a
    valid session cookie lands directly on the protected route, never showing `/login` at all —
-   the only existing coverage before this was the *unauthenticated* redirect case and the
-   *explicit-login* case, neither of which exercised silent rehydration on mount at all.
+   the only existing coverage before this was the _unauthenticated_ redirect case and the
+   _explicit-login_ case, neither of which exercised silent rehydration on mount at all.
 
 ### Why it's needed
 
@@ -531,10 +531,97 @@ rotation policy) — the last remaining gap from Phase 5's original checklist.
 - Real browser reproduction: registered a user, confirmed a hard `page.reload()` previously
   landed on `/login` despite a valid cookie; re-ran the identical script after the fix and
   confirmed it now stays on `/dashboard`, with zero console errors during the reload itself (two
-  expected, harmless `401` console messages appear only from the *very first* page load before
+  expected, harmless `401` console messages appear only from the _very first_ page load before
   any account exists yet — the mount-time rehydration attempt correctly, honestly reporting "no
   session yet" for a brand-new visitor, doubled by React StrictMode's dev-only double-effect
   invocation; neither is a real error, and neither reproduces around the actual reload event this
   fix targets).
+
+---
+
+## 2026-08-18 — NavBar overflowing on mobile with a long display name/email
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a real layout bug, picked back up
+from a stashed, unfinished fix (started, then blocked on the session-rehydration fix above
+merging first, since both touched auth-adjacent frontend code) and completed here: read the real
+code, confirm the actual cause, fix it, then verify against an actual narrow viewport rather than
+assuming the fix worked.
+
+### Background / concepts
+
+`NavBar.tsx` renders the four nav links, the signed-in user's `displayName`, and a Log out
+button in a single flex row (`justify-between`). A flex item's default `min-width` is `auto` —
+its content's natural, unshrunk width — not `0`, which is the counterintuitive part: it means a
+flex item normally refuses to shrink smaller than its content even when the row runs out of room,
+unless `min-width: 0` is set explicitly to opt back into shrinking. Without that override, a long
+`displayName` (or an email used as a fallback display name — see the auth backend log for why
+that's the default) pushed the _entire header_ wider than the viewport on a phone-width screen,
+rather than the name itself wrapping or truncating.
+
+### What was done
+
+1. Added `min-w-0` to both the right-hand flex container and the name `<span>` itself (Tailwind's
+   `min-w-0` utility), plus `truncate` on the span so, once shrinking is actually possible, long
+   text ellipsizes instead of wrapping the header onto a second line. `shrink-0` was added to the
+   nav links and the Log out button so they claim their needed width first and never shrink
+   themselves.
+2. **Verifying this in a real browser (not just reasoning about the CSS) surfaced a second,
+   real problem the fix above didn't catch**: with four non-shrinking nav links plus a
+   non-shrinking Log out button both claiming space first, a genuinely long name at a 375px
+   viewport was left with only ~5px of the row to truncate into — not a readable `"Jane D…"`, just
+   an unreadable sliver, confirmed by inspecting the rendered span's own bounding box in a headless
+   browser. Stopping horizontal overflow isn't the same as the name staying legible.
+3. Fixed that by hiding the name entirely below the `sm` (640px) breakpoint (`hidden sm:block`) —
+   a common, simple mobile pattern — rather than trying to guarantee it a minimum readable width at
+   the further expense of the nav links. The Log out button is never hidden at any width; only the
+   name disappears on narrow screens.
+4. Two tests in `NavBar.test.tsx`: the existing "renders every link and Log out" case, plus a new
+   structural regression guard asserting the name span carries all four load-bearing classes
+   (`hidden`, `sm:block`, `truncate`, `min-w-0`) and that the Log out button's own class list never
+   contains `hidden` — jsdom has no real layout engine and doesn't load the compiled Tailwind
+   stylesheet, so it can't verify actual visibility or overflow; that's what the manual browser
+   verification below is for.
+
+### Why it's needed
+
+A header that visibly breaks its own layout is the kind of bug a real user notices in the first
+five seconds on a phone — and the "obvious" one-line CSS fix (`truncate` + `min-w-0`) turned out to
+only be half the fix once actually checked against a real narrow viewport with a genuinely long
+name, rather than assumed correct from the diff alone.
+
+### Decisions
+
+- **Hide the name below `sm`, rather than giving it a guaranteed minimum width.** A minimum width
+  would have to come from somewhere — either the nav links or the Log out button shrinking, which
+  reintroduces the exact "important controls get squeezed" problem this fix exists to avoid.
+  Hiding the name is what most mobile-web headers already do for this same reason, and the user's
+  own name is the least load-bearing piece of information in this header — every page it appears on
+  is already behind an authenticated route.
+- **`shrink-0` on the nav links and Log out button, not just `min-w-0`/`truncate` on the name.**
+  Both are needed together: `min-w-0` on the name only _permits_ it to shrink below its content
+  width; `shrink-0` on everything else is what guarantees the room it needs to shrink _into_ comes
+  from the name specifically, not unpredictably from whichever flex item the browser's default
+  shrink algorithm picks.
+- **Verified in an actual headless browser at 375px and 768px, not just by reading the Tailwind
+  classes.** This is exactly what caught the unreadable-sliver problem in step 2 above — a
+  plausible-looking CSS diff that compiles and passes structural unit tests can still be wrong in a
+  way only rendering it, at the width it's meant to fix, actually reveals.
+
+### Verification
+
+- `npm test` (frontend) — 123/123 passing (2 in `NavBar.test.tsx`, 1 pre-existing + 1 new).
+- `npm run build`, `npm run lint` (`oxlint`), `npx prettier --check .` — all clean.
+- Real browser check at a 375px viewport (iPhone SE-width) against the actual running dev
+  server, with a throwaway user registered with an intentionally long `displayName`
+  (`"A Very Long Display Name That Would Overflow A Narrow Mobile Header"`): confirmed
+  `document.documentElement.scrollWidth` no longer exceeds the viewport width, the name span is
+  `display: none`, and the Log out button's full bounding box stays within the viewport.
+- Same check repeated at 768px: confirmed the name span is `display: block`, visibly truncated
+  with an ellipsis rather than wrapping or overflowing, and the Log out button still fully fits.
+- The two console `401`s seen during both checks are the same already-documented, harmless
+  first-page-load rehydration attempt described in the verification section directly above this
+  entry — not a regression from this change.
+- The throwaway browser-created user was left in the local dev database; the one-off Playwright
+  verification scripts used for both manual browser checks were not committed.
 
 ---
