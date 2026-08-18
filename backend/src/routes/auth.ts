@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/jwt";
 import { clearRefreshTokenCookie, setRefreshTokenCookie } from "../lib/cookies";
 import { requireAuth } from "../middleware/requireAuth";
+import { authRateLimiter } from "../middleware/rateLimiter";
 
 const SALT_ROUNDS = 12;
 
@@ -39,7 +40,7 @@ const changePasswordSchema = z.object({
 
 export const authRouter = Router();
 
-authRouter.post("/register", async (req, res) => {
+authRouter.post("/register", authRateLimiter, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -81,7 +82,7 @@ authRouter.post("/register", async (req, res) => {
   }
 });
 
-authRouter.post("/login", async (req, res) => {
+authRouter.post("/login", authRateLimiter, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -160,7 +161,7 @@ authRouter.post("/logout", (_req, res) => {
   return res.status(200).json({ message: "Logged out" });
 });
 
-authRouter.post("/change-password", requireAuth, async (req, res) => {
+authRouter.post("/change-password", requireAuth, authRateLimiter, async (req, res) => {
   const parsed = changePasswordSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
