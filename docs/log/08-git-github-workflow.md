@@ -2191,3 +2191,112 @@ GitHub in the first place.
   after the one ripple fix above.
 
 ---
+
+## 2026-08-18 — GitHub merge queues, explained (and why they're not the same thing as stacked PRs)
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a concept explainer, written
+prospectively (like the stacked-PR entry earlier in this file), prompted by a question about
+whether GitHub's merge queue feature could help now that this project regularly has several PRs
+open for parallel/independent tasks. **Not yet enabled** — this documents the concept so the
+tradeoff is understood before deciding, not a record of it being turned on.
+
+### Background / concepts
+
+#### The everyday problem merge queues solve
+
+Picture a checkout line with one register. Two customers can each individually have a valid cart
+and enough money — but if they both tried to pay from the *same* shared account at the exact same
+moment, the balance check one of them saw a second ago might already be wrong by the time their
+payment actually goes through. A queue fixes this by processing people **one at a time, each
+against the current, up-to-date balance** — not the balance from when they first walked in.
+
+The same shape of problem happens with PRs. Say two open PRs — "add rate limiting" and "fix the
+navbar" — are both reviewed, both pass CI, both show a green checkmark, and both say "no
+conflicts." Each one is individually true *against `main` as it is right now*. But if you merge
+the first one, `main` has now changed — and the second PR was only ever tested against the *old*
+`main`, before that change. Usually this is fine. Occasionally it isn't: maybe both PRs happened
+to touch the same file in a way that's individually clean but combines into something broken, or
+a test that only fails once both changes are present together. GitHub's default merge button has
+no way to catch this — it only checks each PR against `main` at the moment you looked, not against
+what `main` will actually look like once everything ahead of it in line has also landed.
+
+#### What a merge queue actually does, mechanically
+
+Instead of clicking "Merge" directly, an approved PR gets added to a queue. For each PR in the
+queue, GitHub:
+
+1. Builds a **temporary, throwaway branch** combining `main` + every PR already ahead of it in
+   the queue + this PR's own changes.
+2. Runs the repo's required CI checks (tests, build, lint — whatever's configured) against *that
+   combined branch*, not against the PR's original, possibly-now-stale branch.
+3. Only if that combined check passes does it actually merge the PR into `main` for real.
+4. Moves on to the next PR in line, which now gets tested against a `main` that includes
+   everything merged so far.
+
+If a PR fails its combined check, it's removed from the queue and `main` is left untouched — the
+other queued PRs aren't blocked by it. The practical effect: every PR that merges through the
+queue was tested against the *actual* state `main` will be in right before it lands, not a
+snapshot from whenever CI last ran on its own branch.
+
+#### Is this the same thing as a "stacked PR"? No — different problem, different tool
+
+It's easy to conflate these since both involve "PRs and an order," but they solve opposite kinds
+of situations:
+
+- **A stacked PR (see the very first entry in this file, #7 → #8 → #9) is a deliberate choice**
+  made by whoever's writing the code, *because* one PR's code genuinely needs another
+  not-yet-merged PR's code to exist first (2.3's refresh endpoint needing 2.2's `lib/jwt.ts`).
+  Its base branch is intentionally another PR's branch, not `main` — that's the whole point.
+- **A merge queue is for PRs that are *not* related to each other at all** — "add rate limiting"
+  and "fix the navbar" (this project's actual PRs #72 and the still-pending NavBar fix) don't
+  need each other's code; they just both happen to be landing in `main` around the same time. The
+  queue's job is purely safety and ordering for otherwise-independent changes, not expressing a
+  code dependency.
+- Concretely: a PR whose base is set to *another PR's branch* (a real stack) isn't even eligible
+  to join `main`'s merge queue until it's been retargeted to `main` — which, per the very first
+  entry in this file, is exactly the automatic step that (when it works correctly) happens once
+  the branch it was stacked on merges. The merge queue only ever operates on PRs targeting the
+  same branch, one at a time; it doesn't know or care why any of them exist.
+
+#### Would this have caught any of this project's actual stranded-PR incidents?
+
+Worth being precise about this rather than assuming a new tool would have helped: **no, not
+directly.** Every real incident in this project so far (the PR #62 cherry-pick recovery, the PR
+#45/#68 wrong-base-branch recoveries, and the two "never pushed at all" recoveries) happened
+*before* anything reached the actual merge step — commits that were never pushed, or that landed
+against the wrong base branch entirely. A merge queue only starts working once a PR is genuinely
+ready and someone clicks "merge" (or "add to queue") — it has no visibility into commits still
+sitting unpushed on a laptop, and it doesn't change how base-branch retargeting works for stacked
+PRs. What it specifically guards against is a *different, not-yet-encountered* risk: two
+independently-fine PRs quietly breaking each other when combined — a real and growing risk the
+more PRs land in parallel (exactly the situation multiple AI agents working simultaneously,
+described elsewhere in this file, tends to create).
+
+### Why it's worth knowing
+
+This project routinely has several unrelated PRs open at once (four were open at the time this
+entry was written). None of them touch the same files, so the risk merge queues guard against
+hasn't caused a real problem yet — but as this project grows and more PRs start touching
+overlapping code (e.g. two different features both editing `NavBar.tsx`), that risk becomes more
+likely, not less. Knowing what the tool actually does — and, just as importantly, what it
+*doesn't* do — is what makes it possible to decide later whether it's worth turning on, rather
+than reaching for it as a vague "more automation is safer" reflex.
+
+### Decisions
+
+- **Not enabled yet.** This entry documents the concept for an informed decision later, not a
+  completed setup step — consistent with how this project generally avoids adding tooling ahead
+  of an actual, demonstrated need (see, e.g., the earlier decision to leave rate limiting
+  unimplemented until the security audit confirmed it was a real gap, not a hypothetical one).
+- **Explicitly contrasted against stacked PRs in this same entry**, rather than assuming the
+  distinction is obvious — "PRs merging in some order" is the surface-level similarity that makes
+  the two easy to confuse, even though a stacked PR is about a genuine code dependency and a merge
+  queue is about testing unrelated changes safely together.
+
+### Verification
+
+N/A — this entry is a concept explainer, not a change to verify. If merge queues are enabled
+later, that entry will include real verification (e.g. two intentionally-conflicting PRs queued
+together, confirming the queue actually catches the combined failure).
+
+---

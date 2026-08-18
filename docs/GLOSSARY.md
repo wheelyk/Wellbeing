@@ -178,6 +178,16 @@ dependencies) actually installed, so two different machines running `npm ci` get
 identical `node_modules`. See [docs/log/07-deployment.md](log/07-deployment.md), *"What a
 lockfile is, and why 'the locking' matters."*
 
+### Merge queue
+
+A GitHub feature that tests each approved PR against a *combined* branch (`main` + every PR ahead
+of it in the queue + its own changes) before actually merging it, catching the case where two
+individually-fine PRs would break something together — different from a [stacked PR](#stacked-pr),
+which is a deliberate code dependency between two specific PRs, not a general safety net for
+unrelated ones. Not yet enabled in this project. See
+[docs/log/08-git-github-workflow.md](log/08-git-github-workflow.md), *"GitHub merge queues,
+explained (and why they're not the same thing as stacked PRs)."*
+
 ### Migration (Prisma)
 
 A versioned, ordered SQL file describing one change to the database schema — `migrate dev` is
@@ -214,8 +224,10 @@ started from a different point all along. See [docs/log/08-git-github-workflow.m
 
 A pull request whose base branch is another not-yet-merged feature branch (instead of `main`),
 used when one task genuinely depends on code from a task that hasn't been reviewed and merged
-yet. See [docs/log/08-git-github-workflow.md](log/08-git-github-workflow.md), *"What a 'stacked'
-PR is, and why these three ended up that way."*
+yet — not to be confused with a [merge queue](#merge-queue), which is about ordering *unrelated*
+PRs safely, not expressing a dependency. See
+[docs/log/08-git-github-workflow.md](log/08-git-github-workflow.md), *"What a 'stacked' PR is, and
+why these three ended up that way."*
 
 ### Timing-based user enumeration
 

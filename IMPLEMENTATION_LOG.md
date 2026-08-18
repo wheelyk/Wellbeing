@@ -229,6 +229,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-17 — Two lasting regression checks for the dashboard, not just a one-off manual verification
 - 2026-08-17 — A bug fix stranded by outage timing, and how `git cherry-pick` recovered it
 - 2026-08-18 — A third stranding variant: work that was never pushed at all, and `git rebase` to recover it
+- 2026-08-18 — GitHub merge queues, explained (and why they're not the same thing as stacked PRs)
 
 ### [Housekeeping & Audits](docs/log/09-housekeeping.md)
 
