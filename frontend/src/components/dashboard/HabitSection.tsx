@@ -5,6 +5,7 @@ import { HabitEntryForm, type HabitLog } from "../HabitEntryForm";
 import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
 import { formatEntryDateTime } from "../../lib/entryDateLabel";
+import { useTimedMessage } from "../../hooks/useTimedMessage";
 
 // A habit log's value is spread across three nullable columns (see backend's habitLogs.ts) -
 // this picks whichever one the habit's type says is the meaningful one and renders it, rather
@@ -51,6 +52,9 @@ export function HabitSection() {
   // Reuses the "log" form mode for both create and edit - see MoodSection's identical
   // editingLog state for the full explanation.
   const [editingLog, setEditingLog] = useState<HabitLog | null>(null);
+  // Brief post-save confirmation - see MoodSection's identical use of useTimedMessage for the
+  // full explanation of why this is the whole success-feedback mechanism here.
+  const { message: savedMessage, showMessage: showSavedMessage } = useTimedMessage();
 
   const habitsById = useMemo(() => new Map(habits.map((h) => [h.id, h])), [habits]);
 
@@ -112,6 +116,7 @@ export function HabitSection() {
     setHabitFormMode("closed");
     setHabitToPreselect(null);
     setEditingLog(null);
+    showSavedMessage("Habit entry saved.");
   }
 
   function handleHabitLogEdit(log: HabitLog) {
@@ -125,6 +130,11 @@ export function HabitSection() {
   }
 
   async function handleHabitLogDelete(id: string) {
+    // Destructive and irreversible - confirm before touching state or the network, same
+    // pattern HistoryPage.tsx already uses for its own delete action (per requirements §15).
+    const confirmed = window.confirm("Delete this habit entry? This can't be undone.");
+    if (!confirmed) return;
+
     const previous = habitLogs;
     setHabitLogs((prev) => prev.filter((log) => log.id !== id));
     try {
@@ -167,6 +177,11 @@ export function HabitSection() {
             onCancel={() => setHabitFormMode(habits.length === 0 ? "closed" : "log")}
           />
         </div>
+      )}
+      {savedMessage && (
+        <p role="status" className="mb-3 text-sm font-medium text-success">
+          {savedMessage}
+        </p>
       )}
       {habitsLoading && <p className="text-text-muted">Loading…</p>}
       {habitLoadError && (

@@ -120,7 +120,7 @@ describe("MoodSection", () => {
     expect(await screen.findByText(/couldn't load your mood entries/i)).toBeInTheDocument();
   });
 
-  it("deletes an entry optimistically, calling the DELETE endpoint", async () => {
+  it("deletes an entry optimistically once the confirmation is accepted", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -143,6 +143,7 @@ describe("MoodSection", () => {
       )
       .mockResolvedValueOnce(jsonResponse(200, { message: "Deleted" }));
     vi.stubGlobal("fetch", fetchMock);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
 
     render(<MoodSection />);
@@ -150,10 +151,44 @@ describe("MoodSection", () => {
 
     await user.click(screen.getByRole("button", { name: /delete mood entry/i }));
 
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/delete this mood entry/i));
     expect(await screen.findByText(/nothing logged yet/i)).toBeInTheDocument();
     const [, deleteCall] = fetchMock.mock.calls;
     expect(deleteCall[0]).toContain("/api/mood-logs/log-1");
     expect(deleteCall[1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("does not delete when the confirmation is declined (per §15 destructive-action confirmation)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        entries: [
+          {
+            id: "log-1",
+            userId: "user-1",
+            mood: 3,
+            energy: null,
+            stress: null,
+            notes: null,
+            loggedAt: "2026-08-17T09:00:00.000Z",
+          },
+        ],
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+
+    render(<MoodSection />);
+    await screen.findByText(/mood 3\/5/i);
+
+    await user.click(screen.getByRole("button", { name: /delete mood entry/i }));
+
+    // Entry is still there, and no DELETE call was ever made - just the one initial GET.
+    expect(screen.getByText(/mood 3\/5/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("opens the edit form pre-filled when Edit is clicked, and replaces the entry in place on save", async () => {
@@ -193,6 +228,9 @@ describe("MoodSection", () => {
     // Replaced in place, not prepended - only one entry in the list either way.
     expect(screen.getAllByText(/mood \d\/5/i)).toHaveLength(1);
     expect(screen.queryByText("Edit mood entry")).not.toBeInTheDocument();
+    // Success feedback: a brief confirmation appears once the form closes (there's no toast
+    // system in this app - see hooks/useTimedMessage.ts).
+    expect(screen.getByRole("status")).toHaveTextContent(/mood entry saved/i);
 
     const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(patchCall?.[0]).toContain("/api/mood-logs/log-1");

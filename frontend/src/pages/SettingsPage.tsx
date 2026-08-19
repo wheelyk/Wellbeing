@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { apiFetch, ApiError } from "../api/client";
 import { NavBar } from "../components/NavBar";
+import { BottomNav } from "../components/BottomNav";
 import { Button } from "../components/Button";
 import { TextField } from "../components/TextField";
 import { Card } from "../components/Card";
@@ -311,7 +312,9 @@ export function SettingsPage() {
   return (
     <div className="min-h-screen bg-surface-muted">
       <NavBar />
-      <main className="mx-auto max-w-3xl px-4 py-8">
+      {/* pb-24/md:pb-8 - see DashboardPage.tsx's equivalent comment: leaves room below `md:` for
+          the fixed BottomNav bar so the Update password button isn't hidden behind it. */}
+      <main className="mx-auto max-w-3xl px-4 pt-8 pb-24 md:pb-8">
         <h1 className="text-2xl font-semibold text-text">Settings</h1>
 
         <section className="mt-6">
@@ -365,6 +368,7 @@ export function SettingsPage() {
           <AccountDeletionSection />
         </section>
       </main>
+      <BottomNav />
     </div>
   );
 }

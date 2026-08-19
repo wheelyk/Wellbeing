@@ -200,8 +200,51 @@ describe("MedicationSection", () => {
 
     expect(await screen.findByText(/ibuprofen — taken/i)).toBeInTheDocument();
     expect(screen.queryByText(/not taken/i)).not.toBeInTheDocument();
+    // Success feedback: a brief confirmation appears once the form closes (there's no toast
+    // system in this app - see hooks/useTimedMessage.ts).
+    expect(screen.getByRole("status")).toHaveTextContent(/medication entry saved/i);
 
     const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(patchCall?.[0]).toContain("/api/medication-logs/log-1");
+  });
+
+  it("deletes an entry only once the confirmation is accepted", async () => {
+    const medication = { id: "med-1", userId: "user-1", name: "Ibuprofen" };
+    const existingLog = {
+      id: "log-1",
+      userId: "user-1",
+      medicationId: "med-1",
+      taken: true,
+      notes: null,
+      loggedAt: "2026-08-17T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE")
+        return Promise.resolve(jsonResponse(200, { message: "Deleted" }));
+      if (url.includes("/api/medications")) return Promise.resolve(jsonResponse(200, [medication]));
+      return Promise.resolve(
+        jsonResponse(200, { entries: [existingLog], limit: 10, offset: 0, hasMore: false }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    render(<MedicationSection />);
+    await screen.findByText(/ibuprofen — taken/i);
+
+    await user.click(screen.getByRole("button", { name: /delete medication entry/i }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/delete this medication entry/i));
+    expect(screen.getByText(/ibuprofen — taken/i)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/medication-logs/log-1"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+
+    confirmSpy.mockReturnValueOnce(true);
+    await user.click(screen.getByRole("button", { name: /delete medication entry/i }));
+
+    expect(await screen.findByText(/nothing logged yet/i)).toBeInTheDocument();
   });
 });

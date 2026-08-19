@@ -114,7 +114,7 @@ Reference: requirements §7, §10, §12.7, §12.8.
 - [x] Build an API client (fetch/axios wrapper) that attaches the access token, and on a 401 automatically attempts a token refresh before retrying once; on refresh failure, redirect to Login.
 - [x] Build an auth context/store (e.g. React Context or a small state library) holding the current user and auth status.
 - [x] On app load, attempt a silent token refresh (using the `httpOnly` refresh cookie) to rehydrate the session, so a browser refresh doesn't log out a user whose session is still genuinely valid — found missing while testing the change-password flow, fixed later (see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)).
-- [ ] Build a bottom navigation component (Home / History / Trends / Settings) per the wireframes, visible on mobile; adapt to a top/side nav on desktop without changing the underlying workflow.
+- [x] Build a bottom navigation component (Home / History / Trends / Settings) per the wireframes, visible on mobile; adapt to a top/side nav on desktop without changing the underlying workflow. (No wireframes file exists yet, so built to this app's existing visual language — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [ ] Establish base Tailwind design tokens (colors, spacing, font sizes) for a calm, high-contrast, low-clutter UI, and reusable primitives: `Button`, `Card`, `RatingScale`, `Modal`, `TextField`, `DatePicker`.
 - [x] Ensure all interactive primitives have visible focus states and meet WCAG AA color contrast. (Confirmed during the Phase 12 audit — `focus-visible:outline` used consistently across every interactive element; zero axe-core WCAG 2AA contrast violations across six real pages/states. See [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 
@@ -141,10 +141,10 @@ Reference: requirements §6, §8.
 - [x] Mood entry form: 5 large emoji/visual mood buttons, optional energy (1–7) and stress (1–7) controls, optional notes, date/time picker, `Save Entry` button — matching the wireframe.
 - [x] Medication entry form: medication picker (or quick "mark as taken/not taken"), optional notes, date/time picker.
 - [x] Habit entry form: input control adapts to habit type (toggle for boolean, number input for numeric, duration input for duration), date/time picker.
-- [ ] Client-side validation before submit (required fields, value ranges), with clear inline error messages — no silent failures.
-- [ ] Success feedback (toast/inline confirmation) on save; clear error feedback on failure.
+- [x] Client-side validation before submit (required fields, value ranges), with clear inline error messages — no silent failures.
+- [x] Success feedback (toast/inline confirmation) on save; clear error feedback on failure.
 - [x] Edit and delete actions available from Dashboard/History for every log type, reusing the same forms pre-filled with existing values.
-- [ ] Delete actions require a lightweight confirmation (per §15, destructive-action confirmation).
+- [x] Delete actions require a lightweight confirmation (per §15, destructive-action confirmation).
 
 ---
 
@@ -154,7 +154,7 @@ Reference: requirements §7.
 
 - [x] Header showing today's date in the user's timezone.
 - [x] Today's summary card: mood, symptom count, medication summary (`1/2 taken`), habit summary.
-- [ ] Prominent Quick Add buttons (`+ Symptom`, `+ Mood`, `+ Medication`, `+ Habit`) opening the corresponding form with minimal taps.
+- [x] Prominent Quick Add buttons (`+ Symptom`, `+ Mood`, `+ Medication`, `+ Habit`) opening the corresponding form with minimal taps. (Each Dashboard section has its own inline icon add button, plus a floating Quick Add button reaching all four from anywhere on the page — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [x] Logging consistency indicator (streak + days logged this week) — informational tone, no gamified badges/pressure language.
 - [ ] Recent entries list (type, value, time), each entry tappable to edit.
 - [x] Loading and empty states (e.g. first-time user with nothing logged yet).

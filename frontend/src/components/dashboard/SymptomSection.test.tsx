@@ -166,8 +166,53 @@ describe("SymptomSection", () => {
 
     expect(await screen.findByText(/headache · severity 8\/10/i)).toBeInTheDocument();
     expect(screen.queryByText(/severity 3\/10/i)).not.toBeInTheDocument();
+    // Success feedback: a brief confirmation appears once the form closes (there's no toast
+    // system in this app - see hooks/useTimedMessage.ts).
+    expect(screen.getByRole("status")).toHaveTextContent(/symptom entry saved/i);
 
     const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(patchCall?.[0]).toContain("/api/symptom-logs/log-1");
+  });
+
+  it("deletes an entry only once the confirmation is accepted", async () => {
+    const symptoms = [{ id: "sym-1", userId: null, name: "Headache", description: null }];
+    const existingLog = {
+      id: "log-1",
+      userId: "user-1",
+      symptomId: "sym-1",
+      severity: 7,
+      notes: null,
+      loggedAt: "2026-08-17T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE")
+        return Promise.resolve(jsonResponse(200, { message: "Deleted" }));
+      if (url.includes("/api/symptoms")) return Promise.resolve(jsonResponse(200, symptoms));
+      return Promise.resolve(
+        jsonResponse(200, { entries: [existingLog], limit: 10, offset: 0, hasMore: false }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    // First: declining the confirmation must not delete or call the network.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    render(<SymptomSection />);
+    await screen.findByText(/headache · severity 7\/10/i);
+
+    await user.click(screen.getByRole("button", { name: /delete symptom entry/i }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/delete this symptom entry/i));
+    expect(screen.getByText(/headache · severity 7\/10/i)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/symptom-logs/log-1"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+
+    // Then: accepting the confirmation deletes as normal.
+    confirmSpy.mockReturnValueOnce(true);
+    await user.click(screen.getByRole("button", { name: /delete symptom entry/i }));
+
+    expect(await screen.findByText(/nothing logged yet/i)).toBeInTheDocument();
   });
 });
