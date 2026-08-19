@@ -1058,3 +1058,197 @@ isn't looking directly at the form when it completes.
   script was not committed.
 
 ---
+
+## 2026-08-19 — Quick Add becomes a real dialog, and "Load less" everywhere "Load more" exists
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a follow-up design request against
+yesterday's icon-button/FAB redesign: clicking a section's "+" still expanded the form inline into
+the same collapsible region as the entries list (so opening the form also meant scrolling past a
+now-taller card, and got the entries list "for free" whether or not the form itself needed to see
+them), and every "Load more" button in the app was one-way — once expanded, there was no way back
+to the short list short of a page reload.
+
+### Background / concepts
+
+#### Why a real dialog, not just restyling the inline form
+
+The inline form had a real, structural problem beyond how it looked: it lived inside
+`SectionPanel`'s own collapsible `children` region, the same region that renders the entries list
+(see yesterday's entry, and the code comment on `SectionPanel`'s `children` prop before this
+change). That coupling is what forced `expand()` to be called before opening the form — there was
+no way to show the form without the collapsible region itself also being open, which meant the
+entries list came along uninvited every time. A modal dialog sidesteps that entirely: it renders
+into its own layer (a React portal to `document.body`, not anywhere inside `SectionPanel`), so
+opening it has zero effect on whether that section's list is collapsed or expanded, and closing it
+leaves the list exactly as it was.
+
+#### Building `Modal` as a real, general-purpose primitive
+
+Tasks.md's Phase 5 design-primitives item (see the update to that line below) already called for a
+`Modal` component; this is the first task that actually needed one, so it's built as a genuine
+reusable primitive in `frontend/src/components/Modal.tsx`, not a one-off for the Quick Add case. It
+follows the standard accessible-dialog pattern this app hadn't needed before: `role="dialog"`,
+`aria-modal="true"`, `aria-labelledby` pointing at the title, a focus trap (Tab/Shift+Tab cycle
+within the dialog rather than escaping to the page behind it), Escape-to-close, backdrop-click-to-
+close (but not a click inside the dialog itself, which would otherwise bubble to the same
+handler), body scroll lock while open, and focus restoration — the element that had focus right
+before the dialog opened (typically the "+" button that triggered it) gets it back on close, so
+keyboard/screen-reader users aren't dropped back at the top of the page.
+
+#### Why the FAB now opens a dialog directly instead of scrolling to the section
+
+Yesterday's entry documented, at length, why the FAB scrolled to a section and let the user tap
+that section's own (force-expanded) icon button, rather than reaching into that section's internal
+form state directly — avoiding a new cross-component state-sharing mechanism this app had
+deliberately never needed. That reasoning assumed the form rendered inside the section's own
+collapsible region, which is exactly what made "just open it remotely" hard to do cleanly. Once the
+form moved into a `Modal` — a layer with no relationship to any section's collapse state — that
+constraint no longer applies: a dialog can be opened from anywhere, regardless of scroll position or
+a section's own collapsed state, without touching that section's internals at all.
+
+The mechanism chosen to do this, `frontend/src/lib/dashboardQuickAddEvent.ts`, still avoids lifting
+state into `DashboardPage` or introducing React Context — it's a thin wrapper around the browser's
+own `CustomEvent`/`window.dispatchEvent`/`addEventListener`, the same "plain DOM mechanism instead
+of a new state-sharing layer" instinct behind yesterday's `scrollIntoView` choice, just applied to a
+different problem: `dispatchDashboardQuickAdd("habit")` fires a `window`-level event carrying which
+log type was requested; each section calls `listenForDashboardQuickAdd("habit", handler)` in a
+`useEffect` to open its own dialog when that event fires. `DashboardPage`'s four sections and the
+FAB remain exactly as decoupled from each other as before — none of them import from or reference
+each other directly, they just happen to speak the same one-off event name.
+
+#### Why `HabitSection`'s FAB listener reuses its own "+" button's handler unchanged
+
+`HabitSection` already had special routing logic on its own "+" button — log a habit if the user has
+any, or go straight to creating one first if they don't (see the original habit-logging entry). The
+FAB listener calls that exact same `handleHabitButtonClick` function rather than a simplified
+"always open the log form" version, so a user reaching Habit through the floating button gets
+identical, already-correct behavior to a user clicking the section's own button — including the
+"create your first habit" routing for a brand-new user, verified directly in the browser check
+below rather than assumed to still work.
+
+#### "Load less": local truncation everywhere except one component that has to refetch
+
+Every "Load more" button in this app so far only ever grew — a real one-way door once several pages
+had been appended, with no way back short of reloading the page. Adding "Load less" turned out to
+have two genuinely different correct implementations, not one:
+
+- The four per-type Dashboard sections and `HistoryPage` all fetch once, then locally append
+  further pages to state already held in the browser — "Load less" for these is a pure client-side
+  `.slice(0, PAGE_SIZE)`, since the earlier pages being trimmed away are already sitting in memory
+  and nothing needs to be asked of the server again.
+- `DashboardSummary` cannot do the same trick safely. As the original Phase 4/8 entry and
+  yesterday's pagination entry both explain, this component polls `GET /api/dashboard` on a timer
+  and always requests exactly `recentEntriesLimit` entries on *every* fetch, including background
+  polls — that's what makes its own "Load more" grow a shared limit instead of appending pages (see
+  yesterday's entry). A purely local truncation here would only last until the next poll tick, which
+  would silently re-fetch at the old, larger limit and snap the list back to its expanded size a few
+  seconds later. `handleLoadLessRecent` instead shrinks `recentEntriesLimit` and immediately
+  refetches at the smaller value — genuinely asking the server for less, the same way "Load more"
+  genuinely asks for more, so the smaller list is what the next poll tick keeps seeing too.
+
+Both "Load less" buttons only appear once there's something to shrink back to (more than one page
+currently loaded) — never next to an already-short, first-page list.
+
+### What was done
+
+1. **New `frontend/src/components/Modal.tsx`.** The accessible dialog primitive described above,
+   portal-rendered to `document.body`. Covered by `Modal.test.tsx`: renders nothing while closed,
+   renders its content while open, the close button and Escape both call `onClose`, a backdrop click
+   calls `onClose` but a click inside the dialog itself doesn't, and focus returns to whatever
+   triggered the dialog once it closes.
+2. **New `frontend/src/lib/dashboardQuickAddEvent.ts`.** `dispatchDashboardQuickAdd(type)` /
+   `listenForDashboardQuickAdd(type, onOpen)`, the thin `CustomEvent` wrapper described above.
+3. **`SectionPanel.tsx`.** No longer force-expands on an Add click — that was only ever needed
+   because the form used to render inside the same collapsible region as the list (see yesterday's
+   `expand()` addition); with the form now in a `Modal`, `onAddClick` fires with no effect on this
+   panel's own collapsed state. `children` is now genuinely just the entries list, and the doc
+   comment on that prop was updated to say so.
+4. **`MoodSection`/`SymptomSection`/`MedicationSection`.** Each now renders its entry form inside a
+   sibling `<Modal>` (title matching whether it's a create or an edit) instead of inline inside
+   `SectionPanel`'s children; each listens for its own `dashboardQuickAddEvent` type and opens that
+   modal in response; each gained a `handleLoadLess` that truncates its loaded entries back to
+   `PAGE_SIZE` and re-shows the "Load more" button.
+5. **`HabitSection`.** Same shape, but its existing three-way `HabitFormMode`
+   (`"closed" | "log" | "create-habit"`) now renders inside one shared `Modal` (the title switches
+   between "Log a habit," "Create a new habit," and "Create your first habit," "Edit habit entry"
+   depending on mode), and its FAB listener reuses the section's own existing button-click handler
+   unchanged, per the reasoning above.
+6. **`QuickAddFab.tsx`.** `goToSection` (the `scrollIntoView` call from yesterday's entry) replaced
+   with `openSectionDialog`, which closes the FAB's own menu and calls
+   `dispatchDashboardQuickAdd(type)` — the FAB no longer needs to know section DOM ids at all.
+7. **`DashboardSummary.tsx`.** New `handleLoadLessRecent`, the refetch-based version described
+   above; a "Load less" button appears next to "Load more" once `recentEntriesLimit` has grown past
+   its starting value.
+8. **`HistoryPage.tsx`.** New `handleLoadLess`, the pure local-truncation version, matching the
+   per-type Dashboard sections.
+9. **Tests updated across the board**: `SectionPanel.test.tsx`'s force-expand test replaced (that
+   behavior no longer exists, by design); `QuickAddFab.test.tsx`'s `scrollIntoView` test replaced
+   with an assertion that clicking a menu item dispatches the right `dashboardQuickAddEvent`; each
+   of the four sections, `DashboardSummary.test.tsx`, and `HistoryPage.test.tsx` gained a "Load
+   less" test (seeding one page-plus-one entries, clicking Load more, then Load less, and confirming
+   the list shrinks back and "Load more" reappears); `DashboardPage.test.tsx` gained an integration
+   test confirming a FAB menu click opens the right section's dialog directly, with no scrolling
+   involved.
+10. **`Tasks.md`.** Updated the Phase 5 design-primitives line with a note that `Modal` now exists
+    (linking here), while `RatingScale` and `DatePicker` still don't — confirmed by reading
+    `MoodEntryForm.tsx` (an inline rating control, not a shared component) and every entry form's
+    date input (a native `type="datetime-local"`, not a dedicated component) before writing that
+    note, rather than assuming. The line's checkbox is intentionally left unchecked — it's a
+    compound item and two of its six pieces are still missing.
+
+### Why it's needed
+
+The inline form's coupling to the entries list's own collapsed state was a real structural
+awkwardness once the FAB existed: "add an entry" and "look at the recent entries list" are two
+different intentions that had been forced to share one collapsible region, and a real dialog is the
+correct decoupling, not just a visual preference. "Load more" without "Load less" was a genuine
+dead end once a list had already been expanded — this closes that gap the same way it was opened,
+consistently, everywhere it existed in the app.
+
+### Decisions
+
+- **A real `Modal` primitive, not a per-section popup.** Building the general-purpose component
+  Tasks.md's Phase 5 item already called for, rather than a bespoke dialog just for Quick Add, means
+  any future feature needing a modal (Tasks.md doesn't currently name one, but the primitive is now
+  there) doesn't have to duplicate this accessibility work.
+- **The FAB dispatches an event instead of the sections exposing an imperative "open" API** (e.g. a
+  ref-based `sectionRef.current.openForm()`). An event-based contract keeps the FAB and the four
+  sections mutually unaware of each other's existence beyond agreeing on the event's name and
+  payload shape — closer to this app's existing "no shared store between sections" principle than
+  an imperative handle would have been, and it costs nothing extra here since only one listener per
+  type ever exists at a time.
+- **`DashboardSummary`'s "Load less" refetches; every other one is a local slice.** Covered above —
+  a deliberate, documented asymmetry driven by `DashboardSummary` being the only list in this app
+  that's still being kept fresh by a background poll after its initial load.
+- **`Tasks.md`'s Phase 5 primitives line left unchecked.** `Modal` is done; `RatingScale` and
+  `DatePicker` are not yet separate components — checking the whole compound line off would
+  overstate the app's actual state, which is exactly what this project's checklist discipline exists
+  to avoid (see the "verifying no silent failures" entry above for the same principle applied to a
+  different task).
+
+### Verification
+
+- `npm test` (frontend): 174/174 passing (all pre-existing tests unaffected, plus 5 new `Modal`
+  tests, a rewritten `SectionPanel` test, a rewritten `QuickAddFab` test, six new "Load less" tests
+  across the four sections/`DashboardSummary`/`HistoryPage`, and a new FAB→dialog integration test
+  in `DashboardPage.test.tsx`).
+- `npm run build` (`tsc -b && vite build`) — clean. `npm run lint` (`oxlint`) — clean; fixed one new
+  `exhaustive-deps` warning on `HabitSection`'s FAB-listener effect along the way, by wrapping its
+  handler in `useCallback` and depending on the callback itself rather than reaching past it to
+  `habits.length` directly.
+- Real browser verification (Playwright, against the actual running dev servers): registered a
+  throwaway user and confirmed, end to end, that each section's own "+" opens a real dialog (not an
+  inline expansion) without disturbing that section's collapsed/expanded state; that a *collapsed*
+  section's "+" still opens its dialog correctly, now with no force-expand involved at all; that the
+  FAB's menu opens each section's dialog directly from anywhere on the page, including the Habit
+  item correctly routing to "create your first habit" for a brand-new user with none defined yet
+  (confirming the reused-handler behavior described above actually still works, not just that it
+  compiles); that Escape, the backdrop, and the dialog's own close button all close it and return
+  focus to whichever button opened it; and that "Load more" followed by "Load less" round-trips
+  correctly on all four per-type sections, `DashboardSummary` (confirmed via a real network request
+  firing on "Load less," not just a local state change), and `HistoryPage`. All ten checks passed
+  with zero browser console errors. Screenshots were reviewed for visual polish (dialog centering,
+  backdrop dimming, button spacing) at both a mobile (390px) and desktop viewport width. The
+  verification script and screenshots were not committed, and dev servers were stopped afterward.
+
+---
