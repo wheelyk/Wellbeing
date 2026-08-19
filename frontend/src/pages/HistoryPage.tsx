@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavBar } from "../components/NavBar";
+import { BottomNav } from "../components/BottomNav";
 import { Button } from "../components/Button";
 import { apiFetch } from "../api/client";
 
@@ -162,7 +163,10 @@ export function HistoryPage() {
   return (
     <div className="min-h-screen bg-surface-muted">
       <NavBar />
-      <main className="mx-auto max-w-3xl px-4 py-8">
+      {/* pb-24/md:pb-8 - see DashboardPage.tsx's equivalent comment: leaves room below `md:` for
+          the fixed BottomNav bar so the last entry (or the Load more button) isn't hidden
+          behind it. */}
+      <main className="mx-auto max-w-3xl px-4 pt-8 pb-24 md:pb-8">
         <h1 className="text-2xl font-semibold text-text">History</h1>
         <p className="mt-2 text-text-muted">
           Browse everything you&apos;ve logged, across mood, symptoms, medications, and habits.
@@ -316,6 +320,7 @@ export function HistoryPage() {
           )}
         </section>
       </main>
+      <BottomNav />
     </div>
   );
 }

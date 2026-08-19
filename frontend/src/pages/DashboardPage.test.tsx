@@ -66,8 +66,15 @@ describe("DashboardPage", () => {
 
     renderDashboard();
 
-    expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    // Two of each nav link now legitimately exist in the DOM at once: NavBar's own top nav
+    // (hidden below `md:`, visible from `md:` up) and BottomNav's fixed tab bar (visible below
+    // `md:`, hidden from `md:` up) - see NavBar.tsx/BottomNav.tsx. jsdom can't compute which one
+    // is actually visible at a given width (no real layout engine, no compiled stylesheet - see
+    // both components' own tests for that caveat), so this composition guard just confirms both
+    // navigation surfaces rendered, rather than asserting on a single link that no longer
+    // uniquely identifies either one.
+    expect(screen.getAllByRole("link", { name: "Home" })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: "Settings" })).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
 
     expect(screen.getByRole("button", { name: "Add mood entry" })).toBeInTheDocument();
