@@ -82,7 +82,7 @@ describe("HabitSection", () => {
     render(<HabitSection />);
     await screen.findByText(/haven't created any habits yet/i);
 
-    await user.click(screen.getByRole("button", { name: "+ Habit" }));
+    await user.click(screen.getByRole("button", { name: "Add habit entry" }));
 
     expect(screen.getByText("Create your first habit")).toBeInTheDocument();
   });

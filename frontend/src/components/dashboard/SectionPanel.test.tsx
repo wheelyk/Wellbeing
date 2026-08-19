@@ -30,19 +30,28 @@ function stubWorkingLocalStorage(): void {
   vi.stubGlobal("localStorage", storage);
 }
 
+function renderPanel(storageKey: string, onAddClick = vi.fn()) {
+  return render(
+    <SectionPanel
+      title="Recent things"
+      storageKey={storageKey}
+      addLabel="Add a thing"
+      onAddClick={onAddClick}
+    >
+      <p>The list</p>
+    </SectionPanel>,
+  );
+}
+
 describe("SectionPanel", () => {
   beforeEach(() => {
     stubWorkingLocalStorage();
   });
 
-  it("renders topContent and children, expanded by default", () => {
-    render(
-      <SectionPanel title="Recent things" storageKey="test-a" topContent={<button>+ Add</button>}>
-        <p>The list</p>
-      </SectionPanel>,
-    );
+  it("renders the add button and children, expanded by default", () => {
+    renderPanel("test-a");
 
-    expect(screen.getByRole("button", { name: "+ Add" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add a thing" })).toBeInTheDocument();
     expect(screen.getByText("The list")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /recent things/i })).toHaveAttribute(
       "aria-expanded",
@@ -50,19 +59,15 @@ describe("SectionPanel", () => {
     );
   });
 
-  it("hides the list but keeps the add button visible once collapsed", async () => {
+  it("hides the children but keeps the add button visible once collapsed", async () => {
     const user = userEvent.setup();
-    render(
-      <SectionPanel title="Recent things" storageKey="test-b" topContent={<button>+ Add</button>}>
-        <p>The list</p>
-      </SectionPanel>,
-    );
+    renderPanel("test-b");
 
     await user.click(screen.getByRole("button", { name: /recent things/i }));
 
-    // The whole point of keeping the add area outside the collapsible region: it must never
-    // disappear, regardless of the list's own collapsed state.
-    expect(screen.getByRole("button", { name: "+ Add" })).toBeInTheDocument();
+    // The whole point of keeping the add button in the always-visible header row: it must
+    // never disappear, regardless of the content region's own collapsed state.
+    expect(screen.getByRole("button", { name: "Add a thing" })).toBeInTheDocument();
     expect(screen.queryByText("The list")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /recent things/i })).toHaveAttribute(
       "aria-expanded",
@@ -70,21 +75,33 @@ describe("SectionPanel", () => {
     );
   });
 
+  it("calls onAddClick and force-expands the panel when the add button is clicked while collapsed", async () => {
+    const user = userEvent.setup();
+    const onAddClick = vi.fn();
+    renderPanel("test-f", onAddClick);
+
+    await user.click(screen.getByRole("button", { name: /recent things/i }));
+    expect(screen.queryByText("The list")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add a thing" }));
+
+    expect(onAddClick).toHaveBeenCalledOnce();
+    // A collapsed section's own add button is only reachable once expanded again - clicking it
+    // has to expand the panel itself, not just fire the callback into content nobody can see.
+    expect(screen.getByText("The list")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /recent things/i })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
   it("persists the collapsed state across remounts under the same storageKey", async () => {
     const user = userEvent.setup();
-    const { unmount } = render(
-      <SectionPanel title="Recent things" storageKey="test-c" topContent={<button>+ Add</button>}>
-        <p>The list</p>
-      </SectionPanel>,
-    );
+    const { unmount } = renderPanel("test-c");
     await user.click(screen.getByRole("button", { name: /recent things/i }));
     unmount();
 
-    render(
-      <SectionPanel title="Recent things" storageKey="test-c" topContent={<button>+ Add</button>}>
-        <p>The list</p>
-      </SectionPanel>,
-    );
+    renderPanel("test-c");
 
     expect(screen.queryByText("The list")).not.toBeInTheDocument();
   });
@@ -92,11 +109,7 @@ describe("SectionPanel", () => {
   it("does not share collapsed state between different storageKeys", () => {
     window.localStorage.setItem("welltrack:collapsed:test-d", "true");
 
-    render(
-      <SectionPanel title="Recent things" storageKey="test-e" topContent={<button>+ Add</button>}>
-        <p>The list</p>
-      </SectionPanel>,
-    );
+    renderPanel("test-e");
 
     expect(screen.getByText("The list")).toBeInTheDocument();
   });

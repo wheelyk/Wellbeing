@@ -53,6 +53,21 @@ describe("MoodSection", () => {
     expect(await screen.findByText(/nothing logged yet/i)).toBeInTheDocument();
   });
 
+  it("opens the entry form when the add button is clicked", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { entries: [], limit: 10, offset: 0, hasMore: false }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<MoodSection />);
+    await screen.findByText(/nothing logged yet/i);
+
+    await user.click(screen.getByRole("button", { name: "Add mood entry" }));
+
+    expect(screen.getByText("Log your mood")).toBeInTheDocument();
+  });
+
   it("loads more entries and appends them when Load more is clicked", async () => {
     const first = {
       id: "log-1",

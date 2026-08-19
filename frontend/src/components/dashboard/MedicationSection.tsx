@@ -117,31 +117,25 @@ export function MedicationSection() {
     <SectionPanel
       title="Recent medications"
       storageKey="medication"
-      topContent={
-        showMedicationForm ? (
-          <>
-            <h2 className="mb-4 text-lg font-semibold text-text">
-              {editingLog ? "Edit medication entry" : "Log a medication"}
-            </h2>
-            <MedicationEntryForm
-              key={editingLog?.id ?? "create"}
-              editingLog={editingLog}
-              onSaved={handleMedicationSaved}
-              onCancel={handleMedicationFormCancel}
-            />
-          </>
-        ) : (
-          <Button
-            onClick={() => {
-              setEditingLog(null);
-              setShowMedicationForm(true);
-            }}
-          >
-            + Medication
-          </Button>
-        )
-      }
+      addLabel="Add medication entry"
+      onAddClick={() => {
+        setEditingLog(null);
+        setShowMedicationForm(true);
+      }}
     >
+      {showMedicationForm && (
+        <div className="mb-4">
+          <h3 className="mb-4 text-base font-semibold text-text">
+            {editingLog ? "Edit medication entry" : "Log a medication"}
+          </h3>
+          <MedicationEntryForm
+            key={editingLog?.id ?? "create"}
+            editingLog={editingLog}
+            onSaved={handleMedicationSaved}
+            onCancel={handleMedicationFormCancel}
+          />
+        </div>
+      )}
       {medicationLoading && <p className="text-text-muted">Loading…</p>}
       {medicationLoadError && (
         <p role="alert" className="text-danger">

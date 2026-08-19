@@ -50,7 +50,7 @@ describe("DashboardPage", () => {
             symptomCount: 0,
             medicationSummary: { taken: 0, total: 0 },
             habitSummary: { loggedCount: 0, totalHabits: 0 },
-            recentEntries: [],
+            recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
             streak: { current: 0, daysLoggedThisWeek: 0 },
           }),
         );
@@ -70,10 +70,10 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: "+ Mood" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "+ Habit" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "+ Medication" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "+ Symptom" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add mood entry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add habit entry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add medication entry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add symptom entry" })).toBeInTheDocument();
 
     expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
     expect(await screen.findByText("Recent mood entries")).toBeInTheDocument();

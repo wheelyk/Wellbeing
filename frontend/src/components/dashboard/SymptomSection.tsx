@@ -112,33 +112,27 @@ export function SymptomSection() {
     <SectionPanel
       title="Recent symptom entries"
       storageKey="symptom"
-      topContent={
-        showSymptomForm ? (
-          <>
-            <h2 className="mb-4 text-lg font-semibold text-text">
-              {editingLog ? "Edit symptom entry" : "Log a symptom"}
-            </h2>
-            <SymptomEntryForm
-              key={editingLog?.id ?? "create"}
-              symptoms={symptoms}
-              editingLog={editingLog}
-              onSaved={handleSymptomSaved}
-              onCancel={handleSymptomFormCancel}
-              onSymptomCreated={handleSymptomCreated}
-            />
-          </>
-        ) : (
-          <Button
-            onClick={() => {
-              setEditingLog(null);
-              setShowSymptomForm(true);
-            }}
-          >
-            + Symptom
-          </Button>
-        )
-      }
+      addLabel="Add symptom entry"
+      onAddClick={() => {
+        setEditingLog(null);
+        setShowSymptomForm(true);
+      }}
     >
+      {showSymptomForm && (
+        <div className="mb-4">
+          <h3 className="mb-4 text-base font-semibold text-text">
+            {editingLog ? "Edit symptom entry" : "Log a symptom"}
+          </h3>
+          <SymptomEntryForm
+            key={editingLog?.id ?? "create"}
+            symptoms={symptoms}
+            editingLog={editingLog}
+            onSaved={handleSymptomSaved}
+            onCancel={handleSymptomFormCancel}
+            onSymptomCreated={handleSymptomCreated}
+          />
+        </div>
+      )}
       {symptomsLoading && <p className="text-text-muted">Loading…</p>}
       {symptomLoadError && (
         <p role="alert" className="text-danger">
