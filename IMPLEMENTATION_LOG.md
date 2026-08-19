@@ -149,6 +149,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-16 — Phase 6: Settings page with change-password form (and a real race-condition bug)
 - 2026-08-17 — Phase 5: rehydrating a session from the refresh cookie on page load
 - 2026-08-18 — NavBar overflowing on mobile with a long display name/email
+- 2026-08-19 — Phase 5: a bottom nav on mobile, a top nav on desktop, and a real FAB collision
 
 ### [Mood Logging](docs/log/03-mood-logging.md)
 
