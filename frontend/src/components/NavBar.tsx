@@ -13,7 +13,15 @@ export function NavBar() {
   const { user, logout } = useAuth();
 
   return (
-    <header className="border-b border-border bg-surface">
+    // sticky, not static - a plain in-flow header scrolls away with the rest of the page, and on
+    // mobile Chrome that's visibly ugly mid-scroll: as the URL bar animates open/closed, a header
+    // that's only partially scrolled past the top edge renders sliced clean in half (top portion
+    // gone, bottom portion still showing) for the length of that animation. Pinning it with
+    // sticky top-0 means it's always either fully visible or fully scrolled past, never caught
+    // mid-slice - the same complete-or-absent visibility BottomNav already has via fixed
+    // positioning (see BottomNav.tsx). z-40 sits above BottomNav's z-30 (irrelevant in practice,
+    // opposite ends of the screen) and below Modal's z-50 (a dialog should always cover the nav).
+    <header className="sticky top-0 z-40 border-b border-border bg-surface">
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
         {/* Below `md:`, primary navigation lives in the fixed BottomNav tab bar instead (see
             BottomNav.tsx) - a phone-width screen doesn't have room for both a top nav and a
