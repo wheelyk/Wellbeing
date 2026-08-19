@@ -2300,3 +2300,66 @@ later, that entry will include real verification (e.g. two intentionally-conflic
 together, confirming the queue actually catches the combined failure).
 
 ---
+
+## 2026-08-19 — The PR screenshot script broke silently when the Dashboard's buttons changed
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a real CI failure, spotted by the
+user in a PR's "AFTER: capture screenshots" job log and reported for a fix.
+
+### Background / concepts
+
+`frontend/scripts/capture-pr-screenshots.mjs` (see the two 2026-08-15 entries above for how it
+came to exist) drives a real headless browser through register → log an entry of each of the
+four types → screenshot, so a PR's reviewers get visual proof the frontend actually works, not
+just that its automated tests pass. It does this by querying the real page the same way a person
+would — `page.getByRole("button", { name: "+ Mood" })` and three siblings for Symptom/
+Medication/Habit.
+
+That's exactly the problem: this script is driven by real UI text, so when that UI text changes,
+nothing automatically tells the script to catch up. The Dashboard redesign that replaced each
+section's `"+ Mood"`-style text button with a compact icon button (`aria-label="Add mood entry"`,
+etc. — see [Dashboard & Trends](10-dashboard-and-trends.md)'s icon-button entry) shipped with a
+full Vitest suite covering the new behavior, but this script isn't a Vitest test — it's a plain
+Node script the CI workflow runs directly, invisible to `npm test` and therefore never run as
+part of that PR's own verification. The four `getByRole` queries kept looking for button text
+that no longer existed anywhere in the app, so every PR's "AFTER: capture screenshots" step
+started failing with a 30-second timeout the moment that redesign merged - and kept failing
+silently for every PR after it, since nobody was watching this specific CI job.
+
+### What was done
+
+Updated all four `getByRole("button", { name: ... })` queries to the current
+`aria-label`-based names (`"Add mood entry"`, `"Add symptom entry"`, `"Add medication entry"`,
+`"Add habit entry"`) - the exact same rename this project's own test suites already went through
+for the same underlying change.
+
+### Why it's needed
+
+A CI job that's been silently red for multiple merged PRs isn't just a cosmetic nuisance - it
+means the "reviewers get visual proof the frontend works" guarantee this script exists for had
+quietly stopped being true, and nothing surfaced that fact until someone happened to look at a
+job log.
+
+### Decisions
+
+- **Fixed the script's selectors, not the app's `aria-label`s.** The `aria-label`s are the
+  current, correct, already-tested API surface; the script is what's supposed to track the app,
+  not the other way around.
+- **Didn't add a Vitest test wrapping this script.** It's already a real, working
+  end-to-end smoke test in its own right (see the two entries above) - the actual gap this bug
+  exposes is that *plain scripts CI depends on* have no equivalent of "run the suite before you
+  merge" the way app code does under this project's Testing Requirements, not that this specific
+  script needs test coverage of its own. Worth remembering next time a UI element's accessible
+  name changes: this script is a real, silent dependent that `npm test` passing doesn't cover.
+
+### Verification
+
+- Ran the script for real against a live, Postgres-backed dev server (built and started the
+  backend, seeded the database, built and served the frontend via `npm run preview` - the same
+  steps the CI workflow itself runs) rather than just trusting the edit - confirmed all four
+  screenshots (`01-register-then-dashboard` through `04-dashboard-functioning-with-entries`)
+  were produced with no timeout, and the final screenshot shows all four log types genuinely
+  saved and rendered on the Dashboard (Mood 5/5, Exercise: Done, Ibuprofen — Taken, Anxiety ·
+  Severity 5/10), not just that the script exited `0`.
+
+---
