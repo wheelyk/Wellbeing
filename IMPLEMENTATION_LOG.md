@@ -142,6 +142,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-16 — Phase 2: `POST /api/auth/change-password`
 - 2026-08-16 — The full authentication pattern, explained end to end
 - 2026-08-16 — A real account lockout, a manual database recovery, and why "forgot password" specifically needs email
+- 2026-08-19 — Phase 2: `GET/PATCH/DELETE /api/users/me`, and how cascade-delete was already doing the hard part
 - 2026-08-19 — Phase 2: `POST /api/auth/forgot-password` and `POST /api/auth/reset-password`
 
 ### [Authentication — Frontend](docs/log/02-auth-frontend.md)
@@ -151,6 +152,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-17 — Phase 5: rehydrating a session from the refresh cookie on page load
 - 2026-08-18 — NavBar overflowing on mobile with a long display name/email
 - 2026-08-19 — Phase 5: a bottom nav on mobile, a top nav on desktop, and a real FAB collision
+- 2026-08-19 — Phase 6: Settings page grows a Profile section and an account deletion flow
 - 2026-08-19 — Phase 6: forgot-password and reset-password pages
 
 ### [Mood Logging](docs/log/03-mood-logging.md)

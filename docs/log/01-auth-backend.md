@@ -1291,6 +1291,162 @@ whenever that decision gets made.
 
 ---
 
+## 2026-08-19 — Phase 2: `GET/PATCH/DELETE /api/users/me`, and how cascade-delete was already doing the hard part
+
+**Task:** [Tasks.md](../../Tasks.md) Phase 2 — `GET /api/users/me`, `PATCH /api/users/me` (display
+name, timezone), `DELETE /api/users/me`; and the following item, cascade-deleting every one of a
+deleted user's symptom logs, mood logs, medications/medication logs, habits/habit logs, and
+user-owned symptoms.
+
+### Background / concepts
+
+#### What "cascade delete" means, and why it's a database-level concept, not an application one
+
+Every table in this app that belongs to a user (`mood_logs`, `habits`, `medications`, `symptoms`,
+and so on) has a `user_id` column that's a **foreign key** — a value that must match a real row in
+the `users` table, enforced by Postgres itself, not by application code remembering to check. That
+raises an obvious question: what happens to a `mood_logs` row whose `user_id` points at a user that
+just got deleted? Left unhandled, the database would refuse the deletion outright (a "foreign key
+violation") rather than allow an orphaned row to exist.
+
+`onDelete: Cascade`, declared on the *relation* in `schema.prisma` (e.g. `user User @relation(...,
+onDelete: Cascade)` on `MoodLog`), tells Postgres exactly how to resolve that: when the referenced
+`User` row is deleted, automatically delete every row that points at it too, as part of the *same*
+database operation — not as separate application code issuing a `DELETE FROM mood_logs WHERE
+user_id = ...` first. This is why the actual route handler for `DELETE /api/users/me` is one line:
+
+```ts
+await prisma.user.delete({ where: { id: req.userId } });
+```
+
+#### The one subtlety worth understanding: two different paths to the same table
+
+`SymptomLog` is the interesting case, because there are actually *two* routes by which deleting a
+`User` reaches it:
+
+1. `SymptomLog.user` → `User`, declared `onDelete: Cascade` directly.
+2. `SymptomLog.symptom` → `Symptom` → `Symptom.user` → `User`. This second hop is declared
+   `onDelete: Restrict` (Prisma's default when nothing is specified) — deliberately, so that
+   deleting a *symptom* that still has logged history against it fails loudly (see
+   [Symptom Logging](04-symptom-logging.md)) rather than silently destroying that history. A
+   symptom log with real severity data logged against a symptom the user hasn't deleted shouldn't
+   ever quietly disappear just because *that symptom* got removed.
+
+So does deleting a *user* (which cascades to their `Symptom` rows too) trip that `Restrict` and
+fail? No — and the reason is worth spelling out rather than taking on faith: Postgres resolves
+every cascade path triggered by a single `DELETE` statement together, and only checks a `Restrict`/
+`NO ACTION` foreign key constraint against the *final* state after all of them have run. Because
+path 1 above already removes every one of this user's `symptom_logs` rows (directly, via their own
+`user_id`) in the same statement that path 2 removes their `symptoms` rows, there's never a moment
+where a `symptom_logs` row is left pointing at an already-deleted `symptoms` row — the constraint
+that blocks *"delete a symptom that still has logs"* has nothing left to object to. This was
+confirmed directly, not just reasoned through on paper — see Verification below.
+
+**The practical upshot:** every relation from `User` in `schema.prisma` already had `onDelete:
+Cascade` set, for every one of the tables Tasks.md calls out by name — this task's schema
+prerequisite was already satisfied by earlier work (Phases 1 and 3), not something that needed a
+new migration. Tasks.md's "(or explicitly delete in a transaction)" phrasing exists to cover
+exactly the case where cascade *isn't* already configured; here, it already was.
+
+#### Validating a timezone string server-side, and why it can't just accept anything
+
+`PATCH /api/users/me` lets a user change their stored `timezone` — but every dashboard/streak
+calculation in this app (`backend/src/lib/timezone.ts`) trusts that value completely, feeding it
+straight into `Intl.DateTimeFormat`. An invalid string (a typo, or garbage) wouldn't fail at save
+time — it would fail *later*, the next time that user's dashboard tries to resolve "what day is
+it," in code far away from where the bad value was ever accepted. The fix is `Intl.supportedValuesOf
+("timeZone")` — a built-in Node/browser API that returns every IANA timezone name the JavaScript
+engine actually recognizes (currently ~418 of them), checked with a plain `.includes()`:
+
+```ts
+function isValidTimeZone(timeZone: string): boolean {
+  if (typeof Intl.supportedValuesOf === "function") {
+    return Intl.supportedValuesOf("timeZone").includes(timeZone);
+  }
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+```
+
+The `try`/`catch` fallback exists for the (unlikely, on this project's Node version) case where
+`supportedValuesOf` itself isn't available — constructing an `Intl.DateTimeFormat` with a bad
+timezone throws, so that's still a real (if less precise) validity check.
+
+One small build wrinkle from adding this: TypeScript didn't recognize `Intl.supportedValuesOf` at
+first, even though Node itself supports it — its type declarations live in a separate `lib` file
+(`ES2022.Intl`) that this project's `tsconfig.json` wasn't including yet (it targets `ES2021`, an
+intentionally conservative choice made early on — see [Project Setup](00-project-setup.md)).
+Rather than bumping the whole `target`/`lib` forward (which would silently make *other* newer
+JS features type-check as available too, a much bigger change than intended), `"ES2022.Intl"` was
+added to the existing `"lib"` array on its own — the narrowest fix that unblocks exactly this one
+API.
+
+### What was done
+
+1. Added `backend/src/routes/users.ts` with three routes, mounted at `/api/users` (behind
+   `requireAuth`, the same as every other resource router in `app.ts`):
+   - `GET /me` — returns `id`, `email`, `displayName`, `timezone`, `createdAt` via a Prisma
+     `select` clause, the same pattern `register`/`login` already use to make sure `passwordHash`
+     is structurally impossible to include in a response, not just remembered-to-be-omitted.
+   - `PATCH /me` — a Zod schema with both fields optional (`.partial()`, the same partial-update
+     pattern `medications.ts`/`symptoms.ts` already use) but rejecting a genuinely empty body via
+     `.refine()`, plus the timezone check above.
+   - `DELETE /me` — deletes the user (cascading, as above), then calls the exact same
+     `clearRefreshTokenCookie` helper `POST /api/auth/logout` already uses, for the same reason:
+     the account (and any session tied to it) is gone, so the browser must stop sending a refresh
+     cookie that now points at nothing.
+2. Added `backend/src/routes/users.test.ts` covering: the happy path for all three routes; PATCH's
+   partial-update behavior (only the provided field changes); PATCH rejecting an invalid timezone
+   and an empty body; DELETE's cookie-clearing; and — most importantly — a test that logs one real
+   entry of *all four* log types plus a custom symptom, deletes the account, and then queries every
+   one of those tables directly by `userId` to confirm zero rows remain, rather than just trusting
+   the `200` response. Also covers that neither PATCH nor DELETE can ever touch another user's row.
+3. Real, running-server verification beyond the automated tests (see Verification below).
+
+### Why it's needed
+
+Without `GET`/`PATCH /api/users/me`, the Settings page (the frontend half of this task, in
+[Authentication — Frontend](02-auth-frontend.md)) would have nowhere to read or save a display
+name and timezone. Without a working `DELETE /api/users/me` — and without confidence that it
+*genuinely* removes every trace of a user's health data, not just their login — the account
+deletion requirement in requirements §15 (a real, working way to leave and take your data with
+you) wouldn't actually be true, just something the UI claimed.
+
+### Decisions
+
+- **Trusted the existing cascade configuration rather than re-deleting each table manually** —
+  confirmed first (reading `schema.prisma` closely, then testing it for real) rather than assumed,
+  since writing redundant manual deletes on top of cascades that already work would be dead code at
+  best and a source of double-delete bugs at worst.
+- **Rejected an empty `PATCH` body** rather than silently accepting a no-op — an empty object
+  reaching this endpoint is almost certainly a frontend bug, and failing loudly with
+  `VALIDATION_ERROR` surfaces that immediately instead of masking it as a silent success.
+- **Validated `timezone` against the real IANA list** rather than just checking "is this a
+  non-empty string" — the cheapest possible validation would have technically satisfied the Zod
+  schema while still letting `backend/src/lib/timezone.ts` break later for a completely unrelated
+  user's dashboard.
+
+### Verification
+
+- Full backend test suite (`npm test`, 183 tests across 17 files, all passing) run *after* adding
+  `users.test.ts` — not just the new tests in isolation.
+- Real, running-server verification, not just the test suite: started the real dev server against
+  the real local Postgres container, then — via direct HTTP calls, not mocks — registered a
+  throwaway user, logged one real entry of each of the four log types plus a custom symptom,
+  confirmed `PATCH /api/users/me` (display name + timezone) persisted via a follow-up `GET`,
+  confirmed an invalid timezone was rejected with `400`, then called `DELETE /api/users/me` and
+  confirmed via **direct SQL queries against the running database** (`docker exec ... psql`, not
+  just the API) that zero rows remained in `users`, `symptom_logs`, `medications`, and `habits` for
+  that account — and that logging back in with the same credentials now fails with `401`.
+- `npm run build` (both `prisma generate` and `tsc`) succeeds after the `tsconfig.json` `lib`
+  addition described above.
+
+---
+
 ## 2026-08-19 — Phase 2: `POST /api/auth/forgot-password` and `POST /api/auth/reset-password`
 
 **Task:** [Tasks.md](../../Tasks.md) → Phase 2 → "Implement `POST /api/auth/forgot-password` —
