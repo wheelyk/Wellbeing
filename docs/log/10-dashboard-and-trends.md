@@ -789,3 +789,139 @@ them.
   from the session-rehydration fix — not a regression here.
 
 ---
+## 2026-08-19 — Inline icon "+ Add" buttons and a floating Quick Add across all four sections
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a follow-up to yesterday's panel
+redesign, prompted by a mockup review: two of the three compared header layouts were picked
+together rather than one replacing the other, plus a question about whether this app follows a
+deliberate mobile-first responsive methodology (answered directly below, not just implemented
+around).
+
+### Background / concepts
+
+#### Answering the mobile-first question first, since it shaped a decision below
+
+A search across the whole frontend for any `sm:`/`md:`/`lg:`/`xl:` Tailwind breakpoint prefix
+turns up exactly one file: `NavBar.tsx`'s own `sm:block` from the mobile-overflow fix. Nowhere
+else — Dashboard, History, Trends, Settings, every form — has a deliberate per-breakpoint layout.
+The honest answer: this app is **not** doing mobile-first progressive enhancement as a
+methodology (design the small case, then layer on `md:`/`lg:` overrides for larger viewports).
+What it actually has is one fluid, single-column layout capped at `max-w-3xl`, centered with
+empty space on either side at wider viewports — which happens to look fine everywhere because
+everything already stacks vertically, not because tablet/desktop ever got their own art
+direction. `QuickAddFab` below follows that same existing pattern rather than introducing a new
+one: it's positioned `fixed` relative to the viewport, not the `max-w-3xl` content column, the
+same way every other fixed/viewport-relative thing in this app already behaves (there isn't
+another one yet, but nothing in this app assumes a max-width-relative fixed element either).
+
+#### Why both compared header styles ended up shipped together, not one replacing the other
+
+The two designs under review were genuinely different answers to "where does adding a new entry
+live": one moved each section's own button into its collapsible header row (as a small icon
+button instead of a text pill, freeing horizontal space); the other removed per-section buttons
+entirely in favor of one floating global button. Asked to build both, not pick between them - so
+a section now has *two* ways to start logging: its own inline icon button (fast, if you're already
+looking at that section) and the floating button (fast, if you're not - jumps to any section
+without scrolling there by hand first). They're not actually redundant once you consider "I'm
+already on Mood" versus "I want to log a Habit but I'm scrolled down past it" as different starting
+points.
+
+#### Why the icon button has to force its own panel open, not just fire a callback
+
+Each section panel can be collapsed (see yesterday's entry) independently of whether its "+ Add"
+icon has been clicked. If the icon button only called its section's existing
+`setShowForm(true)`-style handler, clicking it on a *collapsed* section would open the form inside
+a `display: none` region — visibly nothing would happen. `useCollapsedState` gained a third
+control, `expand()` (alongside the existing `collapsed`/`toggle`), specifically for this: the icon
+button's `onClick` calls `expand()` and then the section's own add-handler, in that order, so the
+panel is already visible by the time the form renders into it.
+
+#### Why the floating button scrolls to a section instead of opening its form directly
+
+Each of the four sections still owns its own add/edit/collapse state entirely independently - no
+shared store between them, a pattern this app has kept deliberately since the sections were first
+split out (see the Dashboard-decomposition entry in
+[Git & GitHub Workflow](08-git-github-workflow.md)). Having `QuickAddFab` reach into, say,
+`MoodSection`'s internal `showForm` state to open its form remotely would mean either lifting that
+state up into `DashboardPage` (undoing the decomposition) or wiring a small cross-component event
+bus for one convenience button. Scrolling to the section via
+`document.getElementById('dashboard-section-<type>').scrollIntoView(...)` and letting the user tap
+that section's own (now-visible, and now already force-expanding) icon button is a smaller, more
+honest tradeoff - a plain DOM id lookup, not a new state-sharing mechanism this app doesn't
+otherwise have.
+
+### What was done
+
+1. **`useCollapsedState`** now returns `{ collapsed, toggle, expand }` instead of a
+   `[collapsed, toggle]` tuple - `expand()` force-collapses to `false` and persists it, for the
+   icon-button case above.
+2. **`SectionPanel`** redesigned: the "+ Add" control is now a small icon button
+   (a plain "+", `aria-label`'d per section, e.g. "Add mood entry") living in the same
+   always-visible header row as the title and collapse chevron, sized `h-11 w-11` (44px) to meet
+   the WCAG 2.5.5 minimum touch target despite the compact 20px icon inside it — the mockup's own
+   icon button was sized for a small phone-frame graphic, not a real thumb, and real-device
+   verification below is what caught that gap. The panel's outer `<section>` also gained
+   `id="dashboard-section-<key>"`, purely as a scroll target for the new FAB.
+3. **New `QuickAddFab.tsx`**: a `fixed`, circular "+" bottom-right of the viewport. Click toggles
+   a small menu (Mood/Symptom/Medication/Habit, same icons as `DashboardSummary`'s
+   `ENTRY_TYPE_ICON`); picking one smooth-scrolls to that section. Closes on Escape, on an outside
+   click, or after picking an item.
+4. All four Section components updated: the add button moved out of a separate `topContent` slot
+   and into `SectionPanel`'s own header row (`onAddClick`/`addLabel` props); the create/edit form,
+   when open, now renders as the first thing inside the collapsible content region instead of in
+   a now-removed separate area above it.
+5. `QuickAddFab` mounted once in `DashboardPage`, as a sibling of the four sections, not nested
+   inside any of them.
+
+### Why it's needed
+
+The mockup review surfaced that "more compact" and "still reachable" aren't fully solved by either
+design alone: the icon-button header saves vertical space per section but doesn't help once a user
+has scrolled past the section they want, and the floating button solves reachability but removes
+the fastest path for someone already looking at the right section. Shipping both is a deliberate
+answer to "which one wins," not a placeholder for deciding later.
+
+### Decisions
+
+- **`expand()` as a third hook control, not a new hook.** Every other consumer of
+  `useCollapsedState` (the toggle behavior itself) is unaffected by adding a control it doesn't
+  use - a narrower, purpose-built addition rather than a second `useForceExpand` hook duplicating
+  the same `localStorage` read/write logic.
+- **The FAB is viewport-`fixed`, matching this app's actual (not aspirational) responsive
+  approach.** Documented under *Background* above - this app doesn't have per-breakpoint layouts
+  to design the FAB around, so it doesn't invent one.
+- **44px (`h-11 w-11`) touch targets on the icon buttons, not the mockup's 26px.** A real-device
+  check (not just eyeballing the static comparison mockup) is what caught this - see
+  *Verification*.
+
+### Verification
+
+- `npm test` (frontend): 139/139 passing. Updated every existing test asserting the old `"+ Mood"`/
+  `"+ Habit"`/`"+ Symptom"`/`"+ Medication"` text-button role query to the new `aria-label`-based
+  one (`"Add mood entry"`, etc.); added a `SectionPanel` test specifically for the force-expand
+  behavior (clicking Add while collapsed both fires the callback *and* reveals the content, not
+  just one or the other); added parity "opens the entry form when the add button is clicked" tests
+  to `MoodSection`/`MedicationSection`, which - discovered while fixing the other two - had never
+  actually covered that interaction even before this change; new `QuickAddFab.test.tsx` (menu
+  open/close, Escape, outside-click, and that picking an item calls `scrollIntoView` on the right
+  section, with `Element.prototype.scrollIntoView` stubbed since jsdom doesn't implement it).
+- `npm run build`, `tsc -b`, `npm run lint`, `npx prettier --check` - all clean.
+- Real device-width check against a live, Postgres-backed dev server (not mocks), specifically
+  because this was asked for directly ("I want to see how this looks in mobile devices"): seeded
+  one entry per type for a throwaway user, then drove the actual frontend through a headless
+  browser at 375px (iPhone SE), 390px (iPhone 14), and 768px (tablet) widths. Confirmed no
+  horizontal overflow at any width; confirmed clicking a *collapsed* section's icon "+ Add" both
+  expands it and shows the form (the `expand()` behavior, seen working, not just unit-tested);
+  confirmed the FAB menu opens and a menu item click genuinely scrolls the page (isolated with a
+  clean page load after the first pass showed no `scrollY` change - traced to the medication
+  section already being scrolled into view from *prior* steps in that same run, not a real bug,
+  confirmed by re-checking the section's bounding-box position moved from off-screen to
+  near-top). A `fullPage: true` screenshot initially made the fixed FAB look like it was
+  overlapping list content mid-page - a screenshot-stitching artifact of how `fullPage` captures
+  fixed-position elements, not real behavior; re-confirmed against single-viewport
+  (`fullPage: false`) screenshots showing the FAB only ever sitting in its actual fixed
+  bottom-right corner.
+- The two console `401`s seen during the check are the same already-documented, harmless
+  first-page-load rehydration behavior from the session-rehydration fix - not a regression here.
+
+---
