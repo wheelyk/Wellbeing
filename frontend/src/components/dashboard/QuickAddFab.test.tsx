@@ -1,14 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QuickAddFab } from "./QuickAddFab";
+import { DASHBOARD_QUICK_ADD_EVENT } from "../../lib/dashboardQuickAddEvent";
 
 describe("QuickAddFab", () => {
-  beforeEach(() => {
-    // jsdom has no real layout engine and doesn't implement scrollIntoView at all.
-    Element.prototype.scrollIntoView = vi.fn();
-  });
-
   it("opens the menu on click and closes it again on a second click", async () => {
     const user = userEvent.setup();
     render(<QuickAddFab />);
@@ -22,23 +18,20 @@ describe("QuickAddFab", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("scrolls to the matching section and closes the menu when an item is clicked", async () => {
+  it("dispatches a quick-add event for the matching type and closes the menu when an item is clicked", async () => {
     const user = userEvent.setup();
-    render(
-      <>
-        <section id="dashboard-section-medication" />
-        <QuickAddFab />
-      </>,
-    );
+    const handler = vi.fn();
+    window.addEventListener(DASHBOARD_QUICK_ADD_EVENT, handler);
+    render(<QuickAddFab />);
 
     await user.click(screen.getByRole("button", { name: "Quick add" }));
     await user.click(screen.getByRole("menuitem", { name: /medication/i }));
 
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({
-      behavior: "smooth",
-      block: "start",
-    });
+    expect(handler).toHaveBeenCalledOnce();
+    expect((handler.mock.calls[0][0] as CustomEvent).detail).toBe("medication");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+
+    window.removeEventListener(DASHBOARD_QUICK_ADD_EVENT, handler);
   });
 
   it("closes the menu when Escape is pressed", async () => {

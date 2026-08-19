@@ -111,6 +111,59 @@ describe("MoodSection", () => {
     expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
   });
 
+  it("shows Load less once more than a page is loaded, and it collapses back without a new fetch", async () => {
+    const firstPage = Array.from({ length: 10 }, (_, i) => ({
+      id: `log-${i}`,
+      userId: "user-1",
+      mood: 3,
+      energy: null,
+      stress: null,
+      notes: null,
+      loggedAt: `2026-08-17T${String(9 + i).padStart(2, "0")}:00:00.000Z`,
+    }));
+    const eleventh = {
+      id: "log-10",
+      userId: "user-1",
+      mood: 5,
+      energy: null,
+      stress: null,
+      notes: null,
+      loggedAt: "2026-08-16T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("offset=10")) {
+        return Promise.resolve(
+          jsonResponse(200, { entries: [eleventh], limit: 10, offset: 10, hasMore: false }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse(200, { entries: firstPage, limit: 10, offset: 0, hasMore: true }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<MoodSection />);
+    await screen.findAllByText(/mood 3\/5/i);
+    expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /load more/i }));
+    await screen.findByText(/mood 5\/5/i);
+    expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /load less/i })).toBeInTheDocument();
+
+    const callsBeforeLoadLess = fetchMock.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: /load less/i }));
+
+    // Purely a local truncation - no additional fetch, and the just-loaded 11th entry is gone
+    // again while the original 10 stay put.
+    expect(fetchMock.mock.calls.length).toBe(callsBeforeLoadLess);
+    expect(screen.queryByText(/mood 5\/5/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/mood 3\/5/i)).toHaveLength(10);
+    expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
+  });
+
   it("shows an error state when the fetch fails", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(500, { error: { message: "Oops" } }));
     vi.stubGlobal("fetch", fetchMock);

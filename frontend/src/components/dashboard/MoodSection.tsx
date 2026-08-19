@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Button } from "../Button";
+import { Modal } from "../Modal";
 import { MoodEntryForm, type MoodLog } from "../MoodEntryForm";
 import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
 import { formatEntryDateTime } from "../../lib/entryDateLabel";
 import { useTimedMessage } from "../../hooks/useTimedMessage";
+import { listenForDashboardQuickAdd } from "../../lib/dashboardQuickAddEvent";
 
 const MOOD_EMOJI: Record<number, string> = { 1: "😞", 2: "😕", 3: "😐", 4: "🙂", 5: "😄" };
 
@@ -59,6 +61,17 @@ export function MoodSection() {
     };
   }, []);
 
+  // Lets QuickAddFab open this section's add form directly, without needing to know this
+  // component exists - see dashboardQuickAddEvent.ts for why a DOM event, not lifted state.
+  useEffect(
+    () =>
+      listenForDashboardQuickAdd("mood", () => {
+        setEditingLog(null);
+        setShowForm(true);
+      }),
+    [],
+  );
+
   async function handleLoadMore() {
     setLoadingMore(true);
     try {
@@ -72,6 +85,15 @@ export function MoodSection() {
     } finally {
       setLoadingMore(false);
     }
+  }
+
+  // Purely local - the extra pages are already sitting in state, so collapsing back to the
+  // first one doesn't need a network round-trip. hasMore is always true afterward: showing
+  // "Load less" at all already implies more than PAGE_SIZE entries were fetched, so there's
+  // always at least one page beyond the truncated view to load again.
+  function handleLoadLess() {
+    setMoodLogs((prev) => prev.slice(0, PAGE_SIZE));
+    setHasMore(true);
   }
 
   function handleSaved(log: MoodLog) {
@@ -110,90 +132,98 @@ export function MoodSection() {
   }
 
   return (
-    <SectionPanel
-      title="Recent mood entries"
-      storageKey="mood"
-      addLabel="Add mood entry"
-      onAddClick={() => {
-        setEditingLog(null);
-        setShowForm(true);
-      }}
-    >
-      {showForm && (
-        <div className="mb-4">
-          <h3 className="mb-4 text-base font-semibold text-text">
-            {editingLog ? "Edit mood entry" : "Log your mood"}
-          </h3>
-          <MoodEntryForm
-            key={editingLog?.id ?? "create"}
-            editingLog={editingLog}
-            onSaved={handleSaved}
-            onCancel={handleCancel}
-          />
-        </div>
-      )}
-      {savedMessage && (
-        <p role="status" className="mb-3 text-sm font-medium text-success">
-          {savedMessage}
-        </p>
-      )}
-      {loading && <p className="text-text-muted">Loading…</p>}
-      {loadError && (
-        <p role="alert" className="text-danger">
-          Couldn&apos;t load your mood entries. Please try refreshing.
-        </p>
-      )}
-      {!loading && !loadError && moodLogs.length === 0 && (
-        <p className="text-text-muted">
-          Nothing logged yet — use the button above to record how you&apos;re feeling.
-        </p>
-      )}
-      <ul className="flex flex-col gap-2">
-        {moodLogs.map((log) => (
-          <li
-            key={log.id}
-            className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface-muted p-4"
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-2xl" aria-hidden="true">
-                {MOOD_EMOJI[log.mood]}
-              </span>
-              <div>
-                <p className="text-text">
-                  Mood {log.mood}/5
-                  {log.energy !== null && ` · Energy ${log.energy}/7`}
-                  {log.stress !== null && ` · Stress ${log.stress}/7`}
-                </p>
-                {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
-                <p className="text-xs text-text-muted">{formatEntryDateTime(log.loggedAt)}</p>
+    <>
+      <SectionPanel
+        title="Recent mood entries"
+        storageKey="mood"
+        addLabel="Add mood entry"
+        onAddClick={() => {
+          setEditingLog(null);
+          setShowForm(true);
+        }}
+      >
+        {savedMessage && (
+          <p role="status" className="mb-3 text-sm font-medium text-success">
+            {savedMessage}
+          </p>
+        )}
+        {loading && <p className="text-text-muted">Loading…</p>}
+        {loadError && (
+          <p role="alert" className="text-danger">
+            Couldn&apos;t load your mood entries. Please try refreshing.
+          </p>
+        )}
+        {!loading && !loadError && moodLogs.length === 0 && (
+          <p className="text-text-muted">
+            Nothing logged yet — use the button above to record how you&apos;re feeling.
+          </p>
+        )}
+        <ul className="flex flex-col gap-2">
+          {moodLogs.map((log) => (
+            <li
+              key={log.id}
+              className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface-muted p-4"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-2xl" aria-hidden="true">
+                  {MOOD_EMOJI[log.mood]}
+                </span>
+                <div>
+                  <p className="text-text">
+                    Mood {log.mood}/5
+                    {log.energy !== null && ` · Energy ${log.energy}/7`}
+                    {log.stress !== null && ` · Stress ${log.stress}/7`}
+                  </p>
+                  {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
+                  <p className="text-xs text-text-muted">{formatEntryDateTime(log.loggedAt)}</p>
+                </div>
               </div>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                onClick={() => handleEdit(log)}
-                aria-label={`Edit mood entry from ${formatEntryDateTime(log.loggedAt)}`}
-              >
-                Edit
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => handleEdit(log)}
+                  aria-label={`Edit mood entry from ${formatEntryDateTime(log.loggedAt)}`}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => handleDelete(log.id)}
+                  aria-label={`Delete mood entry from ${formatEntryDateTime(log.loggedAt)}`}
+                >
+                  Delete
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+        {!loading && !loadError && (hasMore || moodLogs.length > PAGE_SIZE) && (
+          <div className="mt-4 flex justify-center gap-2">
+            {hasMore && (
+              <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
+                {loadingMore ? "Loading…" : "Load more"}
               </Button>
-              <Button
-                variant="secondary"
-                onClick={() => handleDelete(log.id)}
-                aria-label={`Delete mood entry from ${formatEntryDateTime(log.loggedAt)}`}
-              >
-                Delete
+            )}
+            {moodLogs.length > PAGE_SIZE && (
+              <Button variant="secondary" onClick={handleLoadLess}>
+                Load less
               </Button>
-            </div>
-          </li>
-        ))}
-      </ul>
-      {!loading && !loadError && hasMore && (
-        <div className="mt-4 flex justify-center">
-          <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
-            {loadingMore ? "Loading…" : "Load more"}
-          </Button>
-        </div>
-      )}
-    </SectionPanel>
+            )}
+          </div>
+        )}
+      </SectionPanel>
+      <Modal
+        open={showForm}
+        onClose={handleCancel}
+        title={editingLog ? "Edit mood entry" : "Log your mood"}
+      >
+        <MoodEntryForm
+          key={editingLog?.id ?? "create"}
+          editingLog={editingLog}
+          onSaved={handleSaved}
+          onCancel={handleCancel}
+        />
+      </Modal>
+    </>
   );
 }

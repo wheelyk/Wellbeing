@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Button } from "../Button";
+import { Modal } from "../Modal";
 import { MedicationEntryForm, type Medication, type MedicationLog } from "../MedicationEntryForm";
 import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
 import { formatEntryDateTime } from "../../lib/entryDateLabel";
 import { useTimedMessage } from "../../hooks/useTimedMessage";
+import { listenForDashboardQuickAdd } from "../../lib/dashboardQuickAddEvent";
 
 // Mirrors HistoryPage's own PAGE_SIZE/offset-pagination shape (see backend/src/lib/pagination.ts)
 // - a Quick-Add section only ever needs a short, recent slice, not a user's entire history
@@ -59,6 +61,17 @@ export function MedicationSection() {
     };
   }, []);
 
+  // Lets QuickAddFab open this section's add form directly - see MoodSection's identical
+  // listener, and dashboardQuickAddEvent.ts, for the full explanation.
+  useEffect(
+    () =>
+      listenForDashboardQuickAdd("medication", () => {
+        setEditingLog(null);
+        setShowMedicationForm(true);
+      }),
+    [],
+  );
+
   async function handleLoadMore() {
     setLoadingMore(true);
     try {
@@ -72,6 +85,13 @@ export function MedicationSection() {
     } finally {
       setLoadingMore(false);
     }
+  }
+
+  // Purely local - see MoodSection's identical handleLoadLess for the full explanation of why
+  // no network round-trip (or further hasMore check) is needed here.
+  function handleLoadLess() {
+    setMedicationLogs((prev) => prev.slice(0, PAGE_SIZE));
+    setHasMore(true);
   }
 
   function handleMedicationSaved(log: MedicationLog, medication: Medication) {
@@ -124,88 +144,98 @@ export function MedicationSection() {
   }
 
   return (
-    <SectionPanel
-      title="Recent medications"
-      storageKey="medication"
-      addLabel="Add medication entry"
-      onAddClick={() => {
-        setEditingLog(null);
-        setShowMedicationForm(true);
-      }}
-    >
-      {showMedicationForm && (
-        <div className="mb-4">
-          <h3 className="mb-4 text-base font-semibold text-text">
-            {editingLog ? "Edit medication entry" : "Log a medication"}
-          </h3>
-          <MedicationEntryForm
-            key={editingLog?.id ?? "create"}
-            editingLog={editingLog}
-            onSaved={handleMedicationSaved}
-            onCancel={handleMedicationFormCancel}
-          />
-        </div>
-      )}
-      {savedMessage && (
-        <p role="status" className="mb-3 text-sm font-medium text-success">
-          {savedMessage}
-        </p>
-      )}
-      {medicationLoading && <p className="text-text-muted">Loading…</p>}
-      {medicationLoadError && (
-        <p role="alert" className="text-danger">
-          Couldn&apos;t load your medications. Please try refreshing.
-        </p>
-      )}
-      {!medicationLoading && !medicationLoadError && medicationLogs.length === 0 && (
-        <p className="text-text-muted">
-          Nothing logged yet — use the button above to record a medication.
-        </p>
-      )}
-      <ul className="flex flex-col gap-2">
-        {medicationLogs.map((log) => (
-          <li
-            key={log.id}
-            className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface-muted p-4"
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-2xl" aria-hidden="true">
-                {log.taken ? "✅" : "❌"}
-              </span>
-              <div>
-                <p className="text-text">
-                  {medicationLabel(log.medicationId)} — {log.taken ? "Taken" : "Not taken"}
-                </p>
-                {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
-                <p className="text-xs text-text-muted">{formatEntryDateTime(log.loggedAt)}</p>
+    <>
+      <SectionPanel
+        title="Recent medications"
+        storageKey="medication"
+        addLabel="Add medication entry"
+        onAddClick={() => {
+          setEditingLog(null);
+          setShowMedicationForm(true);
+        }}
+      >
+        {savedMessage && (
+          <p role="status" className="mb-3 text-sm font-medium text-success">
+            {savedMessage}
+          </p>
+        )}
+        {medicationLoading && <p className="text-text-muted">Loading…</p>}
+        {medicationLoadError && (
+          <p role="alert" className="text-danger">
+            Couldn&apos;t load your medications. Please try refreshing.
+          </p>
+        )}
+        {!medicationLoading && !medicationLoadError && medicationLogs.length === 0 && (
+          <p className="text-text-muted">
+            Nothing logged yet — use the button above to record a medication.
+          </p>
+        )}
+        <ul className="flex flex-col gap-2">
+          {medicationLogs.map((log) => (
+            <li
+              key={log.id}
+              className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface-muted p-4"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-2xl" aria-hidden="true">
+                  {log.taken ? "✅" : "❌"}
+                </span>
+                <div>
+                  <p className="text-text">
+                    {medicationLabel(log.medicationId)} — {log.taken ? "Taken" : "Not taken"}
+                  </p>
+                  {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
+                  <p className="text-xs text-text-muted">{formatEntryDateTime(log.loggedAt)}</p>
+                </div>
               </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => handleMedicationEdit(log)}
+                  aria-label={`Edit medication entry from ${formatEntryDateTime(log.loggedAt)}`}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => handleDeleteMedicationLog(log.id)}
+                  aria-label={`Delete medication entry from ${formatEntryDateTime(log.loggedAt)}`}
+                >
+                  Delete
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+        {!medicationLoading &&
+          !medicationLoadError &&
+          (hasMore || medicationLogs.length > PAGE_SIZE) && (
+            <div className="mt-4 flex justify-center gap-2">
+              {hasMore && (
+                <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
+                  {loadingMore ? "Loading…" : "Load more"}
+                </Button>
+              )}
+              {medicationLogs.length > PAGE_SIZE && (
+                <Button variant="secondary" onClick={handleLoadLess}>
+                  Load less
+                </Button>
+              )}
             </div>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                onClick={() => handleMedicationEdit(log)}
-                aria-label={`Edit medication entry from ${formatEntryDateTime(log.loggedAt)}`}
-              >
-                Edit
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => handleDeleteMedicationLog(log.id)}
-                aria-label={`Delete medication entry from ${formatEntryDateTime(log.loggedAt)}`}
-              >
-                Delete
-              </Button>
-            </div>
-          </li>
-        ))}
-      </ul>
-      {!medicationLoading && !medicationLoadError && hasMore && (
-        <div className="mt-4 flex justify-center">
-          <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
-            {loadingMore ? "Loading…" : "Load more"}
-          </Button>
-        </div>
-      )}
-    </SectionPanel>
+          )}
+      </SectionPanel>
+      <Modal
+        open={showMedicationForm}
+        onClose={handleMedicationFormCancel}
+        title={editingLog ? "Edit medication entry" : "Log a medication"}
+      >
+        <MedicationEntryForm
+          key={editingLog?.id ?? "create"}
+          editingLog={editingLog}
+          onSaved={handleMedicationSaved}
+          onCancel={handleMedicationFormCancel}
+        />
+      </Modal>
+    </>
   );
 }

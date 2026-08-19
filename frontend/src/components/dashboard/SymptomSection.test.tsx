@@ -107,6 +107,60 @@ describe("SymptomSection", () => {
     expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
   });
 
+  it("shows Load less once more than a page is loaded, and it collapses back without a new fetch", async () => {
+    const firstPage = Array.from({ length: 10 }, (_, i) => ({
+      id: `log-${i}`,
+      userId: "user-1",
+      symptomId: "sym-1",
+      severity: 6,
+      notes: null,
+      loggedAt: `2026-08-17T${String(9 + i).padStart(2, "0")}:00:00.000Z`,
+    }));
+    const eleventh = {
+      id: "log-10",
+      userId: "user-1",
+      symptomId: "sym-1",
+      severity: 9,
+      notes: null,
+      loggedAt: "2026-08-16T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/symptoms")) {
+        return Promise.resolve(
+          jsonResponse(200, [{ id: "sym-1", userId: null, name: "Headache", description: null }]),
+        );
+      }
+      if (url.includes("offset=10")) {
+        return Promise.resolve(
+          jsonResponse(200, { entries: [eleventh], limit: 10, offset: 10, hasMore: false }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse(200, { entries: firstPage, limit: 10, offset: 0, hasMore: true }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<SymptomSection />);
+    await screen.findAllByText(/headache · severity 6\/10/i);
+    expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /load more/i }));
+    await screen.findByText(/headache · severity 9\/10/i);
+    expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /load less/i })).toBeInTheDocument();
+
+    const callsBeforeLoadLess = fetchMock.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: /load less/i }));
+
+    expect(fetchMock.mock.calls.length).toBe(callsBeforeLoadLess);
+    expect(screen.queryByText(/headache · severity 9\/10/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/headache · severity 6\/10/i)).toHaveLength(10);
+    expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
+  });
+
   it("shows an error state when the fetch fails", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(500, { error: { message: "Oops" } }));
     vi.stubGlobal("fetch", fetchMock);

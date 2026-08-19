@@ -75,7 +75,7 @@ describe("SectionPanel", () => {
     );
   });
 
-  it("calls onAddClick and force-expands the panel when the add button is clicked while collapsed", async () => {
+  it("calls onAddClick without touching collapse state, even while collapsed", async () => {
     const user = userEvent.setup();
     const onAddClick = vi.fn();
     renderPanel("test-f", onAddClick);
@@ -86,12 +86,13 @@ describe("SectionPanel", () => {
     await user.click(screen.getByRole("button", { name: "Add a thing" }));
 
     expect(onAddClick).toHaveBeenCalledOnce();
-    // A collapsed section's own add button is only reachable once expanded again - clicking it
-    // has to expand the panel itself, not just fire the callback into content nobody can see.
-    expect(screen.getByText("The list")).toBeInTheDocument();
+    // The add form no longer lives inside this collapsible region at all (it's a Modal now,
+    // owned entirely by whichever Section renders this panel) - clicking Add has nothing to do
+    // with this panel's own collapsed state in either direction.
+    expect(screen.queryByText("The list")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /recent things/i })).toHaveAttribute(
       "aria-expanded",
-      "true",
+      "false",
     );
   });
 

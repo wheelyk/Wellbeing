@@ -1,24 +1,29 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  dispatchDashboardQuickAdd,
+  type DashboardQuickAddType,
+} from "../../lib/dashboardQuickAddEvent";
 
 // Matches ENTRY_TYPE_ICON in DashboardSummary.tsx - same four types, same icons, so a user
 // recognizes "🙂 Mood" here as the same thing they've already seen in the unified Recent
 // entries list above. Hardcoded, not derived from a shared constant, for the same reason the
 // four Section components are each their own file rather than one generic loop over a config
 // array - see this project's established "adding a log type means adding a file" convention.
-const QUICK_ADD_ITEMS: Array<{ key: string; label: string; icon: string }> = [
+const QUICK_ADD_ITEMS: Array<{ key: DashboardQuickAddType; label: string; icon: string }> = [
   { key: "mood", label: "Mood", icon: "🙂" },
   { key: "symptom", label: "Symptom", icon: "🩺" },
   { key: "medication", label: "Medication", icon: "💊" },
   { key: "habit", label: "Habit", icon: "✅" },
 ];
 
-// A viewport-fixed "+" that jumps to any of the four Dashboard sections, for a user who's
-// scrolled past the one they want without having to scroll back up and hunt for it. It scrolls
-// to the section rather than opening its form directly - each section owns its own form/collapse
-// state independently (no shared store between them, by design), so remotely triggering "open
-// this section's form" from here would mean either lifting that state up or wiring a cross-
-// component event bus for a single convenience button. Scrolling there and using that section's
-// own now-visible "+" is a smaller, more honest tradeoff than either.
+// A viewport-fixed "+" that opens any of the four Dashboard sections' add dialog directly - it
+// used to scroll to the section instead and rely on that section's own now-visible "+" (each
+// section owns its form state independently, no shared store between them, by design - see the
+// original Dashboard decomposition entry), back when "+" expanded a form inline rather than
+// opening a dialog. Once the form moved into a real `Modal` (see the implementation log entry
+// on that redesign), a dialog can be opened from anywhere regardless of scroll position or a
+// section's own collapsed state, so scrolling first stopped being necessary - this now just
+// dispatches the same `dashboardQuickAddEvent` each section already listens for.
 export function QuickAddFab() {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -41,12 +46,9 @@ export function QuickAddFab() {
     };
   }, [open]);
 
-  function goToSection(key: string) {
+  function openSectionDialog(type: DashboardQuickAddType) {
     setOpen(false);
-    document.getElementById(`dashboard-section-${key}`)?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
+    dispatchDashboardQuickAdd(type);
   }
 
   return (
@@ -67,7 +69,7 @@ export function QuickAddFab() {
               key={item.key}
               type="button"
               role="menuitem"
-              onClick={() => goToSection(item.key)}
+              onClick={() => openSectionDialog(item.key)}
               className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-text hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               <span aria-hidden="true">{item.icon}</span>

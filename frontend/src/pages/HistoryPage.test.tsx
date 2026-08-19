@@ -261,6 +261,53 @@ describe("HistoryPage", () => {
     expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
   });
 
+  it("shows Load less once more than a page is loaded, and it collapses back without a new fetch", async () => {
+    const firstPage = Array.from({ length: 20 }, (_, i) => ({
+      id: `mood-${i}`,
+      type: "mood",
+      label: "Mood 3/5",
+      notes: null,
+      loggedAt: `2026-08-17T${String(9 + (i % 12)).padStart(2, "0")}:00:00.000Z`,
+    }));
+    const twentyFirst = {
+      id: "mood-20",
+      type: "mood",
+      label: "Mood 5/5",
+      notes: null,
+      loggedAt: "2026-08-16T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("offset=20")) {
+        return Promise.resolve(
+          jsonResponse(200, { entries: [twentyFirst], limit: 20, offset: 20, hasMore: false }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse(200, { entries: firstPage, limit: 20, offset: 0, hasMore: true }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findAllByText("Mood 3/5");
+    expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /load more/i }));
+    await screen.findByText("Mood 5/5");
+    expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /load less/i })).toBeInTheDocument();
+
+    const callsBeforeLoadLess = fetchMock.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: /load less/i }));
+
+    expect(fetchMock.mock.calls.length).toBe(callsBeforeLoadLess);
+    expect(screen.queryByText("Mood 5/5")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Mood 3/5")).toHaveLength(20);
+    expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
+  });
+
   it("disables the Edit button as a coming-soon affordance rather than wiring up editing", async () => {
     const entry = {
       id: "mood-1",

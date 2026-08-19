@@ -10,10 +10,12 @@ interface SectionPanelProps {
   storageKey: string;
   addLabel: string;
   onAddClick: () => void;
-  // Everything below the header row: the add/edit form (when open) and the entries list,
-  // together - both live inside the same collapsible region, since opening the form is only
-  // useful if the panel is also expanded to show it (see the onAddClick handler below, which
-  // expands the panel before calling this).
+  // The entries list only - the add/edit form no longer lives in here at all (see the
+  // implementation log entry on the dialog-based Quick Add redesign for why: an earlier version
+  // rendered the form inline in this same collapsible region, which meant clicking "+" forced
+  // the whole list open too, whether or not anyone wanted to see it). The form now renders in a
+  // `Modal`, owned by each Section component directly - collapsing this panel has no effect on
+  // it, and opening the form has no effect on this panel's own collapsed state either.
   children: ReactNode;
 }
 
@@ -27,13 +29,8 @@ export function SectionPanel({
   onAddClick,
   children,
 }: SectionPanelProps) {
-  const { collapsed, toggle, expand } = useCollapsedState(`dashboard.${storageKey}`);
+  const { collapsed, toggle } = useCollapsedState(`dashboard.${storageKey}`);
   const contentId = `section-panel-${storageKey}-content`;
-
-  function handleAddClick() {
-    expand();
-    onAddClick();
-  }
 
   return (
     // No margin/spacing classes here - this panel is always laid out inside DashboardPage's own
@@ -72,7 +69,7 @@ export function SectionPanel({
             was sized for a small phone-frame graphic, not a real thumb. */}
         <button
           type="button"
-          onClick={handleAddClick}
+          onClick={onAddClick}
           aria-label={addLabel}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand text-white hover:bg-brand-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
