@@ -4,6 +4,7 @@ import { SymptomEntryForm, type Symptom, type SymptomLog } from "../SymptomEntry
 import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
 import { formatEntryDateTime } from "../../lib/entryDateLabel";
+import { useTimedMessage } from "../../hooks/useTimedMessage";
 
 // Mirrors HistoryPage's own PAGE_SIZE/offset-pagination shape (see backend/src/lib/pagination.ts)
 // - a Quick-Add section only ever needs a short, recent slice, not a user's entire history
@@ -28,6 +29,9 @@ export function SymptomSection() {
   // Reuses the same showSymptomForm area both create and edit render into - see MoodSection's
   // identical editingLog state for the full explanation.
   const [editingLog, setEditingLog] = useState<SymptomLog | null>(null);
+  // Brief post-save confirmation - see MoodSection's identical use of useTimedMessage for the
+  // full explanation of why this is the whole success-feedback mechanism here.
+  const { message: savedMessage, showMessage: showSavedMessage } = useTimedMessage();
 
   useEffect(() => {
     let cancelled = false;
@@ -78,6 +82,7 @@ export function SymptomSection() {
     });
     setShowSymptomForm(false);
     setEditingLog(null);
+    showSavedMessage("Symptom entry saved.");
   }
 
   function handleSymptomCreated(symptom: Symptom) {
@@ -95,6 +100,11 @@ export function SymptomSection() {
   }
 
   async function handleSymptomDelete(id: string) {
+    // Destructive and irreversible - confirm before touching state or the network, same
+    // pattern HistoryPage.tsx already uses for its own delete action (per requirements §15).
+    const confirmed = window.confirm("Delete this symptom entry? This can't be undone.");
+    if (!confirmed) return;
+
     const previous = symptomLogs;
     setSymptomLogs((prev) => prev.filter((log) => log.id !== id));
     try {
@@ -132,6 +142,11 @@ export function SymptomSection() {
             onSymptomCreated={handleSymptomCreated}
           />
         </div>
+      )}
+      {savedMessage && (
+        <p role="status" className="mb-3 text-sm font-medium text-success">
+          {savedMessage}
+        </p>
       )}
       {symptomsLoading && <p className="text-text-muted">Loading…</p>}
       {symptomLoadError && (

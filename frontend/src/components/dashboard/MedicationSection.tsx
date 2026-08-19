@@ -4,6 +4,7 @@ import { MedicationEntryForm, type Medication, type MedicationLog } from "../Med
 import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
 import { formatEntryDateTime } from "../../lib/entryDateLabel";
+import { useTimedMessage } from "../../hooks/useTimedMessage";
 
 // Mirrors HistoryPage's own PAGE_SIZE/offset-pagination shape (see backend/src/lib/pagination.ts)
 // - a Quick-Add section only ever needs a short, recent slice, not a user's entire history
@@ -28,6 +29,9 @@ export function MedicationSection() {
   // Reuses the same showMedicationForm area both create and edit render into - see
   // MoodSection's identical editingLog state for the full explanation.
   const [editingLog, setEditingLog] = useState<MedicationLog | null>(null);
+  // Brief post-save confirmation - see MoodSection's identical use of useTimedMessage for the
+  // full explanation of why this is the whole success-feedback mechanism here.
+  const { message: savedMessage, showMessage: showSavedMessage } = useTimedMessage();
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +87,7 @@ export function MedicationSection() {
     );
     setShowMedicationForm(false);
     setEditingLog(null);
+    showSavedMessage("Medication entry saved.");
   }
 
   function handleMedicationEdit(log: MedicationLog) {
@@ -96,6 +101,11 @@ export function MedicationSection() {
   }
 
   async function handleDeleteMedicationLog(id: string) {
+    // Destructive and irreversible - confirm before touching state or the network, same
+    // pattern HistoryPage.tsx already uses for its own delete action (per requirements §15).
+    const confirmed = window.confirm("Delete this medication entry? This can't be undone.");
+    if (!confirmed) return;
+
     const previous = medicationLogs;
     setMedicationLogs((prev) => prev.filter((log) => log.id !== id));
     try {
@@ -135,6 +145,11 @@ export function MedicationSection() {
             onCancel={handleMedicationFormCancel}
           />
         </div>
+      )}
+      {savedMessage && (
+        <p role="status" className="mb-3 text-sm font-medium text-success">
+          {savedMessage}
+        </p>
       )}
       {medicationLoading && <p className="text-text-muted">Loading…</p>}
       {medicationLoadError && (
