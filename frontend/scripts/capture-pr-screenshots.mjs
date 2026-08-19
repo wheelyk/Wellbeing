@@ -67,12 +67,12 @@ await screenshot("03-login-then-dashboard");
 // screenshot feeds into actually proves the dashboard *functions* - not just that it renders
 // while empty. Mirrors the manual verification flow used when DashboardPage was decomposed
 // into per-log-type section components (see docs/log/08-git-github-workflow.md).
-await page.getByRole("button", { name: "+ Mood" }).click();
+await page.getByRole("button", { name: "Add mood entry" }).click();
 await page.getByRole("radio", { name: "Great", exact: true }).click();
 await page.getByRole("button", { name: /save entry/i }).click();
 await page.waitForTimeout(300);
 
-await page.getByRole("button", { name: "+ Symptom" }).click();
+await page.getByRole("button", { name: "Add symptom entry" }).click();
 await page.waitForSelector("text=Log a symptom");
 await page.locator("select").first().selectOption({ index: 1 });
 await page
@@ -82,7 +82,7 @@ await page
 await page.getByRole("button", { name: /save entry/i }).click();
 await page.waitForTimeout(300);
 
-await page.getByRole("button", { name: "+ Medication" }).click();
+await page.getByRole("button", { name: "Add medication entry" }).click();
 await page.waitForSelector("text=Log a medication");
 await page.getByLabel(/medication name/i).fill("Ibuprofen");
 await page.getByRole("button", { name: "Add", exact: true }).click();
@@ -94,7 +94,7 @@ await page
 await page.getByRole("button", { name: /save entry/i }).click();
 await page.waitForSelector("text=Ibuprofen — Taken");
 
-await page.getByRole("button", { name: "+ Habit" }).click();
+await page.getByRole("button", { name: "Add habit entry" }).click();
 await page.waitForSelector("text=Create your first habit");
 await page.getByLabel(/habit name/i).fill("Exercise");
 await page.getByRole("radio", { name: /yes \/ no/i }).click();
