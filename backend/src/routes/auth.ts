@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
@@ -5,10 +6,21 @@ import { Prisma } from "../generated/prisma/client";
 import { prisma } from "../lib/prisma";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/jwt";
 import { clearRefreshTokenCookie, setRefreshTokenCookie } from "../lib/cookies";
+import { sendPasswordResetEmail } from "../lib/mail";
 import { requireAuth } from "../middleware/requireAuth";
 import { authRateLimiter } from "../middleware/rateLimiter";
 
 const SALT_ROUNDS = 12;
+
+// How long a forgot-password reset token stays valid after it's issued. An hour is the
+// standard tradeoff for this kind of link: long enough that a real person can receive the
+// email and act on it without rushing, short enough that a token sitting unused in an old
+// inbox stops being a meaningful risk fairly quickly.
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
+// Same fallback used in app.ts (kept as its own local constant rather than importing across
+// files for one string) - where the reset link in the placeholder email should point.
+const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:5173";
 
 // A precomputed bcrypt hash of an unguessable value, with no matching user. Used as the
 // comparison target on login when the email doesn't match any user, so bcrypt.compare()
@@ -57,6 +69,26 @@ const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, "Current password is required"),
   newPassword: passwordField,
 });
+
+const forgotPasswordSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1, "Reset token is required"),
+  newPassword: passwordField,
+});
+
+// A reset token is a high-entropy random value (32 bytes from crypto.randomBytes, unlike a
+// human-chosen password), so unlike passwordHash above, this doesn't need bcrypt's slow,
+// salted design - that exists specifically to blunt brute-forcing a *low-entropy* secret a
+// person picked. A plain, fast SHA-256 hash is enough here: the point is only that the raw
+// token - the thing actually required to reset a password - can't be recovered from what's
+// stored in the database, the same "never store the raw secret" principle as passwords, just
+// with a hash suited to a different kind of secret.
+function hashResetToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
 
 export const authRouter = Router();
 
@@ -211,6 +243,90 @@ authRouter.post("/change-password", requireAuth, authRateLimiter, async (req, re
   // Stateless JWTs mean an existing session on another device can't be individually revoked
   // (same limitation as logout, above) - but clearing this browser's refresh cookie forces a
   // fresh login with the new password here, which is the one thing that can be done.
+  clearRefreshTokenCookie(res);
+  return res.status(200).json({ message: "Password updated" });
+});
+
+authRouter.post("/forgot-password", authRateLimiter, async (req, res) => {
+  const parsed = forgotPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: {
+        message: "Invalid forgot-password request",
+        code: "VALIDATION_ERROR",
+        details: parsed.error.flatten().fieldErrors,
+      },
+    });
+  }
+
+  const { email } = parsed.data;
+
+  // Always the same response, whether or not this email actually matches an account - see
+  // docs/log/01-auth-backend.md's forgot-password entry for the full reasoning. In short:
+  // confirming "yes, that email has an account here" to an anonymous caller is itself a small
+  // privacy leak (worse for a health app specifically), and it's exactly the same "don't leak
+  // which case it is" principle already applied to login's INVALID_CREDENTIALS response above.
+  const genericResponse = {
+    message: "If that email is registered, a reset link has been sent.",
+  };
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (user) {
+    const rawToken = crypto.randomBytes(32).toString("hex");
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        resetTokenHash: hashResetToken(rawToken),
+        resetTokenExpiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+      },
+    });
+
+    // The raw token only ever exists in memory here and in the email it's embedded in - never
+    // written to the database (only its hash is, above) and never logged anywhere except
+    // inside this placeholder mailer's own clearly-labeled console output.
+    const resetLink = `${FRONTEND_URL}/reset-password?token=${rawToken}`;
+    await sendPasswordResetEmail(user.email, resetLink);
+  }
+
+  return res.status(200).json(genericResponse);
+});
+
+authRouter.post("/reset-password", authRateLimiter, async (req, res) => {
+  const parsed = resetPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: {
+        message: "Invalid reset-password request",
+        code: "VALIDATION_ERROR",
+        details: parsed.error.flatten().fieldErrors,
+      },
+    });
+  }
+
+  const { token, newPassword } = parsed.data;
+  const user = await prisma.user.findFirst({ where: { resetTokenHash: hashResetToken(token) } });
+
+  if (!user || !user.resetTokenExpiresAt || user.resetTokenExpiresAt < new Date()) {
+    return res.status(400).json({
+      error: { message: "Invalid or expired reset link", code: "INVALID_RESET_TOKEN" },
+    });
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+
+  // Clearing resetTokenHash/resetTokenExpiresAt here is what makes the token single-use - a
+  // second request with the same (now-valid-looking) token no longer matches any user's
+  // resetTokenHash, and fails exactly like an already-expired one above.
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash, resetTokenHash: null, resetTokenExpiresAt: null },
+  });
+
+  // Same reasoning as change-password above: stateless JWTs mean a session open on another
+  // device can't be individually revoked, but clearing this browser's refresh cookie is the
+  // one thing that can be done - and matters more here than for change-password, since a
+  // password reset is often prompted by the old password having leaked in the first place.
   clearRefreshTokenCookie(res);
   return res.status(200).json({ message: "Password updated" });
 });
