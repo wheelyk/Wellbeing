@@ -168,7 +168,14 @@ export function HistoryPage() {
           Browse everything you&apos;ve logged, across mood, symptoms, medications, and habits.
         </p>
 
-        <div className="mt-6 flex flex-wrap items-end gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm">
+        {/* Stacked, full-width fields on mobile (easy to tap, no cramped side-by-side date
+            inputs on a narrow screen); a single horizontal row from sm: up, once there's
+            actually room for four fields side by side without wrapping unpredictably - see the
+            implementation log entry on this app's mobile-first pass. This replaces relying on
+            flex-wrap's own default wrapping point (which happened to look reasonable before, but
+            wasn't a deliberate breakpoint decision - just wherever the fields' natural widths
+            happened to overflow). */}
+        <div className="mt-6 flex flex-col gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end">
           <div className="flex flex-col gap-1">
             <label htmlFor="history-type-filter" className="text-sm font-medium text-text">
               Type

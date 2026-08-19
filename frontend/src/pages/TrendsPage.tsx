@@ -60,7 +60,13 @@ export function TrendsPage() {
   return (
     <div className="min-h-screen bg-surface-muted">
       <NavBar />
-      <main className="mx-auto max-w-3xl px-4 py-8">
+      {/* max-w-3xl on mobile, matching every other page; lg:max-w-5xl only once the two line
+          charts below actually sit side by side - see the implementation log entry on this
+          app's mobile-first pass. The switch to 2-column happens at lg:, not md:, since a line
+          chart genuinely needs real width to stay readable - unlike Dashboard's panels (mostly
+          text), squeezing these into a tablet-width column too early would make the trend lines
+          themselves harder to read, not just visually tighter. */}
+      <main className="mx-auto max-w-3xl px-4 py-8 lg:max-w-5xl">
         <h1 className="text-2xl font-semibold text-text">Trends</h1>
         {/* Explicit descriptive-not-diagnostic framing, per requirements §10/§14 ("must avoid
             claiming that one factor causes another" / "must not present itself as a medical
@@ -84,46 +90,53 @@ export function TrendsPage() {
 
         {!loading && !loadError && data && (
           <>
-            <section className="mt-6 rounded-2xl border border-border bg-surface p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-text">
-                Symptom Severity —{" "}
-                {data.symptomSeverity.average !== null
-                  ? `Avg: ${data.symptomSeverity.average.toFixed(1)}`
-                  : "No data yet"}
-              </h2>
-              <p className="mt-1 text-sm text-text-muted">
-                Logged severity (1–10) over {PERIOD_LABELS[period]}.
-              </p>
-              <TrendLineChart
-                points={data.symptomSeverity.series}
-                domainMin={1}
-                domainMax={10}
-                color={SYMPTOM_CHART_COLOR}
-                formatValue={(value) => `${value.toFixed(1)}/10`}
-                ariaLabel={`Symptom severity chart for ${PERIOD_LABELS[period]}`}
-              />
-            </section>
+            {/* Single column until lg: (see the main container's own comment above for why
+                these two charts specifically wait for lg: rather than md:). */}
+            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+                <h2 className="text-lg font-semibold text-text">
+                  Symptom Severity —{" "}
+                  {data.symptomSeverity.average !== null
+                    ? `Avg: ${data.symptomSeverity.average.toFixed(1)}`
+                    : "No data yet"}
+                </h2>
+                <p className="mt-1 text-sm text-text-muted">
+                  Logged severity (1–10) over {PERIOD_LABELS[period]}.
+                </p>
+                <TrendLineChart
+                  points={data.symptomSeverity.series}
+                  domainMin={1}
+                  domainMax={10}
+                  color={SYMPTOM_CHART_COLOR}
+                  formatValue={(value) => `${value.toFixed(1)}/10`}
+                  ariaLabel={`Symptom severity chart for ${PERIOD_LABELS[period]}`}
+                />
+              </section>
 
-            <section className="mt-6 rounded-2xl border border-border bg-surface p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-text">
-                Mood —{" "}
-                {data.mood.average !== null
-                  ? `Avg: ${data.mood.average.toFixed(1)}`
-                  : "No data yet"}
-              </h2>
-              <p className="mt-1 text-sm text-text-muted">
-                Logged mood (1–5) over {PERIOD_LABELS[period]}.
-              </p>
-              <TrendLineChart
-                points={data.mood.series}
-                domainMin={1}
-                domainMax={5}
-                color={MOOD_CHART_COLOR}
-                formatValue={(value) => `${value.toFixed(1)}/5`}
-                ariaLabel={`Mood chart for ${PERIOD_LABELS[period]}`}
-              />
-            </section>
+              <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+                <h2 className="text-lg font-semibold text-text">
+                  Mood —{" "}
+                  {data.mood.average !== null
+                    ? `Avg: ${data.mood.average.toFixed(1)}`
+                    : "No data yet"}
+                </h2>
+                <p className="mt-1 text-sm text-text-muted">
+                  Logged mood (1–5) over {PERIOD_LABELS[period]}.
+                </p>
+                <TrendLineChart
+                  points={data.mood.series}
+                  domainMin={1}
+                  domainMax={5}
+                  color={MOOD_CHART_COLOR}
+                  formatValue={(value) => `${value.toFixed(1)}/5`}
+                  ariaLabel={`Mood chart for ${PERIOD_LABELS[period]}`}
+                />
+              </section>
+            </div>
 
+            {/* Stays full-width at every size, deliberately not part of the grid above - a
+                7-column weekly activity calendar reads better wide than squeezed into half a
+                desktop-width row, unlike the two line charts. */}
             <section className="mt-6 rounded-2xl border border-border bg-surface p-6 shadow-sm">
               <h2 className="text-lg font-semibold text-text">Activity</h2>
               <p className="mt-1 text-sm text-text-muted">
