@@ -135,6 +135,28 @@ export function DashboardSummary() {
     }
   }
 
+  // Unlike the four per-type sections' handleLoadLess (a pure client-side truncation), this one
+  // still refetches - this component always asks the backend for exactly `recentEntriesLimit`
+  // entries on every fetch, including background polls (see the ref comment above), so shrinking
+  // the limit without also refetching would leave it showing a page the *next* poll tick would
+  // immediately overwrite back to the larger size anyway.
+  async function handleLoadLessRecent() {
+    setLoadingMoreRecent(true);
+    const nextLimit = Math.max(
+      RECENT_ENTRIES_PAGE_SIZE,
+      recentEntriesLimit - RECENT_ENTRIES_PAGE_SIZE,
+    );
+    try {
+      const res = await apiFetch<DashboardSummaryData>(`/api/dashboard?limit=${nextLimit}`);
+      setData(res);
+      setRecentEntriesLimit(nextLimit);
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoadingMoreRecent(false);
+    }
+  }
+
   if (loading) {
     return (
       <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
@@ -214,11 +236,26 @@ export function DashboardSummary() {
             ))}
           </ul>
         )}
-        {data.recentEntries.hasMore && (
-          <div className="mt-4 flex justify-center">
-            <Button variant="secondary" onClick={handleLoadMoreRecent} disabled={loadingMoreRecent}>
-              {loadingMoreRecent ? "Loading…" : "Load more"}
-            </Button>
+        {(data.recentEntries.hasMore || recentEntriesLimit > RECENT_ENTRIES_PAGE_SIZE) && (
+          <div className="mt-4 flex justify-center gap-2">
+            {data.recentEntries.hasMore && (
+              <Button
+                variant="secondary"
+                onClick={handleLoadMoreRecent}
+                disabled={loadingMoreRecent}
+              >
+                {loadingMoreRecent ? "Loading…" : "Load more"}
+              </Button>
+            )}
+            {recentEntriesLimit > RECENT_ENTRIES_PAGE_SIZE && (
+              <Button
+                variant="secondary"
+                onClick={handleLoadLessRecent}
+                disabled={loadingMoreRecent}
+              >
+                {loadingMoreRecent ? "Loading…" : "Load less"}
+              </Button>
+            )}
           </div>
         )}
       </div>

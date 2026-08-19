@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DashboardSummary } from "./DashboardSummary";
 
@@ -264,6 +264,66 @@ describe("DashboardSummary", () => {
     await user.click(screen.getByRole("button", { name: /load more/i }));
 
     expect(await screen.findByText(/nap — 30 min/i)).toBeInTheDocument();
+  });
+
+  it("shrinks the limit and refetches when Load less is clicked after expanding", async () => {
+    const entryA = {
+      type: "mood",
+      label: "Mood",
+      value: "4/5",
+      loggedAt: "2026-08-17T09:00:00.000Z",
+    };
+    const entryB = {
+      type: "habit",
+      label: "Nap",
+      value: "30 min",
+      loggedAt: "2026-08-16T09:00:00.000Z",
+    };
+    const baseFields = {
+      date: "2026-08-17",
+      mood: null,
+      symptomCount: 0,
+      medicationSummary: { taken: 0, total: 0 },
+      habitSummary: { loggedCount: 0, totalHabits: 0 },
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("limit=20")) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            ...baseFields,
+            recentEntries: { entries: [entryA, entryB], limit: 20, offset: 0, hasMore: false },
+          }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse(200, {
+          ...baseFields,
+          recentEntries: { entries: [entryA], limit: 10, offset: 0, hasMore: true },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<DashboardSummary />);
+    await screen.findByText(/mood — 4\/5/i);
+    expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /load more/i }));
+    await screen.findByText(/nap — 30 min/i);
+    expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /load less/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /load less/i }));
+
+    // Genuinely refetched at the smaller limit (not a local truncation, unlike the four
+    // per-type sections) - Nap disappears because the mocked limit=10 response never included
+    // it, not because the component hid it client-side.
+    await waitFor(() => expect(screen.queryByText(/nap — 30 min/i)).not.toBeInTheDocument());
+    expect(screen.getByText(/mood — 4\/5/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
   });
 
   it("uses singular 'day' for a one-day streak", async () => {

@@ -143,6 +143,15 @@ export function HistoryPage() {
     }
   }
 
+  // Purely local, same reasoning as the Dashboard's own per-type sections' handleLoadLess - the
+  // extra pages are already sitting in `entries`, so collapsing back to the first one doesn't
+  // need a network round-trip, and hasMore is always true afterward since showing "Load less" at
+  // all already implies more than PAGE_SIZE entries were fetched.
+  function handleLoadLess() {
+    setEntries((prev) => prev.slice(0, PAGE_SIZE));
+    setHasMore(true);
+  }
+
   async function handleDelete(entry: HistoryEntry) {
     const confirmed = window.confirm(
       `Delete this ${TYPE_LABELS[entry.type].toLowerCase()} entry? This can't be undone.`,
@@ -311,11 +320,18 @@ export function HistoryPage() {
               </div>
             ))}
 
-          {!loading && !loadError && hasMore && (
-            <div className="mt-6 flex justify-center">
-              <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
-                {loadingMore ? "Loading…" : "Load more"}
-              </Button>
+          {!loading && !loadError && (hasMore || entries.length > PAGE_SIZE) && (
+            <div className="mt-6 flex justify-center gap-2">
+              {hasMore && (
+                <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
+                  {loadingMore ? "Loading…" : "Load more"}
+                </Button>
+              )}
+              {entries.length > PAGE_SIZE && (
+                <Button variant="secondary" onClick={handleLoadLess}>
+                  Load less
+                </Button>
+              )}
             </div>
           )}
         </section>

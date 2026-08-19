@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Button } from "../Button";
+import { Modal } from "../Modal";
 import { SymptomEntryForm, type Symptom, type SymptomLog } from "../SymptomEntryForm";
 import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
 import { formatEntryDateTime } from "../../lib/entryDateLabel";
 import { useTimedMessage } from "../../hooks/useTimedMessage";
+import { listenForDashboardQuickAdd } from "../../lib/dashboardQuickAddEvent";
 
 // Mirrors HistoryPage's own PAGE_SIZE/offset-pagination shape (see backend/src/lib/pagination.ts)
 // - a Quick-Add section only ever needs a short, recent slice, not a user's entire history
@@ -60,6 +62,17 @@ export function SymptomSection() {
     };
   }, []);
 
+  // Lets QuickAddFab open this section's add form directly - see MoodSection's identical
+  // listener, and dashboardQuickAddEvent.ts, for the full explanation.
+  useEffect(
+    () =>
+      listenForDashboardQuickAdd("symptom", () => {
+        setEditingLog(null);
+        setShowSymptomForm(true);
+      }),
+    [],
+  );
+
   async function handleLoadMore() {
     setLoadingMore(true);
     try {
@@ -73,6 +86,13 @@ export function SymptomSection() {
     } finally {
       setLoadingMore(false);
     }
+  }
+
+  // Purely local - see MoodSection's identical handleLoadLess for the full explanation of why
+  // no network round-trip (or further hasMore check) is needed here.
+  function handleLoadLess() {
+    setSymptomLogs((prev) => prev.slice(0, PAGE_SIZE));
+    setHasMore(true);
   }
 
   function handleSymptomSaved(log: SymptomLog) {
@@ -119,85 +139,93 @@ export function SymptomSection() {
   }
 
   return (
-    <SectionPanel
-      title="Recent symptom entries"
-      storageKey="symptom"
-      addLabel="Add symptom entry"
-      onAddClick={() => {
-        setEditingLog(null);
-        setShowSymptomForm(true);
-      }}
-    >
-      {showSymptomForm && (
-        <div className="mb-4">
-          <h3 className="mb-4 text-base font-semibold text-text">
-            {editingLog ? "Edit symptom entry" : "Log a symptom"}
-          </h3>
-          <SymptomEntryForm
-            key={editingLog?.id ?? "create"}
-            symptoms={symptoms}
-            editingLog={editingLog}
-            onSaved={handleSymptomSaved}
-            onCancel={handleSymptomFormCancel}
-            onSymptomCreated={handleSymptomCreated}
-          />
-        </div>
-      )}
-      {savedMessage && (
-        <p role="status" className="mb-3 text-sm font-medium text-success">
-          {savedMessage}
-        </p>
-      )}
-      {symptomsLoading && <p className="text-text-muted">Loading…</p>}
-      {symptomLoadError && (
-        <p role="alert" className="text-danger">
-          Couldn&apos;t load your symptom entries. Please try refreshing.
-        </p>
-      )}
-      {!symptomsLoading && !symptomLoadError && symptomLogs.length === 0 && (
-        <p className="text-text-muted">
-          Nothing logged yet — use the button above to record a symptom.
-        </p>
-      )}
-      <ul className="flex flex-col gap-2">
-        {symptomLogs.map((log) => (
-          <li
-            key={log.id}
-            className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface-muted p-4"
-          >
-            <div>
-              <p className="text-text">
-                {symptomName(log.symptomId)} · Severity {log.severity}/10
-              </p>
-              {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
-              <p className="text-xs text-text-muted">{formatEntryDateTime(log.loggedAt)}</p>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                onClick={() => handleSymptomEdit(log)}
-                aria-label={`Edit symptom entry from ${formatEntryDateTime(log.loggedAt)}`}
-              >
-                Edit
+    <>
+      <SectionPanel
+        title="Recent symptom entries"
+        storageKey="symptom"
+        addLabel="Add symptom entry"
+        onAddClick={() => {
+          setEditingLog(null);
+          setShowSymptomForm(true);
+        }}
+      >
+        {savedMessage && (
+          <p role="status" className="mb-3 text-sm font-medium text-success">
+            {savedMessage}
+          </p>
+        )}
+        {symptomsLoading && <p className="text-text-muted">Loading…</p>}
+        {symptomLoadError && (
+          <p role="alert" className="text-danger">
+            Couldn&apos;t load your symptom entries. Please try refreshing.
+          </p>
+        )}
+        {!symptomsLoading && !symptomLoadError && symptomLogs.length === 0 && (
+          <p className="text-text-muted">
+            Nothing logged yet — use the button above to record a symptom.
+          </p>
+        )}
+        <ul className="flex flex-col gap-2">
+          {symptomLogs.map((log) => (
+            <li
+              key={log.id}
+              className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface-muted p-4"
+            >
+              <div>
+                <p className="text-text">
+                  {symptomName(log.symptomId)} · Severity {log.severity}/10
+                </p>
+                {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
+                <p className="text-xs text-text-muted">{formatEntryDateTime(log.loggedAt)}</p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => handleSymptomEdit(log)}
+                  aria-label={`Edit symptom entry from ${formatEntryDateTime(log.loggedAt)}`}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => handleSymptomDelete(log.id)}
+                  aria-label={`Delete symptom entry from ${formatEntryDateTime(log.loggedAt)}`}
+                >
+                  Delete
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+        {!symptomsLoading && !symptomLoadError && (hasMore || symptomLogs.length > PAGE_SIZE) && (
+          <div className="mt-4 flex justify-center gap-2">
+            {hasMore && (
+              <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
+                {loadingMore ? "Loading…" : "Load more"}
               </Button>
-              <Button
-                variant="secondary"
-                onClick={() => handleSymptomDelete(log.id)}
-                aria-label={`Delete symptom entry from ${formatEntryDateTime(log.loggedAt)}`}
-              >
-                Delete
+            )}
+            {symptomLogs.length > PAGE_SIZE && (
+              <Button variant="secondary" onClick={handleLoadLess}>
+                Load less
               </Button>
-            </div>
-          </li>
-        ))}
-      </ul>
-      {!symptomsLoading && !symptomLoadError && hasMore && (
-        <div className="mt-4 flex justify-center">
-          <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
-            {loadingMore ? "Loading…" : "Load more"}
-          </Button>
-        </div>
-      )}
-    </SectionPanel>
+            )}
+          </div>
+        )}
+      </SectionPanel>
+      <Modal
+        open={showSymptomForm}
+        onClose={handleSymptomFormCancel}
+        title={editingLog ? "Edit symptom entry" : "Log a symptom"}
+      >
+        <SymptomEntryForm
+          key={editingLog?.id ?? "create"}
+          symptoms={symptoms}
+          editingLog={editingLog}
+          onSaved={handleSymptomSaved}
+          onCancel={handleSymptomFormCancel}
+          onSymptomCreated={handleSymptomCreated}
+        />
+      </Modal>
+    </>
   );
 }
