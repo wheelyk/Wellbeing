@@ -138,39 +138,36 @@ export function HabitSection() {
     <SectionPanel
       title="Recent habit entries"
       storageKey="habit"
-      topContent={
-        <>
-          {habitFormMode === "log" && (
-            <>
-              <h2 className="mb-4 text-lg font-semibold text-text">
-                {editingLog ? "Edit habit entry" : "Log a habit"}
-              </h2>
-              <HabitEntryForm
-                key={editingLog?.id ?? habitToPreselect ?? "create"}
-                habits={habits}
-                initialHabitId={habitToPreselect}
-                editingLog={editingLog}
-                onSaved={handleHabitLogSaved}
-                onCancel={handleHabitLogFormCancel}
-                onAddHabit={() => setHabitFormMode("create-habit")}
-              />
-            </>
-          )}
-          {habitFormMode === "create-habit" && (
-            <>
-              <h2 className="mb-4 text-lg font-semibold text-text">
-                {habits.length === 0 ? "Create your first habit" : "Create a new habit"}
-              </h2>
-              <HabitCreateForm
-                onCreated={handleHabitCreated}
-                onCancel={() => setHabitFormMode(habits.length === 0 ? "closed" : "log")}
-              />
-            </>
-          )}
-          {habitFormMode === "closed" && <Button onClick={handleHabitButtonClick}>+ Habit</Button>}
-        </>
-      }
+      addLabel="Add habit entry"
+      onAddClick={handleHabitButtonClick}
     >
+      {habitFormMode === "log" && (
+        <div className="mb-4">
+          <h3 className="mb-4 text-base font-semibold text-text">
+            {editingLog ? "Edit habit entry" : "Log a habit"}
+          </h3>
+          <HabitEntryForm
+            key={editingLog?.id ?? habitToPreselect ?? "create"}
+            habits={habits}
+            initialHabitId={habitToPreselect}
+            editingLog={editingLog}
+            onSaved={handleHabitLogSaved}
+            onCancel={handleHabitLogFormCancel}
+            onAddHabit={() => setHabitFormMode("create-habit")}
+          />
+        </div>
+      )}
+      {habitFormMode === "create-habit" && (
+        <div className="mb-4">
+          <h3 className="mb-4 text-base font-semibold text-text">
+            {habits.length === 0 ? "Create your first habit" : "Create a new habit"}
+          </h3>
+          <HabitCreateForm
+            onCreated={handleHabitCreated}
+            onCancel={() => setHabitFormMode(habits.length === 0 ? "closed" : "log")}
+          />
+        </div>
+      )}
       {habitsLoading && <p className="text-text-muted">Loading…</p>}
       {habitLoadError && (
         <p role="alert" className="text-danger">
