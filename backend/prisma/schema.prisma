@@ -18,6 +18,14 @@ model User {
   timezone     String   @default("UTC")
   createdAt    DateTime @default(now()) @map("created_at")
 
+  // Populated only while a forgot-password reset is pending; both null the rest of the time.
+  // Only the SHA-256 hash of the raw reset token is stored - never the raw token itself - the
+  // same "never store the raw secret" principle as passwordHash, applied to a different kind of
+  // secret. See backend/src/routes/auth.ts's forgot-password/reset-password handlers for how
+  // these are set, checked, and cleared (a reset token is single-use and time-limited).
+  resetTokenHash      String?   @map("reset_token_hash")
+  resetTokenExpiresAt DateTime? @map("reset_token_expires_at")
+
   moodLogs       MoodLog[]
   habits         Habit[]
   habitLogs      HabitLog[]
