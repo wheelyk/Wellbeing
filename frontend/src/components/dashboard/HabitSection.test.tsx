@@ -132,9 +132,56 @@ describe("HabitSection", () => {
 
     expect(await screen.findByText(/exercise: done/i)).toBeInTheDocument();
     expect(screen.queryByText(/exercise: not done/i)).not.toBeInTheDocument();
+    // Success feedback: a brief confirmation appears once the form closes (there's no toast
+    // system in this app - see hooks/useTimedMessage.ts).
+    expect(screen.getByRole("status")).toHaveTextContent(/habit entry saved/i);
 
     const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(patchCall?.[0]).toContain("/api/habit-logs/log-1");
+  });
+
+  it("deletes an entry only once the confirmation is accepted", async () => {
+    const habit = { id: "habit-1", userId: "user-1", name: "Exercise", type: "boolean" };
+    const existingLog = {
+      id: "log-1",
+      userId: "user-1",
+      habitId: "habit-1",
+      valueBoolean: true,
+      valueNumeric: null,
+      valueDurationMinutes: null,
+      notes: null,
+      loggedAt: "2026-08-17T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE")
+        return Promise.resolve(jsonResponse(200, { message: "Deleted" }));
+      if (url.includes("/api/habits") && !url.includes("logs")) {
+        return Promise.resolve(jsonResponse(200, [habit]));
+      }
+      return Promise.resolve(
+        jsonResponse(200, { entries: [existingLog], limit: 10, offset: 0, hasMore: false }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    render(<HabitSection />);
+    await screen.findByText(/exercise: done/i);
+
+    await user.click(screen.getByRole("button", { name: /delete habit entry/i }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/delete this habit entry/i));
+    expect(screen.getByText(/exercise: done/i)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/habit-logs/log-1"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+
+    confirmSpy.mockReturnValueOnce(true);
+    await user.click(screen.getByRole("button", { name: /delete habit entry/i }));
+
+    expect(await screen.findByText(/nothing logged yet/i)).toBeInTheDocument();
   });
 
   it("loads more entries and appends them when Load more is clicked", async () => {

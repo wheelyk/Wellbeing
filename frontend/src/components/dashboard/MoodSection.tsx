@@ -4,6 +4,7 @@ import { MoodEntryForm, type MoodLog } from "../MoodEntryForm";
 import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
 import { formatEntryDateTime } from "../../lib/entryDateLabel";
+import { useTimedMessage } from "../../hooks/useTimedMessage";
 
 const MOOD_EMOJI: Record<number, string> = { 1: "😞", 2: "😕", 3: "😐", 4: "🙂", 5: "😄" };
 
@@ -33,6 +34,10 @@ export function MoodSection() {
   // Reuses the same showForm area both create and edit render into - null means "creating a
   // new entry", a log means "editing that entry" (see MoodEntryForm's editingLog prop).
   const [editingLog, setEditingLog] = useState<MoodLog | null>(null);
+  // Brief post-save confirmation ("Mood entry saved.") shown once the form closes - there's no
+  // toast system in this app, so this is the entire success-feedback mechanism (see
+  // useTimedMessage for why it clears itself rather than needing manual dismissal).
+  const { message: savedMessage, showMessage: showSavedMessage } = useTimedMessage();
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +81,7 @@ export function MoodSection() {
     });
     setShowForm(false);
     setEditingLog(null);
+    showSavedMessage("Mood entry saved.");
   }
 
   function handleEdit(log: MoodLog) {
@@ -89,6 +95,11 @@ export function MoodSection() {
   }
 
   async function handleDelete(id: string) {
+    // Destructive and irreversible - confirm before touching state or the network, same
+    // pattern HistoryPage.tsx already uses for its own delete action (per requirements §15).
+    const confirmed = window.confirm("Delete this mood entry? This can't be undone.");
+    if (!confirmed) return;
+
     const previous = moodLogs;
     setMoodLogs((prev) => prev.filter((log) => log.id !== id));
     try {
@@ -120,6 +131,11 @@ export function MoodSection() {
             onCancel={handleCancel}
           />
         </div>
+      )}
+      {savedMessage && (
+        <p role="status" className="mb-3 text-sm font-medium text-success">
+          {savedMessage}
+        </p>
       )}
       {loading && <p className="text-text-muted">Loading…</p>}
       {loadError && (

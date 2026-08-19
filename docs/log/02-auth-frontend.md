@@ -626,6 +626,186 @@ name, rather than assumed correct from the diff alone.
 
 ---
 
+## 2026-08-19 — Phase 5: a bottom nav on mobile, a top nav on desktop, and a real FAB collision
+
+**Task:** [Tasks.md](../../Tasks.md) → Phase 5 — "Build a bottom navigation component (Home /
+History / Trends / Settings) per the wireframes, visible on mobile; adapt to a top/side nav on
+desktop without changing the underlying workflow." No wireframes file actually exists in the repo,
+so this was built to match the app's existing visual language instead (`index.css`'s design
+tokens, `NavBar.tsx`'s own conventions) rather than a spec.
+
+**Delivered via branch:** `feature/5.x-bottom-nav-mobile`.
+
+### Background / concepts
+
+#### Why a *separate* component, not just restyling `NavBar` with media queries
+
+`NavBar.tsx` (introduced in the 2026-08-15 entry above, fixed for mobile overflow in the entry
+directly above this one) was, until now, one always-visible top bar holding the four primary nav
+links, the signed-in user's display name, and Log out. A bottom tab bar and a top bar are
+different enough in *shape* — a bottom bar is a full-width row of stacked icon+label buttons
+pinned to the viewport's bottom edge; a top bar is a horizontal row of plain text links inline
+with branding and account actions — that squeezing both into one component's markup with
+breakpoint classes would mean two very different layouts fighting inside a single JSX tree. Two
+separate components, each responsible for exactly one screen-size regime, is simpler to read and
+easier to test in isolation: `BottomNav.tsx` (new) exists purely for `< md:` (below 768px);
+`NavBar.tsx`'s own nav links now exist purely for `md:` and up.
+
+#### The chosen split: `NavBar` goes slim on mobile, `BottomNav` takes over primary navigation
+
+`NavBar` originally packed nav links + name + Log out into one row — the exact crowding problem
+the previous log entry's mobile-overflow fix had to work around. Moving primary navigation to
+`BottomNav` below `md:` removes that link row from the top bar entirely on a phone screen, so
+`NavBar` only needs to show a brand mark ("WellTrack" — added here; the top bar previously had no
+branding at all) and account actions (Log out; the display name stays hidden below `sm:`, per the
+existing fix) on mobile. The same four links reappear in `NavBar` itself from `md:` up
+(`hidden md:flex` on the `<nav>` wrapping them), functioning as a conventional desktop top nav —
+same routes, same `NavLink`/`isActive` highlighting logic, just a different chrome depending on
+screen width, exactly as `Tasks.md`'s wording asks for ("without changing the underlying
+workflow").
+
+#### `BottomNav.tsx`
+
+A `<nav aria-label="Primary">`, `fixed inset-x-0 bottom-0`, `h-16` (64px — a conventional mobile
+tab-bar height, comfortably large as a touch target), one flex-1 `NavLink` per route with a small
+emoji icon above the label (matching the icon style `QuickAddFab.tsx` already established for its
+own per-type menu — see that file's own comment on why these are hardcoded per-component rather
+than a shared constant). `md:hidden` is the one class doing all the work of confining it to mobile
+— from `768px` up, `NavBar`'s own top nav is the one true primary-navigation surface, so having
+both visible at once would be redundant chrome and (see below) an actual visual collision.
+
+#### A real collision this design predicted, and confirmed rather than assumed
+
+A `fixed`, bottom-pinned nav bar is exactly the kind of thing that silently overlaps *other* fixed
+elements already anchored to the bottom of the viewport — and this app already has one:
+`QuickAddFab.tsx`'s `+` button, `fixed bottom-6 right-6` on the Dashboard page. Reasoning about the
+numbers alone (`BottomNav` is `h-16`/64px tall, sitting at `bottom-0`; the FAB was `bottom-6`/24px
+up) suggested a real overlap, but per this project's own established practice (the *previous* log
+entry in this same file title-cased this exact lesson: "a plausible-looking CSS diff... can still
+be wrong in a way only rendering it... actually reveals"), this was checked in an actual running
+browser rather than trusted from the arithmetic. It was, in fact, a real collision — with
+`BottomNav` visible, the FAB's own lower portion sat *inside* `BottomNav`'s bounding box at a real
+375px viewport, confirmed by comparing both elements' actual `boundingBox()` values in Playwright,
+not just the source CSS. Fixed with a mobile-only offset: `bottom-24` (96px — clearing `BottomNav`
+plus real breathing room) on the FAB, reverting to the original `bottom-6` from `md:` up, where
+`BottomNav` is hidden and the FAB has the full viewport height to itself again. Re-measured after
+the fix: FAB bounding box bottom edge at y≈716px, `BottomNav`'s top edge at y≈748px on a 812px-tall
+viewport — a clean 32px gap, no overlap.
+
+#### The other collision this design predicted: page content hidden behind the bar
+
+The same `fixed`-positioning problem applies to *every* page's own content, not just the FAB —
+`main`'s last child on any page (`Dashboard`'s last section card, `History`'s last entry or "Load
+more" button, `Settings`'s "Update password" button) would sit directly behind `BottomNav` on
+mobile unless the page reserves room for it. Every page that renders `NavBar` (`DashboardPage`,
+`HistoryPage`, `TrendsPage`, `SettingsPage`, and `PlaceholderPage` — still unused by any live route
+today, but kept consistent in case a future page reuses it, same as the other four) got its
+`<main>` padding changed from a flat `py-8` to `pt-8 pb-24 md:pb-8` — extra bottom padding on
+mobile to clear `BottomNav`'s 64px plus room to spare, reverting to the original symmetric padding
+at `md:` where `BottomNav` is hidden again.
+
+### What was done
+
+1. **`frontend/src/components/BottomNav.tsx` (new).** The fixed, mobile-only tab bar described
+   above — four `NavLink`s (Home/History/Trends/Settings), each with an icon + label, the active
+   route highlighted in brand blue via the same `isActive` pattern `NavBar` already used.
+2. **`frontend/src/components/NavBar.tsx`.** Added a "WellTrack" brand mark; wrapped the existing
+   nav links in `hidden md:flex` so they only render as a top nav from `md:` up; updated the
+   crowding-fix comment from the previous entry to reflect that the nav links no longer compete
+   for space on mobile at all (only from `md:` up, where there's more room anyway).
+3. **`frontend/src/components/dashboard/QuickAddFab.tsx`.** `bottom-6` → `bottom-24 md:bottom-6`,
+   fixing the real FAB/`BottomNav` collision described above.
+4. **`DashboardPage.tsx` / `HistoryPage.tsx` / `TrendsPage.tsx` / `SettingsPage.tsx` /
+   `PlaceholderPage.tsx`.** Each now renders `<BottomNav />` alongside its existing `<NavBar />`,
+   and each `<main>`'s padding changed to `pt-8 pb-24 md:pb-8` (from a flat `py-8`) so content
+   isn't hidden behind the bar on mobile.
+5. **Tests.** `BottomNav.test.tsx` (new): all four links render with the correct `href`s; the
+   active route is highlighted (`text-brand`) and the others aren't; a structural regression guard
+   (same jsdom caveat as `NavBar.test.tsx`'s own breakpoint test — no real layout engine, no
+   compiled stylesheet, so this can't verify actual visibility) confirming `fixed`, `bottom-0`, and
+   `md:hidden` stay present. `NavBar.test.tsx`: added a check for the new brand text, and a
+   structural guard that the nav-links wrapper carries `hidden md:flex`.
+   `DashboardPage.test.tsx`'s existing composition test needed updating — with both `NavBar` and
+   `BottomNav` now rendering together, `getByRole("link", { name: "Home" })` legitimately matches
+   two elements instead of one (jsdom doesn't know which one a real browser would actually show at
+   a given width), so it now asserts `getAllByRole(...)` returns exactly two, rather than a single
+   link that no longer uniquely identifies either nav surface.
+6. **Full frontend suite**: `npm test` — 143/143 passing after the `DashboardPage.test.tsx` update
+   above (the only failure the change caused, and a genuine, expected update rather than a bug
+   worked around).
+7. **`npm run build`, `npm run lint` (`oxlint`), `npx prettier --check src`** — all clean.
+8. **Real browser verification (Playwright + `playwright-core`, headless Chromium, against real
+   running `npm run dev` servers on both projects, backend backed by the real local Postgres —
+   see [docs/log/13-responsive-design.md](13-responsive-design.md) for why this project treats
+   "compiles and passes unit tests" as necessary but not sufficient)**: registered a real user,
+   checked Dashboard and History/Trends/Settings at both 375px and 1280px. At 1280px: `BottomNav`
+   correctly not rendered as visible, `NavBar`'s top nav links visible and functional (clicked
+   through to History), no horizontal overflow. At 375px: `BottomNav` visible and functional
+   (clicked through to History, active state updated correctly), `NavBar`'s own nav links
+   genuinely not in the accessible-elements tree at all (not just visually hidden — confirmed via
+   `getComputedStyle().display` being `none`, not just an `isVisible()` check), the FAB/`BottomNav`
+   collision fix confirmed via real bounding-box measurements (no overlap, 32px clear gap), every
+   page's last piece of content visible above the bar after scrolling to the bottom (screenshotted
+   for Dashboard, History, Trends, Settings), no horizontal overflow on any of the four pages. Zero
+   unexpected console errors — the two `401`s seen are the same already-documented, harmless
+   first-load rehydration attempt from the 2026-08-17 entry above, not a regression. The throwaway
+   user was deleted from the dev database afterward; the one-off verification scripts were not
+   committed; both dev servers (run on dedicated, non-default ports to avoid colliding with other
+   work happening on the same shared dev database/host at the same time) were stopped when done.
+
+### Why it's needed
+
+Every page in this app was, until now, unreachable from a phone without a top bar that had already
+had to be defensively shrunk to avoid breaking (the previous log entry). A bottom tab bar is the
+standard, thumb-reachable mobile navigation pattern for exactly this reason — and building it
+without checking the FAB collision would have shipped a feature that visually broke the one page
+(`Dashboard`) that already had its own fixed-position UI element.
+
+### Decisions
+
+- **A separate `BottomNav` component, not a responsively-restyled `NavBar`.** Covered above — the
+  two chrome shapes are different enough that one component doing both would be harder to read
+  and test than two components each owning one screen-size regime.
+- **`NavBar` keeps a brand mark + Log out on mobile, not just an empty bar.** Moving primary
+  navigation to the bottom doesn't mean the top bar should show nothing — a small, persistent brand
+  mark and an always-reachable Log out (never hidden, per the existing rule) is a common, minimal
+  pattern for exactly this "primary nav lives elsewhere" situation.
+- **`bottom-24 md:bottom-6` on the FAB, not e.g. shrinking `BottomNav` or moving the FAB
+  elsewhere.** The simplest fix that changes the fewest things: `BottomNav`'s height and position
+  are fixed by its own tab-bar convention, so giving the FAB more clearance on mobile (with no
+  change at all once `BottomNav` isn't present) was the smallest, most targeted fix.
+- **`PlaceholderPage.tsx` updated too, even though no live route currently uses it.** Consistency
+  with the other four `NavBar`-rendering pages costs nothing here and avoids a stale trap for
+  whichever future page reuses it next.
+- **Verified in a real browser rather than trusting the CSS reasoning**, specifically for the FAB
+  collision — matching the explicit lesson recorded in the entry directly above this one in this
+  same file. The collision was real, not hypothetical, and the fix's clearance was re-measured
+  afterward rather than assumed correct from the class names alone.
+
+### State at end of this step
+
+A user on a phone now has a persistent, thumb-reachable bottom tab bar for Home/History/Trends/
+Settings on every authenticated page, with the exact same four routes reachable as a conventional
+top nav from `md:` up — no change to the underlying routing or workflow at either size. The one
+real cross-feature interaction this introduced (the Dashboard FAB) was found, fixed, and confirmed
+fixed in a real browser, not just reasoned about.
+
+### Verification
+
+- `npm test` (frontend) — 143/143 passing (4 new: 3 in `BottomNav.test.tsx`, 1 new assertion in
+  `NavBar.test.tsx`'s existing/new tests; 1 pre-existing test in `DashboardPage.test.tsx` updated
+  for the now-legitimate duplicate nav links, not worked around).
+- `npm run build`, `npm run lint` (`oxlint`), `npx prettier --check src` — all clean.
+- Real browser (Playwright, headless Chromium) at 375px and 1280px across Dashboard, History,
+  Trends, and Settings — `BottomNav` visible/functional and `NavBar`'s links genuinely hidden
+  (`display: none`, not just visually obscured) on mobile; the reverse on desktop; the FAB/
+  `BottomNav` collision confirmed fixed via real bounding-box measurements; every page's bottom
+  content clear of the bar after scrolling; no horizontal overflow at either width on any of the
+  four pages; zero unexpected console errors. Throwaway user and one-off scripts/screenshots
+  cleaned up; both dev servers stopped afterward.
+
+---
+
 ## 2026-08-19 — Phase 6: forgot-password and reset-password pages
 
 **Task:** [Tasks.md](../../Tasks.md) → Phase 6 → "Forgot password page (request reset email) and

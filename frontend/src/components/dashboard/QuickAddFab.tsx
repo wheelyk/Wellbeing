@@ -50,7 +50,12 @@ export function QuickAddFab() {
   }
 
   return (
-    <div ref={containerRef} className="fixed bottom-6 right-6 z-20">
+    // bottom-24 on mobile clears BottomNav (a fixed h-16/64px bar sitting at the very bottom of
+    // the viewport below `md:` - see BottomNav.tsx) with room to spare; md:bottom-6 reverts to
+    // the original tighter offset once `md:` hides BottomNav and the FAB has the full viewport
+    // height to itself again. Found and confirmed via a real 375px-viewport screenshot on the
+    // Dashboard page - see the implementation log entry for this bottom-nav task.
+    <div ref={containerRef} className="fixed bottom-24 right-6 z-20 md:bottom-6">
       {open && (
         <div
           role="menu"
