@@ -22,7 +22,12 @@ export function SectionPanel({ title, storageKey, topContent, children }: Sectio
   const contentId = `section-panel-${storageKey}-content`;
 
   return (
-    <section className="mt-8 rounded-2xl border border-border bg-surface shadow-sm">
+    // No margin/spacing classes here - this panel is always laid out inside DashboardPage's own
+    // grid (a single column on mobile, two from md: up - see the implementation log entry on
+    // this app's mobile-first responsive pass), which controls spacing between panels via `gap`
+    // instead. A per-panel margin would double up with the grid's gap unpredictably depending on
+    // column position.
+    <section className="rounded-2xl border border-border bg-surface shadow-sm">
       <div className="p-6">{topContent}</div>
       <div className="border-t border-border p-6">
         <button
