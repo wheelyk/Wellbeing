@@ -129,7 +129,7 @@ describe("SymptomSection", () => {
     render(<SymptomSection />);
     await screen.findByText(/nothing logged yet/i);
 
-    await user.click(screen.getByRole("button", { name: "+ Symptom" }));
+    await user.click(screen.getByRole("button", { name: "Add symptom entry" }));
 
     expect(screen.getByText("Log a symptom")).toBeInTheDocument();
   });

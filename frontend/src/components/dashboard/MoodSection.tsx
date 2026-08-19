@@ -102,31 +102,25 @@ export function MoodSection() {
     <SectionPanel
       title="Recent mood entries"
       storageKey="mood"
-      topContent={
-        showForm ? (
-          <>
-            <h2 className="mb-4 text-lg font-semibold text-text">
-              {editingLog ? "Edit mood entry" : "Log your mood"}
-            </h2>
-            <MoodEntryForm
-              key={editingLog?.id ?? "create"}
-              editingLog={editingLog}
-              onSaved={handleSaved}
-              onCancel={handleCancel}
-            />
-          </>
-        ) : (
-          <Button
-            onClick={() => {
-              setEditingLog(null);
-              setShowForm(true);
-            }}
-          >
-            + Mood
-          </Button>
-        )
-      }
+      addLabel="Add mood entry"
+      onAddClick={() => {
+        setEditingLog(null);
+        setShowForm(true);
+      }}
     >
+      {showForm && (
+        <div className="mb-4">
+          <h3 className="mb-4 text-base font-semibold text-text">
+            {editingLog ? "Edit mood entry" : "Log your mood"}
+          </h3>
+          <MoodEntryForm
+            key={editingLog?.id ?? "create"}
+            editingLog={editingLog}
+            onSaved={handleSaved}
+            onCancel={handleCancel}
+          />
+        </div>
+      )}
       {loading && <p className="text-text-muted">Loading…</p>}
       {loadError && (
         <p role="alert" className="text-danger">

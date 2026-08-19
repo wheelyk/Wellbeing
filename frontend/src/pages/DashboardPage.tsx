@@ -5,6 +5,7 @@ import { MoodSection } from "../components/dashboard/MoodSection";
 import { HabitSection } from "../components/dashboard/HabitSection";
 import { MedicationSection } from "../components/dashboard/MedicationSection";
 import { SymptomSection } from "../components/dashboard/SymptomSection";
+import { QuickAddFab } from "../components/dashboard/QuickAddFab";
 
 export function DashboardPage() {
   const { user } = useAuth();
@@ -22,6 +23,7 @@ export function DashboardPage() {
         <MedicationSection />
         <SymptomSection />
       </main>
+      <QuickAddFab />
     </div>
   );
 }

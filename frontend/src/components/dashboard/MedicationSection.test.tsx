@@ -47,6 +47,26 @@ describe("MedicationSection", () => {
     expect(await screen.findByText(/ibuprofen — taken/i)).toBeInTheDocument();
   });
 
+  it("opens the entry form when the add button is clicked", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/medications")) {
+        return Promise.resolve(jsonResponse(200, []));
+      }
+      return Promise.resolve(
+        jsonResponse(200, { entries: [], limit: 10, offset: 0, hasMore: false }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<MedicationSection />);
+    await screen.findByText(/nothing logged yet/i);
+
+    await user.click(screen.getByRole("button", { name: "Add medication entry" }));
+
+    expect(screen.getByText("Log a medication")).toBeInTheDocument();
+  });
+
   it("includes the medication's dosage in the entry label when it has one", async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/api/medications")) {
