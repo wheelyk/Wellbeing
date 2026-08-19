@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+:root {
+  color-scheme: light;
+}
+
 @theme {
   --color-brand: #2563eb;
   --color-brand-dark: #1d4ed8;
