@@ -805,3 +805,142 @@ fixed in a real browser, not just reasoned about.
   cleaned up; both dev servers stopped afterward.
 
 ---
+
+## 2026-08-19 — Phase 6: Settings page grows a Profile section and an account deletion flow
+
+**Task:** [Tasks.md](../../Tasks.md) Phase 6 — "Settings page: view/edit display name and
+timezone; account deletion flow with a clear confirmation step (type-to-confirm or a two-step
+dialog) per §15." Pairs with the backend work in
+[Authentication — Backend](01-auth-backend.md)'s same-day entry, which builds the
+`GET/PATCH/DELETE /api/users/me` endpoints this page calls.
+
+### Background / concepts
+
+#### Why a destructive action needs a *deliberate* confirmation step, not just any confirmation
+
+Requirements §15 calls for confirming destructive actions before they happen — but not every
+confirmation is equally effective. A single "Are you sure?" dialog with a `Delete` button that
+looks like any other button is easy to click through on autopilot, especially for someone who's
+clicked "confirm" on a hundred other unrelated dialogs that day. **Type-to-confirm** — requiring
+the exact word `DELETE` typed into a text field before the destructive button even becomes
+clickable — is a stronger gate specifically because it can't be triggered by muscle-memory
+clicking. It forces a moment of genuinely reading and typing, which is exactly the kind of
+friction that's *appropriate* for "permanently erase this person's health history," even though
+that same friction would be an annoying, unjustified obstacle almost everywhere else in the app.
+
+This is why the button starts out `disabled` and only becomes clickable once
+`confirmationText.trim() === "DELETE"` — the gate lives in the button's own `disabled` state, not
+in a second dialog someone could reflexively click through:
+
+```tsx
+const canDelete = confirmationText.trim() === DELETE_CONFIRMATION_PHRASE;
+// ...
+<Button type="button" variant="danger" onClick={handleDelete} disabled={!canDelete || deleting}>
+```
+
+#### Why the account-deletion `navigate()` happens *before* `logout()`, again
+
+This exact ordering — navigate to an unguarded route first, *then* clear auth state — was already
+established (and the bug that motivated it explained in detail) in this file's change-password
+entry above. It applies identically here: `SettingsPage` is wrapped in `RequireAuth`, and clearing
+auth state while still rendering a guarded route would let `RequireAuth`'s own redirect race this
+one and overwrite its `state.message`. The account deletion flow reuses the identical pattern,
+right down to passing a confirmation message through `navigate`'s `state`.
+
+#### A `Button` component gains a third variant
+
+`Button.tsx` previously only had `primary` (blue, used for most submit actions) and `secondary`
+(neutral gray, used for the History page's per-entry delete, since re-logging a mistakenly-deleted
+entry is cheap). Account deletion is not that — it's the single most consequential, hardest-to-undo
+action anywhere in this app, so it got its own `danger` variant (a red background using the
+`--color-danger` token that already existed in `index.css` but had no button styling built on top
+of it yet):
+
+```ts
+const variants: Record<ButtonVariant, string> = {
+  primary: "bg-brand text-white hover:bg-brand-dark",
+  secondary: "bg-surface-muted text-text hover:bg-border",
+  danger: "bg-danger text-white hover:bg-danger/90",
+};
+```
+
+Adding it as a proper variant (rather than overriding classes via the `className` prop on a call
+site) avoids a real Tailwind footgun: two utility classes targeting the same CSS property (e.g.
+`bg-brand` from the `primary` variant and a `bg-danger` passed in via `className`) don't reliably
+override each other based on the order they appear in a single element's `class` attribute —
+Tailwind's generated stylesheet order decides the winner, not source order on that one element.
+A dedicated variant sidesteps the ambiguity entirely: only one background-color utility is ever
+applied to a `danger` button in the first place.
+
+### What was done
+
+1. **`ProfileSection`** (new, inside `SettingsPage.tsx`): fetches `GET /api/users/me` on mount to
+   populate a `displayName` text field and a `timezone` `<select>`; submits changes via `PATCH
+   /api/users/me`; shows a `role="status"` "Profile saved." confirmation on success, and a
+   `role="alert"` error otherwise. The timezone `<select>` offers a deliberately short, curated
+   list of ~20 common IANA zones (not the full ~400-zone list `Intl.supportedValuesOf` could
+   provide) — a dropdown with hundreds of entries is its own usability problem this task didn't
+   call for building a fancier picker to solve. If the account's *current* timezone isn't in that
+   curated list, it's appended so the `<select>` never silently misrepresents the saved value.
+2. **`AccountDeletionSection`** (new, inside `SettingsPage.tsx`): the type-to-confirm gate
+   described above, calling `DELETE /api/users/me` once enabled, then `navigate("/login", ...)`
+   followed by `logout()` — the same ordering, and the same reasoning, as the existing
+   change-password flow just above it on the same page.
+3. Added a `danger` variant to the shared `Button` component (described above).
+4. `backend/tsconfig.json` needed one small unrelated fix to support this work's *backend* half
+   (`Intl.supportedValuesOf` typings) — covered in the paired backend log entry, not repeated here.
+5. Tests added to `SettingsPage.test.tsx`: profile loads and displays the fetched values; saving
+   sends the right `PATCH` body and shows the confirmation; a server-side validation error (e.g. an
+   invalid timezone) surfaces as an inline error without crashing the form; the delete button stays
+   disabled for a wrong-case or partial confirmation string and only enables on an exact `DELETE`;
+   a successful deletion logs out and redirects to `/login` with a confirmation message; a failed
+   deletion shows an error and does *not* navigate away. The existing change-password tests needed
+   updating too — `ProfileSection`'s own mount-time `GET /api/users/me` call meant every render of
+   `SettingsPage` now fires an additional fetch alongside `AuthProvider`'s session-rehydration
+   call, so the test helper switched from a strict, ordered sequence of `mockResolvedValueOnce`
+   calls to a URL/method-matching `routedFetchMock` helper (the same style `DashboardPage.test.tsx`
+   already uses, for the same underlying reason: multiple independent fetches firing on one mount,
+   whose exact order isn't something a test should depend on).
+
+### Why it's needed
+
+Without this, requirements §15's account-deletion requirement (and Phase 2's backend endpoints)
+would have no way for a real user to actually reach them — the API existing isn't the same as the
+feature being usable. And without a genuine confirmation gate specifically, "delete my account" sits
+one accidental click away from a health app permanently erasing someone's medical history, which is
+precisely the kind of mistake a destructive-action confirmation step exists to prevent.
+
+### Decisions
+
+- **Type-to-confirm over a `window.confirm()` two-step dialog** (the pattern History's per-entry
+  delete already uses) — deliberately a stronger gate for a stronger consequence, as explained
+  above, and also more directly testable: `window.confirm` requires globally stubbing `window
+  .confirm` in every test that touches deletion, where a real form field is just another element to
+  query and type into with the same tools every other test in this file already uses.
+- **A real `danger` Button variant, not a one-off `className` override** — avoids the Tailwind
+  same-property-two-classes ambiguity described above, and is now available to any future genuinely
+  destructive action elsewhere in the app.
+- **Sending the full `{ displayName, timezone }` object on every profile save**, even though the
+  backend's `PATCH` accepts a true partial update — the form always has both fields populated once
+  loaded, so there's no "only send what changed" case to handle on this side; the backend's partial-
+  update support is exercised directly by its own tests instead.
+
+### Verification
+
+- Full frontend test suite (`npm test`, 145 tests across 24 files, all passing) — including the
+  updated change-password tests, confirming the new `ProfileSection` mount fetch didn't silently
+  break them.
+- `npm run build` (`tsc -b && vite build`) and `npm run lint` (`oxlint`) both clean;
+  `npx prettier --check` clean after formatting.
+- Real, running-server, real-browser verification (Playwright via `playwright-core`, already a
+  frontend dependency) against the actual dev server: registered a throwaway user, logged in
+  through the real Login page, navigated to Settings via the real NavBar link, confirmed the
+  Profile section loaded that user's real `displayName` from the API, edited both the display name
+  and timezone and saved, **reloaded the page** and confirmed the new values round-tripped through
+  a fresh `GET /api/users/me` rather than just reflecting unsaved local state, confirmed the delete
+  button stayed disabled for a lowercase `"delete"` and only enabled once `"DELETE"` was typed
+  exactly, then completed a real deletion and confirmed both the `/login` redirect with its
+  confirmation message *and* that logging back in with the same credentials now fails. The scratch
+  Playwright script used for this was not committed.
+
+---
