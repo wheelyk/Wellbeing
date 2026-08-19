@@ -114,7 +114,7 @@ Reference: requirements §7, §10, §12.7, §12.8.
 - [x] Build an API client (fetch/axios wrapper) that attaches the access token, and on a 401 automatically attempts a token refresh before retrying once; on refresh failure, redirect to Login.
 - [x] Build an auth context/store (e.g. React Context or a small state library) holding the current user and auth status.
 - [x] On app load, attempt a silent token refresh (using the `httpOnly` refresh cookie) to rehydrate the session, so a browser refresh doesn't log out a user whose session is still genuinely valid — found missing while testing the change-password flow, fixed later (see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)).
-- [ ] Build a bottom navigation component (Home / History / Trends / Settings) per the wireframes, visible on mobile; adapt to a top/side nav on desktop without changing the underlying workflow.
+- [x] Build a bottom navigation component (Home / History / Trends / Settings) per the wireframes, visible on mobile; adapt to a top/side nav on desktop without changing the underlying workflow. (No wireframes file exists yet, so built to this app's existing visual language — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [ ] Establish base Tailwind design tokens (colors, spacing, font sizes) for a calm, high-contrast, low-clutter UI, and reusable primitives: `Button`, `Card`, `RatingScale`, `Modal`, `TextField`, `DatePicker`.
 - [x] Ensure all interactive primitives have visible focus states and meet WCAG AA color contrast. (Confirmed during the Phase 12 audit — `focus-visible:outline` used consistently across every interactive element; zero axe-core WCAG 2AA contrast violations across six real pages/states. See [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 

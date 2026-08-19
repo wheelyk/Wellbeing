@@ -46,15 +46,29 @@ describe("NavBar", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders every nav link and the Log out button", async () => {
+  it("renders the brand mark, every nav link, and the Log out button", async () => {
     renderNavBarAsUser("Regular Name");
 
+    expect(screen.getByText("WellTrack")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "History" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Trends" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     expect(await screen.findByText("Regular Name")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
+  });
+
+  it("hides its own nav links below the md breakpoint (BottomNav takes over instead)", () => {
+    // Structural regression guard, same jsdom caveat as the other breakpoint test below: this
+    // can't verify real visibility, only that the load-bearing classes are still present. See
+    // BottomNav.test.tsx for the mobile-only tab bar this hands primary navigation off to below
+    // `md:`.
+    renderNavBarAsUser("Regular Name");
+
+    const homeLink = screen.getByRole("link", { name: "Home" });
+    const navWrapper = homeLink.closest("nav");
+    expect(navWrapper?.className).toContain("hidden");
+    expect(navWrapper?.className).toContain("md:flex");
   });
 
   it("hides the display name below the sm breakpoint and truncates it above", async () => {

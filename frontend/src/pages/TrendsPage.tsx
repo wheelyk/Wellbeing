@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api/client";
 import { NavBar } from "../components/NavBar";
+import { BottomNav } from "../components/BottomNav";
 import { PeriodSelector, type TrendsPeriod } from "../components/trends/PeriodSelector";
 import { TrendLineChart, type TrendPoint } from "../components/trends/TrendLineChart";
 import { ActivityCalendar, type ActivityDay } from "../components/trends/ActivityCalendar";
@@ -65,8 +66,10 @@ export function TrendsPage() {
           app's mobile-first pass. The switch to 2-column happens at lg:, not md:, since a line
           chart genuinely needs real width to stay readable - unlike Dashboard's panels (mostly
           text), squeezing these into a tablet-width column too early would make the trend lines
-          themselves harder to read, not just visually tighter. */}
-      <main className="mx-auto max-w-3xl px-4 py-8 lg:max-w-5xl">
+          themselves harder to read, not just visually tighter.
+          pb-24/md:pb-8 - see DashboardPage.tsx's equivalent comment: leaves room below `md:` for
+          the fixed BottomNav bar so the Activity calendar's bottom edge isn't hidden behind it. */}
+      <main className="mx-auto max-w-3xl px-4 pt-8 pb-24 lg:max-w-5xl md:pb-8">
         <h1 className="text-2xl font-semibold text-text">Trends</h1>
         {/* Explicit descriptive-not-diagnostic framing, per requirements §10/§14 ("must avoid
             claiming that one factor causes another" / "must not present itself as a medical
@@ -148,6 +151,7 @@ export function TrendsPage() {
           </>
         )}
       </main>
+      <BottomNav />
     </div>
   );
 }
