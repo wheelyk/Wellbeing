@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The app is light-only (no dark: variants, no prefers-color-scheme CSS). Without an
+         explicit color-scheme, Chrome for Android will auto-dark pages that don't declare one,
+         using a per-element heuristic that has known bugs recoloring text inside its own
+         compositing layer (e.g. position: fixed elements) inconsistently with the rest of the
+         page - the practical symptom being sibling text rendered invisible against a background
+         Chrome didn't also recolor. Declaring light here opts the whole page out of that
+         heuristic instead of fixing it element by element. -->
+    <meta name="color-scheme" content="light" />
     <title>WellTrack</title>
   </head>
   <body>
