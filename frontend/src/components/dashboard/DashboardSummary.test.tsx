@@ -326,6 +326,72 @@ describe("DashboardSummary", () => {
     expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
   });
 
+  it("groups recent entries under Today/Yesterday day headings", async () => {
+    mockDashboardFetch({
+      date: "2026-08-17",
+      mood: null,
+      symptomCount: 0,
+      medicationSummary: { taken: 0, total: 0 },
+      habitSummary: { loggedCount: 0, totalHabits: 0 },
+      recentEntries: {
+        entries: [
+          { type: "mood", label: "Mood", value: "4/5", loggedAt: daysAgoIso(0) },
+          { type: "habit", label: "Nap", value: "30 min", loggedAt: daysAgoIso(1) },
+        ],
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+      },
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    });
+
+    render(<DashboardSummary />);
+
+    const todayHeading = await screen.findByRole("heading", { level: 4, name: "Today" });
+    const yesterdayHeading = screen.getByRole("heading", { level: 4, name: "Yesterday" });
+    // Both group headings render, and in newest-first order (Today before Yesterday) - matches
+    // the order the flat, newest-first `entries` array already arrives in.
+    expect(
+      todayHeading.compareDocumentPosition(yesterdayHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByText(/mood — 4\/5/i)).toBeInTheDocument();
+    expect(screen.getByText(/nap — 30 min/i)).toBeInTheDocument();
+  });
+
+  it("collapses and re-expands the recent entries list, hiding it while collapsed", async () => {
+    mockDashboardFetch({
+      date: "2026-08-17",
+      mood: null,
+      symptomCount: 0,
+      medicationSummary: { taken: 0, total: 0 },
+      habitSummary: { loggedCount: 0, totalHabits: 0 },
+      recentEntries: {
+        entries: [{ type: "mood", label: "Mood", value: "4/5", loggedAt: daysAgoIso(0) }],
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+      },
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    });
+    const user = userEvent.setup();
+
+    render(<DashboardSummary />);
+    await screen.findByText(/mood — 4\/5/i);
+
+    const toggle = screen.getByRole("button", { name: /recent entries/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(/mood — 4\/5/i)).not.toBeInTheDocument();
+
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByText(/mood — 4\/5/i)).toBeInTheDocument();
+  });
+
   it("uses singular 'day' for a one-day streak", async () => {
     mockDashboardFetch({
       date: "2026-08-17",
