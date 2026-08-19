@@ -63,6 +63,11 @@ export function LoginPage() {
             autoComplete="current-password"
             required
           />
+          <p className="-mt-2 text-right text-sm">
+            <Link to="/forgot-password" className="font-medium text-brand hover:underline">
+              Forgot password?
+            </Link>
+          </p>
           {formError && (
             <p role="alert" className="text-sm text-danger">
               {formError}
