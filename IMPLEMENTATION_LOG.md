@@ -244,6 +244,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-18 — Bounding the Dashboard's per-type log lists: real pagination, not just a display fix
 - 2026-08-18 — Dashboard redesign: paginating "Recent entries" too, own panels, and collapsible lists
 - 2026-08-19 — Inline icon "+ Add" buttons and a floating Quick Add across all four sections
+- 2026-08-19 — Phase 7: verifying "no silent failures" for the entry forms, and finding two real gaps
 
 ### [Security & Accessibility Audits](docs/log/12-security-and-accessibility-audits.md)
 

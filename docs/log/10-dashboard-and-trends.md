@@ -925,3 +925,136 @@ answer to "which one wins," not a placeholder for deciding later.
   first-page-load rehydration behavior from the session-rehydration fix - not a regression here.
 
 ---
+
+## 2026-08-19 — Phase 7: verifying "no silent failures" for the entry forms, and finding two real gaps
+
+**Task:** [Tasks.md](../../Tasks.md) → Phase 7 → "Client-side validation before submit…," "Success
+feedback (toast/inline confirmation) on save…," "Delete actions require a lightweight
+confirmation…"
+
+**Delivered via branch:** `feature/7.x-quick-add-ux-polish`. Unlike most tasks in this log, the
+first step here wasn't writing code - it was reading all four entry forms
+(`MoodEntryForm`/`SymptomEntryForm`/`MedicationEntryForm`/`HabitEntryForm`) and all four Dashboard
+sections end to end, since Phase 7 had accumulated a lot of incremental work across many earlier
+tasks and it was genuinely unclear, without reading, which of these three checklist items were
+already done versus still open.
+
+### Background / concepts
+
+#### What was found already done, and why it counts
+
+Client-side validation turned out to already be fully built, in every one of the four forms:
+`MoodEntryForm` won't submit without a mood chosen (`"Choose how you're feeling."`, an inline
+`role="alert"` next to the mood picker), `SymptomEntryForm` requires both a symptom and a severity,
+`MedicationEntryForm` requires both a medication and a taken/not-taken choice, and
+`HabitEntryForm` validates whichever single value field applies to that habit's type (a boolean
+choice, a parseable number, or a non-negative whole number of minutes) - each with its own specific,
+next-to-the-field error message, not a generic "fix your input" banner. All four forms use
+`noValidate` on the `<form>` itself specifically so this hand-written validation is what runs,
+not the browser's own default (inconsistently-styled, easy-to-miss) validation bubbles. This was
+verified by reading the code, not assumed from the checkbox being unchecked - Tasks.md simply
+hadn't been updated to reflect work already completed in earlier tasks that built these forms.
+
+#### The two gaps that were real, and how they were found
+
+Reading each Dashboard section's `handleSaved`-style callback showed the same pattern four times
+over: on a successful save, the callback updates local state and closes the form
+(`setShowForm(false)`) - and does nothing else. No confirmation, no visual acknowledgment beyond
+the form disappearing. A user who saves an entry gets exactly the same visual outcome as a user who
+clicks Cancel: the form goes away either way, with nothing distinguishing "that worked" from "you
+backed out." This app has no toast/notification system (confirmed by checking for one before
+assuming a gap existed), so this was a genuine missing piece, not a wiring bug.
+
+Reading each section's `handleDelete`-style function showed the second gap even more directly: all
+four call the DELETE endpoint immediately on click, with an optimistic local removal and a rollback
+only on network failure - no confirmation step at all. This is a real inconsistency inside the app,
+not just a missing feature: `HistoryPage.tsx`'s own `handleDelete` (built in an earlier task) already
+calls `window.confirm("Delete this ${type} entry? This can't be undone.")` before deleting the exact
+same four kinds of log rows, through the exact same four DELETE endpoints - the Dashboard sections
+were the odd ones out, not the norm.
+
+### What was done
+
+1. **New `frontend/src/hooks/useTimedMessage.ts`.** A small hook - `{ message, showMessage }` -
+   that shows a string and clears it on its own after 4 seconds, replacing the previous timer
+   rather than stacking multiple if called again first. Factored out once it became clear all four
+   Dashboard sections needed the exact same "say it, then quietly go away" behavior, rather than
+   duplicating a `useState` + `useRef` + cleanup-`useEffect` block four times over (the existing
+   `useCollapsedState.ts` was the precedent for a small, purpose-built hook living in this
+   directory rather than folded into each component).
+2. **All four Dashboard sections** (`MoodSection`, `SymptomSection`, `MedicationSection`,
+   `HabitSection`) call `showSavedMessage("Mood entry saved.")` (etc.) at the end of their existing
+   `handle*Saved` callback, and render the message as `<p role="status" className="text-success">`
+   just above the entries list. `role="status"` (an ARIA live region, announced politely) rather
+   than `role="alert"` (assertive, used elsewhere in these same files for actual errors) - a
+   success confirmation shouldn't interrupt a screen-reader user the same way a validation error
+   does. Uses the `--color-success` design token that was already defined in `index.css` but had
+   never actually been used anywhere in the app until now.
+3. **All four Dashboard sections'** `handleDelete`-style functions gained the same
+   `window.confirm("Delete this ${type} entry? This can't be undone.")` guard `HistoryPage.tsx`
+   already used, returning early (before touching state or calling the network) if declined - the
+   exact wording and shape, so a user sees the same confirmation regardless of whether they're
+   deleting from the Dashboard or from History.
+4. **Tests.** `MoodSection.test.tsx`'s existing delete test was updated to mock
+   `window.confirm` (previously untested, since the component didn't call it yet); a new
+   "declined confirmation" test was added there and to `SymptomSection.test.tsx`,
+   `MedicationSection.test.tsx`, and `HabitSection.test.tsx` (which had no delete tests at all
+   before this task). Each of the four existing "edit and save" tests gained one more assertion
+   that `role="status"` now shows the right "\_\_\_ entry saved." text.
+
+### Why it's needed
+
+Per requirements §15's own destructive-action-confirmation rule, deleting a logged entry with zero
+confirmation - as all four Dashboard sections did before this task - is exactly the kind of
+one-click-and-it's-gone interaction that rule exists to prevent, especially on a touch device where
+a "Delete" button sitting right next to "Edit" is an easy mis-tap. And a save action that gives no
+positive feedback beyond the form vanishing leaves a user to infer success from absence of failure,
+which is a worse experience than it looks on paper the moment a save is even slightly slow or a user
+isn't looking directly at the form when it completes.
+
+### Decisions
+
+- **Checked off all three Tasks.md Phase 7 items, not just the two actually built here.**
+  Client-side validation was verified, by reading the code, to already fully satisfy the
+  requirement - it just belongs to earlier tasks (the ones that built each of the four forms), not
+  this one. Leaving its checkbox unchecked because this particular task didn't write that code
+  would leave Tasks.md inaccurately describing the app's actual state, which is what the checklist
+  is for. This entry is where that credit is recorded honestly: the validation gap didn't exist,
+  the success-feedback and delete-confirmation gaps did.
+- **A shared `useTimedMessage` hook, not four independent copies.** All four sections needed
+  identical logic (show a message, clear it after N seconds, don't leak a pending timer past
+  unmount); factoring it out once matches this file's own established precedent
+  (`useCollapsedState.ts`) for small single-purpose hooks over duplicated `useState`/`useEffect`
+  blocks.
+- **`role="status"`, not `role="alert"`, for the success message.** These files already use
+  `role="alert"` consistently for actual errors (validation messages, load failures) - reusing it
+  for a success confirmation would make every one of those `role="alert"` elements less
+  informative, since a screen-reader user could no longer assume that role means something went
+  wrong.
+- **A plain self-clearing inline message, not a toast component.** This app has no
+  toast/notification system, and Tasks.md's own instructions for this task were explicit that
+  building one is out of scope for this fix - see the earlier accessibility-audit entry's stance
+  against nonessential motion for why a fading/animated toast wasn't the chosen alternative either.
+- **Exact same confirmation wording as `HistoryPage.tsx`**, not a new message per section - the
+  same destructive action should read the same way no matter which screen a user deletes from.
+
+### Verification
+
+- `npm test` (frontend): 143/143 passing (all pre-existing tests unaffected, plus the new
+  declined-confirmation tests and the four new success-message assertions described above).
+- `npm run build` (`tsc -b && vite build`) - clean. `npm run lint` (`oxlint`) - clean (same one
+  pre-existing, unrelated `AuthContext.tsx` warning as every prior entry). `npx prettier --write`
+  on every changed file (this file's own house rule against running Prettier on Markdown doesn't
+  apply here - these are all `.ts`/`.tsx` files, which do have a real Prettier config).
+- Real browser verification (Playwright, against the actual running dev servers - Postgres was
+  already up via the existing `wellbeing-postgres-1` Docker container, so no environment snag this
+  time): registered a throwaway user, opened the Mood section's Add form, submitted it empty and
+  confirmed the real `"Choose how you're feeling."` inline error rendered, then filled in a valid
+  mood and confirmed a real `role="status"` element reading `"Mood entry saved."` appeared after
+  save. Clicked Delete on the saved entry, confirmed a real native `window.confirm` dialog appeared
+  reading `"Delete this mood entry? This can't be undone."`, dismissed it, and confirmed the entry
+  was still present and no `DELETE` request had been sent; clicked Delete again, accepted the
+  dialog, and confirmed the entry was actually removed. All six checks passed. The verification
+  script was not committed.
+
+---
