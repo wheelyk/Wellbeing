@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes } from "react";
 
-type ButtonVariant = "primary" | "secondary";
+type ButtonVariant = "primary" | "secondary" | "danger";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -12,6 +12,10 @@ const base =
 const variants: Record<ButtonVariant, string> = {
   primary: "bg-brand text-white hover:bg-brand-dark",
   secondary: "bg-surface-muted text-text hover:bg-border",
+  // Reserved for genuinely destructive, hard-to-undo actions (e.g. account deletion) - not
+  // used for the History page's per-entry delete, which is undone easily enough (re-log the
+  // entry) that the visual weight of a red button isn't warranted there.
+  danger: "bg-danger text-white hover:bg-danger/90",
 };
 
 export function Button({ variant = "primary", className = "", ...props }: ButtonProps) {
