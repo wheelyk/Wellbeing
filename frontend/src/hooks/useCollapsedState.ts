@@ -18,20 +18,37 @@ function readStored(key: string, defaultValue: boolean): boolean {
   }
 }
 
-export function useCollapsedState(key: string, defaultValue = false): [boolean, () => void] {
+interface CollapsedStateControls {
+  collapsed: boolean;
+  toggle: () => void;
+  // Forces expanded, regardless of the current or stored value - used when some other action
+  // (e.g. clicking a section's own "+ Add" button) needs its content visible, not just toggled.
+  expand: () => void;
+}
+
+function persist(key: string, value: boolean) {
+  try {
+    window.localStorage.setItem(STORAGE_PREFIX + key, String(value));
+  } catch {
+    // Same fallback as readStored above - state still updates in-memory even if it can't persist.
+  }
+}
+
+export function useCollapsedState(key: string, defaultValue = false): CollapsedStateControls {
   const [collapsed, setCollapsed] = useState(() => readStored(key, defaultValue));
 
   function toggle() {
     setCollapsed((prev) => {
       const next = !prev;
-      try {
-        window.localStorage.setItem(STORAGE_PREFIX + key, String(next));
-      } catch {
-        // Same fallback as above - the toggle still updates in-memory even if it can't persist.
-      }
+      persist(key, next);
       return next;
     });
   }
 
-  return [collapsed, toggle];
+  function expand() {
+    setCollapsed(false);
+    persist(key, false);
+  }
+
+  return { collapsed, toggle, expand };
 }
