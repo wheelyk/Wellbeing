@@ -142,6 +142,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-16 — Phase 2: `POST /api/auth/change-password`
 - 2026-08-16 — The full authentication pattern, explained end to end
 - 2026-08-16 — A real account lockout, a manual database recovery, and why "forgot password" specifically needs email
+- 2026-08-19 — Phase 2: `POST /api/auth/forgot-password` and `POST /api/auth/reset-password`
 
 ### [Authentication — Frontend](docs/log/02-auth-frontend.md)
 
@@ -149,6 +150,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-16 — Phase 6: Settings page with change-password form (and a real race-condition bug)
 - 2026-08-17 — Phase 5: rehydrating a session from the refresh cookie on page load
 - 2026-08-18 — NavBar overflowing on mobile with a long display name/email
+- 2026-08-19 — Phase 6: forgot-password and reset-password pages
 
 ### [Mood Logging](docs/log/03-mood-logging.md)
 

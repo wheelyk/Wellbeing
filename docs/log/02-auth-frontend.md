@@ -625,3 +625,136 @@ name, rather than assumed correct from the diff alone.
   verification scripts used for both manual browser checks were not committed.
 
 ---
+
+## 2026-08-19 — Phase 6: forgot-password and reset-password pages
+
+**Task:** [Tasks.md](../../Tasks.md) → Phase 6 → "Forgot password page (request reset email) and
+reset password page (submit new password with reset token)." Both pages already existed as
+literal stub components (`<p>Coming in a later phase.</p>`), already routed at `/forgot-password`
+and `/reset-password` in `App.tsx` — this entry replaces the stub content with real forms wired
+to the backend endpoints built in the matching entry in
+[01-auth-backend.md](01-auth-backend.md).
+
+**Delivered via branch:** `feature/2.6-forgot-reset-password` (same branch as the backend
+endpoints — a vertical slice, the same shape earlier auth work in this project has followed).
+
+### Background / concepts
+
+#### `ForgotPasswordPage`: showing the backend's own generic message, not inventing a new one
+
+- The backend entry explains why `POST /forgot-password` always returns the identical response
+  regardless of whether the email matches an account — anything else would let an anonymous
+  caller learn who's a registered user. That protection is only real end-to-end if the frontend
+  doesn't undo it by branching on *anything* the backend didn't actually send. This page has
+  exactly one success state: on any `200` response, it shows "If that email is registered, a
+  reset link has been sent." — the same text the backend already returns, not a page-level
+  guess dressed up differently. There's no way for this component to show "email sent!" only for
+  real accounts and something else otherwise, because the backend never gives it the information
+  needed to make that distinction — which is precisely the point.
+
+#### `ResetPasswordPage`: reading the token from the URL, and the "no token" state
+
+- The reset link the placeholder mailer logs (and a real provider would eventually email) points
+  at `${FRONTEND_URL}/reset-password?token=<rawToken>` — so this page reads `token` via
+  `useSearchParams` from `react-router-dom` (already used elsewhere in this codebase, e.g.
+  trends' period selector) rather than parsing `location.search` by hand.
+- If someone lands on `/reset-password` with no `token` query param at all (a bookmarked or
+  mistyped URL, not a real reset link), the page shows an explanatory message and a link back to
+  `/forgot-password` instead of a form that would only fail once submitted. This is checked
+  before rendering the form at all, not as a submit-time validation error — there's no
+  password-strength rule that fixes a genuinely missing token, so there's no reason to make
+  someone fill in two password fields first to discover that.
+- The submit flow mirrors `SettingsPage`'s change-password form closely on purpose (same
+  new-password/confirm-password client-side match check, same `passwordField` strength rules
+  mirrored client-side, same `navigate("/login", { replace: true, state: { message } })` pattern
+  `LoginPage` already reads and displays) — this is the same "prove identity, then get a fresh
+  session" shape change-password already established, just via a different proof of identity.
+
+#### The "Forgot password?" link on `LoginPage`
+
+- One new link, `/login` → `/forgot-password`, placed directly under the password field (the
+  conventional position for this link in most login forms) so it's discoverable at exactly the
+  moment someone would need it — while they're already looking at the password field, having
+  presumably just failed to enter it correctly.
+
+### What was done
+
+1. **`frontend/src/pages/ForgotPasswordPage.tsx`.** Replaced the stub with a real form: one
+   email field, submits to `POST /api/auth/forgot-password` via `apiFetch(..., { skipAuth: true
+   })` (same as `login`/`register` in `AuthContext` — this call happens before any session
+   exists, so there's no access token to attach and no 401-triggered refresh retry to attempt).
+   On success, swaps the form out for the backend's own generic message (see above). On a
+   `VALIDATION_ERROR` (malformed email), shows a friendly inline error instead of the generic
+   backend message. Links back to `/login`.
+2. **`frontend/src/pages/ResetPasswordPage.tsx`.** Replaced the stub with a real form: reads
+   `token` from the URL via `useSearchParams`; shows an explanatory message instead of a form
+   when it's missing; otherwise renders new-password + confirm-password fields with the same
+   client-side validation `SettingsPage` uses, submits to `POST /api/auth/reset-password`
+   (`skipAuth: true`, same reasoning as above), and on success navigates to `/login` with a
+   success message in route state. Maps `INVALID_RESET_TOKEN` to a friendly "this link is
+   invalid or has expired" message.
+3. **`frontend/src/pages/LoginPage.tsx`.** Added a "Forgot password?" link under the password
+   field, pointing at `/forgot-password`.
+4. **Tests.** `ForgotPasswordPage.test.tsx`: submits and shows the generic success message
+   (checked for both a real account and a nonexistent one, since the page's whole job is to show
+   the identical message either way); shows a friendly error for a malformed email; the
+   back-to-login link resolves to `/login`. `ResetPasswordPage.test.tsx`: rejects a weak password
+   and a mismatched confirmation without calling the API (mirroring `SettingsPage.test.tsx`'s
+   equivalent cases); full success path (asserts the exact request body sent, then the redirect
+   to `/login` with the confirmation message); a friendly error for an invalid/expired token; the
+   no-token state renders an explanation instead of a form.
+5. **`npm test`** — 148/148 passing (9 new tests across the two page test files, the rest
+   pre-existing).
+6. **`npm run build`, `npx oxlint`, `npx prettier --check .`** — all clean.
+7. **Real, browser-driven end-to-end verification**, via a throwaway Playwright script (not
+   committed) against the actual compiled build served by real `vite`/backend dev servers:
+   registered a user via the API, clicked the new "Forgot password?" link from a real
+   `LoginPage`, submitted the forgot-password form and confirmed the generic message rendered,
+   read the reset link the placeholder mailer logged to the running backend's own console,
+   navigated to it, confirmed mismatched passwords show the client-side error, then submitted
+   matching passwords and confirmed the redirect to `/login` carried the success message — and,
+   as the final check, actually logged in through the real login form with the new password and
+   confirmed it reached `/dashboard`. Both dev servers were run on non-default ports
+   (`4010`/`5180`) to avoid colliding with sibling work using the default `4000`/`5173`, and were
+   stopped afterward; the throwaway users created during both the `curl`-based backend
+   verification and this browser verification were deleted from the (shared, local) Postgres
+   instance afterward.
+
+### Why it's needed
+
+Both pages were the last remaining literal stub content in the auth flow — every other Phase 6
+auth page (login, register, settings) already does real work. This is also the piece that
+actually makes the backend endpoints from this same day's `01-auth-backend.md` entry reachable
+by an actual person clicking through the app, not just `curl`.
+
+### Decisions
+
+- **Show the backend's own generic message verbatim, rather than composing a new one
+  client-side.** Covered above — the privacy protection only holds end-to-end if the frontend
+  doesn't introduce a distinction the backend deliberately doesn't provide.
+- **A dedicated "missing token" state on `ResetPasswordPage`, checked before rendering the form,**
+  rather than letting a token-less submission fail with a generic backend error. A missing token
+  is a different situation from a wrong one (no form was needed at all to know something's
+  wrong), so it gets a different, more specific message pointing back to
+  `/forgot-password`.
+- **Non-default ports for the manual dev-server verification.** Several sibling agents were
+  verified to be running their own dev servers on the default `4000`/`5173` in parallel against
+  the same shared repo/database during this work — using `4010`/`5180` instead avoided
+  disrupting that work rather than requiring anyone's server to be killed.
+
+### State at end of this step
+
+The forgot-password/reset-password flow is fully built and wired end to end — backend endpoints,
+frontend pages, and the link connecting them from `LoginPage` — and verified through both `curl`
+and a real browser. The email-provider decision remains open (see the backend entry); everything
+downstream of "a reset link exists" now works.
+
+### Verification
+
+- `npm test` — 148/148 passing.
+- `npm run build`, `npx oxlint`, `npx prettier --check .` — all clean.
+- Full browser-driven walkthrough of the real flow (see "What was done" above) — the
+  verification script was deleted afterward, and the throwaway users it and the backend `curl`
+  verification created were removed from the database.
+
+---

@@ -1290,3 +1290,170 @@ whenever that decision gets made.
   after running the `UPDATE` in Railway's Data tab.
 
 ---
+
+## 2026-08-19 — Phase 2: `POST /api/auth/forgot-password` and `POST /api/auth/reset-password`
+
+**Task:** [Tasks.md](../../Tasks.md) → Phase 2 → "Implement `POST /api/auth/forgot-password` —
+generate a time-limited reset token and send a reset email (use a placeholder/mock email
+provider for local dev)" and "Implement `POST /api/auth/reset-password` — validate the reset
+token and update the password hash." Picks up exactly where the previous entry in this file left
+off: that entry worked out *why* this pair of endpoints needs a "prove you control the email"
+flow instead of the "prove you know the current password" pattern `change-password` uses, and
+explicitly left the real email-provider choice open. This entry builds the endpoints themselves,
+using the placeholder mailer Tasks.md explicitly allows for local dev in the meantime.
+
+**Delivered via branch:** `feature/2.6-forgot-reset-password`.
+
+### Background / concepts
+
+#### The placeholder mailer: `backend/src/lib/mail.ts`
+
+- The previous entry explained why a *real* send needs an actual transactional email provider
+  (Resend, Postmark, SendGrid, SES, etc.) — none of which is wired up yet, deliberately, since
+  picking one is a product/infra decision, not something to bolt on while building this
+  endpoint. `sendPasswordResetEmail(to, resetLink)` exists purely so `forgot-password` has
+  *something* to call in the meantime: instead of delivering anything, it just logs the link to
+  the server's own console, clearly labeled `[mail:placeholder]` so nobody later mistakes that
+  console line for a real delivered email once a real provider is eventually wired in.
+- The function is declared `async` even though this implementation never actually awaits
+  anything. A real provider call would need to await a network request, so keeping the shape
+  `async` now means swapping in a real provider later is a drop-in body change inside this one
+  file — every caller (`auth.ts`) already awaits the call and needs no changes at all.
+
+#### Why a reset token isn't hashed with bcrypt, the way a password is
+
+- `passwordHash` uses bcrypt because a password is a short, human-chosen secret — bcrypt's slow,
+  salted design exists specifically to make brute-forcing that kind of low-entropy secret
+  expensive even if the hash leaks.
+- A reset token is the opposite kind of secret: `crypto.randomBytes(32).toString("hex")`
+  produces 32 bytes (256 bits) of genuinely random data — already far too much entropy for
+  brute-forcing to be a realistic concern, hashed or not. What still matters, though, is the same
+  "never store the raw secret" principle passwords already follow: if the `users` table ever
+  leaked, the raw token — the one thing actually usable to reset someone's password — shouldn't
+  be recoverable from what's stored. A plain, fast SHA-256 hash (`hashResetToken` in `auth.ts`)
+  is enough for that; bcrypt's slowness would just be paying a real performance cost for a
+  brute-forcing threat that doesn't apply to a high-entropy value.
+
+#### Why the response is identical whether or not the email matches an account
+
+- This is the concrete implementation of the leak the previous log entry named: an anonymous
+  `POST /forgot-password` caller must not be able to tell "this email has an account here" apart
+  from "it doesn't," the same way `login`'s `401 INVALID_CREDENTIALS` deliberately doesn't say
+  which of email/password was wrong. Concretely, that meant writing the handler so the *only*
+  branching happens *before* the response is built (whether to actually generate a token and
+  call the mailer), never *in* the response itself — both branches return the exact same `200 {
+  message: "If that email is registered, a reset link has been sent." }`.
+- This matters more than usual for a wellness/health app specifically: confirming an email is
+  registered here would let an attacker learn someone is a user of a health-tracking product at
+  all, which is itself sensitive.
+
+#### Why the token is single-use, and how "single-use" is actually enforced
+
+- A reset link that still works after being used once would leave a live credential sitting in
+  whatever inbox or browser history it passed through indefinitely. `reset-password` enforces
+  single-use the simple way: on a successful reset, `resetTokenHash` and `resetTokenExpiresAt`
+  are both cleared back to `null` in the same database write that updates `passwordHash`. A
+  second request with the same raw token hashes to the same `resetTokenHash` value as before, but
+  that value no longer matches *any* user row — it fails exactly like a token that was never
+  issued, or one that already expired. No separate "used" flag was needed; clearing the fields
+  that make a token findable is what makes it unusable.
+
+### What was done
+
+1. **`prisma/schema.prisma` + migration `20260819115502_add_user_reset_token`.** Added two
+   nullable columns to `User`: `resetTokenHash` (`String?`) and `resetTokenExpiresAt`
+   (`DateTime?`). Both stay `null` except during the window between a `forgot-password` request
+   and either a successful `reset-password` call or the token's own expiry — the same "columns
+   that are usually empty, briefly populated for one purpose" shape as nothing else currently in
+   this schema, so a dedicated table wasn't worth the extra join for what's fundamentally two
+   fields on `User`. Applied with `npx prisma migrate dev --name add_user_reset_token` against
+   the local Postgres container.
+2. **`backend/src/lib/mail.ts` (new).** `sendPasswordResetEmail(to, resetLink)` — the placeholder
+   mailer described above.
+3. **`backend/src/routes/auth.ts`.** Added `forgotPasswordSchema` (`email`) and
+   `resetPasswordSchema` (`token`, reusing the existing `passwordField` for `newPassword`); added
+   `hashResetToken` (SHA-256, see above); added `RESET_TOKEN_TTL_MS` (one hour — long enough for
+   a real person to receive and act on the email without rushing, short enough that a token
+   sitting unused in an old inbox stops being a meaningful risk fairly quickly) and a local
+   `FRONTEND_URL` fallback constant (same value/fallback `app.ts` already uses for CORS, kept as
+   its own local constant rather than importing across files for one string).
+   - `POST /forgot-password` (rate-limited via the existing `authRateLimiter`): looks up the
+     user by email; if found, generates a raw token, stores only its hash + expiry, and calls the
+     placeholder mailer with a link of the form `${FRONTEND_URL}/reset-password?token=<rawToken>`;
+     always returns the same generic `200` regardless of whether a user was found.
+   - `POST /reset-password` (also rate-limited — a reset token is a guessable-in-principle
+     secret the same way a password is, so it gets the same brute-force protection as
+     login/register/change-password): hashes the incoming token and looks up a user by
+     `resetTokenHash`; rejects with `400 INVALID_RESET_TOKEN` if no match, or if
+     `resetTokenExpiresAt` is missing or in the past; on success, hashes and stores the new
+     password, clears both reset-token columns (making the token single-use, see above), clears
+     the refresh cookie (same mechanism `change-password` uses, and arguably more important here
+     — a password reset is often prompted by the old password having leaked in the first place),
+     and returns `200 { message: "Password updated" }`.
+4. **Tests (`auth.test.ts`).** `forgot-password`: generates a token and logs a reset link for a
+   real account (spying on `console.log`, since that's what the placeholder mailer calls,
+   without needing to mock the whole `mail` module — reading the spy's captured calls *before*
+   `mockRestore()`, since restoring also clears them); returns the identical generic response,
+   and never calls the mailer at all, for an email with no matching account; rejects a malformed
+   email with `400 VALIDATION_ERROR`. `reset-password`: full success path (refresh cookie
+   cleared, old password stops working, new password works, reset-token columns cleared);
+   rejects reusing an already-used token; rejects an expired token (backdating
+   `resetTokenExpiresAt` directly rather than waiting a real hour); rejects a garbage/unknown
+   token; rejects a new password that fails the strength rules.
+5. **`npm test`** — 178/178 passing (8 new tests across the two endpoints, the rest
+   pre-existing).
+6. **`npm run build`, `npx eslint .`, `npx prettier --check .`** — all clean.
+7. **Manual end-to-end verification against the compiled, running server**, via `curl`:
+   registered a real user, called `forgot-password`, read the raw token out of the running dev
+   server's own console output (exactly what the placeholder mailer is for), called
+   `reset-password` with it, confirmed the old password now fails to log in and the new one
+   succeeds, and confirmed replaying the same token a second time is rejected with
+   `INVALID_RESET_TOKEN`. See `docs/log/02-auth-frontend.md`'s matching entry for the
+   browser-driven version of this same flow through the real frontend pages.
+
+### Why it's needed
+
+This closes the gap the previous entry in this file documented from a real, live incident: a
+locked-out user with no self-service way back into their account, requiring a manual database
+edit only someone with direct production access could perform. This makes password recovery
+self-service for the first time, without needing a real email provider to exist yet.
+
+### Decisions
+
+- **SHA-256, not bcrypt, for the reset token hash.** Covered above — the token's own entropy
+  already does the job bcrypt's slowness exists for; using bcrypt here would only add real
+  latency for a threat model that doesn't apply.
+- **Two nullable columns on `User`, not a separate `PasswordResetToken` table.** A separate
+  table would only ever hold at most one live row per user at a time (a second `forgot-password`
+  call should simply overwrite the pending token, not create a second one) — which is exactly
+  what a couple of nullable columns on `User` already model, with no join needed to check them.
+- **Both `forgot-password` and `reset-password` rate-limited**, not just `forgot-password` as the
+  Tasks.md wording's "at minimum" technically required. A reset token is a secret an attacker
+  could try to guess or brute-force the same way a password can be, so it gets the same
+  protection `login`/`register`/`change-password` already have.
+- **Caught and fixed a real test-authoring bug while writing this entry's own tests**: an early
+  version of the `forgot-password` "success" test called `logSpy.mockRestore()` *before* reading
+  `logSpy.mock.calls`, which silently discarded the very thing the test needed to assert on —
+  `mockRestore()` doesn't just restore the original `console.log`, it clears recorded calls too,
+  the same as `mockReset()`. The fix was ordering, not logic: read whatever the spy captured
+  first, then restore it.
+
+### State at end of this step
+
+Real, working, tested `POST /api/auth/forgot-password` and `POST /api/auth/reset-password`
+endpoints exist, verified end to end against a live server and (per the frontend entry) a live
+browser. The email-provider choice remains deliberately open — the placeholder mailer's
+console-log output is sufficient for local dev and for this project's current stage, but a real
+send still requires picking a transactional provider before this app has real, non-technical
+users relying on it.
+
+### Verification
+
+- `npm test` — 178/178 passing.
+- `npm run build`, `npx eslint .`, `npx prettier --check .` — all clean.
+- Manual `curl` round-trip against the compiled, running server (see "What was done" above for
+  the full sequence) — covering the full happy path plus the single-use rejection.
+- Full frontend browser verification of the same flow through the real UI — see
+  `docs/log/02-auth-frontend.md`.
+
+---

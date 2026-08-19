@@ -47,8 +47,8 @@ Reference: requirements §5, §13.
 - [x] Implement refresh token storage/rotation strategy (e.g. HTTP-only secure cookie for the refresh token) and `POST /api/auth/refresh`.
 - [x] Implement `POST /api/auth/logout` — invalidate/clear the refresh token.
 - [x] Implement `POST /api/auth/change-password` — for a logged-in user; requires the current password to be re-verified before updating the hash. Needs no email provider, unlike forgot/reset password below.
-- [ ] Implement `POST /api/auth/forgot-password` — generate a time-limited reset token and send a reset email (use a placeholder/mock email provider for local dev).
-- [ ] Implement `POST /api/auth/reset-password` — validate the reset token and update the password hash.
+- [x] Implement `POST /api/auth/forgot-password` — generate a time-limited reset token and send a reset email (use a placeholder/mock email provider for local dev).
+- [x] Implement `POST /api/auth/reset-password` — validate the reset token and update the password hash.
 - [x] Implement an Express auth middleware that verifies the access token and attaches the authenticated user to the request; use it on all protected routes.
 - [ ] Implement `GET /api/users/me`, `PATCH /api/users/me` (display name, timezone), `DELETE /api/users/me`.
 - [ ] On account deletion, cascade-delete (or explicitly delete in a transaction) all of the user's symptom logs, mood logs, medication/medication logs, habits/habit logs, and user-owned symptoms.
@@ -126,7 +126,7 @@ Reference: requirements §7, §10, §12.7, §12.8.
 - [x] Login page; on success store tokens/session and redirect to Dashboard.
 - [x] Logout action (clears session, calls `/api/auth/logout`).
 - [x] Change password form on Settings page: current password + new password fields, calls `POST /api/auth/change-password`, with clear success/error feedback.
-- [ ] Forgot password page (request reset email) and reset password page (submit new password with reset token).
+- [x] Forgot password page (request reset email) and reset password page (submit new password with reset token).
 - [ ] Settings page: view/edit display name and timezone; account deletion flow with a clear confirmation step (type-to-confirm or a two-step dialog) per §15.
 - [x] Route guarding: unauthenticated users are redirected to Login when hitting protected routes.
 
