@@ -154,7 +154,7 @@ Reference: requirements §7.
 
 - [x] Header showing today's date in the user's timezone.
 - [x] Today's summary card: mood, symptom count, medication summary (`1/2 taken`), habit summary.
-- [ ] Prominent Quick Add buttons (`+ Symptom`, `+ Mood`, `+ Medication`, `+ Habit`) opening the corresponding form with minimal taps.
+- [x] Prominent Quick Add buttons (`+ Symptom`, `+ Mood`, `+ Medication`, `+ Habit`) opening the corresponding form with minimal taps. (Each Dashboard section has its own inline icon add button, plus a floating Quick Add button reaching all four from anywhere on the page — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [x] Logging consistency indicator (streak + days logged this week) — informational tone, no gamified badges/pressure language.
 - [ ] Recent entries list (type, value, time), each entry tappable to edit.
 - [x] Loading and empty states (e.g. first-time user with nothing logged yet).
