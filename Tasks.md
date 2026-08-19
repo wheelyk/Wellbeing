@@ -50,8 +50,8 @@ Reference: requirements §5, §13.
 - [ ] Implement `POST /api/auth/forgot-password` — generate a time-limited reset token and send a reset email (use a placeholder/mock email provider for local dev).
 - [ ] Implement `POST /api/auth/reset-password` — validate the reset token and update the password hash.
 - [x] Implement an Express auth middleware that verifies the access token and attaches the authenticated user to the request; use it on all protected routes.
-- [ ] Implement `GET /api/users/me`, `PATCH /api/users/me` (display name, timezone), `DELETE /api/users/me`.
-- [ ] On account deletion, cascade-delete (or explicitly delete in a transaction) all of the user's symptom logs, mood logs, medication/medication logs, habits/habit logs, and user-owned symptoms.
+- [x] Implement `GET /api/users/me`, `PATCH /api/users/me` (display name, timezone), `DELETE /api/users/me`.
+- [x] On account deletion, cascade-delete (or explicitly delete in a transaction) all of the user's symptom logs, mood logs, medication/medication logs, habits/habit logs, and user-owned symptoms. (Already true at the schema level — every `User` relation already had `onDelete: Cascade` — confirmed directly by querying every table after a real deletion, not just trusting the 200 response. See [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [x] Add rate limiting (e.g. `express-rate-limit`) to all `/api/auth/*` endpoints. (Applied to `/register`, `/login`, `/change-password`; deliberately not `/refresh`/`/logout` — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [x] Add CORS configuration restricting allowed origins. (Deployed and verified — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md)'s FRONTEND_URL/CORS entries.)
 - [x] Ensure no endpoint or log statement ever outputs a plain-text password or raw health data. (Audited: only one `console.log` in the whole backend, logging just the port number; register/login responses never include `passwordHash`, tested explicitly.)
@@ -127,7 +127,7 @@ Reference: requirements §7, §10, §12.7, §12.8.
 - [x] Logout action (clears session, calls `/api/auth/logout`).
 - [x] Change password form on Settings page: current password + new password fields, calls `POST /api/auth/change-password`, with clear success/error feedback.
 - [ ] Forgot password page (request reset email) and reset password page (submit new password with reset token).
-- [ ] Settings page: view/edit display name and timezone; account deletion flow with a clear confirmation step (type-to-confirm or a two-step dialog) per §15.
+- [x] Settings page: view/edit display name and timezone; account deletion flow with a clear confirmation step (type-to-confirm or a two-step dialog) per §15. (Type-to-confirm: the delete button stays disabled until the user types `DELETE` exactly. See [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [x] Route guarding: unauthenticated users are redirected to Login when hitting protected routes.
 
 ---
