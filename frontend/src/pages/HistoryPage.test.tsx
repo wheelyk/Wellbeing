@@ -308,6 +308,51 @@ describe("HistoryPage", () => {
     expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
   });
 
+  it("collapses one date group without affecting another", async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        jsonResponse(200, {
+          entries: [
+            {
+              id: "mood-1",
+              type: "mood",
+              label: "Mood 4/5",
+              notes: null,
+              loggedAt: "2026-08-17T14:00:00.000Z",
+            },
+            {
+              id: "habit-1",
+              type: "habit",
+              label: "Exercise: Done",
+              notes: null,
+              loggedAt: "2026-08-16T14:00:00.000Z",
+            },
+          ],
+          limit: 20,
+          offset: 0,
+          hasMore: false,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findByText("Mood 4/5");
+    expect(screen.getByText(/exercise: done/i)).toBeInTheDocument();
+
+    // dateHeading always starts with a weekday name followed by a comma (e.g. "Monday, August
+    // 17, 2026") - narrower than matching on a year, which the per-entry Delete buttons' own
+    // accessible names (built from the full loggedAt timestamp) also happen to contain.
+    const groupHeadings = screen.getAllByRole("button", { name: /^[A-Za-z]+day,/ });
+    expect(groupHeadings).toHaveLength(2);
+    await user.click(groupHeadings[0]);
+
+    expect(screen.queryByText("Mood 4/5")).not.toBeInTheDocument();
+    // The other day's group is untouched.
+    expect(screen.getByText(/exercise: done/i)).toBeInTheDocument();
+  });
+
   it("disables the Edit button as a coming-soon affordance rather than wiring up editing", async () => {
     const entry = {
       id: "mood-1",
