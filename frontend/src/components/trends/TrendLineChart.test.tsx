@@ -67,6 +67,69 @@ describe("TrendLineChart", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows the sparse-data placeholder (not the full chart) when exactly one point has data", () => {
+    render(
+      <TrendLineChart
+        points={[
+          { date: "2026-08-14", average: null, count: 0 },
+          { date: "2026-08-15", average: null, count: 0 },
+          { date: "2026-08-16", average: 6, count: 1 },
+        ]}
+        domainMin={1}
+        domainMax={10}
+        color="#2563eb"
+        formatValue={(v) => `${v}/10`}
+        ariaLabel="Symptom severity chart"
+      />,
+    );
+
+    // The real point is still shown (the group renders, and the real day's hit target still
+    // reports its actual value) - this state must never hide the data that does exist.
+    expect(screen.getByRole("group", { name: "Symptom severity chart" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /(aug\s*16|16\s*aug):\s*6\/10/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/keep logging to see a trend line here/i)).toBeInTheDocument();
+  });
+
+  it("shows the sparse-data placeholder when exactly two points have data", () => {
+    render(
+      <TrendLineChart
+        points={[
+          { date: "2026-08-14", average: 5, count: 1 },
+          { date: "2026-08-15", average: null, count: 0 },
+          { date: "2026-08-16", average: 6, count: 1 },
+        ]}
+        domainMin={1}
+        domainMax={10}
+        color="#2563eb"
+        formatValue={(v) => `${v}/10`}
+        ariaLabel="Symptom severity chart"
+      />,
+    );
+
+    expect(screen.getByText(/keep logging to see a trend line here/i)).toBeInTheDocument();
+  });
+
+  it("does not show the sparse-data placeholder once three points have data (the boundary)", () => {
+    render(
+      <TrendLineChart
+        points={[
+          { date: "2026-08-14", average: 5, count: 1 },
+          { date: "2026-08-15", average: 7, count: 1 },
+          { date: "2026-08-16", average: 6, count: 1 },
+        ]}
+        domainMin={1}
+        domainMax={10}
+        color="#2563eb"
+        formatValue={(v) => `${v}/10`}
+        ariaLabel="Symptom severity chart"
+      />,
+    );
+
+    expect(screen.queryByText(/keep logging to see a trend line here/i)).not.toBeInTheDocument();
+  });
+
   it("shows a tooltip with the formatted value when a data point is focused", async () => {
     const user = userEvent.setup();
     render(

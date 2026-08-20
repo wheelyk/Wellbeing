@@ -35,6 +35,10 @@ const VERTICAL_PADDING = 8;
 // this task's own real-browser verification, not visible in the component tests, which don't
 // render actual pixel geometry).
 const HORIZONTAL_PADDING = 8;
+// Below this many real (non-null) data points, a connecting line doesn't show a "trend" - it shows
+// one or two dots joined by a line that looks more confident than the data supports. See the
+// `isSparse` comment below for the full reasoning.
+const SPARSE_DATA_THRESHOLD = 3;
 
 function formatShortDate(dateStr: string): string {
   return new Date(`${dateStr}T00:00:00Z`).toLocaleDateString(undefined, {
@@ -72,11 +76,23 @@ export function TrendLineChart({
 }: TrendLineChartProps) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  const hasAnyData = points.some((point) => point.average !== null);
+  const realPointCount = points.filter((point) => point.average !== null).length;
+  const hasAnyData = realPointCount > 0;
 
   if (!hasAnyData) {
     return <p className="mt-4 text-text-muted">Not enough data yet for this period.</p>;
   }
+
+  // Between "zero real points" (the empty state above) and a real trend line sits a state this
+  // component used to render identically to a full chart: the same full-width canvas, but with
+  // only one or two real dots (often pinned near one edge, wherever they happened to fall in the
+  // period) surrounded by a large area of empty, unlabeled space. In a UI review that read as
+  // "something failed to load," not as an expected early state. Below SPARSE_DATA_THRESHOLD real
+  // points, this renders a distinct treatment instead: the real point(s) stay fully visible (never
+  // hidden), but the solid connecting trend line - which would otherwise draw unearned confidence
+  // from just one or two dots - is replaced with a faint dashed placeholder line plus an explicit
+  // caption, so the state reads as "log more days to see a trend here," not "broken."
+  const isSparse = realPointCount < SPARSE_DATA_THRESHOLD;
 
   // The line breaks at any day with no entry rather than interpolating across the gap - a
   // straight line drawn between two real, several-days-apart readings would visually imply a
@@ -145,15 +161,32 @@ export function TrendLineChart({
           strokeWidth={1}
         />
 
-        <path
-          aria-hidden="true"
-          d={pathData}
-          fill="none"
-          stroke={color}
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        {isSparse ? (
+          // A faint dashed placeholder standing in for the trend line that isn't earned yet -
+          // deliberately not drawn through/between the real point(s) (that would just be a solid
+          // line renamed dashed, still implying a trend from one or two dots). It runs across the
+          // chart's vertical center as a neutral "a line will appear here" cue.
+          <line
+            aria-hidden="true"
+            x1={HORIZONTAL_PADDING}
+            y1={CHART_HEIGHT / 2}
+            x2={CHART_WIDTH - HORIZONTAL_PADDING}
+            y2={CHART_HEIGHT / 2}
+            stroke="var(--color-border)"
+            strokeWidth={2}
+            strokeDasharray="6 6"
+          />
+        ) : (
+          <path
+            aria-hidden="true"
+            d={pathData}
+            fill="none"
+            stroke={color}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        )}
 
         {points.map((point, index) =>
           point.average === null ? null : (
@@ -223,6 +256,10 @@ export function TrendLineChart({
             hovered.average !== null ? formatValue(hovered.average) : "No data logged"
           }`}
         </div>
+      )}
+
+      {isSparse && (
+        <p className="mt-1 text-xs text-text-muted">Keep logging to see a trend line here.</p>
       )}
     </div>
   );
