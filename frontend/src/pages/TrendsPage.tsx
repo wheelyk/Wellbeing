@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "../api/client";
 import { NavBar } from "../components/NavBar";
 import { BottomNav } from "../components/BottomNav";
+import { CollapsibleSection } from "../components/CollapsibleSection";
 import { PeriodSelector, type TrendsPeriod } from "../components/trends/PeriodSelector";
 import { TrendLineChart, type TrendPoint } from "../components/trends/TrendLineChart";
 import { ActivityCalendar, type ActivityDay } from "../components/trends/ActivityCalendar";
@@ -97,43 +98,55 @@ export function TrendsPage() {
                 these two charts specifically wait for lg: rather than md:). */}
             <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
               <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-                <h2 className="text-lg font-semibold text-text">
-                  Symptom Severity —{" "}
-                  {data.symptomSeverity.average !== null
-                    ? `Avg: ${data.symptomSeverity.average.toFixed(1)}`
-                    : "No data yet"}
-                </h2>
-                <p className="mt-1 text-sm text-text-muted">
-                  Logged severity (1–10) over {PERIOD_LABELS[period]}.
-                </p>
-                <TrendLineChart
-                  points={data.symptomSeverity.series}
-                  domainMin={1}
-                  domainMax={10}
-                  color={SYMPTOM_CHART_COLOR}
-                  formatValue={(value) => `${value.toFixed(1)}/10`}
-                  ariaLabel={`Symptom severity chart for ${PERIOD_LABELS[period]}`}
-                />
+                <CollapsibleSection
+                  storageKey="trends.symptomSeverity"
+                  title={
+                    <>
+                      Symptom Severity —{" "}
+                      {data.symptomSeverity.average !== null
+                        ? `Avg: ${data.symptomSeverity.average.toFixed(1)}`
+                        : "No data yet"}
+                    </>
+                  }
+                >
+                  <p className="text-sm text-text-muted">
+                    Logged severity (1–10) over {PERIOD_LABELS[period]}.
+                  </p>
+                  <TrendLineChart
+                    points={data.symptomSeverity.series}
+                    domainMin={1}
+                    domainMax={10}
+                    color={SYMPTOM_CHART_COLOR}
+                    formatValue={(value) => `${value.toFixed(1)}/10`}
+                    ariaLabel={`Symptom severity chart for ${PERIOD_LABELS[period]}`}
+                  />
+                </CollapsibleSection>
               </section>
 
               <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-                <h2 className="text-lg font-semibold text-text">
-                  Mood —{" "}
-                  {data.mood.average !== null
-                    ? `Avg: ${data.mood.average.toFixed(1)}`
-                    : "No data yet"}
-                </h2>
-                <p className="mt-1 text-sm text-text-muted">
-                  Logged mood (1–5) over {PERIOD_LABELS[period]}.
-                </p>
-                <TrendLineChart
-                  points={data.mood.series}
-                  domainMin={1}
-                  domainMax={5}
-                  color={MOOD_CHART_COLOR}
-                  formatValue={(value) => `${value.toFixed(1)}/5`}
-                  ariaLabel={`Mood chart for ${PERIOD_LABELS[period]}`}
-                />
+                <CollapsibleSection
+                  storageKey="trends.mood"
+                  title={
+                    <>
+                      Mood —{" "}
+                      {data.mood.average !== null
+                        ? `Avg: ${data.mood.average.toFixed(1)}`
+                        : "No data yet"}
+                    </>
+                  }
+                >
+                  <p className="text-sm text-text-muted">
+                    Logged mood (1–5) over {PERIOD_LABELS[period]}.
+                  </p>
+                  <TrendLineChart
+                    points={data.mood.series}
+                    domainMin={1}
+                    domainMax={5}
+                    color={MOOD_CHART_COLOR}
+                    formatValue={(value) => `${value.toFixed(1)}/5`}
+                    ariaLabel={`Mood chart for ${PERIOD_LABELS[period]}`}
+                  />
+                </CollapsibleSection>
               </section>
             </div>
 
@@ -141,12 +154,13 @@ export function TrendsPage() {
                 7-column weekly activity calendar reads better wide than squeezed into half a
                 desktop-width row, unlike the two line charts. */}
             <section className="mt-6 rounded-2xl border border-border bg-surface p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-text">Activity</h2>
-              <p className="mt-1 text-sm text-text-muted">
-                Days with any logged entry (symptoms, mood, medications, or habits) over{" "}
-                {PERIOD_LABELS[period]}.
-              </p>
-              <ActivityCalendar days={data.activity.days} />
+              <CollapsibleSection storageKey="trends.activity" title="Activity">
+                <p className="text-sm text-text-muted">
+                  Days with any logged entry (symptoms, mood, medications, or habits) over{" "}
+                  {PERIOD_LABELS[period]}.
+                </p>
+                <ActivityCalendar days={data.activity.days} />
+              </CollapsibleSection>
             </section>
           </>
         )}
