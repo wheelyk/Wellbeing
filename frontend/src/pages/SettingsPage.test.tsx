@@ -291,3 +291,33 @@ describe("SettingsPage — account deletion", () => {
     expect(screen.queryByText("Login stub")).not.toBeInTheDocument();
   });
 });
+
+describe("SettingsPage — collapsible sections", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("collapses each of the three sections independently via its own toggle", async () => {
+    const fetchMock = routedFetchMock();
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByLabelText(/display name/i);
+    expect(screen.getByLabelText(/current password/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/type delete to confirm/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^profile$/i }));
+
+    expect(screen.queryByLabelText(/display name/i)).not.toBeInTheDocument();
+    // The other two sections are untouched by collapsing Profile.
+    expect(screen.getByLabelText(/current password/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/type delete to confirm/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /delete account/i }));
+
+    expect(screen.queryByLabelText(/type delete to confirm/i)).not.toBeInTheDocument();
+    // Change password is still untouched by collapsing Delete account.
+    expect(screen.getByLabelText(/current password/i)).toBeInTheDocument();
+  });
+});

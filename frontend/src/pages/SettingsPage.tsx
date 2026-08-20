@@ -7,6 +7,7 @@ import { BottomNav } from "../components/BottomNav";
 import { Button } from "../components/Button";
 import { TextField } from "../components/TextField";
 import { Card } from "../components/Card";
+import { CollapsibleSection } from "../components/CollapsibleSection";
 
 interface UserProfile {
   id: string;
@@ -121,8 +122,9 @@ function ProfileSection() {
   if (loading) {
     return (
       <Card>
-        <h2 className="mb-4 text-lg font-semibold text-text">Profile</h2>
-        <p className="text-sm text-text-muted">Loading…</p>
+        <CollapsibleSection title="Profile" storageKey="settings.profile">
+          <p className="text-sm text-text-muted">Loading…</p>
+        </CollapsibleSection>
       </Card>
     );
   }
@@ -130,56 +132,58 @@ function ProfileSection() {
   if (loadError) {
     return (
       <Card>
-        <h2 className="mb-4 text-lg font-semibold text-text">Profile</h2>
-        <p role="alert" className="text-sm text-danger">
-          Couldn't load your profile. Please refresh the page.
-        </p>
+        <CollapsibleSection title="Profile" storageKey="settings.profile">
+          <p role="alert" className="text-sm text-danger">
+            Couldn't load your profile. Please refresh the page.
+          </p>
+        </CollapsibleSection>
       </Card>
     );
   }
 
   return (
     <Card>
-      <h2 className="mb-4 text-lg font-semibold text-text">Profile</h2>
-      <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
-        <TextField
-          label="Display name"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          error={fieldErrors.displayName}
-          required
-        />
-        <div className="flex flex-col gap-1">
-          <label htmlFor="timezone-select" className="text-sm font-medium text-text">
-            Timezone
-          </label>
-          <select
-            id="timezone-select"
-            value={timezone}
-            onChange={(e) => setTimezone(e.target.value)}
-            className="rounded-lg border border-border px-3 py-3 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-          >
-            {timezoneOptions.map((tz) => (
-              <option key={tz} value={tz}>
-                {tz}
-              </option>
-            ))}
-          </select>
-        </div>
-        {formError && (
-          <p role="alert" className="text-sm text-danger">
-            {formError}
-          </p>
-        )}
-        {saved && !formError && (
-          <p role="status" className="text-sm text-success">
-            Profile saved.
-          </p>
-        )}
-        <Button type="submit" disabled={submitting} className="self-start">
-          {submitting ? "Saving…" : "Save profile"}
-        </Button>
-      </form>
+      <CollapsibleSection title="Profile" storageKey="settings.profile">
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
+          <TextField
+            label="Display name"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            error={fieldErrors.displayName}
+            required
+          />
+          <div className="flex flex-col gap-1">
+            <label htmlFor="timezone-select" className="text-sm font-medium text-text">
+              Timezone
+            </label>
+            <select
+              id="timezone-select"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              className="rounded-lg border border-border px-3 py-3 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            >
+              {timezoneOptions.map((tz) => (
+                <option key={tz} value={tz}>
+                  {tz}
+                </option>
+              ))}
+            </select>
+          </div>
+          {formError && (
+            <p role="alert" className="text-sm text-danger">
+              {formError}
+            </p>
+          )}
+          {saved && !formError && (
+            <p role="status" className="text-sm text-success">
+              Profile saved.
+            </p>
+          )}
+          <Button type="submit" disabled={submitting} className="self-start">
+            {submitting ? "Saving…" : "Save profile"}
+          </Button>
+        </form>
+      </CollapsibleSection>
     </Card>
   );
 }
@@ -215,33 +219,34 @@ function AccountDeletionSection() {
 
   return (
     <Card>
-      <h2 className="mb-2 text-lg font-semibold text-text">Delete account</h2>
-      <p className="mb-4 text-sm text-text-muted">
-        This permanently deletes your account and every symptom, mood, medication, and habit entry
-        you've logged. This can't be undone.
-      </p>
-      <div className="flex flex-col gap-4">
-        <TextField
-          label={`Type ${DELETE_CONFIRMATION_PHRASE} to confirm`}
-          value={confirmationText}
-          onChange={(e) => setConfirmationText(e.target.value)}
-          autoComplete="off"
-        />
-        {deleteError && (
-          <p role="alert" className="text-sm text-danger">
-            {deleteError}
-          </p>
-        )}
-        <Button
-          type="button"
-          variant="danger"
-          onClick={handleDelete}
-          disabled={!canDelete || deleting}
-          className="self-start"
-        >
-          {deleting ? "Deleting…" : "Permanently delete my account"}
-        </Button>
-      </div>
+      <CollapsibleSection title="Delete account" storageKey="settings.deleteAccount">
+        <p className="mb-4 text-sm text-text-muted">
+          This permanently deletes your account and every symptom, mood, medication, and habit
+          entry you've logged. This can't be undone.
+        </p>
+        <div className="flex flex-col gap-4">
+          <TextField
+            label={`Type ${DELETE_CONFIRMATION_PHRASE} to confirm`}
+            value={confirmationText}
+            onChange={(e) => setConfirmationText(e.target.value)}
+            autoComplete="off"
+          />
+          {deleteError && (
+            <p role="alert" className="text-sm text-danger">
+              {deleteError}
+            </p>
+          )}
+          <Button
+            type="button"
+            variant="danger"
+            onClick={handleDelete}
+            disabled={!canDelete || deleting}
+            className="self-start"
+          >
+            {deleting ? "Deleting…" : "Permanently delete my account"}
+          </Button>
+        </div>
+      </CollapsibleSection>
     </Card>
   );
 }
@@ -323,44 +328,45 @@ export function SettingsPage() {
 
         <section className="mt-6">
           <Card>
-            <h2 className="mb-4 text-lg font-semibold text-text">Change password</h2>
-            <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
-              <TextField
-                label="Current password"
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                error={fieldErrors.currentPassword}
-                autoComplete="current-password"
-                required
-              />
-              <TextField
-                label="New password"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                error={fieldErrors.newPassword}
-                autoComplete="new-password"
-                required
-              />
-              <TextField
-                label="Confirm new password"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                error={fieldErrors.confirmPassword}
-                autoComplete="new-password"
-                required
-              />
-              {formError && (
-                <p role="alert" className="text-sm text-danger">
-                  {formError}
-                </p>
-              )}
-              <Button type="submit" disabled={submitting}>
-                {submitting ? "Updating…" : "Update password"}
-              </Button>
-            </form>
+            <CollapsibleSection title="Change password" storageKey="settings.changePassword">
+              <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
+                <TextField
+                  label="Current password"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  error={fieldErrors.currentPassword}
+                  autoComplete="current-password"
+                  required
+                />
+                <TextField
+                  label="New password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  error={fieldErrors.newPassword}
+                  autoComplete="new-password"
+                  required
+                />
+                <TextField
+                  label="Confirm new password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  error={fieldErrors.confirmPassword}
+                  autoComplete="new-password"
+                  required
+                />
+                {formError && (
+                  <p role="alert" className="text-sm text-danger">
+                    {formError}
+                  </p>
+                )}
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? "Updating…" : "Update password"}
+                </Button>
+              </form>
+            </CollapsibleSection>
           </Card>
         </section>
 

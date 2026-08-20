@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavBar } from "../components/NavBar";
 import { BottomNav } from "../components/BottomNav";
 import { Button } from "../components/Button";
+import { CollapsibleSection } from "../components/CollapsibleSection";
 import { apiFetch } from "../api/client";
 
 export type HistoryEntryType = "mood" | "symptom" | "medication" | "habit";
@@ -181,73 +182,77 @@ export function HistoryPage() {
           Browse everything you&apos;ve logged, across mood, symptoms, medications, and habits.
         </p>
 
-        {/* Stacked, full-width fields on mobile (easy to tap, no cramped side-by-side date
-            inputs on a narrow screen); a single horizontal row from sm: up, once there's
-            actually room for four fields side by side without wrapping unpredictably - see the
-            implementation log entry on this app's mobile-first pass. This replaces relying on
-            flex-wrap's own default wrapping point (which happened to look reasonable before, but
-            wasn't a deliberate breakpoint decision - just wherever the fields' natural widths
-            happened to overflow). */}
-        <div className="mt-6 flex flex-col gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="history-type-filter" className="text-sm font-medium text-text">
-              Type
-            </label>
-            <select
-              id="history-type-filter"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value as HistoryEntryType | "")}
-              className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-            >
-              <option value="">All types</option>
-              {(Object.keys(TYPE_LABELS) as HistoryEntryType[]).map((type) => (
-                <option key={type} value={type}>
-                  {TYPE_LABELS[type]}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="mt-6 rounded-2xl border border-border bg-surface p-4 shadow-sm">
+          <CollapsibleSection title="Filters" storageKey="history.filters">
+            {/* Stacked, full-width fields on mobile (easy to tap, no cramped side-by-side date
+                inputs on a narrow screen); a single horizontal row from sm: up, once there's
+                actually room for four fields side by side without wrapping unpredictably - see
+                the implementation log entry on this app's mobile-first pass. This replaces
+                relying on flex-wrap's own default wrapping point (which happened to look
+                reasonable before, but wasn't a deliberate breakpoint decision - just wherever the
+                fields' natural widths happened to overflow). */}
+            <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
+              <div className="flex flex-col gap-1">
+                <label htmlFor="history-type-filter" className="text-sm font-medium text-text">
+                  Type
+                </label>
+                <select
+                  id="history-type-filter"
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value as HistoryEntryType | "")}
+                  className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                >
+                  <option value="">All types</option>
+                  {(Object.keys(TYPE_LABELS) as HistoryEntryType[]).map((type) => (
+                    <option key={type} value={type}>
+                      {TYPE_LABELS[type]}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div className="flex flex-col gap-1">
-            <label htmlFor="history-from" className="text-sm font-medium text-text">
-              From
-            </label>
-            <input
-              id="history-from"
-              type="date"
-              value={from}
-              max={to || undefined}
-              onChange={(e) => setFrom(e.target.value)}
-              className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-            />
-          </div>
+              <div className="flex flex-col gap-1">
+                <label htmlFor="history-from" className="text-sm font-medium text-text">
+                  From
+                </label>
+                <input
+                  id="history-from"
+                  type="date"
+                  value={from}
+                  max={to || undefined}
+                  onChange={(e) => setFrom(e.target.value)}
+                  className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                />
+              </div>
 
-          <div className="flex flex-col gap-1">
-            <label htmlFor="history-to" className="text-sm font-medium text-text">
-              To
-            </label>
-            <input
-              id="history-to"
-              type="date"
-              value={to}
-              min={from || undefined}
-              onChange={(e) => setTo(e.target.value)}
-              className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-            />
-          </div>
+              <div className="flex flex-col gap-1">
+                <label htmlFor="history-to" className="text-sm font-medium text-text">
+                  To
+                </label>
+                <input
+                  id="history-to"
+                  type="date"
+                  value={to}
+                  min={from || undefined}
+                  onChange={(e) => setTo(e.target.value)}
+                  className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                />
+              </div>
 
-          {(typeFilter || from || to) && (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setTypeFilter("");
-                setFrom("");
-                setTo("");
-              }}
-            >
-              Clear filters
-            </Button>
-          )}
+              {(typeFilter || from || to) && (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setTypeFilter("");
+                    setFrom("");
+                    setTo("");
+                  }}
+                >
+                  Clear filters
+                </Button>
+              )}
+            </div>
+          </CollapsibleSection>
         </div>
 
         <section className="mt-6">
@@ -267,56 +272,60 @@ export function HistoryPage() {
             !loadError &&
             groups.map((group) => (
               <div key={group.key} className="mt-6 first:mt-0">
-                <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-text-muted">
-                  {dateHeading(group.key)}
-                </h2>
-                <ul className="flex flex-col gap-2">
-                  {group.entries.map((entry) => (
-                    <li
-                      key={`${entry.type}-${entry.id}`}
-                      className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm"
-                    >
-                      <div>
-                        <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-                          {TYPE_LABELS[entry.type]}
-                        </p>
-                        <p className="text-text">{entry.label}</p>
-                        {entry.notes && <p className="text-sm text-text-muted">{entry.notes}</p>}
-                        <p className="text-xs text-text-muted">
-                          {new Date(entry.loggedAt).toLocaleTimeString([], {
-                            hour: "numeric",
-                            minute: "2-digit",
-                          })}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 gap-2">
-                        {/* TODO(history-edit): wire this up once the pre-filled entry-edit
-                            forms land (see Tasks.md Phase 7's "Edit and delete actions
-                            available from Dashboard/History for every log type" item) - a
-                            parallel task is building those shared, pre-filled forms for all
-                            four log types, and duplicating that effort here would create two
-                            divergent edit implementations. */}
-                        <Button
-                          variant="secondary"
-                          disabled
-                          title="Editing is coming soon"
-                          aria-label={`Edit ${TYPE_LABELS[entry.type].toLowerCase()} entry (coming soon)`}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          onClick={() => handleDelete(entry)}
-                          aria-label={`Delete ${TYPE_LABELS[entry.type].toLowerCase()} entry from ${new Date(
-                            entry.loggedAt,
-                          ).toLocaleString()}`}
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                <CollapsibleSection
+                  title={dateHeading(group.key)}
+                  storageKey={`history.${group.key}`}
+                >
+                  <ul className="flex flex-col gap-2">
+                    {group.entries.map((entry) => (
+                      <li
+                        key={`${entry.type}-${entry.id}`}
+                        className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm"
+                      >
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
+                            {TYPE_LABELS[entry.type]}
+                          </p>
+                          <p className="text-text">{entry.label}</p>
+                          {entry.notes && (
+                            <p className="text-sm text-text-muted">{entry.notes}</p>
+                          )}
+                          <p className="text-xs text-text-muted">
+                            {new Date(entry.loggedAt).toLocaleTimeString([], {
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          {/* TODO(history-edit): wire this up once the pre-filled entry-edit
+                              forms land (see Tasks.md Phase 7's "Edit and delete actions
+                              available from Dashboard/History for every log type" item) - a
+                              parallel task is building those shared, pre-filled forms for all
+                              four log types, and duplicating that effort here would create two
+                              divergent edit implementations. */}
+                          <Button
+                            variant="secondary"
+                            disabled
+                            title="Editing is coming soon"
+                            aria-label={`Edit ${TYPE_LABELS[entry.type].toLowerCase()} entry (coming soon)`}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            onClick={() => handleDelete(entry)}
+                            aria-label={`Delete ${TYPE_LABELS[entry.type].toLowerCase()} entry from ${new Date(
+                              entry.loggedAt,
+                            ).toLocaleString()}`}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </CollapsibleSection>
               </div>
             ))}
 
