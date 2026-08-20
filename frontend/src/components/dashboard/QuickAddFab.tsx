@@ -57,12 +57,17 @@ export function QuickAddFab() {
     // the original tighter offset once `md:` hides BottomNav and the FAB has the full viewport
     // height to itself again. Found and confirmed via a real 375px-viewport screenshot on the
     // Dashboard page - see the implementation log entry for this bottom-nav task.
-    <div ref={containerRef} className="fixed bottom-24 right-6 z-20 md:bottom-6">
+    // left-6, not right-6 - each Dashboard section's own "+ Add" button (see SectionPanel) sits
+    // at the right edge of its header row, the same column real screen width puts this fixed FAB
+    // in too. Whichever section happened to be scrolled into the FAB's fixed vertical band ended
+    // up with two blue circular "+" buttons visually stacked on top of each other - confusing,
+    // and easy to mistake for a rendering bug. Nothing sits in the same column on the left.
+    <div ref={containerRef} className="fixed bottom-24 left-6 z-20 md:bottom-6">
       {open && (
         <div
           role="menu"
           aria-label="Jump to a section"
-          className="absolute bottom-16 right-0 flex min-w-40 flex-col gap-0.5 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
+          className="absolute bottom-16 left-0 flex min-w-40 flex-col gap-0.5 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
         >
           {QUICK_ADD_ITEMS.map((item) => (
             <button
