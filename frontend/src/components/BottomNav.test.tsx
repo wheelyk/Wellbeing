@@ -46,4 +46,28 @@ describe("BottomNav", () => {
     expect(nav.className).toContain("bottom-0");
     expect(nav.className).toContain("md:hidden");
   });
+
+  it("renders all four links plus a centerAction when one is passed, in link/link/action/link/link order", () => {
+    render(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <BottomNav centerAction={<button>Quick add</button>} />
+      </MemoryRouter>,
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    const itemNames = Array.from(nav.children).map((child) =>
+      child.textContent?.replace(/\s+/g, " ").trim(),
+    );
+    expect(itemNames).toEqual(["🏠Home", "🕘History", "Quick add", "📈Trends", "⚙️Settings"]);
+  });
+
+  it("omits the centerAction slot entirely when none is passed", () => {
+    render(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <BottomNav />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Quick add" })).not.toBeInTheDocument();
+  });
 });

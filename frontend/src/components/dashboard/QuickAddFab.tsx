@@ -16,14 +16,24 @@ const QUICK_ADD_ITEMS: Array<{ key: DashboardQuickAddType; label: string; icon: 
   { key: "habit", label: "Habit", icon: "✅" },
 ];
 
-// A viewport-fixed "+" that opens any of the four Dashboard sections' add dialog directly - it
-// used to scroll to the section instead and rely on that section's own now-visible "+" (each
-// section owns its form state independently, no shared store between them, by design - see the
-// original Dashboard decomposition entry), back when "+" expanded a form inline rather than
-// opening a dialog. Once the form moved into a real `Modal` (see the implementation log entry
-// on that redesign), a dialog can be opened from anywhere regardless of scroll position or a
-// section's own collapsed state, so scrolling first stopped being necessary - this now just
-// dispatches the same `dashboardQuickAddEvent` each section already listens for.
+// A "+" that opens any of the four Dashboard sections' add dialog directly, regardless of scroll
+// position or a section's own collapsed state - it dispatches the same `dashboardQuickAddEvent`
+// each section already listens for (see the implementation log entry on the dialog-based Quick
+// Add redesign for the fuller history: this used to scroll to the section and rely on its own
+// now-visible "+" instead, back when "+" expanded a form inline rather than opening a dialog).
+//
+// Rendered as BottomNav's raised center item (see BottomNav's `centerAction` prop and
+// DashboardPage, the only page that passes one in) rather than as its own independently
+// `fixed`-positioned floating circle, which is what this used to be. A FAB free-floating over a
+// scrolling list of full-width cards will always end up on top of *something* eventually -
+// previously that was each section's own "+ Add" button (see SectionPanel), which read as two
+// identical buttons glitching on top of each other; moving it to the opposite screen edge only
+// relocated the same problem onto section title text instead. Docking it into the bottom nav's
+// own fixed chrome removes the entire class of bug rather than continuing to chase where it
+// collides next - that chrome never overlaps scrolling content, the same way Home/History/
+// Trends/Settings never do. This is deliberately mobile-only now (BottomNav itself is
+// `md:hidden`): desktop's two-column grid was never the site of this problem, and each section's
+// own always-visible "+ Add" button is already reachable there without a floating extra.
 export function QuickAddFab() {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -52,22 +62,16 @@ export function QuickAddFab() {
   }
 
   return (
-    // bottom-24 on mobile clears BottomNav (a fixed h-16/64px bar sitting at the very bottom of
-    // the viewport below `md:` - see BottomNav.tsx) with room to spare; md:bottom-6 reverts to
-    // the original tighter offset once `md:` hides BottomNav and the FAB has the full viewport
-    // height to itself again. Found and confirmed via a real 375px-viewport screenshot on the
-    // Dashboard page - see the implementation log entry for this bottom-nav task.
-    // left-6, not right-6 - each Dashboard section's own "+ Add" button (see SectionPanel) sits
-    // at the right edge of its header row, the same column real screen width puts this fixed FAB
-    // in too. Whichever section happened to be scrolled into the FAB's fixed vertical band ended
-    // up with two blue circular "+" buttons visually stacked on top of each other - confusing,
-    // and easy to mistake for a rendering bug. Nothing sits in the same column on the left.
-    <div ref={containerRef} className="fixed bottom-24 left-6 z-20 md:bottom-6">
+    // `relative`, not `fixed` - this now renders inline as BottomNav's own raised center item,
+    // so its positioning context is that flex column, not the viewport. `-mt-7` is what actually
+    // raises the button: it pulls the 56px (h-14) circle up out of the bar's own 64px (h-16) row
+    // so roughly half of it pokes above the bar's top border, the classic "docked FAB" look.
+    <div ref={containerRef} className="relative flex flex-col items-center">
       {open && (
         <div
           role="menu"
           aria-label="Jump to a section"
-          className="absolute bottom-16 left-0 flex min-w-40 flex-col gap-0.5 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
+          className="absolute bottom-full left-1/2 mb-2 flex min-w-40 -translate-x-1/2 flex-col gap-0.5 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
         >
           {QUICK_ADD_ITEMS.map((item) => (
             <button
@@ -89,7 +93,7 @@ export function QuickAddFab() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Quick add"
-        className="flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-lg hover:bg-brand-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        className="-mt-7 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-white shadow-lg hover:bg-brand-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
       >
         <svg
           aria-hidden="true"
