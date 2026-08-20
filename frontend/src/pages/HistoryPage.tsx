@@ -4,6 +4,8 @@ import { BottomNav } from "../components/BottomNav";
 import { Button } from "../components/Button";
 import { CollapsibleSection } from "../components/CollapsibleSection";
 import { apiFetch } from "../api/client";
+import { HistoryEditModal } from "./history/HistoryEditModal";
+import { ConfirmDeleteModal } from "./history/ConfirmDeleteModal";
 
 export type HistoryEntryType = "mood" | "symptom" | "medication" | "habit";
 
@@ -104,6 +106,10 @@ export function HistoryPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  // null means "closed" for both - see HistoryEditModal/ConfirmDeleteModal's own comments on
+  // this convention.
+  const [editingEntry, setEditingEntry] = useState<HistoryEntry | null>(null);
+  const [deletingEntry, setDeletingEntry] = useState<HistoryEntry | null>(null);
 
   // Re-fetches from the beginning (offset 0) whenever a filter changes - a filter change means
   // the previously-loaded pages no longer reflect the current query, so they can't just be kept
@@ -153,11 +159,18 @@ export function HistoryPage() {
     setHasMore(true);
   }
 
-  async function handleDelete(entry: HistoryEntry) {
-    const confirmed = window.confirm(
-      `Delete this ${TYPE_LABELS[entry.type].toLowerCase()} entry? This can't be undone.`,
-    );
-    if (!confirmed) return;
+  // Delete now goes through a real confirmation dialog (ConfirmDeleteModal, built from this
+  // app's own Modal component) instead of window.confirm - handleRequestDelete just opens it;
+  // the actual optimistic-delete-with-rollback logic (unchanged from before) lives in
+  // handleConfirmDelete, run only once the user confirms in that dialog.
+  function handleRequestDelete(entry: HistoryEntry) {
+    setDeletingEntry(entry);
+  }
+
+  async function handleConfirmDelete() {
+    const entry = deletingEntry;
+    if (!entry) return;
+    setDeletingEntry(null);
 
     const previous = entries;
     setEntries((prev) => prev.filter((e) => e.id !== entry.id));
@@ -168,6 +181,16 @@ export function HistoryPage() {
     }
   }
 
+  // Called by HistoryEditModal once a PATCH succeeds - updates the matching entry in place
+  // (matched by id+type, since ids are only unique within a single log type) so the change is
+  // visible immediately without a full refetch of /api/history.
+  function handleEntrySaved(updated: HistoryEntry) {
+    setEntries((prev) =>
+      prev.map((e) => (e.id === updated.id && e.type === updated.type ? updated : e)),
+    );
+    setEditingEntry(null);
+  }
+
   const groups = groupByDate(entries);
 
   return (
@@ -175,8 +198,14 @@ export function HistoryPage() {
       <NavBar />
       {/* pb-24/md:pb-8 - see DashboardPage.tsx's equivalent comment: leaves room below `md:` for
           the fixed BottomNav bar so the last entry (or the Load more button) isn't hidden
-          behind it. */}
-      <main className="mx-auto max-w-3xl px-4 pt-8 pb-24 md:pb-8">
+          behind it. max-w-3xl on mobile matches every other page; md:max-w-4xl/lg:max-w-5xl
+          widen the container from there - unlike Dashboard/Trends, History's content is a single
+          chronological list with no natural second column, so this doesn't add a grid the way
+          those pages' equivalent widening does, but a UI review flagged the page as stranding
+          real desktop width unused even so (a narrow single column with a lot of empty space on
+          either side isn't "intentional," it's just unfinished). Widening the container still
+          gives the filter row and each entry card more breathing room even with one column. */}
+      <main className="mx-auto max-w-3xl px-4 pt-8 pb-24 md:max-w-4xl md:pb-8 lg:max-w-5xl">
         <h1 className="text-2xl font-semibold text-text">History</h1>
         <p className="mt-2 text-text-muted">
           Browse everything you&apos;ve logged, across mood, symptoms, medications, and habits.
@@ -287,9 +316,7 @@ export function HistoryPage() {
                             {TYPE_LABELS[entry.type]}
                           </p>
                           <p className="text-text">{entry.label}</p>
-                          {entry.notes && (
-                            <p className="text-sm text-text-muted">{entry.notes}</p>
-                          )}
+                          {entry.notes && <p className="text-sm text-text-muted">{entry.notes}</p>}
                           <p className="text-xs text-text-muted">
                             {new Date(entry.loggedAt).toLocaleTimeString([], {
                               hour: "numeric",
@@ -298,23 +325,18 @@ export function HistoryPage() {
                           </p>
                         </div>
                         <div className="flex shrink-0 gap-2">
-                          {/* TODO(history-edit): wire this up once the pre-filled entry-edit
-                              forms land (see Tasks.md Phase 7's "Edit and delete actions
-                              available from Dashboard/History for every log type" item) - a
-                              parallel task is building those shared, pre-filled forms for all
-                              four log types, and duplicating that effort here would create two
-                              divergent edit implementations. */}
                           <Button
                             variant="secondary"
-                            disabled
-                            title="Editing is coming soon"
-                            aria-label={`Edit ${TYPE_LABELS[entry.type].toLowerCase()} entry (coming soon)`}
+                            onClick={() => setEditingEntry(entry)}
+                            aria-label={`Edit ${TYPE_LABELS[entry.type].toLowerCase()} entry from ${new Date(
+                              entry.loggedAt,
+                            ).toLocaleString()}`}
                           >
                             Edit
                           </Button>
                           <Button
                             variant="secondary"
-                            onClick={() => handleDelete(entry)}
+                            onClick={() => handleRequestDelete(entry)}
                             aria-label={`Delete ${TYPE_LABELS[entry.type].toLowerCase()} entry from ${new Date(
                               entry.loggedAt,
                             ).toLocaleString()}`}
@@ -346,6 +368,22 @@ export function HistoryPage() {
         </section>
       </main>
       <BottomNav />
+      <HistoryEditModal
+        entry={editingEntry}
+        onClose={() => setEditingEntry(null)}
+        onSaved={handleEntrySaved}
+      />
+      <ConfirmDeleteModal
+        open={!!deletingEntry}
+        title="Delete entry?"
+        message={
+          deletingEntry
+            ? `Delete this ${TYPE_LABELS[deletingEntry.type].toLowerCase()} entry? This can't be undone.`
+            : ""
+        }
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeletingEntry(null)}
+      />
     </div>
   );
 }
