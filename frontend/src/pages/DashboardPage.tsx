@@ -39,8 +39,7 @@ export function DashboardPage() {
           <SymptomSection />
         </div>
       </main>
-      <QuickAddFab />
-      <BottomNav />
+      <BottomNav centerAction={<QuickAddFab />} />
     </div>
   );
 }
