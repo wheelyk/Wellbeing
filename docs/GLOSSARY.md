@@ -220,6 +220,26 @@ two histories together side by side; a rebase rewrites a branch's commits to loo
 started from a different point all along. See [docs/log/08-git-github-workflow.md](log/08-git-github-workflow.md),
 *"Rebasing: why the *local* copy of these branches may still need one."*
 
+### Same-origin / same-site / cross-site
+
+Three different comparisons, easy to conflate: **origin** is scheme + host + port compared
+exactly (so `localhost:5173` and `localhost:4000` are different origins); **site** is just the
+registrable domain (so `app.example.com` and `api.example.com` are different origins but the
+*same* site); anything not same-site is **cross-site**. This project's real deployment (Vercel +
+Railway) is genuinely cross-site, not just cross-origin — the distinction a real production bug
+hinged on. See [docs/log/01-auth-backend.md](log/01-auth-backend.md), *"Same-origin, same-site,
+and cross-site — three different words for three different comparisons."*
+
+### `SameSite` cookie attribute
+
+A cookie attribute controlling whether the browser attaches that cookie on a cross-site request —
+a completely separate gate from [CORS](#cors-cross-origin-resource-sharing), which only controls
+whether a cross-origin *response* can be read. `Lax` (this project's original setting) blocks the
+cookie on any cross-site `fetch`/XHR, which silently broke this app's own legitimate
+cross-site session-restore call in production. See
+[docs/log/01-auth-backend.md](log/01-auth-backend.md), *"`SameSite` — the gate CORS doesn't cover,
+and the part the earlier refresh-token entry only told half of."*
+
 ### Stacked PR
 
 A pull request whose base branch is another not-yet-merged feature branch (instead of `main`),
