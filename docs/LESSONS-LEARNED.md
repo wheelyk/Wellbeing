@@ -198,6 +198,34 @@ the same as it being configured on the thing that reads it.
 **Full story:** [docs/log/07-deployment.md](log/07-deployment.md), *"A real mistake, caught
 before it mattered: variables set on the wrong service."*
 
+### Refreshing the app on mobile logged users out, because a cookie setting assumed the wrong kind of "same"
+
+**What happened:** a real user, on a real deployed Android phone, refreshed the app and landed
+back on the login page — even though they'd been actively using it moments before.
+
+**Root cause:** the frontend (Vercel) and backend (Railway) are genuinely different *sites*, not
+just different *origins* — but the refresh token cookie was `SameSite=Lax`, which browsers only
+attach on cross-site *top-level navigations*, never on a cross-site `fetch()`/XHR. Every API call
+this frontend makes is exactly that, including the call that's supposed to restore a session after
+a page reload — so the cookie was never actually usable from the real deployed frontend at all.
+Not a flaky failure: structurally, definitionally, never. Confirmed directly (not just reasoned
+about) by reproducing the same cross-site relationship entirely locally — `127.0.0.1` and
+`localhost` are never same-site — and watching a real browser's cookie jar come back empty after
+login.
+
+**Lesson:** `SameSite` and CORS are two independent gates, and configuring one correctly does
+nothing for the other. CORS controls whether a cross-origin *response* can be read; `SameSite`
+controls whether a cookie is even *sent* on the request in the first place. "I configured CORS, so
+cross-origin should just work" is a genuinely easy trap — it only closes one of the two gates a
+cross-site, cookie-authenticated request has to pass. This also wasn't actually a mobile- or
+Android-specific bug, even though that's where it was noticed: it reproduces identically on
+desktop given the same cross-site deployment. Mobile browsers just reclaim and fully reload
+backgrounded tabs far more eagerly than desktop ones tend to, which is almost certainly why it
+surfaced there first.
+
+**Full story:** [docs/log/01-auth-backend.md](log/01-auth-backend.md), *"A real production bug:
+refreshing the app on mobile logged users out, and what `SameSite` actually gates."*
+
 ### A Prisma migration checksum mismatch, self-inflicted
 
 **What happened:** found while double-checking the README, not from a failure report.
@@ -232,3 +260,10 @@ Prisma migration checksum mismatch, found while double-checking the README."*
   the app in a real browser against real running servers — this project's standing habit of
   build-and-run verification before calling anything done exists specifically because of bugs
   like these.
+- **Local dev's topology can quietly stop matching production's, and a bug can hide in exactly
+  that gap.** Frontend and backend running on `localhost` are same-site with each other by
+  definition; deployed to Vercel and Railway, they're genuinely cross-site — a difference that
+  never shows up in ordinary local testing but changes what browsers will and won't do with a
+  cookie. When a bug is specifically about cross-origin/cross-site behavior, reproduce the *real*
+  site relationship (even locally, e.g. `127.0.0.1` vs `localhost` — see the `SameSite` bug above)
+  rather than trusting that "it works on localhost" generalizes to production.

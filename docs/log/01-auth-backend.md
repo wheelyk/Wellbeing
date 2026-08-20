@@ -1613,3 +1613,214 @@ users relying on it.
   `docs/log/02-auth-frontend.md`.
 
 ---
+
+## 2026-08-20 — A real production bug: refreshing the app on mobile logged users out, and what `SameSite` actually gates
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a genuine bug report against the
+deployed app ("refreshing the app on mobile Android sends me back to the login page"),
+investigated and fixed the same way any other bug in this log has been: read the real code,
+reproduce it for real, confirm the actual cause, then fix it and prove the fix. This entry also
+answers two follow-up questions asked directly once the fix was proposed: *is the fix actually
+safe from a security standpoint*, and *don't tokens need to expire — isn't that the whole point of
+a refresh token?* Both are covered in full below, not just asserted.
+
+This entry assumes everything the *"full authentication pattern, explained end to end"* entry
+above already covers — the two tokens, why there are two, `HttpOnly` cookies, `requireAuth`,
+`RequireAuth`, the refresh-on-401 flow. None of that is repeated here. What follows is the one
+piece that pattern didn't need yet at the time it was written: what actually happens once the
+frontend and the API are deployed to two genuinely different websites, not just two different
+local ports.
+
+### Background / concepts
+
+#### Same-origin, same-site, and cross-site — three different words for three different comparisons
+
+These sound interchangeable and aren't; mixing them up is exactly what let this bug ship.
+
+- **Origin** = scheme + host + port, compared exactly. `https://wellbeing-blue.vercel.app` and
+  `https://api.up.railway.app` are different origins. So are `http://localhost:5173` and
+  `http://localhost:4000` — different *port*, so different origin, even on the same machine. This
+  is the comparison CORS cares about (recap just below).
+- **Site** = the **registrable domain** (informally, "the part of the domain you'd actually have to
+  buy" — `vercel.app` and `up.railway.app` are each their own registrable domain; `wellbeing-blue`
+  and `api` are just subdomains *within* those). Two different subdomains of the *same*
+  registrable domain (`app.example.com` and `api.example.com`) are **same-site** even though
+  they're different origins. Two different registrable domains are **cross-site**, full stop — no
+  amount of subdomain naming closes that gap. Critically: an IP literal like `127.0.0.1` is never
+  same-site with a hostname like `localhost`, even on one machine — this is what made a fully
+  local, no-real-deployment reproduction of this bug possible (see *What was done* below).
+- **This project's actual deployment is cross-site, not just cross-origin.** The frontend lives on
+  `*.vercel.app`, the backend on `*.up.railway.app` — two different registrable domains. Every
+  single request between them, no matter what it's carrying, is a cross-site request. This wasn't
+  a mistake; it's just what "frontend on Vercel, backend on Railway" *is*, architecturally. The gap
+  was that one specific cookie setting hadn't been chosen with that fact in mind yet.
+
+#### CORS, recap — and what it *doesn't* cover
+
+CORS is already explained in full in the root [IMPLEMENTATION_LOG.md](../../IMPLEMENTATION_LOG.md)
+and the real bug entry in `docs/log/02-auth-frontend.md`. The one-line recap that matters here:
+**CORS controls whether the browser lets the page's own JavaScript *read the response*** of a
+cross-origin request. It says nothing at all about whether a *cookie* gets attached to the
+*request* in the first place — that's a completely separate gate, covered next.
+
+#### `SameSite` — the gate CORS doesn't cover, and the part the earlier refresh-token entry only told half of
+
+The Phase 2.3 entry above (*"refresh token cookie storage/rotation"*) already introduced
+`SameSite=Lax`, but only from one angle: *"tells the browser not to attach this cookie on
+cross-site requests... which is what makes cookies resistant to CSRF."* True, but incomplete — the
+same restriction that blocks a *malicious* cross-site request from carrying the cookie also blocks
+a *legitimate* one, and this app's own frontend calling its own backend is, per the definitions
+above, exactly that: a cross-site request, from the browser's point of view, with no way to tell
+"our own frontend" apart from "some other website" just by looking at the site relationship alone.
+
+The precise rule for `SameSite=Lax` (the default in every modern browser even when unset): the
+cookie is sent on **same-site requests always**, and on **cross-site top-level navigations using a
+"safe" method** (essentially: GET, and only when the browser is actually changing the address bar
+to a new page — following a link, typing a URL) — and **never on a cross-site subresource
+request**, which is precisely what every `fetch()`/`XHR` call is, including every single
+`apiFetch` call this frontend makes and, specifically, the `rehydrateSession()` call added in the
+Phase 5 entry (`docs/log/02-auth-frontend.md`) to restore a session after a page reload. That call
+is a `POST` via `fetch()` — cross-site, not a top-level navigation, not "safe" — so under `Lax`, in
+this app's actual cross-site deployment, the browser was never going to attach the refresh cookie
+to it at all. Not "sometimes fails" — structurally, definitionally, never.
+
+**Two independent gates, and a cross-site cookie-authenticated request needs to pass both:**
+CORS decides whether the *response* can be read; `SameSite` decides whether the *cookie* is even
+sent on the *request*. Configuring one correctly (this project's CORS was already correct — see
+the Phase 2.3 entry's own *Decisions*) does nothing at all to fix the other being wrong. This is
+the mistake worth carrying forward: "I set up CORS, cross-origin should just work" is a genuinely
+common and reasonable-sounding assumption that misses an entire second gate.
+
+### What was done
+
+1. **The bug report:** a real user, on a real deployed Android phone, refreshing the app landed
+   back on `/login` — even though they'd been actively using it moments before.
+2. **Reasoned about the likely cause first**, from the code alone: the deployed frontend and
+   backend are on different registrable domains (Vercel, Railway) — genuinely cross-site, not just
+   cross-origin — and the refresh cookie was `SameSite=Lax`. Per the rule above, that predicts
+   exactly this failure for the `rehydrateSession()` call specifically.
+3. **Reproduced it for real, locally, rather than shipping a fix on theory alone** — this project's
+   standing rule (see `docs/LESSONS-LEARNED.md`'s general principles) that a mocked/theoretical
+   understanding of a bug isn't the same as having actually seen it happen. The trick: run the
+   local frontend dev server bound to `http://127.0.0.1:5173` instead of its usual
+   `http://localhost:5173`, pointed at a backend on `http://localhost:4000` with `FRONTEND_URL`
+   (the CORS allow-list) updated to match. `127.0.0.1` and `localhost` are never same-site (see
+   *Background* above) — this reproduces the real deployment's cross-site relationship completely
+   locally, with zero risk to the real production database.
+4. **What the reproduction showed, before any fix:** registered and logged in through a real
+   Chromium browser (Playwright) — landed on `/dashboard` successfully (the *login* response
+   itself doesn't depend on the cookie being *sent back* yet, only on it being *set*). Inspecting
+   the browser's actual cookie jar (`page.context().cookies()`) immediately after: **empty** — the
+   `Set-Cookie` header had been sent, but between `SameSite=Lax` and the response also lacking
+   `Secure` (skipped in non-production, per the original design), the browser hadn't kept it at
+   all. A full page reload afterward — losing the in-memory access token exactly the way a real
+   refresh does — landed on `/login`. Bug reproduced exactly, without touching Android or
+   production data at all.
+5. **The fix**, in `backend/src/lib/cookies.ts`: `sameSite: "none"` instead of `"lax"`. This
+   requires `secure: true` **unconditionally**, not just in production as before — the two
+   attributes aren't independent; a browser rejects a `None` cookie outright if it isn't also
+   marked `Secure`, regardless of environment. Local dev still works over plain `http` despite
+   this: Chrome (and Chromium, what the reproduction above actually used) specifically treats
+   `localhost` and `127.0.0.1` as secure contexts regardless of scheme, so the `Secure` requirement
+   doesn't block local development the way it would for any other plain-`http` host.
+6. **Re-verified the same reproduction with the fix applied**, confirming the actual mechanism, not
+   just "the code looks right": cookie now present in the jar after login (`sameSite: "None"`,
+   `secure: true`), `/api/auth/refresh` returned `200` instead of `401`, and the reload stayed on
+   `/dashboard`.
+7. **Re-verified the normal, same-site local dev setup** (`localhost` frontend + `localhost`
+   backend, the everyday development configuration) still works completely unaffected by the
+   change — same-site requests were never the part that was broken.
+8. **Backend test suite**: 191/191 passing, unaffected — no test asserts the exact `SameSite`/
+   `Secure` values, only `HttpOnly` and `Path`.
+
+### Why it's needed
+
+Without this fix, **every** logged-in user's session was fragile in production, on every platform
+— not an Android-specific defect, a cross-site-deployment defect that Android happened to surface
+first. The reason it showed up on mobile specifically isn't a different root cause; it's that
+mobile browsers reclaim and fully reload backgrounded tabs far more eagerly than desktop browsers
+tend to (a desktop tab can sit open, still holding its in-memory access token, for a very long
+session without ever truly reloading). The moment *any* browser on *any* platform did a real full
+reload against the real deployed app, it would have hit this same wall — the Android report was
+simply the first time that happened to someone paying attention to the result.
+
+### Decisions
+
+- **`SameSite=None` + unconditional `Secure`, rather than a same-origin proxy.** The more
+  thorough architectural fix for "frontend and API on different sites" is often to put them behind
+  one shared origin instead — e.g. a Vercel rewrite proxying `/api/*` to the Railway backend, so
+  the browser never sees a cross-site relationship at all, and `SameSite=Lax` would then work
+  exactly as originally intended. That's a real, reasonable option, deliberately **not** taken
+  here: it requires infrastructure changes (a Vercel rewrite pointed at this project's specific
+  Railway URL, plus switching the frontend's API base to a relative path) that couldn't be
+  verified end-to-end in this session the same rigorous way the smaller fix was — this session
+  doesn't have write access to the actual Vercel/Railway configuration to test it for real, and
+  shipping an unverified infrastructure change for a login-critical path is exactly the kind of
+  thing this project's own working practices warn against. Noted here as a legitimate future
+  hardening step, not a gap being silently ignored.
+- **Is `SameSite=None` actually safe here? Reviewed directly, not just assumed:**
+  `SameSite=Lax`'s *other* job (besides "works cross-site at all") is CSRF protection — stopping
+  some *other* website from silently making a request that carries this cookie. Switching to
+  `None` genuinely removes that specific layer for this cookie. Tracing through what a
+  cross-site-forced request against each cookie-reading endpoint could actually accomplish:
+  - **`POST /api/auth/refresh`** reads the cookie, rotates it, and returns `{ user, accessToken }`
+    in the response body. A forced request would rotate the *victim's own* cookie in the
+    *victim's own* browser — harmless to them, their session keeps working normally — and the
+    attacker's page still can't *read* that response body at all, because CORS (a separate,
+    already-correct gate — see *Background* above) only allows this project's real frontend
+    origin, not an attacker's. Net effect of a forced refresh: nothing an attacker can use.
+  - **`POST /api/auth/logout`** just clears the cookie unconditionally (see the route above —
+    no auth check at all, by design, since a stateless JWT can't be individually revoked
+    server-side). A forced request logs the victim out early, forcing a re-login. A real but
+    low-severity nuisance ("logout CSRF"), not a data exposure — noted here as an accepted
+    residual risk, not hidden.
+  - **Every endpoint that actually touches user data** (mood/symptom/medication/habit logs,
+    dashboard, trends, history, profile, change-password) requires `requireAuth`, which reads
+    only the `Authorization: Bearer <token>` header (see `middleware/requireAuth.ts`) — **never**
+    the cookie. An attacker's cross-site page has no way to read or forge that header, because the
+    access token it would need never leaves this app's own frontend's JavaScript memory. These
+    endpoints were never protected *by* `SameSite` in the first place, so relaxing it here doesn't
+    touch their security at all.
+  - **Conclusion:** the cookie's blast radius is deliberately narrow — scoped to `/api/auth` only,
+    and read by exactly two routes whose worst forced-request outcomes are "nothing useful to the
+    attacker" and "an inconvenient forced logout." Trading away CSRF protection *specifically for
+    this cookie* is a reasonable, bounded cost for making the session work at all in this app's
+    real deployment topology.
+- **`secure: true` unconditionally, not gated by `NODE_ENV` anymore.** The original code skipped
+  `Secure` outside production specifically so local `http` development wouldn't silently break.
+  That reasoning doesn't apply the same way to `SameSite=None`, which *requires* `Secure`
+  regardless of environment — and, as covered above, Chrome's `localhost`/`127.0.0.1` exemption
+  means local dev doesn't actually need that skip anymore anyway.
+
+### Answering the two follow-up questions directly
+
+- **"Don't tokens need to expire — isn't that the whole point of a refresh token?"** Yes, exactly
+  — both already did, unrelated to this fix. `backend/src/lib/jwt.ts`: `ACCESS_TOKEN_TTL_SECONDS`
+  = 15 minutes, `REFRESH_TOKEN_TTL_SECONDS` = 7 days, both passed as `expiresIn` to `jwt.sign`,
+  and `jwt.verify` (used by both `verifyAccessToken` and `verifyRefreshToken`) rejects an expired
+  token automatically — this is a built-in guarantee of the JWT library itself, not something this
+  project's own code has to separately remember to check. On top of expiry, the refresh token also
+  **rotates** on every use (Phase 2.3, above) — so a legitimately-used session's refresh token
+  keeps renewing its own 7-day window continuously, while a stolen-but-unused one still hits a
+  hard 7-day ceiling regardless. This is the two-token pattern's entire reason for existing,
+  covered in full in the *"full authentication pattern"* entry above: short-lived token the
+  frontend actively handles, longer-lived token the browser handles automatically and JavaScript
+  never touches, each expiring on its own independent clock.
+- **"Is this OK from a security perspective?"** See the CSRF walkthrough directly above — yes,
+  with the specific reasoning shown rather than asserted, and one accepted residual risk (logout
+  CSRF) named explicitly rather than glossed over.
+
+### Verification
+
+- Reproduced the actual bug locally, in a real browser, under conditions matching the real
+  deployment's cross-site relationship (`127.0.0.1` vs `localhost`) — not just read about it or
+  inferred it from the `Set-Cookie` header in isolation. See *What was done* steps 3–4.
+- Re-ran the identical reproduction after the fix and confirmed it now succeeds (cookie stored,
+  `200` from `/refresh`, session survives a full reload) — see step 6.
+- Re-confirmed the normal, everyday local dev setup is unaffected — see step 7.
+- `npm test` (backend) — 191/191 passing.
+- `npm run build` (backend) — compiles cleanly.
+- Traced every route that reads the refresh cookie, and confirmed every route that touches real
+  user data does not — see *Decisions* above.
+
+---
