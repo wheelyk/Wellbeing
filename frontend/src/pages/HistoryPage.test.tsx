@@ -68,8 +68,10 @@ describe("HistoryPage", () => {
     expect(screen.getByText(/headache — severity 6\/10/i)).toBeInTheDocument();
     expect(screen.getByText("Started after lunch")).toBeInTheDocument();
     expect(screen.getByText(/exercise: done/i)).toBeInTheDocument();
-    // Two distinct calendar days -> two group headings.
-    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(2);
+    // Two distinct calendar days -> two date-group headings, each starting with a weekday name
+    // (e.g. "Monday, August 17, 2026") - narrower than all level-2 headings on the page, which
+    // also includes the (unrelated) collapsible Filters section's own heading.
+    expect(screen.getAllByRole("heading", { level: 2, name: /^[A-Za-z]+day,/ })).toHaveLength(2);
   });
 
   it("shows an empty state when there are no entries yet", async () => {
@@ -351,6 +353,30 @@ describe("HistoryPage", () => {
     expect(screen.queryByText("Mood 4/5")).not.toBeInTheDocument();
     // The other day's group is untouched.
     expect(screen.getByText(/exercise: done/i)).toBeInTheDocument();
+  });
+
+  it("collapses the Filters section, hiding the fields but not the entry list", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(
+          jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findByText(/nothing to show yet/i);
+    expect(screen.getByLabelText(/^type$/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^filters$/i }));
+
+    expect(screen.queryByLabelText(/^type$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^from$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^to$/i)).not.toBeInTheDocument();
+    // Collapsing the filter fields doesn't touch the rest of the page.
+    expect(screen.getByText(/nothing to show yet/i)).toBeInTheDocument();
   });
 
   it("disables the Edit button as a coming-soon affordance rather than wiring up editing", async () => {
