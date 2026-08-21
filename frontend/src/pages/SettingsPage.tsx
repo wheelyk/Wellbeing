@@ -1,13 +1,38 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type HTMLAttributes } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { apiFetch, ApiError } from "../api/client";
+import { apiFetch, apiFetchFile, ApiError } from "../api/client";
 import { NavBar } from "../components/NavBar";
 import { BottomNav } from "../components/BottomNav";
 import { Button } from "../components/Button";
 import { TextField } from "../components/TextField";
-import { Card } from "../components/Card";
 import { CollapsibleSection } from "../components/CollapsibleSection";
+import { useThemePreference, type ThemePreference } from "../hooks/useThemePreference";
+
+// Mirrors Card.tsx's own visual styling (rounded-2xl border, surface background, shadow) but
+// widens the column instead of Card's `max-w-sm` default - a 2026-08-19 design review found
+// Settings pinning itself to a 384px column even on a wide desktop screen, unlike
+// Dashboard/Trends (see docs/log/13-responsive-design.md), so this page now widens up to a
+// comfortably-readable ~672px single column instead (`max-w-2xl` below), centered via mx-auto,
+// rather than the full-width grid Dashboard uses - three independent forms (profile,
+// change password, delete account) don't benefit from multiple columns the way Dashboard's four
+// same-shaped summary cards do.
+//
+// Card.tsx itself is deliberately left untouched (every auth page still relies on its narrow
+// default) - a local wrapper here, rather than trying to override Card's own `max-w-sm` utility
+// class from this call site, also sidesteps a genuine Tailwind gotcha: two conflicting `max-w-*`
+// utility classes on the same element aren't guaranteed to resolve in the order they're written -
+// which one wins depends on Tailwind's own internal generation order, not "the later class in the
+// string wins." A dedicated wrapper only ever has one max-width utility applied to it, so there's
+// no such conflict to have.
+function SectionCard({ className = "", ...props }: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={`mx-auto w-full max-w-2xl rounded-2xl border border-border bg-surface p-6 shadow-sm ${className}`}
+      {...props}
+    />
+  );
+}
 
 interface UserProfile {
   id: string;
@@ -121,28 +146,28 @@ function ProfileSection() {
 
   if (loading) {
     return (
-      <Card>
+      <SectionCard>
         <CollapsibleSection title="Profile" storageKey="settings.profile">
           <p className="text-sm text-text-muted">Loading…</p>
         </CollapsibleSection>
-      </Card>
+      </SectionCard>
     );
   }
 
   if (loadError) {
     return (
-      <Card>
+      <SectionCard>
         <CollapsibleSection title="Profile" storageKey="settings.profile">
           <p role="alert" className="text-sm text-danger">
             Couldn't load your profile. Please refresh the page.
           </p>
         </CollapsibleSection>
-      </Card>
+      </SectionCard>
     );
   }
 
   return (
-    <Card>
+    <SectionCard>
       <CollapsibleSection title="Profile" storageKey="settings.profile">
         <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
           <TextField
@@ -184,7 +209,117 @@ function ProfileSection() {
           </Button>
         </form>
       </CollapsibleSection>
-    </Card>
+    </SectionCard>
+  );
+}
+
+const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
+
+function AppearanceSection() {
+  const { preference, setPreference } = useThemePreference();
+
+  return (
+    <SectionCard>
+      <CollapsibleSection title="Appearance" storageKey="settings.appearance">
+        <p className="mb-4 text-sm text-text-muted">
+          Choose whether WellTrack follows your device's light/dark setting, or always uses one
+          regardless of it.
+        </p>
+        {/* Three-way System/Light/Dark toggle, rather than a plain two-state light/dark switch -
+            "System" is the default for a reason (see useThemePreference.ts and index.css): most
+            visitors should just inherit whatever their OS is already set to, with an explicit
+            override only for the minority who want to disagree with it. A single on/off switch
+            can't represent "no explicit opinion, follow the OS" as a third state, only pick one
+            of the two extremes. Reuses this page's own Button component (the same primary/
+            secondary variants ProfileSection's own controls use) as a segmented control, rather
+            than introducing a new control type this codebase doesn't have anywhere else yet.
+
+            setPreference (see useThemePreference.ts) updates the "color-scheme" meta tag and the
+            matching CSS property, not just the --color-* tokens - skipping that step is a real
+            bug this app already shipped once: BottomNav's own labels went invisible on Android
+            because Chrome's auto-dark heuristic recolored them independently of this app's CSS,
+            with nothing telling it not to (commit 0bf7277 / PR #89; see also
+            docs/log/01-auth-backend.md's most recent entry for a different Android-only bug from
+            the same "browser does something behind this app's back" family).
+
+            This toggle is also deliberately self-contained - it swaps CSS variables and this
+            page's own React state directly, with no App.tsx involvement. A parallel workstream,
+            in a different worktree, is about to make its own App.tsx change (mounting a toast
+            notification system); keeping this toggle out of App.tsx avoids a merge conflict with
+            that unrelated change. If a future App.tsx-level feature ever needs to react to the
+            active theme too, the wiring it would need is a one-line read of the same
+            "welltrack:theme" localStorage key / data-theme attribute this toggle already
+            maintains - nothing here would need to change for that to work. */}
+        <div role="group" aria-label="Theme" className="flex gap-2">
+          {THEME_OPTIONS.map((option) => (
+            <Button
+              key={option.value}
+              type="button"
+              variant={preference === option.value ? "primary" : "secondary"}
+              aria-pressed={preference === option.value}
+              onClick={() => setPreference(option.value)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
+      </CollapsibleSection>
+    </SectionCard>
+  );
+}
+
+function ExportDataSection() {
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  async function handleExport() {
+    setExportError(null);
+    setExporting(true);
+    try {
+      const { blob, filename } = await apiFetchFile("/api/export");
+      // No <a download> in this app's own markup - the file only exists as an in-memory Blob
+      // fetched via the same authenticated apiFetch machinery every other request on this page
+      // uses (see api/client.ts's apiFetchFile), not a URL the browser could navigate to on its
+      // own, so triggering the save has to go through a real (if synthetic, momentarily
+      // appended-and-removed) anchor click rather than a plain href.
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename ?? "welltrack-export.json";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      setExportError("Something went wrong exporting your data. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return (
+    <SectionCard>
+      <CollapsibleSection title="Export your data" storageKey="settings.export">
+        <p className="mb-4 text-sm text-text-muted">
+          Download every mood, symptom, medication, and habit entry you've logged - along with your
+          own symptom, medication, and habit definitions - as a single JSON file.
+        </p>
+        <div className="flex flex-col gap-4">
+          {exportError && (
+            <p role="alert" className="text-sm text-danger">
+              {exportError}
+            </p>
+          )}
+          <Button type="button" onClick={handleExport} disabled={exporting} className="self-start">
+            {exporting ? "Preparing download…" : "Download my data"}
+          </Button>
+        </div>
+      </CollapsibleSection>
+    </SectionCard>
   );
 }
 
@@ -218,11 +353,11 @@ function AccountDeletionSection() {
   }
 
   return (
-    <Card>
+    <SectionCard>
       <CollapsibleSection title="Delete account" storageKey="settings.deleteAccount">
         <p className="mb-4 text-sm text-text-muted">
-          This permanently deletes your account and every symptom, mood, medication, and habit
-          entry you've logged. This can't be undone.
+          This permanently deletes your account and every symptom, mood, medication, and habit entry
+          you've logged. This can't be undone.
         </p>
         <div className="flex flex-col gap-4">
           <TextField
@@ -247,7 +382,7 @@ function AccountDeletionSection() {
           </Button>
         </div>
       </CollapsibleSection>
-    </Card>
+    </SectionCard>
   );
 }
 
@@ -327,7 +462,11 @@ export function SettingsPage() {
         </section>
 
         <section className="mt-6">
-          <Card>
+          <AppearanceSection />
+        </section>
+
+        <section className="mt-6">
+          <SectionCard>
             <CollapsibleSection title="Change password" storageKey="settings.changePassword">
               <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
                 <TextField
@@ -367,7 +506,11 @@ export function SettingsPage() {
                 </Button>
               </form>
             </CollapsibleSection>
-          </Card>
+          </SectionCard>
+        </section>
+
+        <section className="mt-6">
+          <ExportDataSection />
         </section>
 
         <section className="mt-6">

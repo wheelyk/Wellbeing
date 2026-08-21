@@ -15,3 +15,62 @@
   --color-danger: #dc2626;
   --color-success: #16a34a;
 }
+
+/* Dark palette - reuses the exact same token names @theme defines above (--color-brand,
+   --color-surface, etc.), which is exactly the groundwork routing every component's colors
+   through named tokens (rather than one-off hex values) was originally built for: every
+   existing `bg-surface`/`text-text`/etc. class picks up dark colors automatically here, with no
+   per-component changes required anywhere else in the app.
+
+   Applied in two places, matching the "system default, explicit user override" model
+   src/hooks/useThemePreference.ts implements (see its own comments for the localStorage side of
+   this):
+     1. `prefers-color-scheme: dark`, guarded by `:not([data-theme="light"])` - the OS-level
+        default applies unless the user has explicitly forced light mode.
+     2. `[data-theme="dark"]`, repeated outside any media query - an explicit user override,
+        which must win even when the OS itself is set to light. Declaring the same values again
+        here (rather than trying to make the media-query block above also match this case) keeps
+        each block's condition simple and independently readable, rather than one block with a
+        compound "dark OS, or forced dark" condition.
+
+   Both blocks also set the CSS `color-scheme` property itself, not just the --color-* tokens.
+   This app was already bitten once by exactly the class of bug that skipping this causes -
+   browser-native form controls (checkboxes, date inputs, scrollbars) and Chrome for Android's
+   own auto-dark heuristic each look at `color-scheme` (and the <meta name="color-scheme"> tag
+   in index.html, kept in sync at runtime by applyThemePreference in useThemePreference.ts)
+   independently of this app's own CSS variables - see the BottomNav-labels-invisible-on-Android
+   bug referenced in SettingsPage.tsx's toggle comment for what goes wrong when that's missed. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-brand: #3b82f6;
+    --color-brand-dark: #2563eb;
+    --color-surface: #1e293b;
+    --color-surface-muted: #0f172a;
+    --color-text: #f1f5f9;
+    --color-text-muted: #94a3b8;
+    --color-border: #334155;
+    --color-danger: #f87171;
+    --color-success: #4ade80;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-brand: #3b82f6;
+  --color-brand-dark: #2563eb;
+  --color-surface: #1e293b;
+  --color-surface-muted: #0f172a;
+  --color-text: #f1f5f9;
+  --color-text-muted: #94a3b8;
+  --color-border: #334155;
+  --color-danger: #f87171;
+  --color-success: #4ade80;
+}
+
+/* An explicit "light" override must also win over a dark-OS default - `color-scheme` is the
+   only thing that needs restating here, since the light --color-* values already come from the
+   unconditional @theme block above and nothing else overrides them for this selector. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}

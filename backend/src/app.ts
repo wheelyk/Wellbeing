@@ -13,6 +13,7 @@ import { usersRouter } from "./routes/users";
 import { dashboardRouter } from "./routes/dashboard";
 import { historyRouter } from "./routes/history";
 import { trendsRouter } from "./routes/trends";
+import { exportRouter } from "./routes/export";
 import { requireAuth } from "./middleware/requireAuth";
 import { errorHandler } from "./middleware/errorHandler";
 
@@ -41,6 +42,7 @@ export function createApp(): Express {
   app.use("/api/dashboard", requireAuth, dashboardRouter);
   app.use("/api/history", requireAuth, historyRouter);
   app.use("/api/trends", requireAuth, trendsRouter);
+  app.use("/api/export", requireAuth, exportRouter);
 
   // Must be registered last - Express only routes a request to error-handling middleware
   // (recognized by its four-parameter signature) once every earlier layer has either handled
