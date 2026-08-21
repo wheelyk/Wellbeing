@@ -3,6 +3,7 @@ import { Button } from "../Button";
 import { apiFetch } from "../../api/client";
 import { formatEntryDateLabel, formatEntryDateTime } from "../../lib/entryDateLabel";
 import { useCollapsedState } from "../../hooks/useCollapsedState";
+import { listenForDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
 
 interface MoodLog {
   id: string;
@@ -89,13 +90,12 @@ function groupEntriesByDay(entries: RecentEntry[]): RecentEntryGroup[] {
 // own fetch/state (see their own files) - by design, per the existing "adding another log type
 // means adding a new file, not editing shared state" pattern already established before this
 // task. That means there's no shared store this card can subscribe to for "a new entry was just
-// saved," and those four components are out of scope for this task to modify (see the PR
-// description). Polling is the simplest fix that doesn't require touching any of them or
-// introducing a new cross-component event bus: it keeps the card's numbers from silently going
-// stale after a Quick Add below it, at the cost of up to POLL_INTERVAL_MS of staleness rather
-// than being instant. A real event-driven "just logged something, refetch now" mechanism is a
-// reasonable future improvement once/if this app grows a shared data layer, but is unrequested
-// speculative scope for this task.
+// saved" - dashboardEntryChangedEvent.ts (a DOM CustomEvent, the same mechanism
+// dashboardQuickAddEvent.ts already uses for the opposite direction) now covers the common case
+// instantly (see the listener registered below), without needing a shared store or lifting state
+// into any of those four components. This interval remains as the fallback for everything that
+// event can't see - another tab, another device, or a session resuming after being backgrounded
+// long enough to miss the dispatch - so staleness is bounded at POLL_INTERVAL_MS even then.
 const POLL_INTERVAL_MS = 10_000;
 
 export function DashboardSummary() {
@@ -140,11 +140,16 @@ export function DashboardSummary() {
     // Also refetch immediately when the browser tab regains focus - covers the common case of
     // a user switching away (e.g. to another app) and back, without waiting out the interval.
     window.addEventListener("focus", fetchSummary);
+    // And refetch immediately whenever any of the four Dashboard sections reports its own
+    // create/edit/delete just succeeded - see dashboardEntryChangedEvent.ts and the
+    // POLL_INTERVAL_MS comment above for why this exists alongside, not instead of, the poll.
+    const unsubscribeEntryChanged = listenForDashboardEntryChanged(fetchSummary);
 
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
       window.removeEventListener("focus", fetchSummary);
+      unsubscribeEntryChanged();
     };
   }, []);
 
@@ -184,10 +189,7 @@ export function DashboardSummary() {
     }
   }
 
-  const entryGroups = useMemo(
-    () => groupEntriesByDay(data?.recentEntries.entries ?? []),
-    [data],
-  );
+  const entryGroups = useMemo(() => groupEntriesByDay(data?.recentEntries.entries ?? []), [data]);
 
   if (loading) {
     return (

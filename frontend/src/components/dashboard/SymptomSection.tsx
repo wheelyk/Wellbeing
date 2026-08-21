@@ -7,6 +7,7 @@ import { apiFetch } from "../../api/client";
 import { formatEntryDateTime } from "../../lib/entryDateLabel";
 import { useTimedMessage } from "../../hooks/useTimedMessage";
 import { listenForDashboardQuickAdd } from "../../lib/dashboardQuickAddEvent";
+import { dispatchDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
 
 // Mirrors HistoryPage's own PAGE_SIZE/offset-pagination shape (see backend/src/lib/pagination.ts)
 // - a Quick-Add section only ever needs a short, recent slice, not a user's entire history
@@ -103,6 +104,9 @@ export function SymptomSection() {
     setShowSymptomForm(false);
     setEditingLog(null);
     showSavedMessage("Symptom entry saved.");
+    // Lets DashboardSummary refetch immediately instead of waiting out its poll interval - see
+    // dashboardEntryChangedEvent.ts for why a DOM event, not lifted state.
+    dispatchDashboardEntryChanged("symptom");
   }
 
   function handleSymptomCreated(symptom: Symptom) {
@@ -129,6 +133,7 @@ export function SymptomSection() {
     setSymptomLogs((prev) => prev.filter((log) => log.id !== id));
     try {
       await apiFetch(`/api/symptom-logs/${id}`, { method: "DELETE" });
+      dispatchDashboardEntryChanged("symptom");
     } catch {
       setSymptomLogs(previous);
     }

@@ -7,6 +7,7 @@ import { apiFetch } from "../../api/client";
 import { formatEntryDateTime } from "../../lib/entryDateLabel";
 import { useTimedMessage } from "../../hooks/useTimedMessage";
 import { listenForDashboardQuickAdd } from "../../lib/dashboardQuickAddEvent";
+import { dispatchDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
 
 // Mirrors HistoryPage's own PAGE_SIZE/offset-pagination shape (see backend/src/lib/pagination.ts)
 // - a Quick-Add section only ever needs a short, recent slice, not a user's entire history
@@ -108,6 +109,9 @@ export function MedicationSection() {
     setShowMedicationForm(false);
     setEditingLog(null);
     showSavedMessage("Medication entry saved.");
+    // Lets DashboardSummary refetch immediately instead of waiting out its poll interval - see
+    // dashboardEntryChangedEvent.ts for why a DOM event, not lifted state.
+    dispatchDashboardEntryChanged("medication");
   }
 
   function handleMedicationEdit(log: MedicationLog) {
@@ -130,6 +134,7 @@ export function MedicationSection() {
     setMedicationLogs((prev) => prev.filter((log) => log.id !== id));
     try {
       await apiFetch(`/api/medication-logs/${id}`, { method: "DELETE" });
+      dispatchDashboardEntryChanged("medication");
     } catch {
       setMedicationLogs(previous);
     }

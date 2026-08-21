@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DashboardSummary } from "./DashboardSummary";
+import { dispatchDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -406,5 +407,69 @@ describe("DashboardSummary", () => {
     render(<DashboardSummary />);
 
     expect(await screen.findByText(/logging streak: 1 day(?!s)/i)).toBeInTheDocument();
+  });
+
+  // The actual fix: previously this card only ever learned about a fresh save/delete from one
+  // of the four Dashboard sections by waiting out its own POLL_INTERVAL_MS (10s) poll - see
+  // dashboardEntryChangedEvent.ts and this component's own POLL_INTERVAL_MS comment. This test
+  // never advances real or fake time (no `vi.useFakeTimers`/`vi.advanceTimersByTime` anywhere in
+  // this file), and `findByText`'s default wait is well under 10s, so the updated text only
+  // appearing here can be the event listener firing, not the poll tick catching up.
+  it("refetches immediately when a Dashboard section reports an entry changed, without waiting for the poll interval", async () => {
+    const baseFields = {
+      date: "2026-08-17",
+      // Non-null so hasLoggedAnything is true from the first fetch onward - otherwise the
+      // component renders its "Nothing logged yet today" empty state instead of the
+      // "Symptoms: N logged" summary line this test asserts on.
+      mood: { id: "mood-1", mood: 4 },
+      medicationSummary: { taken: 0, total: 0 },
+      habitSummary: { loggedCount: 0, totalHabits: 0 },
+      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    };
+    let callCount = 0;
+    const fetchMock = vi.fn().mockImplementation(() => {
+      callCount += 1;
+      return Promise.resolve(
+        jsonResponse(200, { ...baseFields, symptomCount: callCount === 1 ? 0 : 1 }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<DashboardSummary />);
+
+    expect(await screen.findByText(/symptoms: 0 logged/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    dispatchDashboardEntryChanged("symptom");
+
+    expect(await screen.findByText(/symptoms: 1 logged/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops listening for entry-changed events after unmount", async () => {
+    mockDashboardFetch({
+      date: "2026-08-17",
+      mood: null,
+      symptomCount: 0,
+      medicationSummary: { taken: 0, total: 0 },
+      habitSummary: { loggedCount: 0, totalHabits: 0 },
+      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    });
+
+    const { unmount } = render(<DashboardSummary />);
+    await screen.findByText(/nothing logged yet today/i);
+    const callsBeforeUnmount = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    unmount();
+    dispatchDashboardEntryChanged("symptom");
+    // Nothing to await on directly (there should be no new fetch) - a microtask flush is enough
+    // to prove a stray refetch didn't slip in via a listener that outlived the component.
+    await Promise.resolve();
+
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
+      callsBeforeUnmount,
+    );
   });
 });
