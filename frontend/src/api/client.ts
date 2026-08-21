@@ -139,3 +139,63 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 
   return body as T;
 }
+
+export interface DownloadedFile {
+  blob: Blob;
+  /** The filename the server suggested via Content-Disposition, if it sent one. */
+  filename: string | null;
+}
+
+// A variant of apiFetch for endpoints that return a raw downloadable file (e.g. GET /api/export)
+// rather than a JSON body - reuses the exact same access-token-attach + refresh-on-401-retry
+// logic apiFetch already has above (see its own comments for why: concurrent 401s must share one
+// refresh attempt, not each trigger their own), but returns the raw Blob instead of parsing the
+// response as JSON, and surfaces the server's suggested filename rather than the caller having to
+// invent one.
+export async function apiFetchFile(
+  path: string,
+  options: RequestOptions = {},
+): Promise<DownloadedFile> {
+  const { skipAuth, headers, ...rest } = options;
+
+  const doFetch = (token: string | null) =>
+    fetch(`${API_URL}${path}`, {
+      ...rest,
+      credentials: "include",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...headers,
+      },
+    });
+
+  let res = await doFetch(skipAuth ? null : accessToken);
+
+  if (res.status === 401 && !skipAuth) {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      res = await doFetch(newToken);
+    }
+  }
+
+  if (!res.ok) {
+    // An error response from this kind of endpoint is still JSON (see errorHandler.ts and
+    // export.ts's own 404 case) - parsed the same way apiFetch's own error path does, rather
+    // than trying to treat an error body as a downloadable file.
+    const body = await res.json().catch(() => null);
+    throw new ApiError(
+      res.status,
+      body?.error?.message ?? "Request failed",
+      body?.error?.code,
+      body?.error?.details,
+    );
+  }
+
+  // Content-Disposition looks like `attachment; filename="welltrack-export-2026-08-19.json"` -
+  // this pulls just the quoted filename back out.
+  const filenameMatch = res.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/);
+
+  return {
+    blob: await res.blob(),
+    filename: filenameMatch?.[1] ?? null,
+  };
+}

@@ -4,18 +4,49 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- The app is light-only (no dark: variants, no prefers-color-scheme CSS). Without an
-         explicit color-scheme, Chrome for Android will auto-dark pages that don't declare one,
-         using a per-element heuristic that has known bugs recoloring text inside its own
-         compositing layer (e.g. position: fixed elements) inconsistently with the rest of the
-         page - the practical symptom being sibling text rendered invisible against a background
-         Chrome didn't also recolor. Declaring light here opts the whole page out of that
-         heuristic instead of fixing it element by element. -->
-    <meta name="color-scheme" content="light" />
+    <!-- The app now supports both a light and a dark palette (see src/index.css's dark
+         `@theme` overrides and src/hooks/useThemePreference.ts) - "light dark" here tells the
+         browser both are genuinely supported, rather than the previous "light" declaration that
+         opted the whole page out of dark rendering entirely. This is still the same fix this
+         project already learned it needs (see the BottomNav-labels-invisible-on-Android bug
+         referenced in SettingsPage.tsx): without a correct color-scheme declaration - matching
+         whichever theme is actually active, not just left at its default - browser-native form
+         controls and Chrome-for-Android's own auto-dark heuristic can each recolor independently
+         of this app's own CSS, producing exactly that kind of invisible-text bug. The inline
+         script below overwrites this content attribute (to a specific "light" or "dark") before
+         first paint whenever the user has explicitly forced a theme, so this static "light dark"
+         value is only ever what's actually shown when no explicit override exists yet. -->
+    <meta name="color-scheme" content="light dark" />
     <title>WellTrack</title>
   </head>
   <body>
     <div id="root"></div>
+    <!-- Applies a stored explicit theme override (if any) before first paint, to avoid a flash
+         of the wrong theme between this page loading and React's own useThemePreference hook
+         (src/hooks/useThemePreference.ts) getting a chance to run - a plain classic (non-module)
+         script so it executes synchronously, blocking the parser, before <body> below it renders.
+         Deliberately duplicates (rather than imports) useThemePreference's own
+         read-localStorage-then-apply logic: this must run standalone, before any bundled JS - by
+         design, nothing here reaches into App.tsx or any other app-wide state (see
+         SettingsPage.tsx's comment on the toggle for why that boundary matters right now). Wrapped
+         in try/catch for the same reason useCollapsedState.ts guards its own localStorage
+         access - private browsing / storage disabled must fall back to the CSS-only
+         prefers-color-scheme default, not throw and break the page. -->
+    <script>
+      (function () {
+        try {
+          var storedTheme = window.localStorage.getItem("welltrack:theme");
+          if (storedTheme === "light" || storedTheme === "dark") {
+            document.documentElement.setAttribute("data-theme", storedTheme);
+            var meta = document.querySelector('meta[name="color-scheme"]');
+            if (meta) meta.setAttribute("content", storedTheme);
+          }
+        } catch (e) {
+          // Storage inaccessible - leave both the DOM and the meta tag at their defaults above,
+          // which already correctly follow the OS-level prefers-color-scheme setting.
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

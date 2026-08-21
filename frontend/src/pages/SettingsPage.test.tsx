@@ -5,6 +5,32 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "../auth/AuthContext";
 import { SettingsPage } from "./SettingsPage";
 
+// The test environment's own `window.localStorage` (Node's built-in, not jsdom's) is a
+// non-functional stub with no working setItem/getItem/clear - unrelated to this app's own code.
+// See CollapsibleSection.test.tsx / SectionPanel.test.tsx for the same workaround this codebase
+// already established: a real, working Storage stood in via vi.stubGlobal, needed here because
+// the "appearance" tests below specifically exercise useThemePreference's persistence.
+function stubWorkingLocalStorage(): void {
+  const store = new Map<string, string>();
+  const storage: Storage = {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => {
+      store.set(key, String(value));
+    },
+    removeItem: (key) => {
+      store.delete(key);
+    },
+    clear: () => {
+      store.clear();
+    },
+    key: (index) => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size;
+    },
+  };
+  vi.stubGlobal("localStorage", storage);
+}
+
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -215,6 +241,110 @@ describe("SettingsPage — profile", () => {
     await user.click(screen.getByRole("button", { name: /save profile/i }));
 
     expect(await screen.findByText(/check the highlighted fields/i)).toBeInTheDocument();
+  });
+});
+
+describe("SettingsPage — appearance", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    stubWorkingLocalStorage();
+    document.documentElement.removeAttribute("data-theme");
+  });
+
+  it("defaults to the System option selected, with no data-theme attribute forced", async () => {
+    const fetchMock = routedFetchMock();
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    await screen.findByLabelText(/display name/i);
+    expect(screen.getByRole("button", { name: "System" })).toHaveAttribute("aria-pressed", "true");
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+  });
+
+  it("switches to Dark, persists it, and applies data-theme to the document", async () => {
+    const fetchMock = routedFetchMock();
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByLabelText(/display name/i);
+    await user.click(screen.getByRole("button", { name: "Dark" }));
+
+    expect(screen.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "System" })).toHaveAttribute("aria-pressed", "false");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(window.localStorage.getItem("welltrack:theme")).toBe("dark");
+  });
+});
+
+describe("SettingsPage — export data", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("downloads the export as a file using the server-suggested filename", async () => {
+    const exportBody = JSON.stringify({ user: DEFAULT_PROFILE, moodLogs: [] });
+    const fetchMock = routedFetchMock({
+      "/api/export": () =>
+        new Response(exportBody, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Disposition": 'attachment; filename="welltrack-export-2026-08-19.json"',
+          },
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    // jsdom doesn't implement URL.createObjectURL/revokeObjectURL, and clicking a real <a> whose
+    // href it doesn't recognize as navigable logs a noisy "not implemented" navigation error -
+    // both stubbed out (as plain property assignments, not vi.stubGlobal, so URL itself stays a
+    // real constructor - only its two static methods are swapped) so this test exercises exactly
+    // the download-triggering call sequence ExportDataSection makes, without depending on jsdom
+    // features it doesn't have.
+    const createObjectURL = vi.fn((_blob: Blob) => "blob:mock-url");
+    const revokeObjectURL = vi.fn();
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    try {
+      const user = userEvent.setup();
+      renderSettingsPage();
+
+      await screen.findByLabelText(/display name/i);
+      await user.click(screen.getByRole("button", { name: /download my data/i }));
+
+      await vi.waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+
+      const exportCall = fetchMock.mock.calls.find(([url]) => url.includes("/api/export"));
+      expect(exportCall).toBeDefined();
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+      const [blobArg] = createObjectURL.mock.calls[0];
+      expect(await (blobArg as Blob).text()).toBe(exportBody);
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
+    } finally {
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+    }
+  });
+
+  it("shows an error if the export request fails", async () => {
+    const fetchMock = routedFetchMock({
+      "/api/export": () =>
+        jsonResponse(500, { error: { message: "Something broke", code: "INTERNAL_ERROR" } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByLabelText(/display name/i);
+    await user.click(screen.getByRole("button", { name: /download my data/i }));
+
+    expect(
+      await screen.findByText(/something went wrong exporting your data/i),
+    ).toBeInTheDocument();
   });
 });
 
