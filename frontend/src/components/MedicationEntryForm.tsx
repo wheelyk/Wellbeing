@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { apiFetch } from "../api/client";
+import { toDateTimeLocalValue } from "../lib/dateTimeLocal";
 import { Button } from "./Button";
+import { DateTimeField } from "./DateTimeField";
 import { TextField } from "./TextField";
 
 export interface Medication {
@@ -18,15 +20,6 @@ export interface MedicationLog {
   taken: boolean;
   notes: string | null;
   loggedAt: string;
-}
-
-// Formats a Date as the value a <input type="datetime-local"> expects (local time,
-// "YYYY-MM-DDTHH:mm") - the input has no concept of timezones, it just shows/edits whatever
-// local wall-clock time the browser is set to. Same helper as MoodEntryForm's; kept local
-// rather than shared since neither component has a broader "utils" module to live in yet.
-function toDateTimeLocalValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 interface MedicationEntryFormProps {
@@ -304,18 +297,7 @@ export function MedicationEntryForm({ onSaved, onCancel, editingLog }: Medicatio
         />
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="medication-logged-at" className="text-sm font-medium text-text">
-          Date &amp; time
-        </label>
-        <input
-          id="medication-logged-at"
-          type="datetime-local"
-          value={loggedAt}
-          onChange={(e) => setLoggedAt(e.target.value)}
-          className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-        />
-      </div>
+      <DateTimeField id="medication-logged-at" value={loggedAt} onChange={setLoggedAt} />
 
       {formError && (
         <p role="alert" className="text-sm text-danger">

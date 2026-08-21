@@ -1,6 +1,9 @@
 import { useId, useState, type FormEvent } from "react";
 import { apiFetch } from "../api/client";
+import { toDateTimeLocalValue } from "../lib/dateTimeLocal";
 import { Button } from "./Button";
+import { DateTimeField } from "./DateTimeField";
+import { RatingScale } from "./RatingScale";
 import { TextField } from "./TextField";
 
 export interface Symptom {
@@ -23,13 +26,6 @@ export interface SymptomLog {
 // 1-10 rather than mood's 1-5 or energy/stress's 1-7, per requirements - a wider scale for
 // symptom severity, matching the wireframe's "large 1-10 severity control."
 const SEVERITY_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-
-// Same "no timezone info, browser-local wall-clock string" format datetime-local expects -
-// see MoodEntryForm's identical helper for the full explanation.
-function toDateTimeLocalValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
 
 interface SymptomEntryFormProps {
   // Passed in by the Dashboard rather than fetched here, so the same GET /api/symptoms
@@ -75,7 +71,6 @@ export function SymptomEntryForm({
   const [addSymptomError, setAddSymptomError] = useState<string | null>(null);
 
   const selectId = useId();
-  const severityDescriptionId = useId();
 
   // System symptoms (userId null) are available to every user; a user's own custom symptoms
   // are shown in their own group so the picker makes clear which is which, rather than one
@@ -227,41 +222,19 @@ export function SymptomEntryForm({
         )}
       </div>
 
-      <fieldset>
-        <legend className="text-sm font-medium text-text">Severity</legend>
-        <div
-          className="mt-2 grid grid-cols-5 gap-2"
-          role="radiogroup"
-          aria-label="Severity"
-          aria-describedby={severityDescriptionId}
-        >
-          {SEVERITY_VALUES.map((n) => (
-            <button
-              key={n}
-              type="button"
-              role="radio"
-              aria-checked={severity === n}
-              onClick={() => {
-                setSeverity(n);
-                setSeverityError(null);
-              }}
-              className={`flex h-12 items-center justify-center rounded-lg border-2 text-base font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
-                severity === n ? "border-brand bg-brand/10 text-brand" : "border-border text-text"
-              }`}
-            >
-              {n}
-            </button>
-          ))}
-        </div>
-        <p id={severityDescriptionId} className="mt-1 text-xs text-text-muted">
-          1 = Barely noticeable · 10 = Worst possible
-        </p>
-        {severityError && (
-          <p role="alert" className="mt-1 text-sm text-danger">
-            {severityError}
-          </p>
-        )}
-      </fieldset>
+      <RatingScale
+        label="Severity"
+        values={SEVERITY_VALUES}
+        value={severity}
+        onChange={(v) => {
+          setSeverity(v);
+          setSeverityError(null);
+        }}
+        lowLabel="Barely noticeable"
+        highLabel="Worst possible"
+        columns={5}
+        error={severityError}
+      />
 
       <div className="flex flex-col gap-1">
         <label htmlFor="symptom-notes" className="text-sm font-medium text-text">
@@ -276,18 +249,7 @@ export function SymptomEntryForm({
         />
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="symptom-logged-at" className="text-sm font-medium text-text">
-          Date &amp; time
-        </label>
-        <input
-          id="symptom-logged-at"
-          type="datetime-local"
-          value={loggedAt}
-          onChange={(e) => setLoggedAt(e.target.value)}
-          className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-        />
-      </div>
+      <DateTimeField id="symptom-logged-at" value={loggedAt} onChange={setLoggedAt} />
 
       {formError && (
         <p role="alert" className="text-sm text-danger">
