@@ -8,6 +8,7 @@ import { apiFetch } from "../../api/client";
 import { formatEntryDateTime } from "../../lib/entryDateLabel";
 import { useTimedMessage } from "../../hooks/useTimedMessage";
 import { listenForDashboardQuickAdd } from "../../lib/dashboardQuickAddEvent";
+import { dispatchDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
 
 // A habit log's value is spread across three nullable columns (see backend's habitLogs.ts) -
 // this picks whichever one the habit's type says is the meaningful one and renders it, rather
@@ -140,6 +141,9 @@ export function HabitSection() {
     setHabitToPreselect(null);
     setEditingLog(null);
     showSavedMessage("Habit entry saved.");
+    // Lets DashboardSummary refetch immediately instead of waiting out its poll interval - see
+    // dashboardEntryChangedEvent.ts for why a DOM event, not lifted state.
+    dispatchDashboardEntryChanged("habit");
   }
 
   function handleHabitLogEdit(log: HabitLog) {
@@ -162,6 +166,7 @@ export function HabitSection() {
     setHabitLogs((prev) => prev.filter((log) => log.id !== id));
     try {
       await apiFetch(`/api/habit-logs/${id}`, { method: "DELETE" });
+      dispatchDashboardEntryChanged("habit");
     } catch {
       setHabitLogs(previous);
     }

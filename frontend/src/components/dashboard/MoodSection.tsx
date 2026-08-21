@@ -7,6 +7,7 @@ import { apiFetch } from "../../api/client";
 import { formatEntryDateTime } from "../../lib/entryDateLabel";
 import { useTimedMessage } from "../../hooks/useTimedMessage";
 import { listenForDashboardQuickAdd } from "../../lib/dashboardQuickAddEvent";
+import { dispatchDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
 
 const MOOD_EMOJI: Record<number, string> = { 1: "😞", 2: "😕", 3: "😐", 4: "🙂", 5: "😄" };
 
@@ -104,6 +105,9 @@ export function MoodSection() {
     setShowForm(false);
     setEditingLog(null);
     showSavedMessage("Mood entry saved.");
+    // Lets DashboardSummary refetch immediately instead of waiting out its poll interval - see
+    // dashboardEntryChangedEvent.ts for why a DOM event, not lifted state.
+    dispatchDashboardEntryChanged("mood");
   }
 
   function handleEdit(log: MoodLog) {
@@ -126,6 +130,7 @@ export function MoodSection() {
     setMoodLogs((prev) => prev.filter((log) => log.id !== id));
     try {
       await apiFetch(`/api/mood-logs/${id}`, { method: "DELETE" });
+      dispatchDashboardEntryChanged("mood");
     } catch {
       setMoodLogs(previous);
     }
