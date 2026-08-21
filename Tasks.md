@@ -223,20 +223,20 @@ Reference: requirements §15, §16.
 Reference: requirements §19.
 
 ### Backend (e.g. Jest/Vitest + Supertest against a test database)
-- [ ] Registration, login, refresh, logout, password reset — happy path and failure cases.
-- [ ] Authorization/user-isolation tests (see Phase 11).
-- [ ] CRUD tests for symptoms, mood, medications, habits (including validation-rejection cases).
-- [ ] Dashboard calculation tests (summary values, streak logic, timezone edge cases around midnight).
-- [ ] Trend calculation tests (averages, period boundaries, empty-data periods).
+- [x] Registration, login, refresh, logout, password reset — happy path and failure cases. (Already true, stale checkbox — `auth.test.ts` alone has 33 tests: wrong password, missing fields, duplicate email, expired/reused/garbage reset tokens, token-secret mismatches, and more, on top of every happy path.)
+- [x] Authorization/user-isolation tests (see Phase 11). (Already true — every route file asserts "never includes another user's entries" / 404s a cross-user edit or delete attempt, not just the routes Phase 11's own audit called out.)
+- [x] CRUD tests for symptoms, mood, medications, habits (including validation-rejection cases). (Already true — e.g. `moodLogs.test.ts` explicitly tests rejecting mood/energy/stress out of range, clearing fields via explicit `null`, and 404s for a nonexistent or another user's log.)
+- [x] Dashboard calculation tests (summary values, streak logic, timezone edge cases around midnight). (Already true — `dashboard.test.ts` has a test literally named "resolves a late-night entry to the correct calendar day for a non-UTC user's streak".)
+- [x] Trend calculation tests (averages, period boundaries, empty-data periods). (Already true — `trends.test.ts` covers per-day/period averages, excluding out-of-period entries, timezone-correct day resolution, and the empty-new-user case.)
 
 ### Frontend (e.g. Vitest/React Testing Library)
-- [ ] Registration/login flow rendering and error states.
-- [ ] Dashboard rendering with mocked API data.
-- [ ] Quick Add flow for each log type, including validation errors.
-- [ ] Edit/delete flows for each log type.
-- [ ] History filtering/rendering.
-- [ ] Trends rendering for each period.
-- [ ] Auth state handling (token refresh, redirect-to-login on failure).
+- [x] Registration/login flow rendering and error states. (`RegisterPage.test.tsx`, `LoginPage.test.tsx`.)
+- [x] Dashboard rendering with mocked API data. (`DashboardPage.test.tsx`, `DashboardSummary.test.tsx`.)
+- [x] Quick Add flow for each log type, including validation errors. (`MoodEntryForm.test.tsx`/`SymptomEntryForm.test.tsx`/`MedicationEntryForm.test.tsx`/`HabitEntryForm.test.tsx`, plus each Dashboard Section's own test file.)
+- [x] Edit/delete flows for each log type. (Covered across the Section test files and `HistoryPage.test.tsx`'s own edit/delete tests.)
+- [x] History filtering/rendering. (`HistoryPage.test.tsx` — 14 tests.)
+- [x] Trends rendering for each period. (`TrendsPage.test.tsx`, `PeriodSelector.test.tsx`, `TrendLineChart.test.tsx`, `ActivityCalendar.test.tsx`.)
+- [x] Auth state handling (token refresh, redirect-to-login on failure). (`RequireAuth.test.tsx` and `client.test.ts` both test this directly — e.g. "redirects to /login if a background request's token refresh fails," "on a 401, refreshes the access token and retries the request once.")
 
 ### End-to-end (e.g. Playwright/Cypress)
 - [ ] Register → log in → Quick Add a symptom, mood, medication, and habit → verify Dashboard reflects them.
