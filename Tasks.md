@@ -239,10 +239,21 @@ Reference: requirements §19.
 - [ ] Auth state handling (token refresh, redirect-to-login on failure).
 
 ### End-to-end (e.g. Playwright/Cypress)
-- [ ] Register → log in → Quick Add a symptom, mood, medication, and habit → verify Dashboard reflects them.
-- [ ] Edit and delete an entry end-to-end.
-- [ ] View Trends after seeding a few days of data.
-- [ ] Account deletion end-to-end, confirming data is gone.
+- [x] Register → log in → Quick Add a symptom, mood, medication, and habit → verify Dashboard reflects them.
+  Verified: `frontend/e2e/quick-add-and-dashboard.spec.ts`, a real Playwright run against local
+  dev servers, passing.
+- [x] Edit and delete an entry end-to-end.
+  Verified: `frontend/e2e/edit-and-delete.spec.ts` — edits a mood entry from History, confirms
+  the change survives a reload, then deletes it via the real confirmation modal and confirms the
+  delete survives a reload too.
+- [x] View Trends after seeding a few days of data.
+  Verified: `frontend/e2e/trends-after-seeding.spec.ts` — seeds 3 days of mood/symptom logs via
+  the real backend API's `loggedAt` backfill support, then confirms Trends' chart averages
+  reflect them.
+- [x] Account deletion end-to-end, confirming data is gone.
+  Verified: `frontend/e2e/account-deletion.spec.ts` — confirms both the session is really over
+  (a reload doesn't silently log back in) and the account row is really gone (the same email can
+  register a brand-new, empty account afterwards).
 
 ---
 

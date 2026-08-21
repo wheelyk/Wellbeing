@@ -13,6 +13,10 @@ dist-ssr
 *.local
 pr-screenshots-output
 
+# Playwright's own run output (screenshots/traces from e2e test runs)
+test-results
+playwright-report
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
