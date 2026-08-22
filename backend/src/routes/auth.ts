@@ -28,6 +28,13 @@ const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:5173";
 // "wrong password" apart from "no such account" by measuring response time.
 const DUMMY_PASSWORD_HASH = "$2a$12$CwTycUXWue0Thq9StjUM0uJ8Y6Y3VtZ44Q4XdrOTLPfPT2mDcMYVK";
 
+// An id that can never match a real user row (schema.prisma's User.id is a plain string, not a
+// database-enforced UUID, so no format validation to satisfy here - it just needs to not exist).
+// Used the same way DUMMY_PASSWORD_HASH is used for login: giving forgot-password's
+// "user not found" branch an equivalent-cost database write to perform, so the two branches
+// can't be told apart by response timing either - see forgot-password's own comment below.
+const DUMMY_USER_ID = "00000000-0000-0000-0000-000000000000";
+
 // Shared by /login and /refresh (both need to hand the frontend the same shape of "who is this,"
 // the second one just via a rotated cookie instead of a password) - a plain function rather
 // than a Prisma `select` clause since /refresh already has a full user row in hand from its own
@@ -271,17 +278,31 @@ authRouter.post("/forgot-password", authRateLimiter, async (req, res) => {
   };
 
   const user = await prisma.user.findUnique({ where: { email } });
-  if (user) {
-    const rawToken = crypto.randomBytes(32).toString("hex");
+  const rawToken = crypto.randomBytes(32).toString("hex");
 
+  // A matching-shape database write happens on *both* branches, not just when a real user is
+  // found - an identical response body (above) isn't enough on its own: the "found" branch used
+  // to do a real UPDATE and the "not found" branch did nothing at all, and that extra write is
+  // slower than skipping it, in a way a timing measurement could pick up on to tell the two
+  // cases apart regardless of what the response body says. `DUMMY_USER_ID` never matches a real
+  // row, so this update always fails with Prisma's "record not found" error in that case -
+  // caught and discarded, the same "let the real work happen either way" approach
+  // DUMMY_PASSWORD_HASH already uses for login above.
+  try {
     await prisma.user.update({
-      where: { id: user.id },
+      where: { id: user?.id ?? DUMMY_USER_ID },
       data: {
         resetTokenHash: hashResetToken(rawToken),
         resetTokenExpiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
       },
     });
+  } catch (err) {
+    if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025")) {
+      throw err;
+    }
+  }
 
+  if (user) {
     // The raw token only ever exists in memory here and in the email it's embedded in - never
     // written to the database (only its hash is, above) and never logged anywhere except
     // inside this placeholder mailer's own clearly-labeled console output.
