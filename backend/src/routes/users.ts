@@ -3,17 +3,19 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { clearRefreshTokenCookie } from "../lib/cookies";
 
-// Node's Intl.supportedValuesOf("timeZone") returns every IANA zone name the runtime
-// recognizes (~400 of them) - used here so PATCH /me can reject a garbage timezone string
-// up front, rather than accepting it and only discovering it's invalid later when
-// `backend/src/lib/timezone.ts`'s Intl calls throw while resolving *that* user's dashboard.
-// Falling back to a try/catch around constructing an Intl.DateTimeFormat covers the (unlikely,
-// on any Node version this project targets) case where supportedValuesOf itself isn't
-// available, rather than skipping validation entirely.
+// Validates by actually constructing an Intl.DateTimeFormat with this zone - the same call
+// `backend/src/lib/timezone.ts` makes for real, downstream, to resolve a user's calendar day -
+// rather than checking membership in Intl.supportedValuesOf("timeZone")'s enumerated list.
+// That list turns out to be the wrong tool here: on at least this project's Node/ICU version,
+// it excludes "UTC" (confirmed directly: `Intl.supportedValuesOf("timeZone").includes("UTC")`
+// is false), even though `new Intl.DateTimeFormat(undefined, { timeZone: "UTC" })` works fine -
+// "UTC" is both this app's own `User.timezone` schema default (Phase 1) and the first option in
+// the frontend's own timezone <select>, so this rejected the timezone every brand-new user
+// actually starts with, and only surfaced when a real account tried to save *any* profile
+// change without first switching away from the default. A garbage zone (e.g.
+// "Not/A_Real_Zone") still throws from the constructor, so this stays just as strict for the
+// case it actually needs to catch.
 function isValidTimeZone(timeZone: string): boolean {
-  if (typeof Intl.supportedValuesOf === "function") {
-    return Intl.supportedValuesOf("timeZone").includes(timeZone);
-  }
   try {
     new Intl.DateTimeFormat(undefined, { timeZone });
     return true;

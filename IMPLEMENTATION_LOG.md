@@ -216,6 +216,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-16 — Fixing a real production bug: direct links to any page but the homepage 404'd
 - 2026-08-16 — A harmless-but-alarming Vercel "Build Failed": the screenshot CI branch has no app in it
 - 2026-08-17 — A real production bug: the symptom picker was empty, because seeding never ran there
+- 2026-08-22 — Phase 14 smoke test: a real production bug, found by actually using the deployed app
 
 ### [Git & GitHub Workflow (branches, PRs, subagents)](docs/log/08-git-github-workflow.md)
 

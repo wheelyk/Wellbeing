@@ -103,6 +103,25 @@ describe("PATCH /api/users/me", () => {
     expect(res.body.error.code).toBe("VALIDATION_ERROR");
   });
 
+  // Regression test: "UTC" is this app's own `User.timezone` schema default (every brand-new
+  // account starts with it) and the first option in the frontend's own timezone <select> - but
+  // was, until this fix, itself rejected by PATCH /me's own validation on at least one real
+  // Node/ICU build (Intl.supportedValuesOf("timeZone") doesn't enumerate "UTC" even though
+  // Intl.DateTimeFormat accepts it fine), meaning a brand-new user who'd never touched their
+  // timezone couldn't save *any* profile change at all. Found via a real smoke test against the
+  // deployed production environment, not local development - see docs/log/07-deployment.md.
+  it("accepts 'UTC' as a valid timezone", async () => {
+    const { accessToken } = await registerAndLogin("utc-timezone");
+
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ displayName: "Still Default Timezone", timezone: "UTC" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ displayName: "Still Default Timezone", timezone: "UTC" });
+  });
+
   it("rejects an invalid timezone string", async () => {
     const { accessToken } = await registerAndLogin("bad-timezone");
 
