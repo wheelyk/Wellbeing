@@ -244,6 +244,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 ### [Housekeeping & Audits](docs/log/09-housekeeping.md)
 
 - 2026-08-16 — Reconciling Tasks.md/requirements.md with reality, and adding "change password"
+- 2026-08-22 — A general bug/security/test-coverage review, guided by an actual coverage report
 
 ### [Dashboard & Trends](docs/log/10-dashboard-and-trends.md)
 

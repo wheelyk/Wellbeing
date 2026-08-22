@@ -146,3 +146,153 @@ correct. The local Prisma migration history is back in sync with the actual migr
 - `npm run build`, `npm test` (34/34) — unchanged, confirming no application behavior shifted.
 
 ---
+
+## 2026-08-22 — A general bug/security/test-coverage review, guided by an actual coverage report
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — an open-ended request to look for
+bugs, security issues, and testing gaps across the whole codebase, following on from the earlier
+timezone bug hunt ([History](11-history.md)) and security audit
+([Security & Accessibility Audits](12-security-and-accessibility-audits.md)) done the same week.
+
+### Background / concepts
+
+#### Why a coverage report, not just more grepping
+
+Every earlier review in this project (the History timezone bug, the security audit) worked by
+reading code closely and reasoning about it - effective, but it only finds what a person happens
+to think to look at. **Code coverage** measures something different and complementary: given the
+*existing* test suite, which lines, branches, and functions did any test actually execute at all?
+A statement showing 0% coverage isn't necessarily wrong - it might be perfectly correct code - but
+it *is* a guaranteed blind spot: nothing has ever proven it does what it's supposed to, and a
+future change to it wouldn't be caught by anything.
+
+`@vitest/coverage-v8` was installed temporarily with `npm install --no-save` for this one-off
+pass - the same "don't inherit a permanent new dependency as a side effect of a single audit"
+decision already made for `axe-core` during the earlier accessibility audit (see
+[Security & Accessibility Audits](12-security-and-accessibility-audits.md)) - and never added to
+either `package.json`.
+
+#### What a coverage report can't tell you, and why some 0%-covered lines aren't worth fixing
+
+Not every uncovered line is a real gap worth closing. A handful of patterns showed up repeatedly
+and were deliberately left alone:
+
+- **A defensive `return "—";` fallback** at the end of `formatHabitValue` (three separate copies
+  of this function exist - see below) that's only reachable if *none* of a habit log's three
+  value columns are set, which the backend's own validation (`habitLogs.ts`'s `extractTypedValue`)
+  never allows to happen. Testing it would mean fabricating a log shape the real system can never
+  actually produce.
+- **The "malformed query string" / "malformed PATCH body" 400 branches**, repeated near-identically
+  across almost every route. The underlying Zod validation logic is already proven correct via
+  each type's own `POST` tests; re-proving the exact same schema behaves the same way on `GET`/
+  `PATCH` too, for every single route, would be repetitive coverage padding rather than a
+  meaningfully different risk.
+
+The lines actually worth chasing were the ones representing **real, distinct behavior that had
+simply never been exercised** - covered below.
+
+### What was done
+
+1. **Found a real correctness bug: non-deterministic pagination.** Every per-type log-list
+   endpoint (mood/symptom/medication/habit logs), plus several of `dashboard.ts`'s own queries,
+   ordered strictly by `loggedAt desc` with no secondary sort key. Two logs sharing the exact
+   same timestamp - plausible for backfilled entries, or two "now" entries logged moments apart
+   that round to the same stored value - have no guaranteed relative order across two separate
+   `LIMIT`/`OFFSET` queries, per Postgres's own documented behavior for an ORDER BY that doesn't
+   fully disambiguate every row. A tied row could silently land on a different page between one
+   request and the next - visible as an entry duplicating or disappearing while paging through
+   "load more," and exactly the failure mode History's own edit-by-id lookup
+   (`historyLogApi.ts`'s `findLogById`) depends on not happening. An existing test's own comment
+   ("five mood logs, one hour apart, *so ordering is deterministic*") shows this was already an
+   implicitly known risk that had just never been closed. Fixed by adding `id desc` as a
+   secondary sort key everywhere this pattern appeared (see the companion fix commit for the full
+   file list) - the standard way to make an `ORDER BY` fully deterministic when the primary sort
+   column alone can't guarantee a unique ordering.
+2. **Found a real inconsistency while reviewing `history.ts` for the fix above**: every sibling
+   route (`dashboard.ts`/`trends.ts`/`users.ts`/`export.ts`) explicitly treats a
+   deleted-but-still-tokened caller (a still-validly-signed access token whose user row was
+   deleted after issuance - e.g. a second tab calling `DELETE /api/users/me`) as a 404 - but
+   `history.ts` only checked user existence when `from`/`to` were present, silently falling back
+   to a default timezone the rest of the time. Fixed to check unconditionally, matching every
+   sibling route's own documented behavior.
+3. **Confirmed that exact 404 behavior had never actually been tested, anywhere it's implemented**
+   - 5 routes, each with the same explanatory comment ("Can only happen if the user row was
+     deleted after the access token was issued...") and zero tests proving it. Added one
+     regression test per route: register, capture a real access token, delete the user row
+     directly via Prisma, then confirm the endpoint answers 404 rather than crashing on a null
+     user.
+4. **Found the same duplicated, partially-untested formatting logic in three separate places**:
+   `dashboard.ts` and `history.ts` (backend) and `historyLogApi.ts` (frontend) each have their
+   own copy of "format a habit log's value as Done/Not done, a plain number, or N minutes,
+   depending on which of its three nullable columns is set" - and every existing test exercising
+   any of the three only ever used a *boolean*-type habit. Added tests covering numeric and
+   duration values in all three places, including the not-quite-obvious real `0` value case (a
+   naive truthiness check, instead of the `!== null` check this code actually uses, would render
+   a genuine zero-minute or zero-count entry as the wrong branch entirely - not currently a bug,
+   but now a *tested* non-bug rather than an untested one).
+5. **Found `trends.ts`'s own Activity-calendar test didn't test what its title claimed.** "Marks a
+   day active... for any of the four log types" only ever seeded a habit log - a medication log's
+   own, separate `bucketByDay` call had never been exercised in isolation. Added a second test
+   seeding only a medication log to close that specific gap.
+6. **Found `Modal.tsx`'s actual focus-trap logic had zero test coverage**, despite every other
+   keyboard/dismissal behavior on the same component (Escape, backdrop click, focus return) being
+   well-tested. The Tab/Shift+Tab wrap-around behavior - the specific thing that makes this a real
+   trapping dialog instead of just a styled overlay a keyboard user could tab straight out of - had
+   never been driven by any test. Added one, and **confirmed it actually catches a broken trap**
+   by temporarily replacing the real logic with a no-op, watching the new test fail, then
+   restoring the real code and watching it pass again - the same before/after discipline this
+   project applies to every fix, not just a plausible-looking assertion.
+7. **Found `historyLogApi.ts` had no dedicated test file at all.** Added one covering its five
+   pure label-formatting functions - the third copy of the habit-value-formatting logic from
+   point 4 above, plus mood/symptom/medication labels that had never been unit-tested in
+   isolation either (only indirectly, via whatever `HistoryPage.test.tsx` happens to render).
+
+### Why it's needed
+
+A comment explaining *why* some defensive code exists (e.g. "can only happen if the user row was
+deleted mid-session") is a claim about intended behavior, not proof of it - every fix in this
+entry closes exactly that gap between "the code is written to handle this" and "something has
+actually confirmed it does." The pagination-determinism bug specifically is the kind of thing
+that can sit unnoticed for a long time (most backfilled entries won't share an exact timestamp)
+and then surface as a confusing, hard-to-reproduce "an entry disappeared from my history" report
+once a real user hits it by chance.
+
+### Decisions
+
+- **Coverage as a starting point, not an ending point.** A raw percentage was never the goal -
+  several genuinely 0%-covered lines were deliberately left alone (see *Background* above) because
+  closing them would have added test volume without reducing any real risk. Every fix and test
+  added here came from actually reading what the uncovered line *does*, not just from the number
+  going up.
+- **Split into two commits**: one for the actual behavior fix (non-deterministic pagination +
+  History's 404 inconsistency) with its own directly-related tests, and one for the remaining
+  pure test-coverage additions for behavior that was already correct, just unverified - keeping
+  "this changes what the app does" separate from "this only proves what it already did."
+- **Proved the new Modal test actually mattered**, rather than trusting that it looked like a
+  reasonable assertion - the same "reproduce it, don't just believe it" discipline this project
+  has applied to every bug fix so far, applied here to a *test* instead of a fix.
+
+### State at end of this step
+
+Pagination across every log-list endpoint (and History specifically) is now provably
+deterministic. History's deleted-user handling matches its sibling routes. Five previously
+undocumented-by-test edge cases (the deleted-user 404, in five routes) now have direct regression
+tests. Habit-value formatting is tested for all three real value types in all three places it's
+implemented. Modal's focus trap has real coverage. `historyLogApi.ts` has a dedicated test file.
+
+### Verification
+
+- `npx vitest run --coverage` (backend): overall statement coverage rose from 94.92% to 96.75%,
+  branch coverage from 81.29% to 85.51% - `dashboard.ts`, `trends.ts`, `users.ts`, and `export.ts`
+  all reached 100% branch coverage on their own route files.
+- Confirmed the new `moodLogs.ts` tiebreak test actually asserts something meaningful (not just a
+  plausible-looking assertion) by checking its expected-order derivation against the two real
+  generated ids.
+- Confirmed the new Modal focus-trap test catches a real regression: temporarily replaced
+  `handleKeyDown`'s Tab-handling condition with a no-op, reran the test suite (the new test
+  failed, exactly as expected), then restored the original code and reran (passed).
+- `npm test` (backend): 210/210 passing. `npm test` (frontend): 223/223 passing.
+- Full Playwright end-to-end suite against real local dev servers: 4/4 passing, confirming the
+  ordering/History changes didn't regress any real user-facing flow.
+
+---
