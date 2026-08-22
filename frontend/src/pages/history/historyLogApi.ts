@@ -1,68 +1,22 @@
 import { apiFetch } from "../../api/client";
 import type { HistoryEntryType } from "../HistoryPage";
+import type { MoodLog } from "../../components/MoodEntryForm";
+import type { Symptom, SymptomLog } from "../../components/SymptomEntryForm";
+import type { MedicationLog } from "../../components/MedicationEntryForm";
+import type { HabitLog } from "../../components/HabitEntryForm";
+import type { Habit } from "../../components/HabitCreateForm";
 
-// ---- Per-type structured records -----------------------------------------------------------
 // The unified GET /api/history endpoint (see backend/src/routes/history.ts) only returns a
 // display-ready {label, notes, loggedAt} shape - enough to render the list, but not enough to
 // pre-fill a real edit form (e.g. a symptom entry's label is "Headache — Severity 6/10", which
 // has no machine-readable symptomId in it anywhere). The actual structured fields
-// (mood/energy/stress, symptomId/severity, medicationId/taken, habitId/valueX) only live on the
-// four per-type endpoints, so editing has to go back to those - see findLogById below for how,
-// given the backend can't be touched for this task and none of those endpoints support a
-// "fetch by id" lookup.
-export interface MoodLogRecord {
-  id: string;
-  mood: number;
-  energy: number | null;
-  stress: number | null;
-  notes: string | null;
-  loggedAt: string;
-}
-
-export interface SymptomLogRecord {
-  id: string;
-  symptomId: string;
-  severity: number;
-  notes: string | null;
-  loggedAt: string;
-}
-
-export interface MedicationLogRecord {
-  id: string;
-  medicationId: string;
-  taken: boolean;
-  notes: string | null;
-  loggedAt: string;
-}
-
-export interface HabitLogRecord {
-  id: string;
-  habitId: string;
-  valueBoolean: boolean | null;
-  valueNumeric: number | null;
-  valueDurationMinutes: number | null;
-  notes: string | null;
-  loggedAt: string;
-}
-
-export interface SymptomRef {
-  id: string;
-  userId: string | null;
-  name: string;
-}
-
-export interface MedicationRef {
-  id: string;
-  name: string;
-  dosage: string | null;
-}
-
-export interface HabitRef {
-  id: string;
-  name: string;
-  type: "boolean" | "numeric" | "duration";
-}
-
+// (mood/energy/stress, symptomId/severity, habitId/valueX) only live on the per-type endpoints,
+// so editing has to go back to those - see findLogById below for how, given the backend can't be
+// touched for this task and none of those endpoints support a "fetch by id" lookup. Reuses the
+// exact same MoodLog/SymptomLog/HabitLog/Symptom/Habit types the Dashboard's own
+// MoodEntryForm/SymptomEntryForm/HabitEntryForm/HabitCreateForm already export, rather than
+// maintaining a second, parallel set of near-identical interfaces - this is what actually lets
+// HistoryEditModal render those same form components directly instead of rebuilding its own.
 const LIST_PATH: Record<HistoryEntryType, string> = {
   mood: "/api/mood-logs",
   symptom: "/api/symptom-logs",
@@ -106,23 +60,27 @@ async function findLogById<T extends { id: string; loggedAt: string }>(
   return null;
 }
 
-export function fetchMoodLog(id: string, loggedAtHint: string): Promise<MoodLogRecord | null> {
-  return findLogById<MoodLogRecord>("mood", id, loggedAtHint);
+export function fetchMoodLog(id: string, loggedAtHint: string): Promise<MoodLog | null> {
+  return findLogById<MoodLog>("mood", id, loggedAtHint);
 }
-export function fetchSymptomLog(
-  id: string,
-  loggedAtHint: string,
-): Promise<SymptomLogRecord | null> {
-  return findLogById<SymptomLogRecord>("symptom", id, loggedAtHint);
+export function fetchSymptomLog(id: string, loggedAtHint: string): Promise<SymptomLog | null> {
+  return findLogById<SymptomLog>("symptom", id, loggedAtHint);
 }
 export function fetchMedicationLog(
   id: string,
   loggedAtHint: string,
-): Promise<MedicationLogRecord | null> {
-  return findLogById<MedicationLogRecord>("medication", id, loggedAtHint);
+): Promise<MedicationLog | null> {
+  return findLogById<MedicationLog>("medication", id, loggedAtHint);
 }
-export function fetchHabitLog(id: string, loggedAtHint: string): Promise<HabitLogRecord | null> {
-  return findLogById<HabitLogRecord>("habit", id, loggedAtHint);
+export function fetchHabitLog(id: string, loggedAtHint: string): Promise<HabitLog | null> {
+  return findLogById<HabitLog>("habit", id, loggedAtHint);
+}
+
+export function fetchSymptoms(): Promise<Symptom[]> {
+  return apiFetch<Symptom[]>("/api/symptoms");
+}
+export function fetchHabits(): Promise<Habit[]> {
+  return apiFetch<Habit[]>("/api/habits");
 }
 
 // ---- Label formatting ------------------------------------------------------------------------
