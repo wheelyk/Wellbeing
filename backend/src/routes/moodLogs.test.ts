@@ -154,6 +154,33 @@ describe("mood-logs routes", () => {
     expect(page2.body.hasMore).toBe(false);
   });
 
+  // Regression test locking in the `id` tiebreak added to this route's `orderBy` - without it,
+  // two logs sharing the exact same `loggedAt` (very plausible for backfilled entries, or two
+  // logged in quick succession that happen to round to the same millisecond) have no guaranteed
+  // relative order across separate requests, per Postgres's own documented behavior for LIMIT
+  // /OFFSET without a fully deterministic ORDER BY. This doesn't *prove* the old code was
+  // non-deterministic (Postgres isn't guaranteed to actually demonstrate that within one test
+  // run), but it does lock in the intended contract - a real regression (someone removing the
+  // tiebreak) would be free to reorder these and this test would no longer reliably pass.
+  it("orders same-timestamp entries deterministically by id, not left to chance", async () => {
+    const { accessToken } = await registerAndLogin("mood-tiebreak");
+    const sameInstant = new Date(Date.UTC(2026, 6, 1, 12)).toISOString();
+
+    const first = await request(app)
+      .post("/api/mood-logs")
+      .set(authed(accessToken))
+      .send({ mood: 2, loggedAt: sameInstant });
+    const second = await request(app)
+      .post("/api/mood-logs")
+      .set(authed(accessToken))
+      .send({ mood: 4, loggedAt: sameInstant });
+
+    const expectedOrder = [first.body.id, second.body.id].sort().reverse();
+
+    const res = await request(app).get("/api/mood-logs").set(authed(accessToken));
+    expect(res.body.entries.map((log: { id: string }) => log.id)).toEqual(expectedOrder);
+  });
+
   it("updates a mood log owned by the authenticated user", async () => {
     const { accessToken } = await registerAndLogin("update");
     const created = await request(app)

@@ -49,7 +49,17 @@ moodLogsRouter.get("/", async (req, res) => {
     ({ take, skip }) =>
       prisma.moodLog.findMany({
         where: { userId: req.userId },
-        orderBy: { loggedAt: "desc" },
+        // `id` as a secondary sort key makes this deterministic across separate paginated
+        // requests - `loggedAt` alone ties whenever two logs share the exact same timestamp
+        // (common for backfilled entries, or two "now" entries logged within the same
+        // millisecond), and Postgres makes no guarantee about which order tied rows come back
+        // in across two different queries. Without a tiebreaker, a row could non-deterministically
+        // shift which page it lands on between one `?offset=` request and the next - visible as
+        // an entry silently duplicating or disappearing while paging through "load more", and
+        // exactly the failure mode History's own edit flow depends on not happening (see
+        // `historyLogApi.ts`'s `findLogById`, which pages through this same endpoint looking for
+        // one specific id).
+        orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
         take,
         skip,
       }),

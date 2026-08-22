@@ -114,6 +114,38 @@ describe("GET /api/history", () => {
     res.body.entries.forEach((entry: { id: string }) => expect(entry.id).toBeDefined());
   });
 
+  // Regression test: `seedOneOfEach`'s habit is always `type: "boolean"`, so formatHabitValue's
+  // numeric/duration branches (this route's own, separate copy of the same logic dashboard.ts
+  // has) had never actually been exercised by any test here either.
+  it("formats numeric and duration habit values correctly", async () => {
+    const { accessToken } = await registerAndLogin("habit-value-formats");
+
+    const numericHabit = await request(app)
+      .post("/api/habits")
+      .set(authed(accessToken))
+      .send({ name: "Glasses of water", type: "numeric" });
+    await request(app)
+      .post("/api/habit-logs")
+      .set(authed(accessToken))
+      .send({ habitId: numericHabit.body.id, valueNumeric: 6 });
+
+    const durationHabit = await request(app)
+      .post("/api/habits")
+      .set(authed(accessToken))
+      .send({ name: "Meditation", type: "duration" });
+    await request(app)
+      .post("/api/habit-logs")
+      .set(authed(accessToken))
+      .send({ habitId: durationHabit.body.id, valueDurationMinutes: 15 });
+
+    const res = await request(app).get("/api/history").set(authed(accessToken));
+
+    const labels = res.body.entries.map((e: { label: string }) => e.label);
+    expect(labels).toEqual(
+      expect.arrayContaining(["Glasses of water: 6", "Meditation: 15 min"]),
+    );
+  });
+
   it("filters by entry type", async () => {
     const { accessToken } = await registerAndLogin("filter-type");
     await seedOneOfEach(accessToken, "2026-06-02T12:00:00.000Z");
@@ -271,6 +303,20 @@ describe("GET /api/history", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.entries).toHaveLength(4);
+  });
+
+  // Regression test for a documented-but-previously-unverified edge case (see this route's own
+  // comment: same "deleted-but-still-tokened caller" 404 dashboard.ts/trends.ts/users.ts/
+  // export.ts already return). Also confirms this route now checks user existence
+  // unconditionally, not just when `from`/`to` are present.
+  it("returns 404 if the user row was deleted after the access token was issued", async () => {
+    const { userId, accessToken } = await registerAndLogin("deleted-mid-session");
+    await prisma.user.delete({ where: { id: userId } });
+
+    const res = await request(app).get("/api/history").set(authed(accessToken));
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe("USER_NOT_FOUND");
   });
 });
 

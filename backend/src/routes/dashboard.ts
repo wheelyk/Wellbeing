@@ -84,7 +84,10 @@ dashboardRouter.get("/", async (req, res) => {
     await Promise.all([
       prisma.moodLog.findFirst({
         where: { userId: req.userId, loggedAt: { gte: start, lt: end } },
-        orderBy: { loggedAt: "desc" },
+        // `id` as a secondary sort key - see moodLogs.ts's identical `orderBy` for why this
+        // matters: without it, which of two same-`loggedAt` mood entries counts as "the latest"
+        // isn't guaranteed to stay consistent across requests.
+        orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
       }),
       prisma.symptomLog.count({
         where: { userId: req.userId, loggedAt: { gte: start, lt: end } },
@@ -120,27 +123,31 @@ dashboardRouter.get("/", async (req, res) => {
   // `fetchPage` in lib/pagination.ts, just applied before the merge instead of after).
   const perTypeFetch = recentEntriesOffset + recentEntriesLimit + 1;
 
+  // `id` as a secondary sort key on all four queries below - see moodLogs.ts's identical
+  // `orderBy` for why: without it, two logs sharing the exact same `loggedAt` have no guaranteed
+  // relative order across separate requests, which the merge-then-slice logic just below relies
+  // on being stable.
   const [recentMood, recentSymptoms, recentMedications, recentHabits] = await Promise.all([
     prisma.moodLog.findMany({
       where: { userId: req.userId },
-      orderBy: { loggedAt: "desc" },
+      orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
       take: perTypeFetch,
     }),
     prisma.symptomLog.findMany({
       where: { userId: req.userId },
-      orderBy: { loggedAt: "desc" },
+      orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
       take: perTypeFetch,
       include: { symptom: { select: { name: true } } },
     }),
     prisma.medicationLog.findMany({
       where: { userId: req.userId },
-      orderBy: { loggedAt: "desc" },
+      orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
       take: perTypeFetch,
       include: { medication: { select: { name: true } } },
     }),
     prisma.habitLog.findMany({
       where: { userId: req.userId },
-      orderBy: { loggedAt: "desc" },
+      orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
       take: perTypeFetch,
       include: { habit: { select: { name: true } } },
     }),

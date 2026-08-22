@@ -52,6 +52,19 @@ describe("GET /api/users/me", () => {
     expect(res.body.createdAt).toBeDefined();
     expect(res.body.passwordHash).toBeUndefined();
   });
+
+  // Regression test for a documented-but-previously-unverified edge case (see this route's own
+  // comment: "the user row itself could have been deleted since... a second tab calling
+  // DELETE /me").
+  it("returns 404 if the user row was deleted after the access token was issued", async () => {
+    const { userId, accessToken } = await registerAndLogin("deleted-mid-session");
+    await prisma.user.delete({ where: { id: userId } });
+
+    const res = await request(app).get("/api/users/me").set(authed(accessToken));
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe("USER_NOT_FOUND");
+  });
 });
 
 describe("PATCH /api/users/me", () => {
