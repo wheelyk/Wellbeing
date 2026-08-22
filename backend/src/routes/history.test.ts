@@ -153,6 +153,50 @@ describe("GET /api/history", () => {
     expect(res.body.entries[0].label).toBe("Mood 3/5");
   });
 
+  // Regression test: `from`/`to` are calendar-day strings that must be resolved against *this
+  // user's own timezone*, the same convention dashboard.ts/trends.ts already use - not raw UTC
+  // day boundaries. For a UTC-5 user (America/New_York in February, no DST), local Feb 1 spans
+  // [2026-02-01T05:00:00.000Z, 2026-02-02T05:00:00.000Z) in UTC, not the UTC calendar day. Each
+  // entry below sits on the "wrong" side of the naive-UTC-boundary version of this filter but
+  // the "right" side of the timezone-aware one, so this test would have failed against the
+  // pre-fix implementation instead of just happening to pass either way.
+  it("resolves `from`/`to` against the user's own timezone, not UTC", async () => {
+    const { accessToken } = await registerAndLogin("filter-date-timezone");
+    await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ timezone: "America/New_York" });
+
+    // Jan 31, 9pm local - a naive UTC-midnight filter for `from: 2026-02-01` would wrongly
+    // include this (its UTC date is already Feb 1), but it isn't really Feb 1 for this user.
+    await request(app)
+      .post("/api/mood-logs")
+      .set(authed(accessToken))
+      .send({ mood: 1, loggedAt: "2026-02-01T02:00:00.000Z" });
+    // Feb 1, 7am local - unambiguously inside the requested day under either interpretation.
+    await request(app)
+      .post("/api/mood-logs")
+      .set(authed(accessToken))
+      .send({ mood: 3, loggedAt: "2026-02-01T12:00:00.000Z" });
+    // Feb 1, 9pm local - a naive UTC `to: 2026-02-01` filter would wrongly exclude this (its UTC
+    // date has already rolled to Feb 2), even though it's still Feb 1 for this user.
+    await request(app)
+      .post("/api/mood-logs")
+      .set(authed(accessToken))
+      .send({ mood: 5, loggedAt: "2026-02-02T02:00:00.000Z" });
+
+    const res = await request(app)
+      .get("/api/history")
+      .query({ from: "2026-02-01", to: "2026-02-01" })
+      .set(authed(accessToken));
+
+    expect(res.status).toBe(200);
+    expect(res.body.entries.map((e: { label: string }) => e.label).sort()).toEqual([
+      "Mood 3/5",
+      "Mood 5/5",
+    ]);
+  });
+
   it("rejects `from` after `to`", async () => {
     const { accessToken } = await registerAndLogin("bad-range");
     const res = await request(app)
