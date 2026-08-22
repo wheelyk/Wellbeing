@@ -435,6 +435,26 @@ describe("POST /api/auth/forgot-password", () => {
     logSpy.mockRestore();
   });
 
+  // Regression test: an identical response body isn't enough to keep "this email is
+  // registered" a secret from an anonymous caller - the "not found" branch used to skip the
+  // database write entirely (see the "found" test above, which confirms a real UPDATE happens),
+  // making it measurably faster than the "found" branch and defeating the generic-response
+  // protection via response timing instead. Fixed the same way login's own timing defense
+  // (DUMMY_PASSWORD_HASH) already works: both branches now attempt an equivalent-shaped write.
+  it("attempts a database write even when no account matches, so timing can't distinguish the two cases", async () => {
+    const updateSpy = vi.spyOn(prisma.user, "update");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const res = await request(app)
+      .post("/api/auth/forgot-password")
+      .send({ email: uniqueEmail("forgot-timing") });
+
+    expect(res.status).toBe(200);
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+    logSpy.mockRestore();
+    updateSpy.mockRestore();
+  });
+
   it("rejects an invalid email format with 400", async () => {
     const res = await request(app)
       .post("/api/auth/forgot-password")
