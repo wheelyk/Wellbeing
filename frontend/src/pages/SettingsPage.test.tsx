@@ -4,6 +4,23 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "../auth/AuthContext";
 import { SettingsPage } from "./SettingsPage";
+import * as pushNotifications from "../lib/pushNotifications";
+
+// RemindersSection's own tests mock this whole module rather than simulating jsdom's complete
+// lack of a real Push API (no serviceWorker/PushManager/Notification implementation at all) -
+// pushNotifications.ts's own test file already covers its real browser-facing logic directly;
+// this page only needs to prove it calls that module correctly and handles what it returns.
+vi.mock("../lib/pushNotifications", async () => {
+  const actual = await vi.importActual<typeof import("../lib/pushNotifications")>(
+    "../lib/pushNotifications",
+  );
+  return {
+    ...actual,
+    isPushSupported: vi.fn(() => true),
+    subscribeToPush: vi.fn(async () => {}),
+    unsubscribeFromPush: vi.fn(async () => {}),
+  };
+});
 
 // The test environment's own `window.localStorage` (Node's built-in, not jsdom's) is a
 // non-functional stub with no working setItem/getItem/clear - unrelated to this app's own code.
@@ -274,6 +291,116 @@ describe("SettingsPage — appearance", () => {
     expect(screen.getByRole("button", { name: "System" })).toHaveAttribute("aria-pressed", "false");
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     expect(window.localStorage.getItem("welltrack:theme")).toBe("dark");
+  });
+});
+
+describe("SettingsPage — reminders", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    // vi.restoreAllMocks() only restores vi.spyOn-based mocks - these are plain vi.fn()s from
+    // the top-level vi.mock() factory, which keep accumulating call history across tests
+    // otherwise (there's no "original implementation" for restoreAllMocks to put back).
+    vi.mocked(pushNotifications.isPushSupported).mockReset().mockReturnValue(true);
+    vi.mocked(pushNotifications.subscribeToPush).mockReset().mockResolvedValue(undefined);
+    vi.mocked(pushNotifications.unsubscribeFromPush).mockReset().mockResolvedValue(undefined);
+  });
+
+  it("shows an explanatory message instead of the toggle when push isn't supported", async () => {
+    vi.mocked(pushNotifications.isPushSupported).mockReturnValue(false);
+    const fetchMock = routedFetchMock();
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    await screen.findByLabelText(/display name/i);
+    expect(screen.getByText(/can't receive notifications/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/remind me/i)).not.toBeInTheDocument();
+  });
+
+  it("loads the saved reminder time and enabled state", async () => {
+    const fetchMock = routedFetchMock({
+      "GET /api/users/me": () =>
+        jsonResponse(200, { ...DEFAULT_PROFILE, reminderEnabled: true, reminderTime: "07:30" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    await screen.findByLabelText(/display name/i);
+    expect(screen.getByLabelText(/remind me$/i)).toBeChecked();
+    expect(screen.getByLabelText(/remind me at/i)).toHaveValue("07:30");
+  });
+
+  it("subscribes to push and saves the preference when turning reminders on", async () => {
+    const fetchMock = routedFetchMock({
+      "/api/push/vapid-public-key": () => jsonResponse(200, { publicKey: "test-public-key" }),
+      "PATCH /api/users/me": (init) => {
+        const body = JSON.parse(init?.body as string);
+        return jsonResponse(200, { ...DEFAULT_PROFILE, ...body });
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByLabelText(/display name/i);
+    await user.click(screen.getByLabelText(/remind me$/i));
+    await user.clear(screen.getByLabelText(/remind me at/i));
+    await user.type(screen.getByLabelText(/remind me at/i), "07:30");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    expect(await screen.findByText(/reminder settings saved/i)).toBeInTheDocument();
+    expect(pushNotifications.subscribeToPush).toHaveBeenCalledWith("test-public-key");
+
+    const patchCall = fetchMock.mock.calls.find(
+      ([url, init]) => url.includes("/api/users/me") && init?.method === "PATCH",
+    );
+    const body = JSON.parse((patchCall as [string, RequestInit])[1].body as string);
+    expect(body).toEqual({ reminderEnabled: true, reminderTime: "07:30" });
+  });
+
+  it("unsubscribes and saves the preference when turning reminders off", async () => {
+    const fetchMock = routedFetchMock({
+      "GET /api/users/me": () =>
+        jsonResponse(200, { ...DEFAULT_PROFILE, reminderEnabled: true, reminderTime: "20:00" }),
+      "PATCH /api/users/me": (init) => {
+        const body = JSON.parse(init?.body as string);
+        return jsonResponse(200, { ...DEFAULT_PROFILE, ...body });
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByLabelText(/display name/i);
+    await user.click(screen.getByLabelText(/remind me$/i));
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    expect(await screen.findByText(/reminder settings saved/i)).toBeInTheDocument();
+    expect(pushNotifications.unsubscribeFromPush).toHaveBeenCalledOnce();
+    expect(pushNotifications.subscribeToPush).not.toHaveBeenCalled();
+  });
+
+  it("shows a specific message when notification permission is denied", async () => {
+    vi.mocked(pushNotifications.subscribeToPush).mockRejectedValue(
+      new pushNotifications.PushPermissionDeniedError(),
+    );
+    const fetchMock = routedFetchMock({
+      "/api/push/vapid-public-key": () => jsonResponse(200, { publicKey: "test-public-key" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByLabelText(/display name/i);
+    await user.click(screen.getByLabelText(/remind me$/i));
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    expect(await screen.findByText(/notifications were blocked/i)).toBeInTheDocument();
+    // The preference must not be silently saved as "on" when nothing was actually subscribed.
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => url.includes("/api/users/me") && init?.method === "PATCH",
+      ),
+    ).toBe(false);
   });
 });
 
