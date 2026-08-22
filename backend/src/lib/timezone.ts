@@ -105,6 +105,18 @@ export function todayInTimezone(timeZone: string): string {
   return formatDateInTimezone(new Date(), timeZone);
 }
 
+// The current wall-clock time in the user's timezone, as "HH:mm" (24-hour, zero-padded) - the
+// same shape `User.reminderTime` is stored in, so the reminder scheduler can compare the two
+// directly as strings rather than parsing either one into numbers first.
+export function currentTimeInTimezone(timeZone: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date());
+}
+
 // Shifts a "YYYY-MM-DD" calendar-date string by `days` (negative moves backward), purely as
 // calendar-date arithmetic - no timezone involved at this point, since the string no longer
 // carries any. Parsed and re-formatted via Date.UTC so month/year rollovers (e.g. subtracting a
