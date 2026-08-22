@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { apiFetch } from "../api/client";
 import { toDateTimeLocalValue } from "../lib/dateTimeLocal";
 import { Button } from "./Button";
+import { DateTimeField } from "./DateTimeField";
 import type { Habit } from "./HabitCreateForm";
 
 export interface HabitLog {
@@ -259,18 +260,7 @@ export function HabitEntryForm({
         />
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="habit-logged-at" className="text-sm font-medium text-text">
-          Date &amp; time
-        </label>
-        <input
-          id="habit-logged-at"
-          type="datetime-local"
-          value={loggedAt}
-          onChange={(e) => setLoggedAt(e.target.value)}
-          className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-        />
-      </div>
+      <DateTimeField id="habit-logged-at" value={loggedAt} onChange={setLoggedAt} />
 
       {formError && (
         <p role="alert" className="text-sm text-danger">

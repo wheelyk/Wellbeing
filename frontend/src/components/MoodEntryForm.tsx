@@ -1,7 +1,9 @@
-import { useId, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { apiFetch } from "../api/client";
 import { toDateTimeLocalValue } from "../lib/dateTimeLocal";
 import { Button } from "./Button";
+import { DateTimeField } from "./DateTimeField";
+import { RatingScale } from "./RatingScale";
 
 export interface MoodLog {
   id: string;
@@ -123,19 +125,23 @@ export function MoodEntryForm({ editingLog, onSaved, onCancel }: MoodEntryFormPr
         )}
       </fieldset>
 
-      <RatingRow
+      <RatingScale
         label="Energy (optional)"
+        values={ENERGY_STRESS_VALUES}
         value={energy}
         onChange={setEnergy}
         lowLabel="No energy"
         highLabel="Maximum energy"
+        clearable
       />
-      <RatingRow
+      <RatingScale
         label="Stress (optional)"
+        values={ENERGY_STRESS_VALUES}
         value={stress}
         onChange={setStress}
         lowLabel="No stress"
         highLabel="Maximum stress"
+        clearable
       />
 
       <div className="flex flex-col gap-1">
@@ -151,18 +157,7 @@ export function MoodEntryForm({ editingLog, onSaved, onCancel }: MoodEntryFormPr
         />
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="mood-logged-at" className="text-sm font-medium text-text">
-          Date &amp; time
-        </label>
-        <input
-          id="mood-logged-at"
-          type="datetime-local"
-          value={loggedAt}
-          onChange={(e) => setLoggedAt(e.target.value)}
-          className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-        />
-      </div>
+      <DateTimeField id="mood-logged-at" value={loggedAt} onChange={setLoggedAt} />
 
       {formError && (
         <p role="alert" className="text-sm text-danger">
@@ -179,53 +174,5 @@ export function MoodEntryForm({ editingLog, onSaved, onCancel }: MoodEntryFormPr
         </Button>
       </div>
     </form>
-  );
-}
-
-function RatingRow({
-  label,
-  value,
-  onChange,
-  lowLabel,
-  highLabel,
-}: {
-  label: string;
-  value: number | null;
-  onChange: (value: number | null) => void;
-  lowLabel: string;
-  highLabel: string;
-}) {
-  const descriptionId = useId();
-
-  return (
-    <fieldset>
-      <legend className="text-sm font-medium text-text">{label}</legend>
-      <div
-        className="mt-2 flex gap-2"
-        role="radiogroup"
-        aria-label={label}
-        aria-describedby={descriptionId}
-      >
-        {ENERGY_STRESS_VALUES.map((n) => (
-          <button
-            key={n}
-            type="button"
-            role="radio"
-            aria-checked={value === n}
-            // Clicking an already-selected rating clears it, since these fields are
-            // optional and there's otherwise no way to "unselect" back to not-set.
-            onClick={() => onChange(value === n ? null : n)}
-            className={`flex h-10 w-10 items-center justify-center rounded-lg border-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
-              value === n ? "border-brand bg-brand/10 text-brand" : "border-border text-text"
-            }`}
-          >
-            {n}
-          </button>
-        ))}
-      </div>
-      <p id={descriptionId} className="mt-1 text-xs text-text-muted">
-        1 = {lowLabel} · {ENERGY_STRESS_VALUES[ENERGY_STRESS_VALUES.length - 1]} = {highLabel}
-      </p>
-    </fieldset>
   );
 }
