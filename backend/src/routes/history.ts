@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { getDayRangeUtc } from "../lib/timezone";
 
 const HISTORY_TYPES = ["mood", "symptom", "medication", "habit"] as const;
 type HistoryType = (typeof HISTORY_TYPES)[number];
@@ -74,12 +75,27 @@ historyRouter.get("/", async (req, res) => {
 
   const userId = req.userId as string;
 
+  // `from`/`to` are calendar-day strings with no timezone of their own (the same "YYYY-MM-DD,
+  // resolved against *this user's* timezone" convention dashboard.ts/trends.ts already use via
+  // getDayRangeUtc, not a raw UTC date) - the user's own row has to be read first so those
+  // boundaries can be resolved correctly. Using plain UTC midnight boundaries here instead (an
+  // earlier version of this route did) would shift the effective window by the user's UTC
+  // offset - wrongly pulling in some of the *previous* day's entries and excluding some of the
+  // *requested* day's own entries for anyone not in UTC, exactly the class of bug Phase 1's
+  // "always compute which calendar day using the user's own timezone" requirement exists to
+  // prevent.
+  let userTimezone = "UTC";
+  if (from || to) {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+    if (user) userTimezone = user.timezone;
+  }
+
   const dateFilter =
     from || to
       ? {
           loggedAt: {
-            ...(from ? { gte: new Date(`${from}T00:00:00.000Z`) } : {}),
-            ...(to ? { lte: new Date(`${to}T23:59:59.999Z`) } : {}),
+            ...(from ? { gte: getDayRangeUtc(from, userTimezone).start } : {}),
+            ...(to ? { lt: getDayRangeUtc(to, userTimezone).end } : {}),
           },
         }
       : {};
