@@ -75,20 +75,26 @@ historyRouter.get("/", async (req, res) => {
 
   const userId = req.userId as string;
 
+  // Looked up unconditionally (not just when from/to are present) so this route treats a
+  // deleted-but-still-tokened caller the same way dashboard.ts/trends.ts/users.ts/export.ts all
+  // already do - a genuine 404, not silently falling back to a default timezone and serving
+  // whatever's left of a request that arrived after the underlying account was gone.
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+  if (!user) {
+    return res.status(404).json({
+      error: { message: "User not found", code: "USER_NOT_FOUND" },
+    });
+  }
+
   // `from`/`to` are calendar-day strings with no timezone of their own (the same "YYYY-MM-DD,
   // resolved against *this user's* timezone" convention dashboard.ts/trends.ts already use via
-  // getDayRangeUtc, not a raw UTC date) - the user's own row has to be read first so those
-  // boundaries can be resolved correctly. Using plain UTC midnight boundaries here instead (an
+  // getDayRangeUtc, not a raw UTC date). Using plain UTC midnight boundaries here instead (an
   // earlier version of this route did) would shift the effective window by the user's UTC
   // offset - wrongly pulling in some of the *previous* day's entries and excluding some of the
   // *requested* day's own entries for anyone not in UTC, exactly the class of bug Phase 1's
   // "always compute which calendar day using the user's own timezone" requirement exists to
   // prevent.
-  let userTimezone = "UTC";
-  if (from || to) {
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } });
-    if (user) userTimezone = user.timezone;
-  }
+  const userTimezone = user.timezone;
 
   const dateFilter =
     from || to
@@ -116,14 +122,24 @@ historyRouter.get("/", async (req, res) => {
     wantsType("mood")
       ? prisma.moodLog.findMany({
           where: { userId, ...dateFilter },
-          orderBy: { loggedAt: "desc" },
+          // `id` as a secondary sort key - see moodLogs.ts's identical `orderBy` for why this
+          // matters. The in-memory merge below already breaks loggedAt ties by id for the
+          // *final* ordering, but that alone doesn't help if the DB-level `take: fetchCap` cutoff
+          // itself non-deterministically chose *which* tied rows survived to reach that merge in
+          // the first place - the tiebreak needs to happen at the query level too.
+          orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
           take: fetchCap,
         })
       : Promise.resolve([]),
     wantsType("symptom")
       ? prisma.symptomLog.findMany({
           where: { userId, ...dateFilter },
-          orderBy: { loggedAt: "desc" },
+          // `id` as a secondary sort key - see moodLogs.ts's identical `orderBy` for why this
+          // matters. The in-memory merge below already breaks loggedAt ties by id for the
+          // *final* ordering, but that alone doesn't help if the DB-level `take: fetchCap` cutoff
+          // itself non-deterministically chose *which* tied rows survived to reach that merge in
+          // the first place - the tiebreak needs to happen at the query level too.
+          orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
           take: fetchCap,
           include: { symptom: true },
         })
@@ -131,7 +147,12 @@ historyRouter.get("/", async (req, res) => {
     wantsType("medication")
       ? prisma.medicationLog.findMany({
           where: { userId, ...dateFilter },
-          orderBy: { loggedAt: "desc" },
+          // `id` as a secondary sort key - see moodLogs.ts's identical `orderBy` for why this
+          // matters. The in-memory merge below already breaks loggedAt ties by id for the
+          // *final* ordering, but that alone doesn't help if the DB-level `take: fetchCap` cutoff
+          // itself non-deterministically chose *which* tied rows survived to reach that merge in
+          // the first place - the tiebreak needs to happen at the query level too.
+          orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
           take: fetchCap,
           include: { medication: true },
         })
@@ -139,7 +160,12 @@ historyRouter.get("/", async (req, res) => {
     wantsType("habit")
       ? prisma.habitLog.findMany({
           where: { userId, ...dateFilter },
-          orderBy: { loggedAt: "desc" },
+          // `id` as a secondary sort key - see moodLogs.ts's identical `orderBy` for why this
+          // matters. The in-memory merge below already breaks loggedAt ties by id for the
+          // *final* ordering, but that alone doesn't help if the DB-level `take: fetchCap` cutoff
+          // itself non-deterministically chose *which* tied rows survived to reach that merge in
+          // the first place - the tiebreak needs to happen at the query level too.
+          orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
           take: fetchCap,
           include: { habit: true },
         })

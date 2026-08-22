@@ -124,7 +124,10 @@ habitLogsRouter.get("/", async (req, res) => {
     ({ take, skip }) =>
       prisma.habitLog.findMany({
         where: { userId: req.userId },
-        orderBy: { loggedAt: "desc" },
+        // `id` as a secondary sort key - see moodLogs.ts's identical `orderBy` for why this
+        // matters: without it, two logs sharing the exact same `loggedAt` have no guaranteed
+        // relative order across separate paginated requests.
+        orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
         take,
         skip,
       }),
