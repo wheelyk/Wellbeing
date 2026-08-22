@@ -269,3 +269,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 ### [Responsive Design](docs/log/13-responsive-design.md)
 
 - 2026-08-19 — Adopting mobile-first responsive design as a real convention, not just a phrase
+
+### [Reminders (Web Push)](docs/log/14-reminders.md)
+
+- 2026-08-22 — Building web push reminders: the concepts, the architecture decision, and two real bugs found by actually running it

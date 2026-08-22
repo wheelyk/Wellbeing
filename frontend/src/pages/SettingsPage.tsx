@@ -8,6 +8,12 @@ import { Button } from "../components/Button";
 import { TextField } from "../components/TextField";
 import { CollapsibleSection } from "../components/CollapsibleSection";
 import { useThemePreference, type ThemePreference } from "../hooks/useThemePreference";
+import {
+  isPushSupported,
+  subscribeToPush,
+  unsubscribeFromPush,
+  PushPermissionDeniedError,
+} from "../lib/pushNotifications";
 
 // Mirrors Card.tsx's own visual styling (rounded-2xl border, surface background, shadow) but
 // widens the column instead of Card's `max-w-sm` default - a 2026-08-19 design review found
@@ -40,7 +46,11 @@ interface UserProfile {
   displayName: string;
   timezone: string;
   createdAt: string;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
 }
+
+const DEFAULT_REMINDER_TIME = "20:00";
 
 // A deliberately short, curated list rather than the full ~400-zone IANA database
 // (`Intl.supportedValuesOf("timeZone")` would work too, but a dropdown with hundreds of
@@ -272,6 +282,152 @@ function AppearanceSection() {
   );
 }
 
+function RemindersSection() {
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [reminderEnabled, setReminderEnabled] = useState(false);
+  const [reminderTime, setReminderTime] = useState(DEFAULT_REMINDER_TIME);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<UserProfile>("/api/users/me")
+      .then((profile) => {
+        if (cancelled) return;
+        setReminderEnabled(profile.reminderEnabled ?? false);
+        setReminderTime(profile.reminderTime ?? DEFAULT_REMINDER_TIME);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setSaveError(null);
+    setSaved(false);
+    setSaving(true);
+
+    try {
+      if (reminderEnabled) {
+        // Requests notification permission and subscribes this browser first - if the user
+        // says no, or this browser can't do push at all, the preference below is never saved
+        // as enabled, so Settings doesn't claim a reminder will arrive when nothing was ever
+        // actually set up to deliver one.
+        const { publicKey } = await apiFetch<{ publicKey: string }>("/api/push/vapid-public-key");
+        await subscribeToPush(publicKey);
+      } else {
+        // Best-effort - reminders can be turned off from a different browser/device than the
+        // one that's actually subscribed, so there may be nothing to unsubscribe here at all.
+        await unsubscribeFromPush();
+      }
+
+      await apiFetch("/api/users/me", {
+        method: "PATCH",
+        body: JSON.stringify({ reminderEnabled, reminderTime }),
+      });
+      setSaved(true);
+    } catch (err) {
+      if (err instanceof PushPermissionDeniedError) {
+        setSaveError(
+          "Notifications were blocked. Allow notifications for this site in your browser's settings, then try again.",
+        );
+      } else if (err instanceof ApiError && err.code === "VALIDATION_ERROR") {
+        setSaveError("Please check the highlighted fields.");
+      } else {
+        setSaveError("Something went wrong. Please try again.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <SectionCard>
+        <CollapsibleSection title="Reminders" storageKey="settings.reminders">
+          <p className="text-sm text-text-muted">Loading…</p>
+        </CollapsibleSection>
+      </SectionCard>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <SectionCard>
+        <CollapsibleSection title="Reminders" storageKey="settings.reminders">
+          <p role="alert" className="text-sm text-danger">
+            Couldn't load your reminder settings. Please refresh the page.
+          </p>
+        </CollapsibleSection>
+      </SectionCard>
+    );
+  }
+
+  return (
+    <SectionCard>
+      <CollapsibleSection title="Reminders" storageKey="settings.reminders">
+        {!isPushSupported() ? (
+          <p className="text-sm text-text-muted">
+            This browser can't receive notifications. On iPhone, add WellTrack to your Home Screen
+            first (Share → Add to Home Screen), then open it from there to enable reminders.
+          </p>
+        ) : (
+          <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
+            <p className="text-sm text-text-muted">
+              Get a notification if you haven't logged anything yet by a time you choose.
+            </p>
+            <label className="flex items-center gap-2 text-sm font-medium text-text">
+              <input
+                type="checkbox"
+                checked={reminderEnabled}
+                onChange={(e) => setReminderEnabled(e.target.checked)}
+                className="h-4 w-4 rounded border-border text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              />
+              Remind me
+            </label>
+            {reminderEnabled && (
+              <div className="flex flex-col gap-1">
+                <label htmlFor="reminder-time" className="text-sm font-medium text-text">
+                  Remind me at
+                </label>
+                <input
+                  id="reminder-time"
+                  type="time"
+                  value={reminderTime}
+                  onChange={(e) => setReminderTime(e.target.value)}
+                  className="w-40 rounded-lg border border-border px-3 py-3 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                />
+              </div>
+            )}
+            {saveError && (
+              <p role="alert" className="text-sm text-danger">
+                {saveError}
+              </p>
+            )}
+            {saved && !saveError && (
+              <p role="status" className="text-sm text-success">
+                Reminder settings saved.
+              </p>
+            )}
+            <Button type="submit" disabled={saving} className="self-start">
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </form>
+        )}
+      </CollapsibleSection>
+    </SectionCard>
+  );
+}
+
 function ExportDataSection() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -463,6 +619,10 @@ export function SettingsPage() {
 
         <section className="mt-6">
           <AppearanceSection />
+        </section>
+
+        <section className="mt-6">
+          <RemindersSection />
         </section>
 
         <section className="mt-6">
