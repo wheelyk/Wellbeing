@@ -26,15 +26,43 @@ model User {
   resetTokenHash      String?   @map("reset_token_hash")
   resetTokenExpiresAt DateTime? @map("reset_token_expires_at")
 
-  moodLogs       MoodLog[]
-  habits         Habit[]
-  habitLogs      HabitLog[]
-  medications    Medication[]
-  medicationLogs MedicationLog[]
-  symptoms       Symptom[]
-  symptomLogs    SymptomLog[]
+  // Reminder preferences - a plain "HH:mm" 24-hour local time (like `timezone` above, just a
+  // string column), resolved against this same user's own `timezone` at send time, not stored
+  // as a UTC instant, since "8pm for this user" moves around in UTC as their local day does.
+  // `lastReminderSentDate` ("YYYY-MM-DD") is written only by the reminder scheduler itself, to
+  // guarantee at most one reminder per calendar day even though the scheduler ticks every few
+  // minutes - see backend/src/lib/reminderScheduler.ts.
+  reminderEnabled      Boolean @default(false) @map("reminder_enabled")
+  reminderTime         String? @map("reminder_time")
+  lastReminderSentDate String? @map("last_reminder_sent_date")
+
+  moodLogs          MoodLog[]
+  habits            Habit[]
+  habitLogs         HabitLog[]
+  medications       Medication[]
+  medicationLogs    MedicationLog[]
+  symptoms          Symptom[]
+  symptomLogs       SymptomLog[]
+  pushSubscriptions PushSubscription[]
 
   @@map("users")
+}
+
+// One row per browser/device a user has enabled push reminders on - a user can have several
+// (phone, laptop, etc.), each with its own endpoint the browser's push service delivers to.
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Every reminder-send pass queries "all subscriptions for this user."
+  @@index([userId])
+  @@map("push_subscriptions")
 }
 
 model MoodLog {
