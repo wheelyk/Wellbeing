@@ -196,6 +196,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 ### [History](docs/log/11-history.md)
 
 - 2026-08-17 — Phase 9: `GET /api/history` and the History page
+- 2026-08-22 — A real bug found during a general bug hunt: History's date filter ignored the user's own timezone
 
 ### [Deployment (Railway + Vercel)](docs/log/07-deployment.md)
 

@@ -347,3 +347,112 @@ connect once the shared, pre-filled edit-forms task lands.
   Test users and screenshot artifacts cleaned up afterward.
 
 ---
+
+## 2026-08-22 — A real bug found during a general bug hunt: History's date filter ignored the user's own timezone
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — found during a general, open-ended
+"look for bugs" review of the backend, not while working a specific ticket. Worth its own
+educational entry since the underlying mistake (and the fix) is a genuinely reusable lesson, not
+specific to History.
+
+### Background / concepts
+
+#### "A calendar day" is not a universal, timezone-free fact
+
+A person doesn't experience "Tuesday" as a fixed slice of UTC time — they experience it as
+midnight-to-midnight *in whatever timezone they're physically in*. Two users can be logging an
+entry at the exact same real-world instant and genuinely be on two different calendar days from
+each other (11pm in New York is already past midnight the next day in London). This app already
+had to solve this correctly once, for Dashboard's "today" and Trends' "last 7/30/90 days" — see
+`backend/src/lib/timezone.ts`'s `getDayRangeUtc`, which takes a `"YYYY-MM-DD"` string *and* a
+user's own stored IANA timezone (`America/New_York`, `Europe/London`, etc.) and returns the exact
+UTC instant range that calendar day actually spans for that specific person.
+
+#### The mistake: treating a date string as if it had no timezone attached at all
+
+`GET /api/history`'s own `from`/`to` query parameters are the same kind of plain `"YYYY-MM-DD"`
+string Dashboard and Trends use — but instead of resolving them through `getDayRangeUtc` like
+those two do, History's filter built its UTC boundaries directly and naively:
+
+```ts
+loggedAt: {
+  gte: new Date(`${from}T00:00:00.000Z`),
+  lte: new Date(`${to}T23:59:59.999Z`),
+}
+```
+
+This silently assumes the caller's "day" *is* UTC's day — true only for a user whose stored
+timezone happens to be UTC itself. Coincidentally, that's exactly the default every account
+starts with (`schema.prisma`'s `User.timezone` default), which is a big part of why this went
+unnoticed: every account anyone had tested by hand had also stayed on that same default.
+
+#### Concretely, what goes wrong for a real (non-UTC) user
+
+Take a user whose stored timezone is `America/New_York` (UTC−5 in February, no DST). Their real
+calendar day "Feb 1" spans `2026-02-01T05:00:00.000Z` through `2026-02-02T05:00:00.000Z` in UTC —
+*not* `2026-02-01T00:00:00.000Z` through `2026-02-01T23:59:59.999Z`, which is what the naive code
+above actually queried. Two concrete failures fall out of that mismatch:
+
+- An entry logged at `2026-02-01T02:00:00.000Z` (9pm on **Jan 31** in New York) has a UTC date
+  that already reads "Feb 1" — the naive filter's `gte` boundary wrongly *includes* it in a
+  `from: "2026-02-01"` search, even though the user never logged anything on Feb 1 at that point.
+- An entry logged at `2026-02-02T02:00:00.000Z` (9pm on **Feb 1** in New York) has a UTC date that
+  already reads "Feb 2" — the naive filter's `lte` boundary wrongly *excludes* it from a
+  `to: "2026-02-01"` search, even though it's genuinely one of the user's real Feb 1 entries.
+
+Both directions are real: the bug doesn't just shift a boundary one way, it can simultaneously
+leak in entries that don't belong and hide entries that do.
+
+### What was done
+
+1. Read every route doing its own date-range math from scratch, comparing each against
+   `timezone.ts`'s existing `getDayRangeUtc` helper — History's `from`/`to` filter was the one
+   that had never been routed through it.
+2. Confirmed no existing test could have caught this: every `history.test.ts` account is created
+   via a shared `registerAndLogin` helper that never sets a custom timezone, so every test account
+   silently stays on the UTC default the whole mismatch depends on being *absent* to trigger.
+3. **Reproduced the bug with a real regression test first**, using `America/New_York` specifically
+   (not UTC) and three log entries placed deliberately on the "wrong side" of the naive boundary
+   described above — confirmed it failed against the unpatched code (returning the wrong two of
+   three entries) before writing any fix.
+4. Fixed `backend/src/routes/history.ts`: look up the requesting user's own stored timezone (the
+   same one-extra-query pattern `dashboard.ts`/`trends.ts` already use), and build the `from`/`to`
+   boundaries via `getDayRangeUtc` instead of raw UTC-midnight string concatenation.
+5. Re-ran the same regression test against the fixed code — passed, now returning exactly the two
+   entries that genuinely fall within the user's real Feb 1.
+
+### Why it's needed
+
+Any feature that lets a user filter or query by a bare calendar-date string needs to answer "whose
+calendar, exactly?" — and for an app whose *entire product* is "correctly attribute an entry to
+the day it happened," silently defaulting to the server's own timezone (or, as here, to UTC) is
+never actually a neutral, safe default. It's a wrong answer that happens to look right for exactly
+one specific timezone and wrong for everyone else — which is precisely what made it invisible
+during ordinary manual testing (every account tested by hand had stayed on the UTC default too).
+
+### Decisions
+
+- **Fixed by reusing `getDayRangeUtc`, not by inventing a second, History-specific timezone
+  helper.** Dashboard and Trends had already solved this exact problem correctly; the bug was
+  History failing to reuse that solution, not a gap in the solution itself.
+- **The regression test deliberately does not use the UTC default.** A test written against a UTC
+  test account would pass identically whether or not the bug existed (UTC's calendar day and the
+  naive UTC-midnight boundaries are the same thing) — it would prove nothing. Using
+  `America/New_York` specifically, with entries placed on the exact boundary the two
+  implementations disagree about, is what makes the test actually distinguish "fixed" from
+  "broken" rather than passing by coincidence either way.
+
+### State at end of this step
+
+`GET /api/history`'s `from`/`to` filter now resolves against the requesting user's own stored
+timezone, consistent with every other "which calendar day" question this app answers elsewhere.
+
+### Verification
+
+- New regression test in `backend/src/routes/history.test.ts`, confirmed failing against the
+  pre-fix code (via `git stash` to temporarily revert just the fix and re-run this one test in
+  isolation) and passing against the fix.
+- `npm test` (backend, full suite) — all passing, no regressions in the existing (UTC-account)
+  date-range test.
+
+---
