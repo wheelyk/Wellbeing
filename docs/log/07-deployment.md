@@ -1876,3 +1876,108 @@ either by the manual SQL (immediately) or automatically the next time this chang
 - `npm test` (backend) — all 110 tests passing, unaffected by this change.
 
 ---
+
+## 2026-08-22 — Phase 14 smoke test: a real production bug, found by actually using the deployed app
+
+**Task:** [Tasks.md](../../Tasks.md) Phase 14 — "Smoke-test the full MVP checklist from
+requirements §20 against the deployed environment," plus the HTTPS/cookie-flag and privacy-doc
+items alongside it.
+
+### What was done
+
+1. **Verified HTTPS + cookie flags directly against the live backend**, via `curl`, before
+   touching a browser: `POST /api/auth/login` against
+   `https://wellbeing-production-0b8f.up.railway.app` returns
+   `Set-Cookie: refreshToken=...; HttpOnly; Secure; SameSite=None` — confirming the
+   `SameSite=None`/`Secure` fix from the earlier auth-backend entry is genuinely live, not just
+   merged. Also confirmed CORS: a preflight from a disallowed origin still gets back
+   `Access-Control-Allow-Origin: https://wellbeing-blue.vercel.app` (the one real allowed
+   origin, never a reflected/attacker-controlled value) — safe, since the browser itself
+   enforces that this doesn't match the requesting page's own origin.
+2. **Ran a real Playwright walkthrough against the live deployment** (not localhost) —
+   `E2E_BASE_URL=https://wellbeing-blue.vercel.app`,
+   `E2E_API_URL=https://wellbeing-production-0b8f.up.railway.app` — covering every Definition
+   of Done item: register, Quick Add all four log types, Dashboard summary, History browse,
+   edit + delete a mood entry, seed and view Trends, edit profile in Settings, log out, log
+   back in, delete the account. One throwaway account (`smoke-test-<timestamp>@example.com`),
+   deleted at the end so production data stayed clean. Confirmed with the user first, since
+   this genuinely writes to and deletes from the real production database, not a sandboxed
+   copy.
+3. **Found a real bug this way, not by reading code:** editing the profile ("Save profile")
+   failed with a generic "Please check the highlighted fields" — every brand-new account
+   (including the smoke-test one) starts with `timezone: "UTC"` (the schema default), and
+   `PATCH /api/users/me`'s validation rejected exactly that value. Root cause:
+   `Intl.supportedValuesOf("timeZone")` doesn't enumerate `"UTC"` on this Node/ICU version, even
+   though `new Intl.DateTimeFormat(undefined, { timeZone: "UTC" })` — the actual call
+   `backend/src/lib/timezone.ts` makes for real — accepts it without complaint. Confirmed
+   directly: `node -e "console.log(Intl.supportedValuesOf('timeZone').includes('UTC'))"` prints
+   `false`. This meant **any real user who never touched their timezone setting could never
+   save a profile edit at all** — not a cosmetic bug.
+4. **Fixed it** in `backend/src/routes/users.ts`: `isValidTimeZone` now validates by
+   constructing the `Intl.DateTimeFormat` directly (matching what the real downstream consumer
+   does) instead of checking list membership. A garbage zone (`"Not/A_Real_Zone"`) still throws
+   from the constructor, so this is no less strict where it actually needs to be. Added a
+   regression test (`backend/src/routes/users.test.ts`) asserting `"UTC"` is accepted.
+5. Re-ran the same production smoke test with a workaround (picking a different real timezone,
+   since the fix isn't deployed yet) to confirm the rest of the flow — logout, re-login,
+   account deletion — all still work correctly end-to-end on the live site.
+6. Along the way, found the smoke test's own login-redirect assumption was wrong, not the app:
+   after logging back in, the app correctly lands back on `/settings` (not always
+   `/dashboard`), because `RequireAuth` had redirected there with a `from` location when logout
+   left it mid-render on that route — `LoginPage.tsx`'s own intended "return to where you were"
+   behavior, not a bug. Fixed the test's expectation, not the app.
+7. Wrote [docs/PRIVACY.md](../PRIVACY.md), covering exactly what §14 asks for: what data is
+   collected, where it's stored, who can see it, that no analytics/advertising/third-party data
+   sharing exists (verified by grepping the whole frontend for any analytics SDK — none found),
+   how account deletion works, and what security measures are already in place.
+8. Ran the full backend suite afterward: 198/198 passing (197 existing + the new regression
+   test).
+
+### Why it's needed
+
+This is exactly the class of bug the "smoke-test against the deployed environment" checklist
+item exists to catch — every unit and integration test in this project's suite (Phase 13)
+exercises `PATCH /api/users/me` with *other* timezone strings, never the one value every real
+account actually starts with, so nothing in CI ever exercised this exact path. It only surfaced
+by actually using the deployed app the way a real user would.
+
+### Decisions
+
+- **Validate via constructing `Intl.DateTimeFormat` directly, not `Intl.supportedValuesOf`'s
+  enumerated list.** The enumerated list is demonstrably wrong for this project's own schema
+  default on at least this Node/ICU version; the constructor is what the real downstream
+  consumer (`timezone.ts`) actually relies on, so validating the same way guarantees "passes
+  validation" and "actually works later" can't drift apart again.
+- **Ran the smoke test against real production, with the user's explicit confirmation first**,
+  rather than only against localhost — a local-only smoke test would not have caught this bug,
+  since local development's own Node/ICU build could easily behave differently, and more
+  fundamentally because "smoke-test the deployed environment" means the deployed environment,
+  not a stand-in for it.
+- **Fixed the bug in this same PR rather than filing it separately.** It was found as a direct
+  result of doing the Phase 14 checklist item properly; leaving Phase 14 "smoke-tested" without
+  also fixing what the smoke test found would misrepresent what actually happened.
+
+### State at end of this step
+
+The bug is fixed and tested locally, but **not yet deployed** — production still has the
+pre-fix build until this PR merges and Railway's auto-deploy picks it up. Worth a quick
+follow-up spot-check (PATCH a profile with `timezone: "UTC"` against production) once that
+happens.
+
+### Verification
+
+- `curl` against the real production login endpoint — confirmed
+  `Set-Cookie: ...; HttpOnly; Secure; SameSite=None` and correct CORS behavior, directly, not
+  assumed from the merged code alone.
+- A real Playwright run against the live `wellbeing-blue.vercel.app` /
+  `wellbeing-production-0b8f.up.railway.app` deployment, twice (once that found the bug, once
+  after working around it to confirm everything else) — both runs' full output reviewed, not
+  just a pass/fail count.
+- `node -e "Intl.supportedValuesOf('timeZone').includes('UTC')"` — confirmed `false`, pinpointing
+  the exact root cause before writing the fix.
+- `npm test` (backend) — 198/198 passing after the fix, including the new regression test.
+- Confirmed the throwaway smoke-test account was actually deleted from production afterward
+  (its own account-deletion step, which itself re-registers and checks for a clean slate,
+  covers this).
+
+---
