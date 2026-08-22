@@ -93,4 +93,33 @@ describe("Modal", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(openButton).toHaveFocus();
   });
+
+  // Regression test: the actual Tab/Shift+Tab focus-trap logic (Modal.tsx's own `handleKeyDown`)
+  // had no test coverage at all - every other keyboard/dismissal behavior here was tested, but
+  // not the one thing that makes this a real trapping dialog rather than just a styled overlay a
+  // keyboard user could Tab straight out of onto the page underneath.
+  it("traps Tab/Shift+Tab focus within the dialog's own focusable elements", async () => {
+    const user = userEvent.setup();
+    render(
+      <Modal open={true} onClose={vi.fn()} title="Log a mood">
+        <button>Middle</button>
+        <button>Last</button>
+      </Modal>,
+    );
+
+    // The dialog's own header "Close" button is real markup rendered before `children` (see
+    // Modal.tsx), so it - not the first child - is genuinely first in the dialog's own tab
+    // order; the trap has to wrap relative to *all* real focusable elements, not just the
+    // caller-provided ones.
+    const closeButton = screen.getByRole("button", { name: "Close" });
+    const last = screen.getByRole("button", { name: "Last" });
+
+    last.focus();
+    expect(last).toHaveFocus();
+    await user.keyboard("{Tab}");
+    expect(closeButton).toHaveFocus();
+
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(last).toHaveFocus();
+  });
 });

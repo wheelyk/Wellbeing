@@ -142,6 +142,46 @@ describe("GET /api/dashboard", () => {
     expect(res.body.streak.daysLoggedThisWeek).toBe(1);
   });
 
+  // Regression test: the main summary test above only ever logs a *boolean* habit, so
+  // formatHabitValue's numeric/duration branches (dashboard.ts) had never actually been
+  // exercised by any test - a real gap for a case this codebase explicitly supports (see
+  // habitLogs.ts's own three-way boolean/numeric/duration validation).
+  it("formats numeric and duration habit values correctly in recentEntries", async () => {
+    const { accessToken } = await registerAndLogin("habit-value-formats");
+    const date = "2026-08-17";
+    const loggedAt = `${date}T09:00:00.000Z`;
+
+    const numericHabit = await request(app)
+      .post("/api/habits")
+      .set(authed(accessToken))
+      .send({ name: "Glasses of water", type: "numeric" });
+    await request(app)
+      .post("/api/habit-logs")
+      .set(authed(accessToken))
+      .send({ habitId: numericHabit.body.id, valueNumeric: 6, loggedAt });
+
+    const durationHabit = await request(app)
+      .post("/api/habits")
+      .set(authed(accessToken))
+      .send({ name: "Meditation", type: "duration" });
+    await request(app)
+      .post("/api/habit-logs")
+      .set(authed(accessToken))
+      .send({ habitId: durationHabit.body.id, valueDurationMinutes: 15, loggedAt });
+
+    const res = await request(app).get("/api/dashboard").query({ date }).set(authed(accessToken));
+
+    const labels = res.body.recentEntries.entries.map(
+      (entry: { label: string; value: string }) => ({ label: entry.label, value: entry.value }),
+    );
+    expect(labels).toEqual(
+      expect.arrayContaining([
+        { label: "Glasses of water", value: "6" },
+        { label: "Meditation", value: "15 min" },
+      ]),
+    );
+  });
+
   it("scopes results to the requested date only, excluding entries on other days", async () => {
     const { accessToken } = await registerAndLogin("scoped");
 
@@ -250,6 +290,22 @@ describe("GET /api/dashboard", () => {
     expect(secondPage.body.recentEntries.hasMore).toBe(false);
     // The oldest entry (index 0, 09:00Z) must land last, on the second page.
     expect(secondPage.body.recentEntries.entries[1].loggedAt).toBe("2026-08-17T09:00:00.000Z");
+  });
+
+  // Regression test for a documented-but-previously-unverified edge case (see this route's own
+  // comment: "Can only happen if the user row was deleted after the access token was issued").
+  // A still-validly-signed access token can outlive the user row it was issued for - e.g. a
+  // second tab calling DELETE /api/users/me while this token is still within its 15-minute
+  // lifetime - and this must answer a genuine 404, not crash trying to read `.timezone` off a
+  // null user.
+  it("returns 404 if the user row was deleted after the access token was issued", async () => {
+    const { userId, accessToken } = await registerAndLogin("deleted-mid-session");
+    await prisma.user.delete({ where: { id: userId } });
+
+    const res = await request(app).get("/api/dashboard").set(authed(accessToken));
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe("USER_NOT_FOUND");
   });
 });
 

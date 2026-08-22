@@ -150,6 +150,18 @@ describe("GET /api/export", () => {
     expect(res.status).toBe(200);
     expect(res.body.symptoms).toEqual([]);
   });
+
+  // Regression test for a documented-but-previously-unverified edge case (see this route's own
+  // comment: "user row could have been deleted since the access token was issued").
+  it("returns 404 if the user row was deleted after the access token was issued", async () => {
+    const { userId, accessToken } = await registerAndLogin("deleted-mid-session");
+    await prisma.user.delete({ where: { id: userId } });
+
+    const res = await request(app).get("/api/export").set(authed(accessToken));
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe("USER_NOT_FOUND");
+  });
 });
 
 afterAll(async () => {

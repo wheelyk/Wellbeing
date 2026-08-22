@@ -164,6 +164,28 @@ describe("GET /api/trends", () => {
     expect(otherDays.every((d: { hasActivity: boolean }) => d.hasActivity === false)).toBe(true);
   });
 
+  // Regression test: the test above (despite its own title) only actually seeds a *habit* log -
+  // a medication log alone marking a day active had never been exercised by any test, even
+  // though it goes through its own separate `bucketByDay(medicationLogs, ...)` call in trends.ts.
+  it("marks a day active from a medication log alone, with no other log type present", async () => {
+    const { accessToken } = await registerAndLogin("activity-medication-only");
+    const today = todayInTimezone("UTC");
+
+    const medicationRes = await request(app)
+      .post("/api/medications")
+      .set(authed(accessToken))
+      .send({ name: "Ibuprofen" });
+    await request(app)
+      .post("/api/medication-logs")
+      .set(authed(accessToken))
+      .send({ medicationId: medicationRes.body.id, taken: true, loggedAt: `${today}T09:00:00.000Z` });
+
+    const res = await request(app).get("/api/trends").set(authed(accessToken));
+
+    const todayActivity = res.body.activity.days.find((d: { date: string }) => d.date === today);
+    expect(todayActivity).toMatchObject({ hasActivity: true });
+  });
+
   it("excludes entries outside the requested period", async () => {
     const { accessToken } = await registerAndLogin("out-of-range");
     const today = todayInTimezone("UTC");
@@ -221,6 +243,18 @@ describe("GET /api/trends", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.mood.average).toBeNull();
+  });
+
+  // Regression test for a documented-but-previously-unverified edge case (see this route's own
+  // comment: "Can only happen if the user row was deleted after the access token was issued").
+  it("returns 404 if the user row was deleted after the access token was issued", async () => {
+    const { userId, accessToken } = await registerAndLogin("deleted-mid-session");
+    await prisma.user.delete({ where: { id: userId } });
+
+    const res = await request(app).get("/api/trends").set(authed(accessToken));
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe("USER_NOT_FOUND");
   });
 });
 
