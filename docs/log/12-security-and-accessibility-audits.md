@@ -566,3 +566,198 @@ thorough the Phase 11 application-logic audit was.
     `{"enabled":true,"paused":false}`.
 
 ---
+
+## 2026-08-22 — A second, deeper security audit: a real rate-limiter bypass, a timing side-channel, and three hardening additions
+
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a follow-up, open-ended "look for
+security issues" pass, done after a similar general bug-hunt pass had already found and fixed an
+unrelated timezone bug (see [History](11-history.md)). Phase 11's audit above already confirmed
+the *application-logic* security properties (query scoping, cookie flags, input validation,
+password hashing). This pass looked one layer deeper — at how the app behaves once real network
+infrastructure (a reverse proxy) sits in front of it, and at *timing*, not just response content,
+as its own kind of information leak.
+
+### Background / concepts
+
+#### What a reverse proxy actually does to a request's "who sent this" information
+
+Every earlier entry in this log's [Deployment](07-deployment.md) file explained that Railway
+doesn't run this app's own `node dist/index.js` process directly exposed to the internet — it
+sits a **reverse proxy** (Railway's own edge) in front of it. Every real visitor's request
+physically arrives at Railway's edge first, and Railway's edge then makes its *own*, separate
+connection to this app's process to forward that request along. From the Node process's point of
+view, every single request — no matter which real person sent it — technically originates from
+the *same* machine: Railway's edge, not the actual visitor.
+
+To solve this (a completely standard problem, not specific to Railway or this app), a reverse
+proxy adds an **`X-Forwarded-For`** header to the request before forwarding it, recording the
+*real* original client's IP address as plain text, so anything downstream can still find out who
+actually sent the request if it wants to.
+
+#### `trust proxy`: why Express doesn't just believe that header by default
+
+Express deliberately does **not** read `X-Forwarded-For` by default, for a good reason: unlike a
+cookie or a signed token, this header is just an ordinary HTTP header — anyone can type
+`X-Forwarded-For: 1.2.3.4` into a raw request by hand and claim to be any IP address they like.
+If Express blindly trusted it, any attacker could impersonate any IP address purely by lying in a
+header, defeating anything (like a rate limiter) that decides "who is this" based on it.
+
+**`app.set("trust proxy", N)`** is Express's way of saying "I genuinely do sit behind exactly `N`
+layers of a *trusted* proxy, so the *N*-th-from-the-end address in `X-Forwarded-For` really is the
+real client — go ahead and use it for `req.ip`." This is safe specifically because a well-behaved
+reverse proxy (Railway's edge included) *overwrites or prepends* this header itself before
+forwarding — it doesn't let an external caller's own forged value survive unchanged. Trusting the
+proxy is what makes trusting the header underneath it safe; skipping the setting entirely doesn't
+avoid trusting a lie, it just throws away real information Express could otherwise have used
+correctly.
+
+#### The bug: nothing in this app ever configured `trust proxy` at all
+
+`backend/src/app.ts` never called `app.set("trust proxy", ...)`. The practical consequence:
+`req.ip` — which `authRateLimiter` (`rateLimiter.ts`) uses to decide "how many recent attempts has
+*this* caller made" — resolved to the *same* value for every single request that ever reached the
+deployed backend, regardless of who actually sent it. Every real user's register/login/
+change-password attempts were being counted into one shared bucket, not one bucket per person.
+
+**Confirmed directly, not just reasoned about**, with a small diagnostic test hitting the real
+`createApp()` via `supertest`: two requests, each carrying a different `X-Forwarded-For` value,
+produced an *identical* `req.ip` before the fix, and correctly different `req.ip` values after
+adding `app.set("trust proxy", 1)`.
+
+**Why "1," specifically:** the Railway community's own guidance (searched directly rather than
+guessed at) is that Railway's edge adds exactly one hop before this app's own process sees a
+request — so trusting exactly one layer of `X-Forwarded-For` is the correct, minimal amount of
+trust, not an arbitrary guess. (Full research trail in *Verification* below.)
+
+#### Why this was a security bug, not just a UX inconvenience
+
+A rate limiter's whole job is answering "is *this specific caller* making too many attempts."
+With every caller collapsed into one bucket:
+
+- **The intended protection didn't actually work.** An attacker's own brute-force attempts were
+  never isolated from anyone else's legitimate traffic — the limiter wasn't meaningfully slowing
+  down a targeted attack the way it was designed to.
+- **A trivial, unintentional denial-of-service became possible.** Any 10 register/login/
+  change-password requests within 15 minutes — from anyone, or even just ordinary concurrent
+  traffic with no malicious intent at all — would lock *every* real user out of authenticating
+  for the rest of that window. A security control meant to protect availability was itself an
+  availability risk, because of what it was (mis)keyed on.
+
+#### Timing as its own information channel, separate from the response body
+
+Most people's first idea of "leaking information" is about the *content* of a response — what
+words or data it contains. **Timing side-channels** are a different, easy-to-forget category:
+even if two responses say the exact same thing, if one of them consistently takes measurably
+*longer* to arrive than the other, an attacker who can send many requests and measure the average
+response time can still tell the two cases apart — the delay itself is the leak, independent of
+anything the response body says.
+
+This project had already solved exactly this problem once, for `login`: `DUMMY_PASSWORD_HASH`
+(see the earlier [Auth Backend](01-auth-backend.md) entries) exists specifically so that
+`bcrypt.compare()` — a deliberately *slow* operation — always runs, whether or not the submitted
+email matches a real account, so "wrong password" and "no such account" take the same amount of
+time as well as returning the same response body.
+
+**`forgot-password` had the response-body half of this already done** (its own design doc, quoted
+in the earlier auth-backend entries, explicitly reasons through why the message must be
+identical either way) — but not the timing half. Its "found" branch performed a real database
+`UPDATE` (writing the new reset-token hash); its "not found" branch did nothing at all. A real
+database write is measurably slower than doing nothing, so an attacker measuring response time
+across many attempts could still statistically distinguish "this email exists" from "it doesn't,"
+even though every response's *text* was identical.
+
+### What was done
+
+1. **Reproduced the `trust proxy` bug first**, via a small standalone diagnostic test (two
+   requests, two different `X-Forwarded-For` values, asserting on `req.ip`) before writing any
+   fix — confirmed both resolved to the same value.
+2. **Researched Railway's actual proxy topology** rather than guessing a hop count, since setting
+   this value *too high* (or to `true`, an unbounded chain) would itself reopen a spoofing risk if
+   Railway's edge ever turned out not to be the sole hop.
+3. Added `app.set("trust proxy", 1)` to `backend/src/app.ts`, with the reasoning inlined as a
+   comment at the call site (not just in this log) so a future reader hits the explanation exactly
+   where the setting lives.
+4. Added a committed regression test (`backend/src/app.test.ts`) covering the same two-different-
+   `X-Forwarded-For`-values scenario as the diagnostic — confirmed failing against the pre-fix
+   code, passing against the fix.
+5. **Fixed `forgot-password`'s timing gap** (`backend/src/routes/auth.ts`): both branches now
+   perform an equivalent-shaped database `UPDATE` unconditionally. The "not found" branch's write
+   targets a `DUMMY_USER_ID` that can never match a real row (mirroring `DUMMY_PASSWORD_HASH`'s
+   own "always do the real, equivalent-cost work" approach exactly), and the resulting "record not
+   found" error is caught and discarded rather than allowed to fail the request.
+6. Added a regression test asserting the database write is attempted even when no account
+   matches — confirmed failing against the pre-fix code (zero calls to `prisma.user.update`),
+   passing against the fix.
+7. **Three additional, lower-risk hardening changes**, found while already reviewing this area:
+   - Pinned `algorithms: ["HS256"]` explicitly on every `jwt.verify()` call, instead of relying on
+     the `jsonwebtoken` library's own default acceptance behavior — defense in depth, so a verify
+     call can never be tricked into accepting a token signed a different way than this app itself
+     ever signs one, regardless of what a future library version's default turns out to be.
+   - Added `helmet()`, a well-established Express middleware that sets a standard baseline of
+     security response headers (`X-Content-Type-Options: nosniff`, no `X-Powered-By` framework
+     fingerprint, `X-Frame-Options`, HSTS, etc.) with sensible defaults, no per-header tuning
+     needed for a JSON-only API like this one.
+   - **Verified `helmet`'s default `Cross-Origin-Resource-Policy: same-origin` header wouldn't
+     break this app's own real cross-origin usage** (the Vercel frontend fetching from the Railway
+     backend) before shipping it — this specific header is a well-known potential gotcha for APIs
+     meant to be consumed cross-origin. Confirmed via research (this policy only restricts
+     `no-cors`-style loads like `<img>`/`<script>` tags, not regular CORS-mode `fetch()` calls with
+     credentials) *and* empirically, by running the full Playwright end-to-end suite — a real
+     Chromium browser making real cross-origin requests — against a locally running backend with
+     `helmet()` active. All four specs passed.
+
+### Why it's needed
+
+Both real findings here share a lesson worth naming directly: a security control can be present in
+the code, structurally correct in isolation, and still fail completely once it's deployed onto
+real infrastructure it wasn't specifically checked against (`trust proxy`) — or once it's checked
+against the wrong threat model (a response-body check that never considered timing). Neither of
+these would show up by re-reading the code and reasoning "this looks right" — both needed to
+actually be run and measured to be caught.
+
+### Decisions
+
+- **`trust proxy: 1`, not `true`.** `true` trusts an unbounded, self-reported chain of proxies —
+  correct only if every single hop between the real client and this app is genuinely trusted, and
+  unnecessarily permissive (and therefore a real, if narrow, risk) if that's not actually the
+  topology. `1` is the precise, minimal value that matches Railway's actual documented setup.
+- **A `DUMMY_USER_ID`, not a `try { } catch { }` around skipping the write entirely.** The whole
+  point is that the *same* database work has to happen either way — skipping the write in a
+  different way (e.g. an early return before ever calling `update`) would just move the timing gap
+  rather than close it.
+- **Verified the CORP header against a real browser, not just documentation.** Reading that CORP
+  "only affects no-cors requests" is one thing; this app's actual login/Quick-Add/History flows
+  are what would have broken if that understanding were wrong, so running the real e2e suite
+  against them with the header active was the actual proof, not the research alone.
+- **Left one related, lower-severity finding unfixed in code**: `/api/auth/logout` has no
+  CSRF protection and could be triggered by a malicious cross-site page, forcing an unwanted
+  logout. Documented rather than fixed in this pass — the impact is a nuisance (an unexpected
+  logout), not data exposure or account compromise, and every *data-changing* endpoint in this app
+  is already immune to CSRF by construction (they require a Bearer access token in a header, which
+  a cross-site request cannot forge or attach automatically the way a cookie is attached).
+  Building dedicated anti-CSRF infrastructure for a nuisance-level gap didn't seem proportionate
+  next to the two real findings above.
+
+### State at end of this step
+
+The auth rate limiter now correctly identifies individual real clients in production.
+`forgot-password`'s enumeration defense is closed against both the response-body and timing
+channels. Three additional hardening measures are in place, each verified not to break the app's
+real, working cross-origin flow.
+
+### Verification
+
+- `backend/src/app.test.ts` (new): confirmed the `trust proxy` fix with two different
+  `X-Forwarded-For` values resolving to two different `req.ip` values - failing before the fix,
+  passing after.
+- `backend/src/routes/auth.test.ts` (extended): confirmed `forgot-password` now attempts a
+  database write even when no account matches - failing before the fix, passing after.
+- `npm test` (backend, full suite) — 201/201 passing.
+- Full Playwright end-to-end suite run against real local dev servers with `helmet()` active —
+  4/4 passing, confirming no regression in the real cross-origin browser flow.
+- Web research on Railway's specific reverse-proxy hop count and on `Cross-Origin-Resource-Policy`
+  semantics, cross-checked against this app's own actual behavior rather than trusted alone:
+  [Railway trust proxy guidance](https://station.railway.com/questions/security-critical-questions-on-edge-prox-8fddd775),
+  [MDN: Cross-Origin-Resource-Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cross-Origin_Resource_Policy).
+
+---
