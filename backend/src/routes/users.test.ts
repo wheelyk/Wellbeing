@@ -147,6 +147,33 @@ describe("PATCH /api/users/me", () => {
     expect(res.body.error.code).toBe("VALIDATION_ERROR");
   });
 
+  it("updates reminder preferences, defaulting reminderEnabled to false and reminderTime to null", async () => {
+    const { accessToken } = await registerAndLogin("reminders-default");
+
+    const getRes = await request(app).get("/api/users/me").set(authed(accessToken));
+    expect(getRes.body).toMatchObject({ reminderEnabled: false, reminderTime: null });
+
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ reminderEnabled: true, reminderTime: "20:00" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ reminderEnabled: true, reminderTime: "20:00" });
+  });
+
+  it("rejects a reminderTime that isn't a valid 24-hour HH:mm string", async () => {
+    const { accessToken } = await registerAndLogin("bad-reminder-time");
+
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ reminderTime: "8:00pm" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_ERROR");
+  });
+
   it("rejects an empty display name", async () => {
     const { accessToken } = await registerAndLogin("blank-name");
 
