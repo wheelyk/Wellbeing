@@ -31,9 +31,9 @@ Reference: requirements §11.
 - [x] Define `MedicationLog` model: `id`, `user_id`, `medication_id`, `taken (boolean)`, `notes (optional)`, `logged_at`.
 - [x] Define `Habit` model: `id`, `user_id`, `name`, `type (boolean | numeric | duration)`, `created_at`.
 - [x] Define `HabitLog` model: `id`, `user_id`, `habit_id`, `value (shape depends on habit type)`, `notes (optional)`, `logged_at`.
-- [ ] Add appropriate foreign keys, indexes (especially on `user_id` + `logged_at` for query performance), and cascading deletes so removing a `User` removes all associated logs.
-- [ ] Store `logged_at` as a timestamp with timezone (`timestamptz`) and always compute "which calendar day" using the user's stored `timezone`, not server time.
-- [ ] Write and run the initial Prisma migration.
+- [x] Add appropriate foreign keys, indexes (especially on `user_id` + `logged_at` for query performance), and cascading deletes so removing a `User` removes all associated logs. (Confirmed directly against `schema.prisma`: every log table has `onDelete: Cascade` and a `@@index([userId, loggedAt])` composite index; this checkbox was stale, not the work.)
+- [x] Store `logged_at` as a timestamp with timezone (`timestamptz`) and always compute "which calendar day" using the user's stored `timezone`, not server time. (Every `loggedAt` column is `@db.Timestamptz(3)`; `backend/src/lib/timezone.ts` resolves "which calendar day" via `Intl.DateTimeFormat` against the user's own stored timezone, not the server's.)
+- [x] Write and run the initial Prisma migration. (`backend/prisma/migrations/20260814155859_init_user` onward — the schema has evolved through many since, all applied.)
 - [x] Seed the database with a small set of system-default symptoms (e.g. Headache, Fatigue, Nausea) where `user_id` is null.
 
 ---
