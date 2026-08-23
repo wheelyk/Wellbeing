@@ -204,6 +204,42 @@ secrets.
 **Task:** Not a new feature — verifying this feature actually works against production now
 that real VAPID keys exist, and following up on what that verification found.
 
+### Background / concepts
+
+#### "User activation" (a.k.a. "user gesture"): why a real click isn't always enough
+
+A handful of browser APIs are deliberately restricted so a website can't invoke them entirely on
+its own, without a person actually asking for it — `Notification.requestPermission()` (used
+here), opening a popup window, entering fullscreen, and auto-playing audio with sound are the
+common ones. The browser makes this restriction possible by tracking **user activation**: a
+short-lived flag that becomes `true` the instant a person does something like click a button or
+press a key, and expires again after a brief window (a handful of seconds at most, and shorter
+still if any `await` happens in between). Any of those restricted APIs called while activation is
+`true` works normally, i.e. it shows the real browser-native prompt/permission dialog; called
+while it's `false`, most browsers **don't show an error or throw** — they simply act as if the
+person had said no, silently, without ever displaying anything. That silent-no behavior is
+exactly what made this bug confusing: the code wasn't broken in any way that raised an exception,
+and the resulting `"denied"` looked identical to a real, deliberate decline.
+
+The part that actually caused this bug: activation is consumed by the *first* thing that uses it,
+and an `await` on a network call in between a click and a restricted API call is one of the most
+common ways to lose it entirely — by the time the awaited fetch resolves (a real round-trip to
+Railway, not instant), the short window has already closed, even though the whole chain started
+from one genuine, unbroken user click with nothing else happening in between as far as the person
+was concerned.
+
+**When this matters, and the general fix.** Any code path that leads to
+`Notification.requestPermission()` (or the other gesture-gated APIs above) needs to reach that
+call with as few `await`s ahead of it as possible, ideally zero, starting from the actual click
+handler. The general technique — used here — is to do any *unrelated* async setup (fetching
+configuration, checking state, etc.) **before** the click, not after it: cache what's needed
+ahead of time (this app's `useEffect` on mount) so the click handler's own call stack can invoke
+the gesture-gated API immediately. Where that isn't possible — the data genuinely can't be known
+until the user acts — the alternative is to request permission *first*, with nothing else awaited
+before it, and only do the dependent async work afterward once permission is confirmed granted.
+There's no way to "extend" or "refresh" activation once it's gone; avoiding the gap is the only
+fix.
+
 ### What was done
 
 Generated a fresh production VAPID keypair, walked through adding it to Railway's Variables tab
