@@ -136,7 +136,7 @@ Reference: requirements §7, §10, §12.7, §12.8.
 
 Reference: requirements §6, §8.
 
-- [ ] Build the Quick Add entry point (modal or dedicated page) shared by all four log types, clearly labelling what is being logged.
+- [x] Build the Quick Add entry point (modal or dedicated page) shared by all four log types, clearly labelling what is being logged. (Already true, stale checkbox — `QuickAddFab` reaches all four log types from anywhere on Dashboard; confirmed directly against the current code.)
 - [x] Symptom entry form: symptom picker, large 1–10 severity control, optional notes, date/time picker (defaults to now), Save/Cancel.
 - [x] Mood entry form: 5 large emoji/visual mood buttons, optional energy (1–7) and stress (1–7) controls, optional notes, date/time picker, `Save Entry` button — matching the wireframe.
 - [x] Medication entry form: medication picker (or quick "mark as taken/not taken"), optional notes, date/time picker.
@@ -157,6 +157,9 @@ Reference: requirements §7.
 - [x] Prominent Quick Add buttons (`+ Symptom`, `+ Mood`, `+ Medication`, `+ Habit`) opening the corresponding form with minimal taps. (Each Dashboard section has its own inline icon add button, plus a floating Quick Add button reaching all four from anywhere on the page — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [x] Logging consistency indicator (streak + days logged this week) — informational tone, no gamified badges/pressure language.
 - [ ] Recent entries list (type, value, time), each entry tappable to edit.
+  The list itself exists (`DashboardSummary.tsx`'s "Recent entries") but entries aren't yet
+  clickable to edit directly from Dashboard — editing currently requires going to History
+  (whose own entries are fully tappable-to-edit, see Phase 9). A real, minor gap, not a blocker.
 - [x] Loading and empty states (e.g. first-time user with nothing logged yet).
 
 ---
@@ -168,11 +171,10 @@ Reference: requirements §9.
 - [x] Build a History view listing past entries across all log types, grouped by date (most recent first).
 - [x] Add filtering (by entry type and/or date range).
 - [x] Each entry shows type, value, and time; a delete affordance is available with confirmation.
-  - [ ] Tapping opens edit — intentionally deferred: a parallel task is building shared,
-    pre-filled entry-edit forms for all four log types (see Phase 7's "Edit and delete actions
-    available from Dashboard/History for every log type" item); History's Edit button renders
-    but is disabled until that lands, to avoid a second, divergent edit implementation. See
-    [docs/log/11-history.md](docs/log/11-history.md) for the full reasoning.
+  - [x] Tapping opens edit — resolved: `HistoryEditModal` now backs a working, enabled Edit
+    button for every entry, reusing the same pre-filled forms Phase 7 built. Stale checkbox —
+    confirmed directly against the current code. See
+    [docs/log/11-history.md](docs/log/11-history.md) for the original deferral reasoning.
 - [x] Pagination or infinite scroll for users with a large history.
 
 ---
