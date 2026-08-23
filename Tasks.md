@@ -322,8 +322,9 @@ untouched by any of this.
   existing four-item array data-driven (a deliberate, already-documented convention).
 
 ### Task 3 — Frontend: admin screen + History integration
-- [ ] `RequireAdmin` route guard + `/admin/categories` page for the one hardcoded admin account.
-- [ ] History's type filter extended to include the user's own visible categories.
+- [x] `RequireAdmin` route guard + `/admin/categories` page for the one hardcoded admin account.
+- [x] History's type filter extended to include a "Category" option (type-level, matching the
+  granularity every other filter option already has - not one option per individual category).
 
 ### Task 4 — Trends support (explicit fast-follow, not blocking)
 - [ ] Per-category numeric/scale series reusing `TrendLineChart` directly.

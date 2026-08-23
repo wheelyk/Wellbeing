@@ -6,14 +6,19 @@ import { SymptomEntryForm, type Symptom, type SymptomLog } from "../../component
 import { MedicationEntryForm, type MedicationLog } from "../../components/MedicationEntryForm";
 import { HabitEntryForm, type HabitLog } from "../../components/HabitEntryForm";
 import type { Habit } from "../../components/HabitCreateForm";
+import { CategoryEntryForm, type CategoryLog } from "../../components/CategoryEntryForm";
+import type { Category } from "../../components/CategoryCreateForm";
 import type { HistoryEntry } from "../HistoryPage";
 import {
+  fetchCategories,
+  fetchCategoryLog,
   fetchHabitLog,
   fetchHabits,
   fetchMedicationLog,
   fetchMoodLog,
   fetchSymptomLog,
   fetchSymptoms,
+  categoryLabel,
   habitLabel,
   medicationLabel,
   moodLabel,
@@ -35,13 +40,15 @@ type ReadyView =
   | { kind: "mood"; log: MoodLog }
   | { kind: "symptom"; log: SymptomLog; symptoms: Symptom[] }
   | { kind: "medication"; log: MedicationLog }
-  | { kind: "habit"; log: HabitLog; habits: Habit[] };
+  | { kind: "habit"; log: HabitLog; habits: Habit[] }
+  | { kind: "category"; log: CategoryLog; categories: Category[] };
 
 const TYPE_TITLE: Record<HistoryEntry["type"], string> = {
   mood: "Edit mood entry",
   symptom: "Edit symptom entry",
   medication: "Edit medication entry",
   habit: "Edit habit entry",
+  category: "Edit entry",
 };
 
 // Renders History's own pre-filled edit dialog for all four log types - fetches the full
@@ -81,13 +88,20 @@ export function HistoryEditModal({ entry, onClose, onSaved }: HistoryEditModalPr
           const log = await fetchMedicationLog(entry.id, entry.loggedAt);
           if (!log) throw new Error("Medication log not found");
           view = { kind: "medication", log };
-        } else {
+        } else if (entry.type === "habit") {
           const [log, habits] = await Promise.all([
             fetchHabitLog(entry.id, entry.loggedAt),
             fetchHabits(),
           ]);
           if (!log) throw new Error("Habit log not found");
           view = { kind: "habit", log, habits };
+        } else {
+          const [log, categories] = await Promise.all([
+            fetchCategoryLog(entry.id, entry.loggedAt),
+            fetchCategories(),
+          ]);
+          if (!log) throw new Error("Category log not found");
+          view = { kind: "category", log, categories };
         }
         if (!cancelled) setState({ status: "ready", view });
       } catch {
@@ -190,6 +204,32 @@ export function HistoryEditModal({ entry, onClose, onSaved }: HistoryEditModalPr
               id: log.id,
               type: "habit",
               label: habitLabel(habit?.name ?? "Habit", log),
+              notes: log.notes,
+              loggedAt: log.loggedAt,
+            });
+          }}
+        />
+      )}
+      {state.status === "ready" && state.view.kind === "category" && (
+        <CategoryEntryForm
+          editingLog={state.view.log}
+          categories={state.view.categories}
+          onCancel={onClose}
+          // Same reasoning as HabitEntryForm's onAddHabit above - this is always an edit here,
+          // so CategoryEntryForm's own "+ Add a new category" escape hatch never renders.
+          onAddCategory={() => {}}
+          onSaved={(log) => {
+            const category =
+              state.view.kind === "category"
+                ? state.view.categories.find((c) => c.id === log.categoryId)
+                : undefined;
+            onSaved({
+              id: log.id,
+              type: "category",
+              label: categoryLabel(category?.name ?? "Category", log, {
+                valueType: category?.valueType ?? "numeric",
+                scaleMax: category?.scaleMax ?? null,
+              }),
               notes: log.notes,
               loggedAt: log.loggedAt,
             });

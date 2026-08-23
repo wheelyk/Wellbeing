@@ -119,6 +119,85 @@ describe("HistoryPage", () => {
     });
   });
 
+  it("renders a category entry and offers Category as a filter option", async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        jsonResponse(200, {
+          entries: [
+            {
+              id: "cat-log-1",
+              type: "category",
+              label: "Energy level: 4/5",
+              notes: null,
+              loggedAt: "2026-08-17T09:00:00.000Z",
+            },
+          ],
+          limit: 20,
+          offset: 0,
+          hasMore: false,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPage();
+
+    expect(await screen.findByText(/energy level: 4\/5/i)).toBeInTheDocument();
+    expect(
+      within(screen.getByLabelText(/type/i)).getByRole("option", { name: "Category" }),
+    ).toBeInTheDocument();
+  });
+
+  it("refetches with type=category when the Category filter is selected", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false })),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findByText(/nothing to show yet/i);
+
+    await user.selectOptions(screen.getByLabelText(/type/i), "category");
+
+    await waitFor(() => {
+      const lastCall = fetchMock.mock.calls.at(-1);
+      expect(lastCall?.[0]).toContain("type=category");
+    });
+  });
+
+  it("deletes a category entry via /api/category-logs, not one of the four built-in endpoints", async () => {
+    const entry = {
+      id: "cat-log-1",
+      type: "category",
+      label: "Energy level: 4/5",
+      notes: null,
+      loggedAt: "2026-08-17T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE")
+        return Promise.resolve(jsonResponse(200, { message: "Deleted" }));
+      return Promise.resolve(
+        jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findByText(/energy level: 4\/5/i);
+
+    await user.click(screen.getByRole("button", { name: /delete category entry/i }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
+      expect(deleteCall?.[0]).toContain("/api/category-logs/cat-log-1");
+    });
+  });
+
   it("deletes an entry optimistically via the correct per-type endpoint, rolling back on failure", async () => {
     const entry = {
       id: "sym-1",
@@ -497,6 +576,86 @@ describe("HistoryPage", () => {
     // dialog closed - no separate /api/history refetch was needed.
     expect(await screen.findByText("Mood 5/5")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Edit mood entry" })).not.toBeInTheDocument();
+  });
+
+  it("resolves a category entry's name via /api/categories and PATCHes the category-logs endpoint on save", async () => {
+    const entry = {
+      id: "cat-log-1",
+      type: "category",
+      label: "Energy level: 4/5",
+      notes: null,
+      loggedAt: "2026-08-17T09:00:00.000Z",
+    };
+    const fullCategoryLog = {
+      id: "cat-log-1",
+      userId: "user-1",
+      categoryId: "cat-energy",
+      valueBoolean: null,
+      valueNumeric: 4,
+      valueDurationMinutes: null,
+      notes: null,
+      loggedAt: entry.loggedAt,
+    };
+    const updatedCategoryLog = { ...fullCategoryLog, valueNumeric: 5 };
+    const categories = [
+      {
+        id: "cat-energy",
+        userId: "user-1",
+        name: "Energy level",
+        icon: "⚡",
+        valueType: "scale",
+        scaleMin: 1,
+        scaleMax: 5,
+        archivedAt: null,
+        createdAt: "2026-08-01T00:00:00.000Z",
+      },
+    ];
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH" && url.includes("/api/category-logs/cat-log-1")) {
+        return Promise.resolve(jsonResponse(200, updatedCategoryLog));
+      }
+      if (url.includes("/api/history")) {
+        return Promise.resolve(
+          jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
+        );
+      }
+      if (url.includes("/api/category-logs")) {
+        return Promise.resolve(
+          jsonResponse(200, { entries: [fullCategoryLog], limit: 100, offset: 0, hasMore: false }),
+        );
+      }
+      if (url.includes("/api/categories")) {
+        return Promise.resolve(jsonResponse(200, categories));
+      }
+      return Promise.resolve(jsonResponse(401, { error: { message: "No session" } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findByText(/energy level: 4\/5/i);
+
+    await user.click(screen.getByRole("button", { name: /edit category entry/i }));
+    await screen.findByRole("heading", { name: "Edit entry" });
+
+    // Pre-filled with the real category, resolved from /api/categories via the log's
+    // categoryId - and a scale category renders as a RatingScale, matching its scaleMin/scaleMax.
+    expect(screen.getByRole("radio", { name: "4" })).toHaveAttribute("aria-checked", "true");
+    await user.click(screen.getByRole("radio", { name: "5" }));
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(
+        ([callUrl, callInit]) =>
+          String(callUrl).includes("/api/category-logs/cat-log-1") && callInit?.method === "PATCH",
+      );
+      expect(patchCall).toBeDefined();
+      const body = JSON.parse(String(patchCall?.[1]?.body));
+      expect(body.valueNumeric).toBe(5);
+    });
+
+    expect(await screen.findByText(/energy level: 5/i)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Edit entry" })).not.toBeInTheDocument();
   });
 
   it("resolves a symptom entry's name via /api/symptoms and PATCHes the symptom endpoint on save", async () => {
