@@ -178,7 +178,11 @@ describe("GET /api/trends", () => {
     await request(app)
       .post("/api/medication-logs")
       .set(authed(accessToken))
-      .send({ medicationId: medicationRes.body.id, taken: true, loggedAt: `${today}T09:00:00.000Z` });
+      .send({
+        medicationId: medicationRes.body.id,
+        taken: true,
+        loggedAt: `${today}T09:00:00.000Z`,
+      });
 
     const res = await request(app).get("/api/trends").set(authed(accessToken));
 
@@ -209,12 +213,18 @@ describe("GET /api/trends", () => {
     const { accessToken, userId } = await registerAndLogin("timezone");
     await prisma.user.update({ where: { id: userId }, data: { timezone: "America/Los_Angeles" } });
 
-    // 11pm Aug 16 in Los Angeles (PST-adjacent, UTC-7 in August) is already Aug 17 in UTC - this
-    // must bucket to Aug 16 for this user, matching dashboard.ts's own timezone test.
+    // 11pm yesterday in Los Angeles (PST-adjacent, UTC-7 in August) is already "today" in UTC -
+    // this must bucket to *yesterday* for this user, matching dashboard.ts's own timezone test.
+    // Anchored to `today` (computed at run time) rather than a hardcoded date: a fixed absolute
+    // date here previously drifted outside the 7-day window this test itself queries once enough
+    // real time had passed since the test was written - a real, reproduced bug, not a hypothetical
+    // one - so "yesterday" is used instead, which is trivially inside any period of a day or more
+    // regardless of when this test happens to run.
+    const laToday = todayInTimezone("America/Los_Angeles");
     const res1 = await request(app)
       .post("/api/mood-logs")
       .set(authed(accessToken))
-      .send({ mood: 4, loggedAt: "2026-08-17T06:00:00.000Z" });
+      .send({ mood: 4, loggedAt: `${laToday}T06:00:00.000Z` });
     expect(res1.status).toBe(201);
 
     const res = await request(app)
@@ -223,9 +233,6 @@ describe("GET /api/trends", () => {
       .set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    // Whichever day it landed on (dependent on "today" for the test run), the average must be
-    // non-null - i.e. the log was counted within the resolved period at all - confirming
-    // timezone-aware bucketing didn't drop or misplace it outside the whole window.
     expect(res.body.mood.average).toBe(4);
   });
 
