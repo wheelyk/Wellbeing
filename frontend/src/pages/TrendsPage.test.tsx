@@ -31,6 +31,7 @@ function emptyTrendsData(period: "7d" | "30d" | "90d" = "7d") {
       series: days.map((date) => ({ date, average: null, count: 0 })),
       average: null,
     },
+    categoryTrends: [],
     activity: { days: days.map((date) => ({ date, hasActivity: false })) },
   };
 }
@@ -162,5 +163,53 @@ describe("TrendsPage", () => {
     expect(screen.queryByText(/logged severity \(1–10\) over/i)).not.toBeInTheDocument();
     // Mood's own description is still showing - collapsing Symptom Severity didn't touch it.
     expect(screen.getByText(/logged mood \(1–5\) over/i)).toBeInTheDocument();
+  });
+
+  it("renders a chart per numeric/scale custom category, using the category's own scale bounds", async () => {
+    const days = emptyTrendsData("7d").days;
+    mockTrendsFetch(() => ({
+      ...emptyTrendsData("7d"),
+      categoryTrends: [
+        {
+          categoryId: "cat-energy",
+          name: "Energy level",
+          icon: "⚡",
+          valueType: "scale",
+          scaleMin: 1,
+          scaleMax: 5,
+          series: days.map((date, i) => ({
+            date,
+            average: i === days.length - 1 ? 4 : null,
+            count: i === days.length - 1 ? 1 : 0,
+          })),
+          average: 4,
+        },
+        {
+          categoryId: "cat-water",
+          name: "Water intake",
+          icon: null,
+          valueType: "numeric",
+          scaleMin: null,
+          scaleMax: null,
+          series: days.map((date) => ({ date, average: null, count: 0 })),
+          average: null,
+        },
+      ],
+    }));
+
+    renderTrendsPage();
+
+    expect(await screen.findByText(/⚡ energy level — avg: 4\.0/i)).toBeInTheDocument();
+    expect(screen.getByText(/logged 1–5 over/i)).toBeInTheDocument();
+    expect(screen.getByText(/water intake — no data yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/logged values over/i)).toBeInTheDocument();
+  });
+
+  it("renders no category chart section at all when the user has no numeric/scale categories", async () => {
+    mockTrendsFetch(() => emptyTrendsData("7d"));
+    renderTrendsPage();
+
+    await screen.findByText(/symptom severity — no data yet/i);
+    expect(screen.queryByText(/avg: /i)).not.toBeInTheDocument();
   });
 });

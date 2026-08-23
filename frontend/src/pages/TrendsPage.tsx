@@ -7,6 +7,17 @@ import { PeriodSelector, type TrendsPeriod } from "../components/trends/PeriodSe
 import { TrendLineChart, type TrendPoint } from "../components/trends/TrendLineChart";
 import { ActivityCalendar, type ActivityDay } from "../components/trends/ActivityCalendar";
 
+interface CategoryTrend {
+  categoryId: string;
+  name: string;
+  icon: string | null;
+  valueType: "numeric" | "scale";
+  scaleMin: number | null;
+  scaleMax: number | null;
+  series: TrendPoint[];
+  average: number | null;
+}
+
 interface TrendsData {
   period: TrendsPeriod;
   startDate: string;
@@ -14,6 +25,7 @@ interface TrendsData {
   days: string[];
   symptomSeverity: { series: TrendPoint[]; average: number | null };
   mood: { series: TrendPoint[]; average: number | null };
+  categoryTrends: CategoryTrend[];
   activity: { days: ActivityDay[] };
 }
 
@@ -29,6 +41,25 @@ const PERIOD_LABELS: Record<TrendsPeriod, string> = {
 // third source of truth for them.
 const SYMPTOM_CHART_COLOR = "#2563eb";
 const MOOD_CHART_COLOR = "#1d4ed8";
+
+// A small rotating palette for however many numeric/scale custom categories a user has - unlike
+// symptom/mood's own two fixed colors, this has to cover an unbounded number of charts; colors
+// repeat if there are more categories than swatches, which is an acceptable tradeoff for a
+// personal trends page rather than adding a full color-generation scheme.
+const CATEGORY_CHART_COLORS = ["#0d9488", "#c026d3", "#ea580c", "#4338ca", "#65a30d", "#be123c"];
+
+// A "scale" category already has a real bound (its own scaleMin/scaleMax, used directly - see
+// the render below); a "numeric" one doesn't, so its domain is derived from the data itself
+// instead of a fixed range that might clip real values or waste most of the chart on an unused
+// range no one's data ever reaches.
+function numericDomain(series: TrendPoint[]): [number, number] {
+  const values = series
+    .map((point) => point.average)
+    .filter((value): value is number => value !== null);
+  if (values.length === 0) return [0, 10];
+  const max = Math.max(...values);
+  return [0, Math.max(1, Math.ceil(max * 1.2))];
+}
 
 export function TrendsPage() {
   const [period, setPeriod] = useState<TrendsPeriod>("7d");
@@ -148,6 +179,53 @@ export function TrendsPage() {
                   />
                 </CollapsibleSection>
               </section>
+
+              {data.categoryTrends.map((trend, index) => {
+                const [domainMin, domainMax] =
+                  trend.valueType === "scale"
+                    ? [trend.scaleMin ?? 0, trend.scaleMax ?? 10]
+                    : numericDomain(trend.series);
+                const color = CATEGORY_CHART_COLORS[index % CATEGORY_CHART_COLORS.length];
+                return (
+                  <section
+                    key={trend.categoryId}
+                    className="rounded-2xl border border-border bg-surface p-6 shadow-sm"
+                  >
+                    <CollapsibleSection
+                      storageKey={`trends.category.${trend.categoryId}`}
+                      title={
+                        <>
+                          {trend.icon ? `${trend.icon} ` : ""}
+                          {trend.name} —{" "}
+                          {trend.average !== null
+                            ? `Avg: ${trend.average.toFixed(1)}`
+                            : "No data yet"}
+                        </>
+                      }
+                    >
+                      <p className="text-sm text-text-muted">
+                        Logged{" "}
+                        {trend.valueType === "scale"
+                          ? `${trend.scaleMin}–${trend.scaleMax}`
+                          : "values"}{" "}
+                        over {PERIOD_LABELS[period]}.
+                      </p>
+                      <TrendLineChart
+                        points={trend.series}
+                        domainMin={domainMin}
+                        domainMax={domainMax}
+                        color={color}
+                        formatValue={(value) =>
+                          trend.valueType === "scale"
+                            ? `${value.toFixed(1)}/${trend.scaleMax}`
+                            : value.toFixed(1)
+                        }
+                        ariaLabel={`${trend.name} chart for ${PERIOD_LABELS[period]}`}
+                      />
+                    </CollapsibleSection>
+                  </section>
+                );
+              })}
             </div>
 
             {/* Stays full-width at every size, deliberately not part of the grid above - a
@@ -156,8 +234,8 @@ export function TrendsPage() {
             <section className="mt-6 rounded-2xl border border-border bg-surface p-6 shadow-sm">
               <CollapsibleSection storageKey="trends.activity" title="Activity">
                 <p className="text-sm text-text-muted">
-                  Days with any logged entry (symptoms, mood, medications, or habits) over{" "}
-                  {PERIOD_LABELS[period]}.
+                  Days with any logged entry (symptoms, mood, medications, habits, or a custom
+                  category) over {PERIOD_LABELS[period]}.
                 </p>
                 <ActivityCalendar days={data.activity.days} />
               </CollapsibleSection>

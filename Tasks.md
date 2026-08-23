@@ -327,7 +327,7 @@ untouched by any of this.
   granularity every other filter option already has - not one option per individual category).
 
 ### Task 4 — Trends support (explicit fast-follow, not blocking)
-- [ ] Per-category numeric/scale series reusing `TrendLineChart` directly.
+- [x] Per-category numeric/scale series reusing `TrendLineChart` directly.
 
 ---
 

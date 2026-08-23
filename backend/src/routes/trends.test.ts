@@ -263,6 +263,111 @@ describe("GET /api/trends", () => {
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe("USER_NOT_FOUND");
   });
+
+  it("returns a per-category series for a numeric/scale category, but no series for boolean/duration ones", async () => {
+    const { accessToken } = await registerAndLogin("category-series");
+    const today = todayInTimezone("UTC");
+    const yesterday = addDaysToDateStr(today, -1);
+
+    const scaleCategory = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Energy level", valueType: "scale", scaleMin: 1, scaleMax: 5 });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({
+        categoryId: scaleCategory.body.id,
+        valueNumeric: 4,
+        loggedAt: `${today}T09:00:00.000Z`,
+      });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({
+        categoryId: scaleCategory.body.id,
+        valueNumeric: 2,
+        loggedAt: `${yesterday}T09:00:00.000Z`,
+      });
+
+    const booleanCategory = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Read today", valueType: "boolean" });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({
+        categoryId: booleanCategory.body.id,
+        valueBoolean: true,
+        loggedAt: `${today}T09:00:00.000Z`,
+      });
+
+    const res = await request(app)
+      .get("/api/trends")
+      .query({ period: "7d" })
+      .set(authed(accessToken));
+
+    expect(res.status).toBe(200);
+    expect(res.body.categoryTrends).toHaveLength(1);
+    const trend = res.body.categoryTrends[0];
+    expect(trend).toMatchObject({
+      categoryId: scaleCategory.body.id,
+      name: "Energy level",
+      valueType: "scale",
+      scaleMin: 1,
+      scaleMax: 5,
+      average: 3,
+    });
+    const todayPoint = trend.series.find((p: { date: string }) => p.date === today);
+    const yesterdayPoint = trend.series.find((p: { date: string }) => p.date === yesterday);
+    expect(todayPoint).toMatchObject({ average: 4, count: 1 });
+    expect(yesterdayPoint).toMatchObject({ average: 2, count: 1 });
+
+    // The boolean category's own entry still counts toward the activity calendar...
+    const todayActivity = res.body.activity.days.find((d: { date: string }) => d.date === today);
+    expect(todayActivity).toMatchObject({ hasActivity: true });
+    // ...but it gets no chart of its own, the same way Habit never has one either.
+    expect(res.body.categoryTrends.some((t: { name: string }) => t.name === "Read today")).toBe(
+      false,
+    );
+  });
+
+  it("still returns a category's chart (empty series) even with zero logs in the requested period", async () => {
+    const { accessToken } = await registerAndLogin("category-no-logs");
+    const category = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Water intake", valueType: "numeric" });
+
+    const res = await request(app)
+      .get("/api/trends")
+      .query({ period: "7d" })
+      .set(authed(accessToken));
+
+    expect(res.status).toBe(200);
+    const trend = res.body.categoryTrends.find(
+      (t: { categoryId: string }) => t.categoryId === category.body.id,
+    );
+    expect(trend).toMatchObject({ name: "Water intake", average: null });
+    expect(trend.series.every((p: { average: null }) => p.average === null)).toBe(true);
+  });
+
+  it("never includes another user's personal categories in categoryTrends", async () => {
+    const userA = await registerAndLogin("category-iso-a");
+    const userB = await registerAndLogin("category-iso-b");
+    await request(app)
+      .post("/api/categories")
+      .set(authed(userB.accessToken))
+      .send({ name: "User B's category", valueType: "numeric" });
+
+    const res = await request(app).get("/api/trends").set(authed(userA.accessToken));
+
+    expect(res.status).toBe(200);
+    expect(
+      res.body.categoryTrends.some((t: { name: string }) => t.name === "User B's category"),
+    ).toBe(false);
+  });
 });
 
 afterAll(async () => {

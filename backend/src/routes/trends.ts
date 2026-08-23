@@ -7,6 +7,7 @@ import {
   getDayRangeUtc,
   todayInTimezone,
 } from "../lib/timezone";
+import { toApiCategoryValueType } from "../lib/categoryValueType";
 
 // Same three choices requirements §10 and Tasks.md Phase 10 call for - no other period is valid
 // input. Kept as a literal union (not a generic "any positive integer of days") because the
@@ -104,12 +105,24 @@ trendsRouter.get("/", async (req, res) => {
   const { end } = getDayRangeUtc(endDate, timezone);
   const rangeWhere = { userId: req.userId, loggedAt: { gte: start, lt: end } };
 
-  const [symptomLogs, moodLogs, medicationLogs, habitLogs] = await Promise.all([
-    prisma.symptomLog.findMany({ where: rangeWhere, select: { severity: true, loggedAt: true } }),
-    prisma.moodLog.findMany({ where: rangeWhere, select: { mood: true, loggedAt: true } }),
-    prisma.medicationLog.findMany({ where: rangeWhere, select: { loggedAt: true } }),
-    prisma.habitLog.findMany({ where: rangeWhere, select: { loggedAt: true } }),
-  ]);
+  const [symptomLogs, moodLogs, medicationLogs, habitLogs, categories, categoryLogs] =
+    await Promise.all([
+      prisma.symptomLog.findMany({ where: rangeWhere, select: { severity: true, loggedAt: true } }),
+      prisma.moodLog.findMany({ where: rangeWhere, select: { mood: true, loggedAt: true } }),
+      prisma.medicationLog.findMany({ where: rangeWhere, select: { loggedAt: true } }),
+      prisma.habitLog.findMany({ where: rangeWhere, select: { loggedAt: true } }),
+      // Every category visible to this user (their own + any system/admin ones) - fetched
+      // regardless of period, so a numeric/scale category with zero logs *in this window* still
+      // gets its own chart (an honest "not enough data yet" state), the same way symptom/mood
+      // charts already render before a brand-new user has logged anything at all.
+      prisma.category.findMany({
+        where: { archivedAt: null, OR: [{ userId: null }, { userId: req.userId }] },
+      }),
+      prisma.categoryLog.findMany({
+        where: rangeWhere,
+        select: { categoryId: true, valueNumeric: true, loggedAt: true },
+      }),
+    ]);
 
   // Buckets a log array's values by the calendar day (in the user's timezone) each entry's
   // precise `loggedAt` instant falls on - the same "resolve to a day string, then group" approach
@@ -138,6 +151,10 @@ trendsRouter.get("/", async (req, res) => {
     moodByDay,
     bucketByDay(medicationLogs, () => true),
     bucketByDay(habitLogs, () => true),
+    // Any category log counts toward a day being "active" - including boolean/duration ones,
+    // which get no chart of their own below (see categorySeries) but still count the same way
+    // dashboard.ts's streak and reminderScheduler.ts's hasLoggedToday already treat them.
+    bucketByDay(categoryLogs, () => true),
   ]) {
     for (const date of dateSet.keys()) activeDays.add(date);
   }
@@ -160,6 +177,45 @@ trendsRouter.get("/", async (req, res) => {
   const symptomAverage = mean(symptomLogs.map((log) => log.severity));
   const moodAverage = mean(moodLogs.map((log) => log.mood));
 
+  // One chart per numeric/scale custom category, mirroring symptomSeries/moodSeries's own
+  // build - boolean/duration categories get no chart here, the same way Habit (which has the
+  // same three/four value types) never has one either. `TrendLineChart` on the frontend is
+  // reused directly for these (see docs/log/15-categories.md's Task 4 entry) - it's already
+  // generic over domain/color/formatValue, so no new chart component is needed.
+  const categoryLogsByCategoryId = new Map<string, typeof categoryLogs>();
+  for (const log of categoryLogs) {
+    const bucket = categoryLogsByCategoryId.get(log.categoryId);
+    if (bucket) bucket.push(log);
+    else categoryLogsByCategoryId.set(log.categoryId, [log]);
+  }
+
+  const categoryTrends = categories
+    .filter((category) => category.valueType === "NUMERIC" || category.valueType === "SCALE")
+    .map((category) => {
+      // valueNumeric is the only column NUMERIC/SCALE categories ever populate (see
+      // categoryLogs.ts's extractTypedValue) - the null-filter here is just to satisfy
+      // TypeScript's own nullable column type, not a real runtime case for these two types.
+      const logs = (categoryLogsByCategoryId.get(category.id) ?? []).filter(
+        (log): log is typeof log & { valueNumeric: number } => log.valueNumeric !== null,
+      );
+      const byDay = bucketByDay(logs, (log) => log.valueNumeric);
+      const series: DailyPoint[] = days.map((date) => {
+        const values = byDay.get(date) ?? [];
+        return { date, average: mean(values), count: values.length };
+      });
+
+      return {
+        categoryId: category.id,
+        name: category.name,
+        icon: category.icon,
+        valueType: toApiCategoryValueType(category.valueType),
+        scaleMin: category.scaleMin,
+        scaleMax: category.scaleMax,
+        series,
+        average: mean(logs.map((log) => log.valueNumeric)),
+      };
+    });
+
   res.json({
     period,
     startDate,
@@ -167,6 +223,7 @@ trendsRouter.get("/", async (req, res) => {
     days,
     symptomSeverity: { series: symptomSeries, average: symptomAverage },
     mood: { series: moodSeries, average: moodAverage },
+    categoryTrends,
     activity: {
       days: days.map((date) => ({ date, hasActivity: activeDays.has(date) })),
     },
