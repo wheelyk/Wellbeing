@@ -25,13 +25,22 @@ const TYPE_OPTIONS: Array<{ value: Category["valueType"]; label: string; hint: s
 interface CategoryCreateFormProps {
   onCreated: (category: Category) => void;
   onCancel: () => void;
+  // "/api/categories" (a personal category) unless the admin page overrides it to
+  // "/api/admin/categories" (a system-wide one) - same form, same validation, just a different
+  // target endpoint, since the two routes accept an identical request shape (see
+  // backend/src/routes/categories.ts and adminCategories.ts).
+  createEndpoint?: string;
 }
 
 // A small, focused "define a category" form - the same role HabitCreateForm plays for habits,
 // generalized to four value types (including the new "scale" type, a bounded picker generalizing
 // what Mood/Symptom already do with their own fixed scales) since a category isn't limited to
 // habit's original three.
-export function CategoryCreateForm({ onCreated, onCancel }: CategoryCreateFormProps) {
+export function CategoryCreateForm({
+  onCreated,
+  onCancel,
+  createEndpoint = "/api/categories",
+}: CategoryCreateFormProps) {
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("");
   const [type, setType] = useState<Category["valueType"] | null>(null);
@@ -83,7 +92,7 @@ export function CategoryCreateForm({ onCreated, onCancel }: CategoryCreateFormPr
 
     setSubmitting(true);
     try {
-      const category = await apiFetch<Category>("/api/categories", {
+      const category = await apiFetch<Category>(createEndpoint, {
         method: "POST",
         body: JSON.stringify({
           name: name.trim(),

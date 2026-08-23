@@ -279,4 +279,5 @@ useful for browsing what's gone wrong before, rather than looking something spec
 
 - 2026-08-23 — Task 1: the generic Category model, alongside (not replacing) the four fixed ones
 - 2026-08-23 — Task 2: user-facing frontend (Dashboard, Quick Add, Settings)
+- 2026-08-23 — Task 3: admin screen + History integration
 - 2026-08-23 — Task 4: Trends support for custom categories (fast-follow)

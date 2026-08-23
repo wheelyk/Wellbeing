@@ -222,6 +222,92 @@ yet (Task 4, explicit fast-follow).
 
 ---
 
+## 2026-08-23 — Task 3: admin screen + History integration
+
+**Task:** [Phase 15, Task 3](../../Tasks.md#task-3--frontend-admin-screen--history-integration) —
+the last required piece: a screen for the one hardcoded admin to add system-wide categories, and
+History learning about the new `"category"` type. (Task 4, Trends support, remains an explicit,
+non-blocking fast-follow.)
+
+### What was done
+
+- **`frontend/src/auth/AuthContext.tsx`**: `AuthUser` gains `isAdmin: boolean` (already present
+  on the backend's login/refresh/`/me` responses since Task 1).
+- **`frontend/src/auth/RequireAdmin.tsx`** (new): mirrors `RequireAuth.tsx`'s exact shape,
+  checking `user?.isAdmin` instead of `isAuthenticated`. Nested *inside* a `RequireAuth` route in
+  `App.tsx` (authentication is already settled by the time this ever runs), and redirects to
+  `/dashboard`, not `/login`, on failure - a non-admin authenticated user isn't unauthenticated,
+  so a different redirect target reflects that.
+- **`frontend/src/pages/admin/AdminCategoriesPage.tsx`** (new), routed at `/admin/categories`:
+  lists every system-wide category, with create/edit/archive for all of them (there's no
+  ownership distinction to make here - every row shown exists on this page only because it's
+  already system-wide). `CategoryCreateForm.tsx` gained an optional `createEndpoint` prop
+  (defaulting to `/api/categories`) so this page can reuse the exact same form, pointed at
+  `/api/admin/categories` instead.
+- **`frontend/src/pages/SettingsPage.tsx`**: a "Manage global categories (admin)" link, rendered
+  only when `user?.isAdmin` - the only surface this ever needs, since there's exactly one admin
+  account.
+- **`frontend/src/pages/HistoryPage.tsx`**: `HistoryEntryType`/`TYPE_LABELS`/`DELETE_PATH` gained
+  a `"category"` entry. Deliberately one broad "Category" filter bucket, not one filter option
+  per individual category - the backend's own `/api/history?type=` has always been type-level
+  granularity for the other four types too (never "just this one symptom"), so this matches that
+  existing precedent instead of introducing a finer filter dimension nothing else here has.
+- **`frontend/src/pages/history/HistoryEditModal.tsx`** / **`historyLogApi.ts`**: gained a
+  `"category"` branch reusing `CategoryEntryForm.tsx` directly (the same "reuse the Dashboard's
+  own form for History's edit dialog" pattern the other four types already use), plus
+  `fetchCategoryLog`/`fetchCategories`/`categoryLabel` mirroring the existing habit equivalents.
+
+### Why it's needed
+
+An admin who can only create categories by hand-writing a database row isn't really a feature -
+this is what makes "an admin adds a new built-in category for everyone" something that actually
+happens through the app. History's own gap (not recognizing `"category"` as a real type at all)
+would otherwise have made every custom-category entry silently disappear from History's filter
+options and its edit flow, even though Dashboard already fully supported them after Task 2.
+
+### Decisions
+
+- **`RequireAdmin` redirects to Dashboard, not Login.** A non-admin authenticated user has a
+  perfectly valid session - "you're logged in, but this page isn't for you" is a different case
+  from "you're not logged in at all," and the redirect target should say so.
+- **History's "Category" filter is type-level, not per-category.** Adding true per-category
+  filtering would need a new backend query parameter (`categoryId`, not just `type`) - a real,
+  separate feature, not implied by this task's own scope. Matching the granularity every other
+  filter option already has is the honest version of "extend the filter," not a shortcut.
+- **`AdminCategoriesPage` is its own separate component, not a shared one with Settings'
+  `CategoriesSection`.** The two have genuinely different semantics (ownership-scoped partial
+  edit rights vs. blanket edit rights over everything shown) - a shared component would need to
+  grow conditional logic for a distinction that only really exists between these two call sites,
+  the same "three similar lines beat a premature abstraction" call this project makes elsewhere.
+
+### State at end of this step
+
+All three required tasks for custom categories are complete: a user can create their own
+categories (Task 2) or see ones the admin created for everyone (Task 3), log entries against any
+of them, and see those entries in Dashboard, History (including its own edit/delete/filter), and
+counted toward streaks/reminders (Task 1). Only Task 4 (Trends support for numeric/scale custom
+categories) remains, tracked as an explicit, non-blocking fast-follow in
+[Tasks.md](../../Tasks.md).
+
+### Verification
+
+- `npm test` (frontend): full suite green (275 tests), including new `RequireAdmin.test.tsx`,
+  `AdminCategoriesPage.test.tsx`, and category-aware additions to `HistoryPage.test.tsx`
+  (rendering, filtering, deleting, and a full pre-filled-edit-and-save round trip) and
+  `SettingsPage.test.tsx` (admin link shown/hidden correctly).
+- `npx tsc --noEmit`, `npm run build`, `npm run lint`, `npx prettier --check`: all clean.
+- **Real-browser manual verification** against the actual running dev servers: logged in as the
+  real `admin-dev@example.com` account (matching `backend/.env`'s `ADMIN_EMAIL`), confirmed
+  Settings shows the admin link, created a system-wide category via `/admin/categories`, logged
+  out. Registered a completely different, brand-new regular user; confirmed navigating directly
+  to `/admin/categories` redirects them to Dashboard; confirmed the new category appeared in
+  their Settings with no admin link and no edit/archive controls; logged an entry against it via
+  Quick Add's "More…"; confirmed it appeared correctly in History filtered by "Category". Cleaned
+  up afterward: archived the test category via the admin API, deleted the regular throwaway
+  account.
+
+---
+
 ## 2026-08-23 — Task 4: Trends support for custom categories (fast-follow)
 
 **Task:** [Phase 15, Task 4](../../Tasks.md#task-4--trends-support-explicit-fast-follow-not-blocking)

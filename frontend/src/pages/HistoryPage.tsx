@@ -7,7 +7,7 @@ import { apiFetch } from "../api/client";
 import { HistoryEditModal } from "./history/HistoryEditModal";
 import { ConfirmDeleteModal } from "./history/ConfirmDeleteModal";
 
-export type HistoryEntryType = "mood" | "symptom" | "medication" | "habit";
+export type HistoryEntryType = "mood" | "symptom" | "medication" | "habit" | "category";
 
 export interface HistoryEntry {
   id: string;
@@ -31,17 +31,23 @@ const TYPE_LABELS: Record<HistoryEntryType, string> = {
   symptom: "Symptom",
   medication: "Medication",
   habit: "Habit",
+  // One broad "Category" bucket, not one filter option per category - the backend's own
+  // /api/history?type= only supports this same type-level granularity for the other four types
+  // too (never "just this one symptom"), so this matches that existing precedent rather than
+  // introducing a finer filter dimension nothing else here has.
+  category: "Category",
 };
 
 // Maps a history entry back to the per-type DELETE endpoint that actually owns it - the
 // backend's unified /api/history endpoint is read-only, so deleting still goes through the
-// same four endpoints the Dashboard's Section components already use (see MoodSection.tsx's
+// same endpoints the Dashboard's Section components already use (see MoodSection.tsx's
 // handleDelete for the pattern this follows).
 const DELETE_PATH: Record<HistoryEntryType, string> = {
   mood: "/api/mood-logs",
   symptom: "/api/symptom-logs",
   medication: "/api/medication-logs",
   habit: "/api/habit-logs",
+  category: "/api/category-logs",
 };
 
 // A stable, locale-independent grouping key (unlike a formatted display string, which can

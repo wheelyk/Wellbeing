@@ -445,6 +445,32 @@ describe("SettingsPage — categories", () => {
     });
   }
 
+  it("hides the admin link for a non-admin user", async () => {
+    const fetchMock = withAuthedUser({
+      "/api/categories": () => jsonResponse(200, []),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    await screen.findByText(/no categories yet/i);
+    expect(screen.queryByText(/manage global categories/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the admin link only for the isAdmin account", async () => {
+    const fetchMock = routedFetchMock({
+      "/api/auth/refresh": () =>
+        jsonResponse(200, {
+          user: { ...DEFAULT_PROFILE, isAdmin: true },
+          accessToken: "test-token",
+        }),
+      "/api/categories": () => jsonResponse(200, []),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    expect(await screen.findByText(/manage global categories/i)).toBeInTheDocument();
+  });
+
   it("lists categories, distinguishing built-in (system) ones from the user's own", async () => {
     // A bare (method-less) key, not "GET /api/categories" - apiFetch never sets an explicit
     // `method` for a plain GET (see api/client.ts), so an exact "GET" match would never fire;

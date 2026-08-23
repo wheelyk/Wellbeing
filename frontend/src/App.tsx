@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { RequireAuth } from "./auth/RequireAuth";
+import { RequireAdmin } from "./auth/RequireAdmin";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
@@ -9,6 +10,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { TrendsPage } from "./pages/TrendsPage";
+import { AdminCategoriesPage } from "./pages/admin/AdminCategoriesPage";
 
 function App() {
   return (
@@ -25,6 +27,10 @@ function App() {
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/trends" element={<TrendsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+
+            <Route element={<RequireAdmin />}>
+              <Route path="/admin/categories" element={<AdminCategoriesPage />} />
+            </Route>
           </Route>
 
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
