@@ -315,10 +315,10 @@ untouched by any of this.
   extended to include custom-category logs alongside the four built-ins.
 
 ### Task 2 — Frontend: user-facing custom categories
-- [ ] Settings "Categories" section (view all visible, create/edit/archive own).
-- [ ] A generic, data-driven Dashboard section + entry form (generalizing `HabitEntryForm.tsx`'s
+- [x] Settings "Categories" section (view all visible, create/edit/archive own).
+- [x] A generic, data-driven Dashboard section + entry form (generalizing `HabitEntryForm.tsx`'s
   type-branching to all four value types).
-- [ ] `QuickAddFab.tsx` gains a "More…" entry reaching custom categories, without making its
+- [x] `QuickAddFab.tsx` gains a "More…" entry reaching custom categories, without making its
   existing four-item array data-driven (a deliberate, already-documented convention).
 
 ### Task 3 — Frontend: admin screen + History integration

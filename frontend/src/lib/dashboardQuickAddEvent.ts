@@ -7,7 +7,10 @@
 // context approach wouldn't give for free.
 export const DASHBOARD_QUICK_ADD_EVENT = "welltrack:dashboard-quick-add";
 
-export type DashboardQuickAddType = "mood" | "symptom" | "medication" | "habit";
+// "category" is the one type not backed by its own fixed Dashboard section file - it's handled
+// by the single, data-driven CategorySection instead (see its own comment for why), covering
+// every custom category rather than one type per file the way the other four are.
+export type DashboardQuickAddType = "mood" | "symptom" | "medication" | "habit" | "category";
 
 export function dispatchDashboardQuickAdd(type: DashboardQuickAddType): void {
   window.dispatchEvent(

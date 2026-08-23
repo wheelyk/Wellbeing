@@ -34,6 +34,20 @@ describe("QuickAddFab", () => {
     window.removeEventListener(DASHBOARD_QUICK_ADD_EVENT, handler);
   });
 
+  it("dispatches the 'category' quick-add type when 'More…' is clicked", async () => {
+    const user = userEvent.setup();
+    const handler = vi.fn();
+    window.addEventListener(DASHBOARD_QUICK_ADD_EVENT, handler);
+    render(<QuickAddFab />);
+
+    await user.click(screen.getByRole("button", { name: "Quick add" }));
+    await user.click(screen.getByRole("menuitem", { name: /more/i }));
+
+    expect((handler.mock.calls[0][0] as CustomEvent).detail).toBe("category");
+
+    window.removeEventListener(DASHBOARD_QUICK_ADD_EVENT, handler);
+  });
+
   it("closes the menu when Escape is pressed", async () => {
     const user = userEvent.setup();
     render(<QuickAddFab />);

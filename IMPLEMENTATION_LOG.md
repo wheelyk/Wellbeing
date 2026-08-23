@@ -278,3 +278,4 @@ useful for browsing what's gone wrong before, rather than looking something spec
 ### [Custom Categories](docs/log/15-categories.md)
 
 - 2026-08-23 — Task 1: the generic Category model, alongside (not replacing) the four fixed ones
+- 2026-08-23 — Task 2: user-facing frontend (Dashboard, Quick Add, Settings)

@@ -134,3 +134,90 @@ not yet reachable from the app itself.
   if a future CI run shows a single, unrelated, non-reproducible-in-isolation failure.
 
 ---
+
+## 2026-08-23 — Task 2: user-facing frontend (Dashboard, Quick Add, Settings)
+
+**Task:** [Phase 15, Task 2](../../Tasks.md#task-2--frontend-user-facing-custom-categories) —
+letting a regular user actually create and log against their own categories from the app itself,
+on top of Task 1's backend.
+
+### What was done
+
+- **`frontend/src/components/CategoryCreateForm.tsx`** (new): the same role
+  `HabitCreateForm.tsx` plays for habits - a small, focused "define a category" form, generalized
+  to four value types (boolean/numeric/scale/duration) instead of habit's original three, plus an
+  optional icon field (categories are dynamic, so their icon can't live in a fixed frontend
+  lookup table the way the four built-ins' icons do).
+- **`frontend/src/components/CategoryEntryForm.tsx`** (new): generalizes `HabitEntryForm.tsx`'s
+  type-branching pattern to all four value types. The new "scale" type reuses `RatingScale.tsx`
+  directly (previously used only by Mood's energy/stress and Symptom's severity) rather than a
+  new control - the values array is built from the selected category's own `scaleMin`/`scaleMax`,
+  so an out-of-range value can't be picked in the UI at all, on top of the server's own bounds
+  check.
+- **`frontend/src/components/dashboard/CategorySection.tsx`** (new): unlike the four fixed
+  Dashboard sections (`MoodSection.tsx` etc. - one file each, by this project's own established
+  "adding a log type means adding a file" convention), this one is deliberately the exception -
+  data-driven, looping over whatever `GET /api/categories` returns, since custom categories are
+  unbounded and created at any time by a user or the admin, unlike the four fixed types.
+- **`frontend/src/components/dashboard/QuickAddFab.tsx`**: gained one 5th static "More…" entry
+  dispatching the `"category"` quick-add type - its existing four-item array stays exactly as
+  hardcoded as it already was (that convention is deliberate, per its own code comment, and this
+  is additive to it, not a departure from it).
+- **`frontend/src/pages/SettingsPage.tsx`**: a new `CategoriesSection`, following the existing
+  `SectionCard`+`CollapsibleSection` convention every other Settings section already uses. Lists
+  every visible category (the user's own plus any system/admin ones), with inline rename and
+  archive for the user's own only - a system category simply shows no actions at all, mirroring
+  how the backend's own routes 404 on a system category's id for a regular user's mutation
+  attempt (there's nothing to protect by disabling a button that would fail anyway, but a
+  visibly-absent action reads more clearly than one that errors on click).
+- **`frontend/src/components/dashboard/DashboardSummary.tsx`**: the "Recent entries" merge now
+  includes a `"category"` type with an embedded `categoryId`/`icon` - rendered using that
+  category's own icon, falling back to a generic one only if none was set.
+- **`frontend/src/lib/dashboardQuickAddEvent.ts`** / **`dashboardEntryChangedEvent.ts`**: both
+  type unions widened to include `"category"`.
+
+### Why it's needed
+
+A backend API with no way to reach it from the app isn't a usable feature yet - this task is
+what actually lets a user (not just a direct HTTP client) create their own category and see it
+show up everywhere Task 1 wired it into (Dashboard's recent entries, the reminder nudge).
+
+### Decisions
+
+- **`CategorySection` is the one Dashboard section allowed to be data-driven**, deliberately
+  breaking the "one file per log type" convention the other four sections follow - noted directly
+  in its own code comment so it doesn't read as an oversight or an inconsistency to "fix" later.
+- **`QuickAddFab`'s four-item array stays hardcoded** - adding a 5th static "More…" entry (rather
+  than making the whole array data-driven) was the resolution to a real tension flagged during
+  planning: an unbounded, admin-and-user-created category list can't live inside an array meant
+  to stay a fixed, deliberately-hardcoded four.
+- **Settings shows no action at all for a system category**, rather than a disabled Edit/Archive
+  button - a category a user can never mutate doesn't need a control that would only ever explain
+  itself with an error.
+
+### State at end of this step
+
+Tasks 1 and 2 are complete: a user can create a personal category from either Dashboard's Quick
+Add ("More…") or Settings, log entries against it, see those entries in Dashboard's recent
+entries, and rename/archive their own categories from Settings. Still missing: an admin screen
+for creating system-wide categories (Task 3 - until then, a system category can only be created
+directly against the database, e.g. via `prisma.category.create`), and History's type filter
+doesn't yet know about `"category"` as an option (also Task 3). Trends has no per-category chart
+yet (Task 4, explicit fast-follow).
+
+### Verification
+
+- `npm test` (frontend): full suite green (262 tests), including new
+  `CategoryCreateForm`/`CategoryEntryForm`/`CategorySection` test files and a new
+  `SettingsPage — categories` describe block (list/create/edit/archive, and confirming a system
+  category never shows Edit/Archive).
+- `npx tsc --noEmit`, `npm run build`, `npm run lint` (oxlint), `npx prettier --check`: all clean.
+- **Manual, real-browser verification** against the actual running dev servers (not just
+  automated tests): registered a throwaway account, used Quick Add's new "More…" entry to create
+  a scale category ("Energy level", 1-5, with an icon), logged an entry against it, confirmed it
+  appeared in Dashboard's Recent Entries with its own icon, confirmed the same category appeared
+  in Settings with working Edit/Archive controls, archived it, and deleted the account - a real
+  Playwright run driving the actual UI, not a mocked one, then deleted afterward (this was a
+  one-off verification script, not a permanent addition to the e2e suite).
+
+---

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "../auth/AuthContext";
@@ -401,6 +401,158 @@ describe("SettingsPage — reminders", () => {
         ([url, init]) => url.includes("/api/users/me") && init?.method === "PATCH",
       ),
     ).toBe(false);
+  });
+});
+
+describe("SettingsPage — categories", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const ownCategory = {
+    id: "cat-own",
+    userId: "user-1",
+    name: "Water intake",
+    icon: "💧",
+    valueType: "numeric",
+    scaleMin: null,
+    scaleMax: null,
+    archivedAt: null,
+    createdAt: "2026-08-23T00:00:00.000Z",
+  };
+  const systemCategory = {
+    id: "cat-system",
+    userId: null,
+    name: "Sleep hours",
+    icon: "😴",
+    valueType: "numeric",
+    scaleMin: null,
+    scaleMax: null,
+    archivedAt: null,
+    createdAt: "2026-08-23T00:00:00.000Z",
+  };
+
+  // Session rehydration (AuthProvider's own refresh call) has to succeed and return the same
+  // user id DEFAULT_PROFILE uses, so CategoriesSection's own "is this my category" check
+  // (comparing against useAuth()'s user.id) actually has a real id to compare against - without
+  // this override, /api/auth/refresh 401s by default (see routedFetchMock's own comment) and
+  // every category would render as if it belonged to someone else.
+  function withAuthedUser(overrides: Record<string, (init?: RequestInit) => Response> = {}) {
+    return routedFetchMock({
+      "/api/auth/refresh": () =>
+        jsonResponse(200, { user: DEFAULT_PROFILE, accessToken: "test-token" }),
+      ...overrides,
+    });
+  }
+
+  it("lists categories, distinguishing built-in (system) ones from the user's own", async () => {
+    // A bare (method-less) key, not "GET /api/categories" - apiFetch never sets an explicit
+    // `method` for a plain GET (see api/client.ts), so an exact "GET" match would never fire;
+    // routedFetchMock's method-less keys match any request, which is exactly right here since
+    // this test has no other method hitting this same path to disambiguate from.
+    const fetchMock = withAuthedUser({
+      "/api/categories": () => jsonResponse(200, [ownCategory, systemCategory]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    expect(await screen.findByText(/water intake/i)).toBeInTheDocument();
+    expect(screen.getByText(/sleep hours/i)).toBeInTheDocument();
+    expect(screen.getByText("Built-in")).toBeInTheDocument();
+
+    // Only the user's own category gets Edit/Archive actions - the system one has none.
+    expect(screen.getAllByRole("button", { name: "Edit" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Archive" })).toHaveLength(1);
+  });
+
+  it("creates a new category and shows it in the list", async () => {
+    const createdCategory = {
+      id: "cat-new",
+      userId: "user-1",
+      name: "Reading",
+      icon: null,
+      valueType: "boolean",
+      scaleMin: null,
+      scaleMax: null,
+      archivedAt: null,
+      createdAt: "2026-08-23T00:00:00.000Z",
+    };
+    // Method-specific override listed first - the loop returns on first match, and a bare
+    // (method-less) key would otherwise catch the POST request too before this one is checked.
+    const fetchMock = withAuthedUser({
+      "POST /api/categories": () => jsonResponse(201, createdCategory),
+      "/api/categories": () => jsonResponse(200, []),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByText(/no categories yet/i);
+    await user.click(screen.getByRole("button", { name: "+ New category" }));
+    await user.type(screen.getByLabelText(/category name/i), "Reading");
+    await user.click(screen.getByRole("radio", { name: /yes \/ no/i }));
+    await user.click(screen.getByRole("button", { name: /create category/i }));
+
+    expect(await screen.findByText(/reading/i)).toBeInTheDocument();
+    expect(await screen.findByText(/category created/i)).toBeInTheDocument();
+  });
+
+  it("edits the user's own category's name and icon", async () => {
+    const updatedCategory = { ...ownCategory, name: "Daily water", icon: "🚰" };
+    const fetchMock = withAuthedUser({
+      "PATCH /api/categories": (init) => {
+        const body = JSON.parse(init?.body as string);
+        return jsonResponse(200, { ...ownCategory, ...body });
+      },
+      "/api/categories": () => jsonResponse(200, [ownCategory]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByText(/water intake/i);
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const nameField = screen.getByLabelText(/^name$/i);
+    await user.clear(nameField);
+    await user.type(nameField, updatedCategory.name);
+    // Scoped to the category row itself - "Save" alone is ambiguous against the page's other
+    // "Save"/"Save profile" buttons (e.g. Reminders' own submit button) once every section is
+    // rendered together.
+    const editRow = nameField.closest("li") as HTMLElement;
+    await user.click(within(editRow).getByRole("button", { name: /^save$/i }));
+
+    expect(await screen.findByText(/daily water/i)).toBeInTheDocument();
+  });
+
+  it("archives the user's own category (not a hard delete) and removes it from the list", async () => {
+    const fetchMock = withAuthedUser({
+      "DELETE /api/categories": () =>
+        jsonResponse(200, { ...ownCategory, archivedAt: "2026-08-23T12:00:00.000Z" }),
+      "/api/categories": () => jsonResponse(200, [ownCategory]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderSettingsPage();
+
+    await screen.findByText(/water intake/i);
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(await screen.findByText(/category archived/i)).toBeInTheDocument();
+    expect(screen.queryByText(/water intake/i)).not.toBeInTheDocument();
+  });
+
+  it("never shows Edit/Archive for a system category", async () => {
+    const fetchMock = withAuthedUser({
+      "/api/categories": () => jsonResponse(200, [systemCategory]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    await screen.findByText(/sleep hours/i);
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
   });
 });
 
