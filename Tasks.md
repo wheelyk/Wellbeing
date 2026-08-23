@@ -326,7 +326,7 @@ untouched by any of this.
 - [ ] History's type filter extended to include the user's own visible categories.
 
 ### Task 4 — Trends support (explicit fast-follow, not blocking)
-- [ ] Per-category numeric/scale series reusing `TrendLineChart` directly.
+- [x] Per-category numeric/scale series reusing `TrendLineChart` directly.
 
 ---
 

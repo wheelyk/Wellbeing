@@ -221,3 +221,86 @@ yet (Task 4, explicit fast-follow).
   one-off verification script, not a permanent addition to the e2e suite).
 
 ---
+
+## 2026-08-23 — Task 4: Trends support for custom categories (fast-follow)
+
+**Task:** [Phase 15, Task 4](../../Tasks.md#task-4--trends-support-explicit-fast-follow-not-blocking)
+— the one explicitly optional, non-blocking piece of this feature: a numeric/scale custom
+category gets its own chart on the Trends page, the same as Symptom Severity and Mood already do.
+
+### What was done
+
+- **`backend/src/routes/trends.ts`**: fetches every category visible to the user (their own +
+  any system ones) alongside the existing four log-type queries, plus every `CategoryLog` in the
+  requested period. Builds one `categoryTrends` entry per **numeric or scale** category (boolean/
+  duration categories get no chart, exactly like `Habit` already has none) - each with its own
+  day-by-day series and overall average, built with the exact same `bucketByDay`/`mean` helpers
+  the existing symptom/mood series already use, not a new calculation path. Any category log
+  (any value type) still counts toward the Activity calendar's "was something logged this day"
+  set, matching `dashboard.ts`'s streak and `reminderScheduler.ts`'s `hasLoggedToday`.
+- **`frontend/src/pages/TrendsPage.tsx`**: renders one chart per `categoryTrends` entry, reusing
+  `TrendLineChart` directly - no new chart component, confirming the plan's own premise that this
+  component was already generic enough. A `SCALE` category uses its own real `scaleMin`/
+  `scaleMax` as the chart's domain (identical to how Mood/Symptom already use their own fixed
+  domains); a `NUMERIC` category has no natural bound, so its domain is derived from the data
+  itself (`0` to the largest observed value, with headroom) rather than an arbitrary fixed range.
+  A small rotating color palette covers however many such categories a user has, since (unlike
+  Symptom/Mood) this isn't a fixed set of two.
+
+### Why it's needed
+
+A numeric or scale custom category with real data but no way to see it over time was the one
+honest gap left after Tasks 1-3 - Dashboard and History already showed individual entries, but
+"is this trending up or down" is exactly the question Trends exists to answer for the four
+built-ins, and there was no reason a custom category should be worse off for it once the value
+type already supports averaging.
+
+### Decisions
+
+- **Boolean/duration categories get no chart**, matching `Habit`'s own precedent exactly - a
+  yes/no or duration value doesn't have the same "average over time" meaning a bounded number
+  does, and `Habit` already established that boolean/duration data belongs in the Activity
+  calendar (as a "something happened" signal), not a line chart.
+- **A derived domain for `NUMERIC`, not a fixed one.** Unlike `SCALE` (which has a real, known
+  bound the user chose themselves), a plain number could be anything - "glasses of water" and
+  "pages read" have wildly different natural ranges. Computing the domain from the actual data
+  avoids either clipping real values against a guessed fixed range or wasting most of the chart's
+  vertical space on a range nothing ever reaches.
+- **Reused `TrendLineChart` with zero changes to the component itself** - the plan's own premise
+  (confirmed by the Plan agent during design review, and now confirmed again by actually building
+  it) that this component was already sufficiently generic. No new chart code was needed at all,
+  only new data feeding the same component.
+
+### State at end of this step
+
+All four tasks of the custom-categories feature (Phase 15) are now complete. A user can create
+their own categories or use ones the admin created for everyone, log entries against any of them,
+and see those entries reflected in Dashboard, History, Trends (for numeric/scale ones), and
+counted toward streaks and the daily reminder nudge - full parity with the four original built-in
+categories, everywhere that matters.
+
+### Verification
+
+- `npm test` (backend): full suite green (269 tests), including three new `trends.test.ts` cases
+  (a scale category's own series/average, a category with zero logs in the period still getting
+  an empty-but-present chart, and cross-user isolation for `categoryTrends`) confirming boolean
+  categories are excluded from `categoryTrends` but still count toward `activity`.
+- `npm test` (frontend): full suite green (264 tests on this branch), including new
+  `TrendsPage.test.tsx` cases for a scale category's chart (using its own bounds) and a numeric
+  category's empty state, plus the existing tests' shared fixture updated to include the new
+  `categoryTrends` field.
+- `npx tsc --noEmit`, `npm run build`, `npm run lint`, `npx prettier --check` (both projects): all
+  clean.
+- Verified directly against the real backend: created a scale category via `curl`, logged two
+  entries on different days, and confirmed `GET /api/trends` returned the correct per-day
+  averages, overall average, and `hasActivity` flags - cleaned up afterward.
+- **Real-browser manual verification**: registered a throwaway account, created a scale category
+  via Quick Add, logged an entry, and confirmed its chart actually renders on the Trends page
+  (screenshot captured and reviewed, not just asserted via a DOM query) - correctly showing the
+  sparse-data dashed-placeholder treatment `TrendLineChart` already has for one real data point,
+  the same as Symptom/Mood would in the same situation. Also caught and fixed, while reviewing
+  that screenshot: the Activity section's own copy still said "symptoms, mood, medications, or
+  habits," not yet mentioning categories - updated for accuracy since category logs now count
+  toward it too.
+
+---
