@@ -4,16 +4,21 @@ import {
   type DashboardQuickAddType,
 } from "../../lib/dashboardQuickAddEvent";
 
-// Matches ENTRY_TYPE_ICON in DashboardSummary.tsx - same four types, same icons, so a user
-// recognizes "🙂 Mood" here as the same thing they've already seen in the unified Recent
+// The first four match ENTRY_TYPE_ICON in DashboardSummary.tsx - same types, same icons, so a
+// user recognizes "🙂 Mood" here as the same thing they've already seen in the unified Recent
 // entries list above. Hardcoded, not derived from a shared constant, for the same reason the
 // four Section components are each their own file rather than one generic loop over a config
 // array - see this project's established "adding a log type means adding a file" convention.
+// "category" is the one deliberate exception - it doesn't get its own array entry per category
+// (an unbounded, user/admin-created list can't live in this hardcoded array without breaking
+// that same convention); instead one "More…" entry dispatches the single "category" quick-add
+// type, which CategorySection's own data-driven picker handles - see its own comment.
 const QUICK_ADD_ITEMS: Array<{ key: DashboardQuickAddType; label: string; icon: string }> = [
   { key: "mood", label: "Mood", icon: "🙂" },
   { key: "symptom", label: "Symptom", icon: "🩺" },
   { key: "medication", label: "Medication", icon: "💊" },
   { key: "habit", label: "Habit", icon: "✅" },
+  { key: "category", label: "More…", icon: "➕" },
 ];
 
 // A "+" that opens any of the four Dashboard sections' add dialog directly, regardless of scroll

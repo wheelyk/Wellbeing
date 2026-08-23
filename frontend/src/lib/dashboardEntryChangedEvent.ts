@@ -8,7 +8,7 @@
 // change, which a lifted-state or context approach wouldn't give for free.
 export const DASHBOARD_ENTRY_CHANGED_EVENT = "welltrack:dashboard-entry-changed";
 
-export type DashboardEntryChangedType = "mood" | "symptom" | "medication" | "habit";
+export type DashboardEntryChangedType = "mood" | "symptom" | "medication" | "habit" | "category";
 
 // Fired after a section's own create/edit/delete network call actually succeeds - not on open,
 // cancel, or a failed/rolled-back delete, since those never changed anything DashboardSummary's

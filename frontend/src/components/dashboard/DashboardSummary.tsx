@@ -11,10 +11,14 @@ interface MoodLog {
 }
 
 interface RecentEntry {
-  type: "mood" | "symptom" | "medication" | "habit";
+  type: "mood" | "symptom" | "medication" | "habit" | "category";
   label: string;
   value: string;
   loggedAt: string;
+  // Only present for type "category" - a custom category's icon is per-category (set when it
+  // was created), not one of the four fixed icons ENTRY_TYPE_ICON below already covers.
+  categoryId?: string;
+  icon?: string | null;
 }
 
 interface RecentEntryPage {
@@ -58,6 +62,9 @@ const ENTRY_TYPE_ICON: Record<RecentEntry["type"], string> = {
   symptom: "🩺",
   medication: "💊",
   habit: "✅",
+  // Fallback only - a category entry normally carries its own `icon` (see the render below),
+  // used only if that category was created with no icon set at all.
+  category: "⭐",
 };
 
 interface RecentEntryGroup {
@@ -291,7 +298,9 @@ export function DashboardSummary() {
                           className="flex items-center gap-3 rounded-xl border border-border bg-surface-muted px-4 py-3"
                         >
                           <span className="text-xl" aria-hidden="true">
-                            {ENTRY_TYPE_ICON[entry.type]}
+                            {entry.type === "category" && entry.icon
+                              ? entry.icon
+                              : ENTRY_TYPE_ICON[entry.type]}
                           </span>
                           <p className="text-text">
                             {entry.label} — {entry.value} — {formatEntryDateTime(entry.loggedAt)}

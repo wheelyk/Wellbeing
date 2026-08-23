@@ -14,6 +14,7 @@ import {
   unsubscribeFromPush,
   PushPermissionDeniedError,
 } from "../lib/pushNotifications";
+import { CategoryCreateForm, type Category } from "../components/CategoryCreateForm";
 
 // Mirrors Card.tsx's own visual styling (rounded-2xl border, surface background, shadow) but
 // widens the column instead of Card's `max-w-sm` default - a 2026-08-19 design review found
@@ -448,6 +449,234 @@ function RemindersSection() {
   );
 }
 
+function describeValueType(category: Category): string {
+  switch (category.valueType) {
+    case "boolean":
+      return "Yes / No";
+    case "numeric":
+      return "Number";
+    case "scale":
+      return `Scale (${category.scaleMin}-${category.scaleMax})`;
+    case "duration":
+      return "Duration (minutes)";
+  }
+}
+
+// Lists every category visible to this user (their own, plus any admin-created built-ins),
+// with create/edit/archive available only for their own - a system category never shows those
+// actions at all, mirroring how categories.ts's own PATCH/DELETE routes 404 on a system
+// category's id for a regular user (there's nothing to hide by disabling a button that would
+// fail anyway, but a visibly missing action is clearer than a button that errors on click).
+function CategoriesSection() {
+  const { user } = useAuth();
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editIcon, setEditIcon] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<Category[]>("/api/categories")
+      .then((res) => {
+        if (!cancelled) setCategories(res);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function handleCreated(category: Category) {
+    setCategories((prev) => [...prev, category].sort((a, b) => a.name.localeCompare(b.name)));
+    setShowCreateForm(false);
+    setActionMessage("Category created.");
+  }
+
+  function startEdit(category: Category) {
+    setEditingId(category.id);
+    setEditName(category.name);
+    setEditIcon(category.icon ?? "");
+    setEditError(null);
+  }
+
+  async function handleEditSave(id: string) {
+    if (!editName.trim()) {
+      setEditError("Give this category a name.");
+      return;
+    }
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const updated = await apiFetch<Category>(`/api/categories/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: editName.trim(), icon: editIcon.trim() || null }),
+      });
+      setCategories((prev) => prev.map((c) => (c.id === id ? updated : c)));
+      setEditingId(null);
+    } catch {
+      setEditError("Something went wrong saving this category. Please try again.");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function handleArchive(id: string) {
+    // Archiving (not deleting) is the real backend action here (see categories.ts) - existing
+    // entries against this category are kept, just no longer offered for new logging.
+    const confirmed = window.confirm(
+      "Archive this category? Existing entries are kept, but it won't be offered for new logging.",
+    );
+    if (!confirmed) return;
+
+    const previous = categories;
+    setCategories((prev) => prev.filter((c) => c.id !== id));
+    try {
+      await apiFetch(`/api/categories/${id}`, { method: "DELETE" });
+      setActionMessage("Category archived.");
+    } catch {
+      setCategories(previous);
+      setActionMessage(null);
+    }
+  }
+
+  return (
+    <SectionCard>
+      <CollapsibleSection title="Categories" storageKey="settings.categories">
+        <p className="mb-4 text-sm text-text-muted">
+          Beyond mood, symptoms, medications and habits, create your own trackable categories -
+          alongside any an admin has added for everyone.
+        </p>
+        {loading && <p className="text-sm text-text-muted">Loading…</p>}
+        {loadError && (
+          <p role="alert" className="text-sm text-danger">
+            Couldn't load your categories. Please refresh the page.
+          </p>
+        )}
+        {!loading && !loadError && (
+          <>
+            {actionMessage && (
+              <p role="status" className="mb-3 text-sm text-success">
+                {actionMessage}
+              </p>
+            )}
+            {categories.length === 0 ? (
+              <p className="text-sm text-text-muted">No categories yet.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {categories.map((category) => {
+                  const isOwn = category.userId === user?.id;
+                  const isEditing = editingId === category.id;
+                  return (
+                    <li
+                      key={category.id}
+                      className="rounded-xl border border-border bg-surface-muted p-3"
+                    >
+                      {isEditing ? (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex gap-2">
+                            <TextField
+                              label="Name"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                            />
+                            <TextField
+                              label="Icon"
+                              value={editIcon}
+                              onChange={(e) => setEditIcon(e.target.value)}
+                              maxLength={8}
+                            />
+                          </div>
+                          {editError && (
+                            <p role="alert" className="text-sm text-danger">
+                              {editError}
+                            </p>
+                          )}
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              onClick={() => handleEditSave(category.id)}
+                              disabled={editSaving}
+                            >
+                              {editSaving ? "Saving…" : "Save"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              onClick={() => setEditingId(null)}
+                              disabled={editSaving}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-text">
+                              {category.icon ? `${category.icon} ` : ""}
+                              {category.name}
+                              {!isOwn && (
+                                <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+                                  Built-in
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-xs text-text-muted">{describeValueType(category)}</p>
+                          </div>
+                          {isOwn && (
+                            <div className="flex shrink-0 gap-2">
+                              <Button variant="secondary" onClick={() => startEdit(category)}>
+                                Edit
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                onClick={() => handleArchive(category.id)}
+                              >
+                                Archive
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {showCreateForm ? (
+              <div className="mt-4 border-t border-border pt-4">
+                <CategoryCreateForm
+                  onCreated={handleCreated}
+                  onCancel={() => setShowCreateForm(false)}
+                />
+              </div>
+            ) : (
+              <Button
+                type="button"
+                onClick={() => setShowCreateForm(true)}
+                className="mt-4 self-start"
+              >
+                + New category
+              </Button>
+            )}
+          </>
+        )}
+      </CollapsibleSection>
+    </SectionCard>
+  );
+}
+
 function ExportDataSection() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -643,6 +872,10 @@ export function SettingsPage() {
 
         <section className="mt-6">
           <RemindersSection />
+        </section>
+
+        <section className="mt-6">
+          <CategoriesSection />
         </section>
 
         <section className="mt-6">
