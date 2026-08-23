@@ -198,3 +198,74 @@ secrets.
 - `npm run build`, `npm run lint`, `npx prettier --check` (both projects): all clean.
 
 ---
+
+## 2026-08-23 — Production verification, and a third real bug: losing the user gesture between click and permission request
+
+**Task:** Not a new feature — verifying this feature actually works against production now
+that real VAPID keys exist, and following up on what that verification found.
+
+### What was done
+
+Generated a fresh production VAPID keypair, walked through adding it to Railway's Variables tab
+on the correct (backend) service, and confirmed via a throwaway account that
+`GET /api/push/vapid-public-key` returned the real key (`200`, matching what was configured) —
+it had initially kept returning the pre-configuration `500` even after the variables were added,
+because Railway hadn't yet run a fresh deployment to load them into the running process (adding
+variables alone didn't trigger one here); a manual redeploy from the Railway dashboard fixed
+that. This mirrors this project's own recurring lesson about environment configuration: a value
+being *set somewhere* isn't the same as it being *loaded into the process that reads it*.
+
+With the backend confirmed working, a real end-to-end check on an Android phone (Chrome, over
+the actual deployed frontend) surfaced a genuine bug: enabling reminders in Settings always
+reported "Notifications were blocked" — but the site was never actually listed as blocked in
+Chrome's own Site Settings, meaning the browser's notification permission for the site was still
+`default`, not `denied`.
+
+**Root cause:** `RemindersSection`'s submit handler
+(`frontend/src/pages/SettingsPage.tsx`) did `await apiFetch(".../vapid-public-key")` *before*
+calling `subscribeToPush` (which is what actually calls `Notification.requestPermission()`).
+Browsers only treat a permission request as tied to the user's own click for a short window
+after that click — an awaited network round-trip in between is enough to lose it, and when that
+happens, mobile Chrome specifically auto-rejects the request *silently*, without ever showing
+the real permission prompt and without persisting an actual site-level "blocked" decision. The
+app's own error message ("blocked") was technically accurate for that one call, but confusingly
+implied a persisted browser-level block that had never actually happened — hence not finding it
+listed anywhere to un-block.
+
+**Fix:** fetch the VAPID public key once, in the same `useEffect` that already loads the user's
+profile on mount, and have the submit handler use that cached value directly. Enabling reminders
+now calls `subscribeToPush` with no `await` in front of it inside the click handler's own call
+stack, preserving the gesture all the way to `Notification.requestPermission()`.
+
+### Why it's needed
+
+Same general lesson as the two bugs found while first building this feature: a mocked test
+environment can't surface this either — jsdom has no concept of "user activation" at all, so
+every existing automated test for this flow passed both before and after the fix. This one
+needed a real phone, a real click, and a real (initially slow enough) network round-trip to
+show up at all.
+
+### Decisions
+
+- **Pre-fetch on mount, not lazily on first use.** The public key rarely changes and is cheap to
+  fetch once; the alternative (fetching lazily but somehow "close enough" to the click) is fragile
+  and depends on network timing rather than removing the await entirely.
+- **Fail silently if the pre-fetch fails**, rather than surfacing a separate error before the user
+  even tries to enable reminders — `handleSubmit`'s own existing guard (`vapidPublicKey` still
+  `null`) already reports a clear error at the point the user actually acts, so a second, earlier
+  warning would be redundant.
+
+### Verification
+
+- `npm test` (frontend): full suite green (235 tests), including the existing
+  `SettingsPage — reminders` tests, unchanged — they already mocked
+  `GET /api/push/vapid-public-key` per-test, which now simply gets hit on mount instead of on
+  submit.
+- `npx tsc --noEmit`: clean.
+- Production: re-verified `GET /api/push/vapid-public-key` returns `200` with the real key via a
+  throwaway account (registered, checked, deleted via `DELETE /api/users/me`).
+- **Still to be manually re-confirmed**: enabling reminders on the same Android phone that
+  originally surfaced this bug, to see the real permission prompt appear (rather than the
+  silent-deny message) now that the gesture is preserved.
+
+---
