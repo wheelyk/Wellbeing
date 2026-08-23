@@ -5,6 +5,8 @@ import type { Symptom, SymptomLog } from "../../components/SymptomEntryForm";
 import type { MedicationLog } from "../../components/MedicationEntryForm";
 import type { HabitLog } from "../../components/HabitEntryForm";
 import type { Habit } from "../../components/HabitCreateForm";
+import type { CategoryLog } from "../../components/CategoryEntryForm";
+import type { Category } from "../../components/CategoryCreateForm";
 
 // The unified GET /api/history endpoint (see backend/src/routes/history.ts) only returns a
 // display-ready {label, notes, loggedAt} shape - enough to render the list, but not enough to
@@ -22,6 +24,7 @@ const LIST_PATH: Record<HistoryEntryType, string> = {
   symptom: "/api/symptom-logs",
   medication: "/api/medication-logs",
   habit: "/api/habit-logs",
+  category: "/api/category-logs",
 };
 
 interface LogPage<T> {
@@ -75,12 +78,18 @@ export function fetchMedicationLog(
 export function fetchHabitLog(id: string, loggedAtHint: string): Promise<HabitLog | null> {
   return findLogById<HabitLog>("habit", id, loggedAtHint);
 }
+export function fetchCategoryLog(id: string, loggedAtHint: string): Promise<CategoryLog | null> {
+  return findLogById<CategoryLog>("category", id, loggedAtHint);
+}
 
 export function fetchSymptoms(): Promise<Symptom[]> {
   return apiFetch<Symptom[]>("/api/symptoms");
 }
 export function fetchHabits(): Promise<Habit[]> {
   return apiFetch<Habit[]>("/api/habits");
+}
+export function fetchCategories(): Promise<Category[]> {
+  return apiFetch<Category[]>("/api/categories");
 }
 
 // ---- Label formatting ------------------------------------------------------------------------
@@ -121,4 +130,34 @@ export function habitValueLabel(log: {
 
 export function habitLabel(habitName: string, log: Parameters<typeof habitValueLabel>[0]): string {
   return `${habitName}: ${habitValueLabel(log)}`;
+}
+
+// Mirrors habitValueLabel, plus the "scale" type (sharing valueNumeric with plain "numeric") -
+// rendered as "value/max" using the category's own scaleMax, matching how
+// dashboard.ts/CategorySection.tsx already format a scale category's value.
+export function categoryValueLabel(
+  log: {
+    valueBoolean: boolean | null;
+    valueNumeric: number | null;
+    valueDurationMinutes: number | null;
+  },
+  category: { valueType: Category["valueType"]; scaleMax: number | null },
+): string {
+  if (log.valueBoolean !== null) return log.valueBoolean ? "Done" : "Not done";
+  if (log.valueDurationMinutes !== null) return `${log.valueDurationMinutes} min`;
+  if (log.valueNumeric !== null) {
+    if (category.valueType === "scale" && category.scaleMax !== null) {
+      return `${log.valueNumeric}/${category.scaleMax}`;
+    }
+    return `${log.valueNumeric}`;
+  }
+  return "—";
+}
+
+export function categoryLabel(
+  categoryName: string,
+  log: Parameters<typeof categoryValueLabel>[0],
+  category: Parameters<typeof categoryValueLabel>[1],
+): string {
+  return `${categoryName}: ${categoryValueLabel(log, category)}`;
 }

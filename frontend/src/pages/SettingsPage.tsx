@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type HTMLAttributes } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { apiFetch, apiFetchFile, ApiError } from "../api/client";
 import { NavBar } from "../components/NavBar";
@@ -557,6 +557,14 @@ function CategoriesSection() {
           Beyond mood, symptoms, medications and habits, create your own trackable categories -
           alongside any an admin has added for everyone.
         </p>
+        {user?.isAdmin && (
+          <Link
+            to="/admin/categories"
+            className="mb-4 inline-block text-sm font-medium text-brand underline-offset-2 hover:underline"
+          >
+            Manage global categories (admin)
+          </Link>
+        )}
         {loading && <p className="text-sm text-text-muted">Loading…</p>}
         {loadError && (
           <p role="alert" className="text-sm text-danger">

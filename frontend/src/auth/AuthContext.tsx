@@ -20,6 +20,10 @@ export interface AuthUser {
   displayName: string;
   timezone: string;
   createdAt: string;
+  // Computed server-side from an ADMIN_EMAIL env var, not a stored role (see backend's
+  // lib/isAdmin.ts) - there's exactly one admin account, confirmed with the project owner.
+  // Gates RequireAdmin.tsx and the admin-only link in Settings.
+  isAdmin: boolean;
 }
 
 interface AuthState {
