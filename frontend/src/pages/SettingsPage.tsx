@@ -287,6 +287,7 @@ function RemindersSection() {
   const [loadError, setLoadError] = useState(false);
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [reminderTime, setReminderTime] = useState(DEFAULT_REMINDER_TIME);
+  const [vapidPublicKey, setVapidPublicKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -305,6 +306,21 @@ function RemindersSection() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    // Fetched up front (not inside handleSubmit) so enabling reminders can call
+    // subscribeToPush - and therefore Notification.requestPermission() - with no network
+    // round-trip in between the click and the permission request. Browsers only honor a
+    // permission request as tied to the user's actual gesture for a short window; an awaited
+    // fetch in between (the previous shape of this code) was long enough for mobile Chrome to
+    // silently auto-deny the request without ever showing the real prompt, which also means it
+    // never persisted an actual "blocked" site entry - confirmed directly against a real device.
+    apiFetch<{ publicKey: string }>("/api/push/vapid-public-key")
+      .then((res) => {
+        if (!cancelled) setVapidPublicKey(res.publicKey);
+      })
+      .catch(() => {
+        // Reminders simply can't be enabled from this session if this fails - handleSubmit's
+        // own guard below surfaces that, rather than duplicating an error message here too.
+      });
     return () => {
       cancelled = true;
     };
@@ -321,9 +337,13 @@ function RemindersSection() {
         // Requests notification permission and subscribes this browser first - if the user
         // says no, or this browser can't do push at all, the preference below is never saved
         // as enabled, so Settings doesn't claim a reminder will arrive when nothing was ever
-        // actually set up to deliver one.
-        const { publicKey } = await apiFetch<{ publicKey: string }>("/api/push/vapid-public-key");
-        await subscribeToPush(publicKey);
+        // actually set up to deliver one. Uses the key already fetched on mount (see the effect
+        // above) rather than fetching it here - an await right before requestPermission() risks
+        // losing the user gesture this call needs.
+        if (!vapidPublicKey) {
+          throw new Error("VAPID public key is not available yet");
+        }
+        await subscribeToPush(vapidPublicKey);
       } else {
         // Best-effort - reminders can be turned off from a different browser/device than the
         // one that's actually subscribed, so there may be nothing to unsubscribe here at all.

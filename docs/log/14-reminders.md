@@ -198,3 +198,110 @@ secrets.
 - `npm run build`, `npm run lint`, `npx prettier --check` (both projects): all clean.
 
 ---
+
+## 2026-08-23 — Production verification, and a third real bug: losing the user gesture between click and permission request
+
+**Task:** Not a new feature — verifying this feature actually works against production now
+that real VAPID keys exist, and following up on what that verification found.
+
+### Background / concepts
+
+#### "User activation" (a.k.a. "user gesture"): why a real click isn't always enough
+
+A handful of browser APIs are deliberately restricted so a website can't invoke them entirely on
+its own, without a person actually asking for it — `Notification.requestPermission()` (used
+here), opening a popup window, entering fullscreen, and auto-playing audio with sound are the
+common ones. The browser makes this restriction possible by tracking **user activation**: a
+short-lived flag that becomes `true` the instant a person does something like click a button or
+press a key, and expires again after a brief window (a handful of seconds at most, and shorter
+still if any `await` happens in between). Any of those restricted APIs called while activation is
+`true` works normally, i.e. it shows the real browser-native prompt/permission dialog; called
+while it's `false`, most browsers **don't show an error or throw** — they simply act as if the
+person had said no, silently, without ever displaying anything. That silent-no behavior is
+exactly what made this bug confusing: the code wasn't broken in any way that raised an exception,
+and the resulting `"denied"` looked identical to a real, deliberate decline.
+
+The part that actually caused this bug: activation is consumed by the *first* thing that uses it,
+and an `await` on a network call in between a click and a restricted API call is one of the most
+common ways to lose it entirely — by the time the awaited fetch resolves (a real round-trip to
+Railway, not instant), the short window has already closed, even though the whole chain started
+from one genuine, unbroken user click with nothing else happening in between as far as the person
+was concerned.
+
+**When this matters, and the general fix.** Any code path that leads to
+`Notification.requestPermission()` (or the other gesture-gated APIs above) needs to reach that
+call with as few `await`s ahead of it as possible, ideally zero, starting from the actual click
+handler. The general technique — used here — is to do any *unrelated* async setup (fetching
+configuration, checking state, etc.) **before** the click, not after it: cache what's needed
+ahead of time (this app's `useEffect` on mount) so the click handler's own call stack can invoke
+the gesture-gated API immediately. Where that isn't possible — the data genuinely can't be known
+until the user acts — the alternative is to request permission *first*, with nothing else awaited
+before it, and only do the dependent async work afterward once permission is confirmed granted.
+There's no way to "extend" or "refresh" activation once it's gone; avoiding the gap is the only
+fix.
+
+### What was done
+
+Generated a fresh production VAPID keypair, walked through adding it to Railway's Variables tab
+on the correct (backend) service, and confirmed via a throwaway account that
+`GET /api/push/vapid-public-key` returned the real key (`200`, matching what was configured) —
+it had initially kept returning the pre-configuration `500` even after the variables were added,
+because Railway hadn't yet run a fresh deployment to load them into the running process (adding
+variables alone didn't trigger one here); a manual redeploy from the Railway dashboard fixed
+that. This mirrors this project's own recurring lesson about environment configuration: a value
+being *set somewhere* isn't the same as it being *loaded into the process that reads it*.
+
+With the backend confirmed working, a real end-to-end check on an Android phone (Chrome, over
+the actual deployed frontend) surfaced a genuine bug: enabling reminders in Settings always
+reported "Notifications were blocked" — but the site was never actually listed as blocked in
+Chrome's own Site Settings, meaning the browser's notification permission for the site was still
+`default`, not `denied`.
+
+**Root cause:** `RemindersSection`'s submit handler
+(`frontend/src/pages/SettingsPage.tsx`) did `await apiFetch(".../vapid-public-key")` *before*
+calling `subscribeToPush` (which is what actually calls `Notification.requestPermission()`).
+Browsers only treat a permission request as tied to the user's own click for a short window
+after that click — an awaited network round-trip in between is enough to lose it, and when that
+happens, mobile Chrome specifically auto-rejects the request *silently*, without ever showing
+the real permission prompt and without persisting an actual site-level "blocked" decision. The
+app's own error message ("blocked") was technically accurate for that one call, but confusingly
+implied a persisted browser-level block that had never actually happened — hence not finding it
+listed anywhere to un-block.
+
+**Fix:** fetch the VAPID public key once, in the same `useEffect` that already loads the user's
+profile on mount, and have the submit handler use that cached value directly. Enabling reminders
+now calls `subscribeToPush` with no `await` in front of it inside the click handler's own call
+stack, preserving the gesture all the way to `Notification.requestPermission()`.
+
+### Why it's needed
+
+Same general lesson as the two bugs found while first building this feature: a mocked test
+environment can't surface this either — jsdom has no concept of "user activation" at all, so
+every existing automated test for this flow passed both before and after the fix. This one
+needed a real phone, a real click, and a real (initially slow enough) network round-trip to
+show up at all.
+
+### Decisions
+
+- **Pre-fetch on mount, not lazily on first use.** The public key rarely changes and is cheap to
+  fetch once; the alternative (fetching lazily but somehow "close enough" to the click) is fragile
+  and depends on network timing rather than removing the await entirely.
+- **Fail silently if the pre-fetch fails**, rather than surfacing a separate error before the user
+  even tries to enable reminders — `handleSubmit`'s own existing guard (`vapidPublicKey` still
+  `null`) already reports a clear error at the point the user actually acts, so a second, earlier
+  warning would be redundant.
+
+### Verification
+
+- `npm test` (frontend): full suite green (235 tests), including the existing
+  `SettingsPage — reminders` tests, unchanged — they already mocked
+  `GET /api/push/vapid-public-key` per-test, which now simply gets hit on mount instead of on
+  submit.
+- `npx tsc --noEmit`: clean.
+- Production: re-verified `GET /api/push/vapid-public-key` returns `200` with the real key via a
+  throwaway account (registered, checked, deleted via `DELETE /api/users/me`).
+- **Still to be manually re-confirmed**: enabling reminders on the same Android phone that
+  originally surfaced this bug, to see the real permission prompt appear (rather than the
+  silent-deny message) now that the gesture is preserved.
+
+---
