@@ -141,9 +141,40 @@ describe("GET /api/history", () => {
     const res = await request(app).get("/api/history").set(authed(accessToken));
 
     const labels = res.body.entries.map((e: { label: string }) => e.label);
-    expect(labels).toEqual(
-      expect.arrayContaining(["Glasses of water: 6", "Meditation: 15 min"]),
-    );
+    expect(labels).toEqual(expect.arrayContaining(["Glasses of water: 6", "Meditation: 15 min"]));
+  });
+
+  it("includes custom category logs, formatted the same way as habit values, and filters by them too", async () => {
+    const { accessToken } = await registerAndLogin("category-entries");
+
+    const scaleCategory = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Energy level", valueType: "scale", scaleMin: 1, scaleMax: 5 });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId: scaleCategory.body.id, valueNumeric: 4 });
+
+    const durationCategory = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Meditation", valueType: "duration" });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId: durationCategory.body.id, valueDurationMinutes: 15 });
+
+    const res = await request(app).get("/api/history").set(authed(accessToken));
+    const labels = res.body.entries.map((e: { label: string }) => e.label);
+    expect(labels).toEqual(expect.arrayContaining(["Energy level: 4/5", "Meditation: 15 min"]));
+
+    const filtered = await request(app)
+      .get("/api/history")
+      .query({ type: "category" })
+      .set(authed(accessToken));
+    expect(filtered.body.entries).toHaveLength(2);
+    expect(filtered.body.entries.every((e: { type: string }) => e.type === "category")).toBe(true);
   });
 
   it("filters by entry type", async () => {

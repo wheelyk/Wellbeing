@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { clearRefreshTokenCookie } from "../lib/cookies";
+import { isAdminEmail } from "../lib/isAdmin";
 
 // Validates by actually constructing an Intl.DateTimeFormat with this zone - the same call
 // `backend/src/lib/timezone.ts` makes for real, downstream, to resolve a user's calendar day -
@@ -67,7 +68,8 @@ usersRouter.get("/me", async (req, res) => {
     return res.status(404).json({ error: { message: "User not found", code: "USER_NOT_FOUND" } });
   }
 
-  res.json(user);
+  // Computed, not stored/selected (isAdmin isn't a database column - see lib/isAdmin.ts).
+  res.json({ ...user, isAdmin: isAdminEmail(user.email) });
 });
 
 usersRouter.patch("/me", async (req, res) => {
@@ -88,7 +90,7 @@ usersRouter.patch("/me", async (req, res) => {
     select: PROFILE_SELECT,
   });
 
-  res.json(user);
+  res.json({ ...user, isAdmin: isAdminEmail(user.email) });
 });
 
 usersRouter.delete("/me", async (req, res) => {

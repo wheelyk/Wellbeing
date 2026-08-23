@@ -9,6 +9,7 @@ import { clearRefreshTokenCookie, setRefreshTokenCookie } from "../lib/cookies";
 import { sendPasswordResetEmail } from "../lib/mail";
 import { requireAuth } from "../middleware/requireAuth";
 import { authRateLimiter } from "../middleware/rateLimiter";
+import { isAdminEmail } from "../lib/isAdmin";
 
 const SALT_ROUNDS = 12;
 
@@ -52,6 +53,11 @@ function serializeUser(user: {
     displayName: user.displayName,
     timezone: user.timezone,
     createdAt: user.createdAt,
+    // Computed, not stored - see lib/isAdmin.ts. AuthContext is populated from /login and
+    // /refresh (both call this function), never from GET /api/users/me directly, so isAdmin has
+    // to be added here too, not just on the /me response, or the frontend's session-derived
+    // admin state would lag a full page reload.
+    isAdmin: isAdminEmail(user.email),
   };
 }
 

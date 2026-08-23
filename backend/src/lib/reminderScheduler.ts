@@ -21,14 +21,17 @@ async function hasLoggedToday(userId: string, today: string, timezone: string): 
   const { start, end } = getDayRangeUtc(today, timezone);
   const where = { userId, loggedAt: { gte: start, lt: end } };
 
-  const [mood, symptom, medication, habit] = await Promise.all([
+  const [mood, symptom, medication, habit, category] = await Promise.all([
     prisma.moodLog.findFirst({ where, select: { id: true } }),
     prisma.symptomLog.findFirst({ where, select: { id: true } }),
     prisma.medicationLog.findFirst({ where, select: { id: true } }),
     prisma.habitLog.findFirst({ where, select: { id: true } }),
+    prisma.categoryLog.findFirst({ where, select: { id: true } }),
   ]);
 
-  return mood !== null || symptom !== null || medication !== null || habit !== null;
+  return (
+    mood !== null || symptom !== null || medication !== null || habit !== null || category !== null
+  );
 }
 
 async function sendReminderToUser(userId: string): Promise<void> {

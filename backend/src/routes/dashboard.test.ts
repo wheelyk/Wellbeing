@@ -182,6 +182,39 @@ describe("GET /api/dashboard", () => {
     );
   });
 
+  it("includes custom category logs in recentEntries, and counts them toward the streak", async () => {
+    const { accessToken } = await registerAndLogin("category-entries");
+    const date = "2026-08-17";
+    const loggedAt = `${date}T09:00:00.000Z`;
+
+    const scaleCategory = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Energy level", valueType: "scale", scaleMin: 1, scaleMax: 5, icon: "⚡" });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId: scaleCategory.body.id, valueNumeric: 4, loggedAt });
+
+    const res = await request(app).get("/api/dashboard").query({ date }).set(authed(accessToken));
+
+    expect(res.status).toBe(200);
+    const categoryEntry = res.body.recentEntries.entries.find(
+      (entry: { type: string }) => entry.type === "category",
+    );
+    expect(categoryEntry).toMatchObject({
+      label: "Energy level",
+      value: "4/5",
+      categoryId: scaleCategory.body.id,
+      icon: "⚡",
+    });
+
+    // A day with *only* a category log (no mood/symptom/medication/habit entry at all) still
+    // counts as "logged" for streak purposes - hasLoggedToday's own reasoning in
+    // reminderScheduler.ts applies identically here.
+    expect(res.body.streak.current).toBe(1);
+  });
+
   it("scopes results to the requested date only, excluding entries on other days", async () => {
     const { accessToken } = await registerAndLogin("scoped");
 

@@ -92,6 +92,21 @@ describe("runReminderTick", () => {
     expect(sendNotification).not.toHaveBeenCalled();
   });
 
+  it("does not send if the only thing logged today is a custom category entry", async () => {
+    const user = await registerReminderUser("category-only");
+    await addSubscription(user.id, "category-only");
+    const category = await prisma.category.create({
+      data: { userId: user.id, name: "Water intake", valueType: "NUMERIC" },
+    });
+    await prisma.categoryLog.create({
+      data: { userId: user.id, categoryId: category.id, valueNumeric: 3 },
+    });
+
+    await runReminderTick();
+
+    expect(sendNotification).not.toHaveBeenCalled();
+  });
+
   it("does not send twice in the same day", async () => {
     const user = await registerReminderUser("already-sent", { lastReminderSentDate: "2026-08-22" });
     await addSubscription(user.id, "already-sent");
