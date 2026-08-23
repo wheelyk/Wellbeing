@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import type { CategoryValueType as PrismaCategoryValueType } from "../generated/prisma/client";
 import { getDayRangeUtc } from "../lib/timezone";
 
-const HISTORY_TYPES = ["mood", "symptom", "medication", "habit"] as const;
+const HISTORY_TYPES = ["mood", "symptom", "medication", "habit", "category"] as const;
 type HistoryType = (typeof HISTORY_TYPES)[number];
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -48,6 +49,25 @@ function formatHabitValue(log: {
   if (log.valueBoolean !== null) return log.valueBoolean ? "Done" : "Not done";
   if (log.valueNumeric !== null) return `${log.valueNumeric}`;
   if (log.valueDurationMinutes !== null) return `${log.valueDurationMinutes} min`;
+  return "—";
+}
+
+// Mirrors dashboard.ts's identical formatCategoryLogValue - see there for why SCALE renders as
+// "value/max" instead of a bare number.
+function formatCategoryLogValue(log: {
+  valueBoolean: boolean | null;
+  valueNumeric: number | null;
+  valueDurationMinutes: number | null;
+  category: { valueType: PrismaCategoryValueType; scaleMax: number | null };
+}): string {
+  if (log.valueBoolean !== null) return log.valueBoolean ? "Done" : "Not done";
+  if (log.valueDurationMinutes !== null) return `${log.valueDurationMinutes} min`;
+  if (log.valueNumeric !== null) {
+    if (log.category.valueType === "SCALE" && log.category.scaleMax !== null) {
+      return `${log.valueNumeric}/${log.category.scaleMax}`;
+    }
+    return `${log.valueNumeric}`;
+  }
   return "—";
 }
 
@@ -118,7 +138,7 @@ historyRouter.get("/", async (req, res) => {
   // guessed at.
   const fetchCap = offset + limit + 1;
 
-  const [moodLogs, symptomLogs, medicationLogs, habitLogs] = await Promise.all([
+  const [moodLogs, symptomLogs, medicationLogs, habitLogs, categoryLogs] = await Promise.all([
     wantsType("mood")
       ? prisma.moodLog.findMany({
           where: { userId, ...dateFilter },
@@ -170,6 +190,19 @@ historyRouter.get("/", async (req, res) => {
           include: { habit: true },
         })
       : Promise.resolve([]),
+    wantsType("category")
+      ? prisma.categoryLog.findMany({
+          where: { userId, ...dateFilter },
+          // `id` as a secondary sort key - see moodLogs.ts's identical `orderBy` for why this
+          // matters. The in-memory merge below already breaks loggedAt ties by id for the
+          // *final* ordering, but that alone doesn't help if the DB-level `take: fetchCap` cutoff
+          // itself non-deterministically chose *which* tied rows survived to reach that merge in
+          // the first place - the tiebreak needs to happen at the query level too.
+          orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
+          take: fetchCap,
+          include: { category: { select: { name: true, valueType: true, scaleMax: true } } },
+        })
+      : Promise.resolve([]),
   ]);
 
   const entries: HistoryEntry[] = [
@@ -198,6 +231,13 @@ historyRouter.get("/", async (req, res) => {
       id: log.id,
       type: "habit" as const,
       label: `${log.habit.name}: ${formatHabitValue(log)}`,
+      notes: log.notes,
+      loggedAt: log.loggedAt.toISOString(),
+    })),
+    ...categoryLogs.map((log) => ({
+      id: log.id,
+      type: "category" as const,
+      label: `${log.category.name}: ${formatCategoryLogValue(log)}`,
       notes: log.notes,
       loggedAt: log.loggedAt.toISOString(),
     })),

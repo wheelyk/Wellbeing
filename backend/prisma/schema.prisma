@@ -44,6 +44,8 @@ model User {
   symptoms          Symptom[]
   symptomLogs       SymptomLog[]
   pushSubscriptions PushSubscription[]
+  categories        Category[]
+  categoryLogs      CategoryLog[]
 
   @@map("users")
 }
@@ -237,4 +239,82 @@ model SymptomLog {
   // filters by user and orders/ranges by date together.
   @@index([userId, loggedAt])
   @@map("symptom_logs")
+}
+
+// A category's `valueType` decides which single column on CategoryLog is expected to be
+// populated - the same three (BOOLEAN/NUMERIC/DURATION) Habit already has, plus SCALE: a
+// bounded 1-N picker (see Category.scaleMin/scaleMax) generalizing what Mood/Symptom already do
+// with their own fixed scales. SCALE shares NUMERIC's storage column (valueNumeric) - the two
+// differ only in whether a min/max bound is enforced at write time, not in how the value itself
+// is stored.
+enum CategoryValueType {
+  BOOLEAN
+  NUMERIC
+  SCALE
+  DURATION
+
+  @@map("category_value_type")
+}
+
+// A user-extensible trackable category, alongside (not replacing) the four fixed built-in
+// categories above. `userId` follows the exact same nullable convention Symptom already
+// established: null = a system-wide category (created only via the admin-only routes, visible
+// to every user), set = a user's own personal category, visible only to them.
+model Category {
+  id        String            @id @default(uuid())
+  userId    String?           @map("user_id")
+  name      String
+  icon      String?
+  valueType CategoryValueType @map("value_type")
+  // Only meaningful when valueType is SCALE - enforced in application code (see
+  // routes/categories.ts and categoryLogs.ts), the same choice Symptom/Habit already made for
+  // their own type-conditional fields rather than a DB CHECK constraint.
+  scaleMin  Int?              @map("scale_min")
+  scaleMax  Int?              @map("scale_max")
+  // Archiving (not deleting) is this model's primary "remove" action - a system category used by
+  // even one user would otherwise become permanently undeletable the moment CategoryLog's
+  // Restrict relation (below) kicks in, which is fine for a personal mistake but not for an admin
+  // wanting to retire a bad built-in. Excluded from default listings; a log against an archived
+  // category still resolves it by id in History, exactly like any other now-hidden reference.
+  archivedAt DateTime?        @map("archived_at")
+  createdAt DateTime          @default(now()) @map("created_at")
+
+  user User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs CategoryLog[]
+
+  // Every "list my categories" query (GET /api/categories) filters on userId (including the
+  // NULL case for system categories), the same reasoning as Symptom's own index.
+  @@index([userId])
+  @@map("categories")
+}
+
+model CategoryLog {
+  id         String @id @default(uuid())
+  userId     String @map("user_id")
+  categoryId String @map("category_id")
+
+  // Exactly one of these three is populated, matching the parent Category's `valueType` -
+  // enforced in application code (see routes/categoryLogs.ts), the same shape and reasoning as
+  // HabitLog's own three nullable value columns.
+  valueBoolean         Boolean? @map("value_boolean")
+  valueNumeric         Float?   @map("value_numeric")
+  valueDurationMinutes Int?     @map("value_duration_minutes")
+
+  notes    String?
+  loggedAt DateTime @default(now()) @map("logged_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // No onDelete: Cascade from Category - same reasoning as SymptomLog -> Symptom: deleting a
+  // category (rather than archiving it) shouldn't silently destroy a user's historical logs
+  // against it. Restrict is the safety net for the genuine zero-logs accidental-delete case;
+  // Category.archivedAt above is the actual day-to-day "remove" action, for both personal and
+  // system categories.
+  category Category @relation(fields: [categoryId], references: [id])
+
+  // Same reasoning as MoodLog's composite index: every dashboard/history/trends query filters by
+  // user and orders/ranges by date together.
+  @@index([userId, loggedAt])
+  // Supports "this category's log history" lookups (e.g. a per-category detail/trend view).
+  @@index([categoryId, loggedAt])
+  @@map("category_logs")
 }

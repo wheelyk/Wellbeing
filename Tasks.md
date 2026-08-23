@@ -296,6 +296,40 @@ Reference: requirements §19.
 
 ---
 
+## Phase 15 — Custom Categories (post-MVP)
+
+Reference: [C:\Users\wheel\.claude\plans\cheeky-hatching-volcano.md](C:\Users\wheel\.claude\plans\cheeky-hatching-volcano.md) —
+"Custom Categories + Admin-Managed Built-ins." Purely additive: the four MVP log types above are
+untouched by any of this.
+
+### Task 1 — Backend foundation
+- [x] `Category`/`CategoryLog` Prisma models (`valueType` boolean/numeric/scale/duration,
+  `userId` nullable — null = system-wide/admin-created, set = a user's own — mirroring Symptom's
+  existing system-vs-user split; `archivedAt` as the real "remove" action, not a hard delete).
+- [x] `GET/POST/PATCH/DELETE /api/categories` and `/api/category-logs` for regular users, scoped
+  the same way `symptoms.ts`/`habitLogs.ts` already are.
+- [x] `requireAdmin` middleware + `ADMIN_EMAIL` env var (one hardcoded admin, no DB role system)
+  gating `GET/POST/PATCH/DELETE /api/admin/categories`.
+- [x] `isAdmin` (computed, not stored) surfaced on login/refresh/`/me`; Dashboard's
+  recent-entries merge, History's merge, and the reminder scheduler's `hasLoggedToday` all
+  extended to include custom-category logs alongside the four built-ins.
+
+### Task 2 — Frontend: user-facing custom categories
+- [ ] Settings "Categories" section (view all visible, create/edit/archive own).
+- [ ] A generic, data-driven Dashboard section + entry form (generalizing `HabitEntryForm.tsx`'s
+  type-branching to all four value types).
+- [ ] `QuickAddFab.tsx` gains a "More…" entry reaching custom categories, without making its
+  existing four-item array data-driven (a deliberate, already-documented convention).
+
+### Task 3 — Frontend: admin screen + History integration
+- [ ] `RequireAdmin` route guard + `/admin/categories` page for the one hardcoded admin account.
+- [ ] History's type filter extended to include the user's own visible categories.
+
+### Task 4 — Trends support (explicit fast-follow, not blocking)
+- [ ] Per-category numeric/scale series reusing `TrendLineChart` directly.
+
+---
+
 ## Definition of Done Checklist (from requirements §20)
 
 Use this as the final go/no-go check before calling the MVP complete:

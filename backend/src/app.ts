@@ -16,7 +16,11 @@ import { historyRouter } from "./routes/history";
 import { trendsRouter } from "./routes/trends";
 import { exportRouter } from "./routes/export";
 import { pushRouter } from "./routes/push";
+import { categoriesRouter } from "./routes/categories";
+import { categoryLogsRouter } from "./routes/categoryLogs";
+import { adminCategoriesRouter } from "./routes/adminCategories";
 import { requireAuth } from "./middleware/requireAuth";
+import { requireAdmin } from "./middleware/requireAdmin";
 import { errorHandler } from "./middleware/errorHandler";
 
 const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:5173";
@@ -68,6 +72,9 @@ export function createApp(): Express {
   app.use("/api/trends", requireAuth, trendsRouter);
   app.use("/api/export", requireAuth, exportRouter);
   app.use("/api/push", requireAuth, pushRouter);
+  app.use("/api/categories", requireAuth, categoriesRouter);
+  app.use("/api/category-logs", requireAuth, categoryLogsRouter);
+  app.use("/api/admin/categories", requireAuth, requireAdmin, adminCategoriesRouter);
 
   // Must be registered last - Express only routes a request to error-handling middleware
   // (recognized by its four-parameter signature) once every earlier layer has either handled
