@@ -274,3 +274,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 
 - 2026-08-22 — Building web push reminders: the concepts, the architecture decision, and two real bugs found by actually running it
 - 2026-08-23 — Production verification, and a third real bug: an awaited fetch between the click and the permission request was silently losing the browser's user-gesture window on mobile
+
+### [Custom Categories](docs/log/15-categories.md)
+
+- 2026-08-23 — Task 1: the generic Category model, alongside (not replacing) the four fixed ones
