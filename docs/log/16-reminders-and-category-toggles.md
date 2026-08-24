@@ -270,3 +270,124 @@ conditionally render on them (Task 3).
   frontend unit suite (277/277), all green; re-pushed for CI to confirm.
 
 ---
+
+## 2026-08-24 — Task 3: frontend built-in category toggles
+
+**Task:** [Phase 16, Task 3](../../Tasks.md#task-3--frontend-built-in-category-toggles) - the
+frontend half of Task 1's backend toggles: a Settings section to flip Mood/Symptom/Medication/
+Habit on or off, and Dashboard/Quick Add/the summary line actually respecting that choice.
+
+### Background / concepts
+
+#### Props instead of a second `useAuth()` call, in `QuickAddFab` and `DashboardSummary`
+
+`DashboardPage.tsx` already calls `useAuth()` for the display name/email greeting, so it already
+has `user.moodEnabled` etc. in hand. `QuickAddFab` and `DashboardSummary` could each have called
+`useAuth()` themselves instead - but both already have dedicated test files that render them
+*without* an `AuthProvider` ancestor at all (`QuickAddFab.test.tsx`, `DashboardSummary.test.tsx`),
+since neither needed any auth state before this task. Adding `useAuth()` inside either one would
+have made every existing test in both files throw immediately (`useAuth must be used within an
+AuthProvider`), forcing a rewrite of tests that have nothing to do with this feature just to wrap
+them in a provider and mock `/api/auth/refresh`. Passing the four flags down as plain optional
+props (each defaulting to `true`) instead means both components stay exactly as easy to unit-test
+as they were, every pre-existing test in both files keeps passing completely unchanged, and the
+new toggle-filtering tests are just as easy to write as passing a different prop value.
+
+#### The `updateUser` gap in `AuthContext`
+
+Session state (`AuthContext`'s `user`) previously only ever changed via `login`/`register`/
+`rehydrateSession` - there was no way for a page to say "the server just confirmed this specific
+field changed, patch it into the current session." Without something filling that gap, saving a
+toggle in Settings would only be reflected on Dashboard after a full reload (forcing
+`rehydrateSession` to re-run) - workable, but a jarring UX for something the user just did.
+`AuthContext` gained a small `updateUser(patch)` that merges a partial update into the existing
+session user in place, and `BuiltInCategoriesSection`'s save handler calls it with the server's
+own response right after a successful `PATCH` - the same underlying lesson `isAdmin` already
+taught (session-derived state has to be pushed to, it doesn't refetch itself), just generalized
+into a reusable mechanism instead of a one-off fix.
+
+#### A same-page accessible-name collision, twice
+
+Two unrelated naming collisions turned up while wiring this in:
+
+- The Reminders section's existing Save button is already named exactly "Save" (a bare string,
+  not "Save reminders"). The new toggle section's button, if also named "Save," would make
+  `getByRole("button", { name: /^save$/i })` ambiguous on this page. Renamed the new button to
+  "Save category settings" rather than touching the already-shipped Reminders section over a
+  collision the new code caused.
+- The toggle checkboxes were first written with each item's description nested *inside* the same
+  `<label>` as the checkbox text (e.g. "Mood" plus "Daily mood check-ins." both inside one
+  `<label>`) - which folds both into the checkbox's single accessible name ("Mood Daily mood
+  check-ins."), breaking a clean `getByLabelText(/^mood$/i)` lookup. Fixed by moving each
+  description to a sibling `<p>` outside the `<label>`, so only the short label text contributes
+  to the accessible name.
+
+### What was done
+
+- **`frontend/src/auth/AuthContext.tsx`**: `AuthUser` gains `moodEnabled`/`symptomEnabled`/
+  `medicationEnabled`/`habitEnabled`. New `updateUser(patch)` on the context value (see above).
+- **`frontend/src/pages/SettingsPage.tsx`**: new `BuiltInCategoriesSection` (own `GET`/`PATCH
+  /api/users/me`, matching the page's existing self-contained-section convention), placed above
+  the existing custom-`CategoriesSection`. Calls `updateUser` on a successful save.
+- **`frontend/src/pages/DashboardPage.tsx`**: `MoodSection`/`HabitSection`/`MedicationSection`/
+  `SymptomSection` each conditionally rendered on `user?.xEnabled ?? true` (the `?? true` treats
+  a still-loading/absent session the same as "enabled," matching the backend's own default, so
+  nothing flashes away and back while `rehydrateSession` is still in flight). `CategorySection`
+  (custom categories) is unconditional - untouched by this feature. The same four flags are passed
+  down as props to `DashboardSummary` and `QuickAddFab`.
+- **`frontend/src/components/dashboard/QuickAddFab.tsx`**: four new optional props (all default
+  `true`), used to filter `QUICK_ADD_ITEMS` before rendering the menu. The "More…" (`category`)
+  entry is never filtered - it isn't one of the four built-ins this feature covers.
+- **`frontend/src/components/dashboard/DashboardSummary.tsx`**: the same four optional props,
+  used to build the summary line's clauses - a disabled category's clause is omitted outright
+  (not shown as "0"). If every category ends up disabled while there's still `hasLoggedAnything`
+  from stale pre-toggle data, falls back to the friendly "Nothing logged yet today" empty state
+  rather than rendering an empty line.
+- **Deliberately unchanged: `HistoryPage.tsx`.** Toggling a category off only affects new logging
+  surfaces; it was never meant to hide anything already logged.
+
+### Why it's needed
+
+Direct continuation of Task 1 - the backend toggle columns existed but had no way to be set or
+respected from the actual app.
+
+### Decisions
+
+- **Props over a second `useAuth()` call in leaf components** - see above; keeps two already
+  well-covered, auth-agnostic components' test files untouched.
+- **`updateUser` merges immediately rather than the page navigating away/reloading** - saving a
+  toggle should feel instant, not require a manual refresh to see it take effect on Dashboard.
+
+### State at end of this step
+
+Toggling a built-in category off now actually hides it from Dashboard, Quick Add, and the summary
+line, immediately in the same session and confirmed to survive a real reload. Phase 16's frontend
+work remaining: Task 4 (Medications management UI) and Task 5 (reminders management rewrite -
+`RemindersSection` in Settings still references the `User` fields Task 2 removed from the backend
+and is currently non-functional; out of scope for this task).
+
+### Verification
+
+- `npm test` (frontend): full suite green (285 tests, up from 277) - 8 new tests covering
+  `DashboardPage` (a disabled category's section and Quick Add entry both disappear, others
+  unaffected), `QuickAddFab` (default-all-shown plus selective filtering), `DashboardSummary`
+  (a disabled category's clause omitted; all-disabled falls back to the empty state), and
+  `SettingsPage` (toggle defaults load correctly, an already-off category loads as unchecked,
+  saving persists and confirms).
+- `npx tsc -b`, `npm run build`: clean. `npx oxlint`: only two pre-existing warnings, both in
+  files this task didn't touch (`vite.config.ts`'s triple-slash reference,
+  `AuthContext.tsx`'s pre-existing `useAuth`-alongside-`AuthProvider` fast-refresh warning - the
+  latter already existed before this task's `updateUser` addition). `npx prettier --check`: one
+  genuine issue in this task's own `SettingsPage.tsx` edit, fixed; two remaining warnings are in
+  files this task never touched (`BottomNav.tsx`, `e2e/trends-after-seeding.spec.ts` - confirmed
+  via `git status` showing no changes to either).
+- Manual, real-browser verification (Playwright script against the built frontend + a running
+  backend, not just the automated suites): registered a fresh account, confirmed all four
+  sections and Quick Add entries present by default; toggled Medications off in Settings and
+  saved; confirmed the Medications section and its Quick Add entry both disappeared *immediately*
+  on navigating back to Dashboard with no page reload (proving `updateUser` actually propagates
+  in-session, not just after a fresh `rehydrateSession`); confirmed Mood stayed untouched
+  throughout; reloaded the page and confirmed Medications stayed hidden (real server-side
+  persistence, not just in-memory state that a reload would have reset).
+
+---

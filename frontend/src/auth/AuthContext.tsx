@@ -24,6 +24,14 @@ export interface AuthUser {
   // lib/isAdmin.ts) - there's exactly one admin account, confirmed with the project owner.
   // Gates RequireAdmin.tsx and the admin-only link in Settings.
   isAdmin: boolean;
+  // Lets a user hide a built-in category from Dashboard/Quick Add without touching data already
+  // logged under it (see backend's schema.prisma comment on these same four columns). All default
+  // true, so treat a missing value the same as true rather than false - see DashboardPage.tsx's
+  // own `?? true` reads of these.
+  moodEnabled: boolean;
+  symptomEnabled: boolean;
+  medicationEnabled: boolean;
+  habitEnabled: boolean;
 }
 
 interface AuthState {
@@ -52,6 +60,11 @@ interface AuthContextValue extends AuthState {
   register: (input: RegisterInput) => Promise<void>;
   login: (input: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
+  // Merges a partial update into the current session user - for a field the server just
+  // confirmed changed (e.g. the four category toggles in SettingsPage) without a full
+  // rehydrateSession() round-trip. A no-op if called with no session user (shouldn't happen from
+  // any RequireAuth-guarded page, but avoids a crash if it ever is).
+  updateUser: (patch: Partial<AuthUser>) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -115,6 +128,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ user: null, accessToken: null });
   }, []);
 
+  const updateUser = useCallback((patch: Partial<AuthUser>) => {
+    setState((prev) => (prev.user ? { ...prev, user: { ...prev.user, ...patch } } : prev));
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       ...state,
@@ -123,8 +140,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       register,
       login,
       logout,
+      updateUser,
     }),
-    [state, isLoading, register, login, logout],
+    [state, isLoading, register, login, logout, updateUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

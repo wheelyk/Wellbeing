@@ -21,6 +21,18 @@ const QUICK_ADD_ITEMS: Array<{ key: DashboardQuickAddType; label: string; icon: 
   { key: "category", label: "More…", icon: "➕" },
 ];
 
+interface QuickAddFabProps {
+  // Whether each built-in category is currently on (Settings > Built-in categories) - all
+  // default true so every existing call site (and every test rendering this component on its
+  // own, with no props at all) keeps today's "show all four" behavior unchanged. "category"
+  // (the "More…" entry, for custom categories) is never gated by these - it isn't one of the
+  // four built-ins this toggle feature covers.
+  moodEnabled?: boolean;
+  symptomEnabled?: boolean;
+  medicationEnabled?: boolean;
+  habitEnabled?: boolean;
+}
+
 // A "+" that opens any of the four Dashboard sections' add dialog directly, regardless of scroll
 // position or a section's own collapsed state - it dispatches the same `dashboardQuickAddEvent`
 // each section already listens for (see the implementation log entry on the dialog-based Quick
@@ -39,9 +51,22 @@ const QUICK_ADD_ITEMS: Array<{ key: DashboardQuickAddType; label: string; icon: 
 // Trends/Settings never do. This is deliberately mobile-only now (BottomNav itself is
 // `md:hidden`): desktop's two-column grid was never the site of this problem, and each section's
 // own always-visible "+ Add" button is already reachable there without a floating extra.
-export function QuickAddFab() {
+export function QuickAddFab({
+  moodEnabled = true,
+  symptomEnabled = true,
+  medicationEnabled = true,
+  habitEnabled = true,
+}: QuickAddFabProps = {}) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const items = QUICK_ADD_ITEMS.filter((item) => {
+    if (item.key === "mood") return moodEnabled;
+    if (item.key === "symptom") return symptomEnabled;
+    if (item.key === "medication") return medicationEnabled;
+    if (item.key === "habit") return habitEnabled;
+    return true;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -78,7 +103,7 @@ export function QuickAddFab() {
           aria-label="Jump to a section"
           className="absolute bottom-full left-1/2 mb-2 flex min-w-40 -translate-x-1/2 flex-col gap-0.5 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
         >
-          {QUICK_ADD_ITEMS.map((item) => (
+          {items.map((item) => (
             <button
               key={item.key}
               type="button"
