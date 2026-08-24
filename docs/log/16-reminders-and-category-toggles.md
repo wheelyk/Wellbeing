@@ -220,6 +220,34 @@ pushing notifications for something the user just said they don't want to see or
   needed to reason about; deferring it to a later, unrelated PR would have meant carrying a known,
   understood correctness bug in already-merged `main` for no benefit.
 
+#### A CI-only e2e failure this task's own PR turned up (in an unrelated test)
+
+The GitHub Actions run for this task's PR (#123) failed `e2e/edit-and-delete.spec.ts` - a test
+about editing and deleting a Mood entry from History, nothing this task touches. The trace
+(downloaded via `gh run download`, then read directly as HAR-shaped JSON lines - `psql` isn't
+installed in this environment, so `pg_get_constraintdef` via a scratch Prisma script had already
+stood in for it once already in this same task, see above) showed the `DELETE
+/api/mood-logs/:id` request itself recorded with HAR status `-1` - Playwright's convention for "the
+browser aborted this request before a response arrived." The cause was in the test, not this PR's
+own code: `HistoryPage.tsx`'s delete is optimistic - `handleConfirmDelete` calls `setEntries(...)`
+to remove the row from local state *before* `await`-ing the `DELETE` call - so the test's very next
+two assertions (row gone, "nothing to show yet" visible) pass instantly, well before the network
+request has actually reached the server. The test then called `page.reload()` immediately after,
+with nothing gating that reload on the request having actually finished - so on an unlucky timing
+draw, `page.reload()` aborts the still-in-flight `DELETE` before the server responds, and the
+subsequent reload's `GET /api/history` genuinely finds the row still there (the delete never
+happened at all, not just "hadn't been reflected in the UI yet"). By contrast,
+`account-deletion.spec.ts`'s own "prove real persistence" step is safe from this exact race because
+it waits on `page.waitForURL(...)`, itself gated on the app only navigating after its own delete
+request resolves - `edit-and-delete.spec.ts` had no equivalent gate. This is very likely why this
+one had never failed before: every prior run's `DELETE` request just happened to finish inside the
+(previously slightly wider, now apparently slightly narrower) window between the optimistic UI
+update and the reload - a pure timing coincidence, not a guarantee the test's structure ever
+provided. Fixed by having the test `await page.waitForResponse(...)` for the real `DELETE` response
+before reloading, matching how `account-deletion.spec.ts` already avoids the same class of race.
+Verified locally: 5 back-to-back runs of the fixed spec alone, then the full local e2e suite (4/4)
+and full frontend unit suite (277/277), all green.
+
 ### State at end of this step
 
 Backend toggles are complete, tested, and wired to the reminder model. No frontend yet - `AuthUser`
@@ -236,5 +264,9 @@ conditionally render on them (Task 3).
   constraint was inspected directly, confirmed to be `SetNull` against an intended/`RESTRICT`
   migration history, corrected in place, then a clean `prisma migrate dev` produced the real
   migration for the toggle columns with no further drift.
+- CI's own e2e job (`E2E Tests`) failed on this task's first push, on a genuine pre-existing race
+  in `edit-and-delete.spec.ts` unrelated to this task's own changes (see above) - fixed in the test,
+  verified with 5 repeated local runs of that spec plus the full local e2e suite (4/4) and full
+  frontend unit suite (277/277), all green; re-pushed for CI to confirm.
 
 ---
