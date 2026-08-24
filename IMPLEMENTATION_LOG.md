@@ -281,3 +281,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-23 — Task 2: user-facing frontend (Dashboard, Quick Add, Settings)
 - 2026-08-23 — Task 3: admin screen + History integration
 - 2026-08-23 — Task 4: Trends support for custom categories (fast-follow)
+
+### [Built-in Category Toggles + Per-Target Reminders](docs/log/16-reminders-and-category-toggles.md)
+
+- 2026-08-24 — Task 2: the generalized Reminder model, scheduler, and CRUD

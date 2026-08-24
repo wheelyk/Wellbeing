@@ -29,13 +29,6 @@ const updateSchema = z
   .object({
     displayName: z.string().trim().min(1, "Display name can't be empty"),
     timezone: z.string().refine(isValidTimeZone, "Not a recognized timezone"),
-    reminderEnabled: z.boolean(),
-    // Plain 24-hour "HH:mm", e.g. "20:00" - resolved against this same user's own `timezone` at
-    // send time (see reminderScheduler.ts), the same "just a local time string, no timezone of
-    // its own" shape as every other local-time value this app stores.
-    reminderTime: z
-      .string()
-      .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Must be a valid 24-hour HH:mm time"),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
@@ -48,8 +41,6 @@ const PROFILE_SELECT = {
   displayName: true,
   timezone: true,
   createdAt: true,
-  reminderEnabled: true,
-  reminderTime: true,
 } as const;
 
 export const usersRouter = Router();

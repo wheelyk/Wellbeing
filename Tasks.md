@@ -331,6 +331,50 @@ untouched by any of this.
 
 ---
 
+## Phase 16 — Built-in Category Toggles + Per-Target Reminders (post-MVP)
+
+Reference: [C:\Users\wheel\.claude\plans\cheeky-hatching-volcano.md](C:\Users\wheel\.claude\plans\cheeky-hatching-volcano.md) —
+"Built-in Category Toggles + Per-Target Reminders." Confirmed directly with the project owner:
+the one existing single-reminder account is not auto-migrated (the old columns are just dropped);
+fixed times, not real recurring-interval logic, is the whole point of "multiple times per day."
+
+### Task 1 — Backend: built-in category toggles
+- [ ] `moodEnabled`/`symptomEnabled`/`medicationEnabled`/`habitEnabled` on `User` (all default
+  `true`), added to `PATCH /api/users/me` and to `serializeUser()` in `auth.ts` (not just `/me`).
+- [ ] Toggling one of these off also disables every `Reminder` targeting that built-in category.
+
+### Task 2 — Backend: generalized `Reminder` model, scheduler, and CRUD
+- [x] `ReminderTarget` enum + `Reminder`/`ReminderSend` models, replacing the single
+  `reminderEnabled`/`reminderTime`/`lastReminderSentDate` columns on `User` (dropped, not
+  migrated - confirmed directly with the project owner).
+- [x] `GET/POST/PATCH/DELETE /api/reminders` - one reminder per (user, target,
+  medication-or-category), each with one or more fixed `"HH:mm"` times per day.
+- [x] `reminderScheduler.ts`/`reminderEligibility.ts` rewritten for per-target, per-time-slot
+  eligibility (`ReminderSend` replacing the old single-date gate), with target-specific
+  notification copy (e.g. "Time to take Diazepam (2mg).").
+- [x] Archiving a category (via `categories.ts` or `adminCategories.ts`) disables, rather than
+  orphans, every reminder targeting it.
+
+### Task 3 — Frontend: built-in category toggles
+- [ ] Settings toggle section; `AuthUser` gains the four booleans; `DashboardPage.tsx`/
+  `QuickAddFab.tsx`/`DashboardSummary.tsx` conditionally render per flag. History deliberately
+  unchanged (browsing past data is a different concern from "can I log a new one").
+
+### Task 4 — Frontend: Medications management (closes a pre-existing gap)
+- [ ] A "Medications" Settings section (list/rename/dosage-edit/delete), mirroring the existing
+  custom-`CategoriesSection`/`CategoryCreateForm.tsx` shape - closes a real gap found during
+  research: `PATCH`/`DELETE /api/medications/:id` existed on the backend with no frontend UI at
+  all, only an inline "add a medication" affordance buried inside logging a dose.
+
+### Task 5 — Frontend: reminders management rewrite
+- [ ] Replaces the single-checkbox-plus-time `RemindersSection` with a management list (create/
+  edit/delete, a target-type picker with a Medication/Category sub-picker, a repeatable "add
+  another time" input list) - the existing push-subscription gesture-preservation logic in
+  `pushNotifications.ts` is reused unchanged, just re-triggered by "first enabled reminder
+  created" / "last enabled reminder disabled or deleted" instead of one checkbox.
+
+---
+
 ## Definition of Done Checklist (from requirements §20)
 
 Use this as the final go/no-go check before calling the MVP complete:

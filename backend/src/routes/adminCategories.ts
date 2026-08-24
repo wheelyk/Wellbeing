@@ -114,5 +114,14 @@ adminCategoriesRouter.delete("/:id", async (req, res) => {
     data: { archivedAt: new Date() },
   });
 
+  // Any reminder targeting this category - belonging to any user, since a system category can
+  // have many users' own reminders pointed at it - is disabled, not deleted, alongside it. Same
+  // reasoning as categories.ts's own archive route: Reminder.category is Restrict, not Cascade,
+  // so this is what actually stops a now-archived category's reminders from still trying to fire.
+  await prisma.reminder.updateMany({
+    where: { categoryId: category.id },
+    data: { enabled: false },
+  });
+
   res.status(200).json(serializeCategory(category));
 });

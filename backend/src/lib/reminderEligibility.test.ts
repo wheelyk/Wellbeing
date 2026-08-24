@@ -2,16 +2,14 @@ import { describe, it, expect } from "vitest";
 import { shouldSendReminder, type ReminderEligibilityInput } from "./reminderEligibility";
 
 const BASE: ReminderEligibilityInput = {
-  reminderEnabled: true,
-  reminderTime: "20:00",
+  time: "20:00",
   currentLocalTime: "20:00",
-  today: "2026-08-22",
-  lastReminderSentDate: null,
-  hasLoggedToday: false,
+  alreadySentThisSlot: false,
+  hasLoggedTarget: false,
 };
 
 describe("shouldSendReminder", () => {
-  it("fires the moment the reminder time is reached, if nothing's been logged yet", () => {
+  it("fires the moment the time is reached, if the target hasn't been logged yet", () => {
     expect(shouldSendReminder(BASE)).toBe(true);
   });
 
@@ -23,34 +21,20 @@ describe("shouldSendReminder", () => {
     expect(shouldSendReminder({ ...BASE, currentLocalTime: "19:59" })).toBe(false);
   });
 
-  it("does not fire if reminders are disabled", () => {
-    expect(shouldSendReminder({ ...BASE, reminderEnabled: false })).toBe(false);
+  it("does not fire if the target has already been logged", () => {
+    expect(shouldSendReminder({ ...BASE, hasLoggedTarget: true })).toBe(false);
   });
 
-  it("does not fire if no reminder time has ever been set", () => {
-    expect(shouldSendReminder({ ...BASE, reminderTime: null })).toBe(false);
-  });
-
-  it("does not fire if the user has already logged something today", () => {
-    expect(shouldSendReminder({ ...BASE, hasLoggedToday: true })).toBe(false);
-  });
-
-  it("does not fire twice on the same day, even well past the reminder time", () => {
+  it("does not fire twice for the same (reminder, day, time) slot", () => {
     expect(
-      shouldSendReminder({
-        ...BASE,
-        currentLocalTime: "23:55",
-        lastReminderSentDate: "2026-08-22",
-      }),
+      shouldSendReminder({ ...BASE, currentLocalTime: "23:55", alreadySentThisSlot: true }),
     ).toBe(false);
   });
 
-  it("fires again on a new day, even if one was already sent yesterday", () => {
-    expect(
-      shouldSendReminder({
-        ...BASE,
-        lastReminderSentDate: "2026-08-21",
-      }),
-    ).toBe(true);
+  it("fires for a different slot even if another slot on the same reminder already fired today", () => {
+    // alreadySentThisSlot is scoped to the one specific `time` being evaluated - the caller is
+    // responsible for checking each of a reminder's several times independently (see
+    // reminderScheduler.ts), not this pure function.
+    expect(shouldSendReminder({ ...BASE, time: "15:00", alreadySentThisSlot: false })).toBe(true);
   });
 });

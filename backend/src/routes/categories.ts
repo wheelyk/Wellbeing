@@ -124,5 +124,14 @@ categoriesRouter.delete("/:id", async (req, res) => {
     data: { archivedAt: new Date() },
   });
 
+  // Any reminder targeting this category is disabled, not deleted, alongside it - a Reminder's
+  // own relation to Category is Restrict (see schema.prisma), not Cascade, precisely because
+  // archiving (never a real delete) would otherwise leave it silently still "enabled" and trying
+  // to fire against a category that no longer accepts new logs.
+  await prisma.reminder.updateMany({
+    where: { categoryId: category.id },
+    data: { enabled: false },
+  });
+
   res.status(200).json(serializeCategory(category));
 });

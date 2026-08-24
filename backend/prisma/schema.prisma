@@ -26,16 +26,6 @@ model User {
   resetTokenHash      String?   @map("reset_token_hash")
   resetTokenExpiresAt DateTime? @map("reset_token_expires_at")
 
-  // Reminder preferences - a plain "HH:mm" 24-hour local time (like `timezone` above, just a
-  // string column), resolved against this same user's own `timezone` at send time, not stored
-  // as a UTC instant, since "8pm for this user" moves around in UTC as their local day does.
-  // `lastReminderSentDate` ("YYYY-MM-DD") is written only by the reminder scheduler itself, to
-  // guarantee at most one reminder per calendar day even though the scheduler ticks every few
-  // minutes - see backend/src/lib/reminderScheduler.ts.
-  reminderEnabled      Boolean @default(false) @map("reminder_enabled")
-  reminderTime         String? @map("reminder_time")
-  lastReminderSentDate String? @map("last_reminder_sent_date")
-
   moodLogs          MoodLog[]
   habits            Habit[]
   habitLogs         HabitLog[]
@@ -46,6 +36,7 @@ model User {
   pushSubscriptions PushSubscription[]
   categories        Category[]
   categoryLogs      CategoryLog[]
+  reminders         Reminder[]
 
   @@map("users")
 }
@@ -148,9 +139,10 @@ model HabitLog {
 
 // A user's own list of medications they take (e.g. "Ibuprofen", "Vitamin D"), with an optional
 // dosage (e.g. "200mg") - beyond requirements §6.3's original MVP scope of name-only, added so
-// "Diazepam 2mg" doesn't have to be crammed into the name field itself. No schedule/frequency
-// yet - still out of scope. Each MedicationLog below points back at one of these to record
-// whether it was taken on a given occasion.
+// "Diazepam 2mg" doesn't have to be crammed into the name field itself. Each MedicationLog below
+// points back at one of these to record whether it was taken on a given occasion; each Reminder
+// below can point at one of these too, for a reminder specific to this one medication (e.g.
+// "Diazepam at 10:00") rather than the Medication category as a whole.
 model Medication {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
@@ -158,8 +150,9 @@ model Medication {
   dosage    String?
   createdAt DateTime @default(now()) @map("created_at")
 
-  user User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  logs MedicationLog[]
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs      MedicationLog[]
+  reminders Reminder[]
 
   // Every "list my medications" query filters by user; logs additionally query by medication,
   // so this index covers the "does this user own this medication" ownership check used before
@@ -279,8 +272,9 @@ model Category {
   archivedAt DateTime?        @map("archived_at")
   createdAt DateTime          @default(now()) @map("created_at")
 
-  user User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  logs CategoryLog[]
+  user      User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs      CategoryLog[]
+  reminders Reminder[]
 
   // Every "list my categories" query (GET /api/categories) filters on userId (including the
   // NULL case for system categories), the same reasoning as Symptom's own index.
@@ -317,4 +311,86 @@ model CategoryLog {
   // Supports "this category's log history" lookups (e.g. a per-category detail/trend view).
   @@index([categoryId, loggedAt])
   @@map("category_logs")
+}
+
+// What a Reminder is "about." GENERAL is the original whole-app "you haven't logged anything
+// today" nudge; MOOD/SYMPTOM/HABIT are category-level (no per-instance granularity - there's
+// only ever at most one reminder per user for each of these three); MEDICATION and CATEGORY are
+// always paired with a specific Medication/Category row (see Reminder.medicationId/categoryId
+// below) - a user can have one reminder for "Diazepam" and a completely independent one for
+// "Sertraline," which a category-level MEDICATION reminder couldn't express.
+enum ReminderTarget {
+  GENERAL
+  MOOD
+  SYMPTOM
+  HABIT
+  MEDICATION
+  CATEGORY
+
+  @@map("reminder_target")
+}
+
+// Replaces the single reminderEnabled/reminderTime pair User used to carry directly - a user can
+// now have any number of these, each aimed at a different target. `medicationId`/`categoryId`
+// are mutually exclusive with each other and only ever set together with the matching `target`
+// (MEDICATION -> medicationId, CATEGORY -> categoryId) - enforced in application code (see
+// routes/reminders.ts), the same choice this schema already makes for HabitLog's/CategoryLog's
+// own type-conditional value columns rather than a DB CHECK constraint.
+model Reminder {
+  id           String         @id @default(uuid())
+  userId       String         @map("user_id")
+  target       ReminderTarget
+  medicationId String?        @map("medication_id")
+  categoryId   String?        @map("category_id")
+  // One or more "HH:mm" 24-hour local times - a plain Postgres text array rather than a separate
+  // join table, since nothing beyond this Reminder's own row ever needs to reference a single
+  // time in isolation (ReminderSend below references a time by its string value directly, not by
+  // a foreign key to a row here). Multiple entries are what let "every 3 hours" be approximated
+  // as several fixed times (e.g. ["09:00","12:00","15:00"]) without any real recurring-interval
+  // logic - confirmed directly with the user that fixed times are the whole point, not true
+  // intervals.
+  times     String[]
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Cascade: mirrors Medication's own real hard-delete (MedicationLog also cascades from it) -
+  // a reminder about a medication that no longer exists has nothing left to be about.
+  medication Medication? @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  // Restrict, not Cascade: Category is never hard-deleted (categories.ts's own DELETE route only
+  // sets archivedAt), so a Cascade here would almost never fire in practice. Instead, archiving a
+  // category explicitly sets enabled: false on every Reminder targeting it (see categories.ts/
+  // adminCategories.ts) - "stop acting on it" rather than relying on a delete path that doesn't
+  // really happen.
+  category Category? @relation(fields: [categoryId], references: [id])
+  sends    ReminderSend[]
+
+  // Every "list my reminders" query (GET /api/reminders) filters by user; the scheduler's own
+  // tick queries "every enabled reminder" across all users, so no separate userId-only index is
+  // needed there.
+  @@index([userId])
+  @@map("reminders")
+}
+
+// One row per (reminder, calendar day, specific time) that has actually fired - what replaces
+// User.lastReminderSentDate's single-date gate. A single Reminder can have several independent
+// times in one day (e.g. "09:00" and "15:00"), each needing its own once-per-day gate, which one
+// shared per-user date string could no longer express once reminders stopped being one-per-user.
+model ReminderSend {
+  id         String   @id @default(uuid())
+  reminderId String   @map("reminder_id")
+  date       String
+  time       String
+  sentAt     DateTime @default(now()) @map("sent_at")
+
+  reminder Reminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+
+  // An idempotency guard (has this exact slot already fired today), not a business-rule
+  // constraint - the same distinction PushSubscription.endpoint's own @unique already draws in
+  // this schema.
+  @@unique([reminderId, date, time])
+  // The scheduler's own tick fetches "every send today for these candidate reminder ids" in one
+  // batched query (see reminderScheduler.ts) rather than one query per (reminder, time) pair.
+  @@index([reminderId, date])
+  @@map("reminder_sends")
 }
