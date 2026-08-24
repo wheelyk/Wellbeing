@@ -53,6 +53,20 @@ describe("GET /api/users/me", () => {
     expect(res.body.passwordHash).toBeUndefined();
   });
 
+  it("defaults all four category toggles to true for a brand-new account", async () => {
+    const { accessToken } = await registerAndLogin("toggle-defaults");
+
+    const res = await request(app).get("/api/users/me").set(authed(accessToken));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      moodEnabled: true,
+      symptomEnabled: true,
+      medicationEnabled: true,
+      habitEnabled: true,
+    });
+  });
+
   // Regression test for a documented-but-previously-unverified edge case (see this route's own
   // comment: "the user row itself could have been deleted since... a second tab calling
   // DELETE /me").
@@ -170,6 +184,88 @@ describe("PATCH /api/users/me", () => {
 
     const ownerRes = await request(app).get("/api/users/me").set(authed(owner.accessToken));
     expect(ownerRes.body.displayName).toBe("Owner");
+  });
+
+  it("updates the four category toggles independently of each other", async () => {
+    const { accessToken } = await registerAndLogin("toggle-update");
+
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ medicationEnabled: false });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      moodEnabled: true,
+      symptomEnabled: true,
+      medicationEnabled: false,
+      habitEnabled: true,
+    });
+  });
+
+  it("includes the four category toggles on login and refresh, not just GET /me", async () => {
+    const email = uniqueEmail("toggle-session");
+    createdEmails.push(email);
+    await request(app).post("/api/auth/register").send({ email, password: "Sup3rSecret" });
+    const loginRes = await request(app)
+      .post("/api/auth/login")
+      .send({ email, password: "Sup3rSecret" });
+
+    expect(loginRes.body.user).toMatchObject({
+      moodEnabled: true,
+      symptomEnabled: true,
+      medicationEnabled: true,
+      habitEnabled: true,
+    });
+
+    const cookies = loginRes.headers["set-cookie"];
+    const refreshRes = await request(app)
+      .post("/api/auth/refresh")
+      .set("Cookie", Array.isArray(cookies) ? cookies : [cookies]);
+
+    expect(refreshRes.body.user).toMatchObject({
+      moodEnabled: true,
+      symptomEnabled: true,
+      medicationEnabled: true,
+      habitEnabled: true,
+    });
+  });
+
+  it("turning a category off disables (not deletes) any reminder targeting it, but turning it back on does not re-enable it", async () => {
+    const { accessToken } = await registerAndLogin("toggle-disables-reminder");
+
+    const medicationRes = await request(app)
+      .post("/api/medications")
+      .set(authed(accessToken))
+      .send({ name: "Diazepam" });
+    const medicationId = medicationRes.body.id as string;
+
+    const created = await request(app)
+      .post("/api/reminders")
+      .set(authed(accessToken))
+      .send({ target: "medication", medicationId, times: ["10:00"] });
+    expect(created.status).toBe(201);
+
+    const disableRes = await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ medicationEnabled: false });
+    expect(disableRes.status).toBe(200);
+
+    const afterDisable = await prisma.reminder.findUnique({ where: { id: created.body.id } });
+    expect(afterDisable?.enabled).toBe(false);
+
+    // Turning the category back on deliberately does NOT re-enable a reminder that was disabled
+    // by the toggle - the user must re-enable it explicitly, so a notification never silently
+    // resumes without a fresh confirmation.
+    const enableRes = await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ medicationEnabled: true });
+    expect(enableRes.status).toBe(200);
+
+    const afterEnable = await prisma.reminder.findUnique({ where: { id: created.body.id } });
+    expect(afterEnable?.enabled).toBe(false);
   });
 });
 

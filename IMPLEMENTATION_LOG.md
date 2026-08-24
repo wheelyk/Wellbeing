@@ -285,3 +285,4 @@ useful for browsing what's gone wrong before, rather than looking something spec
 ### [Built-in Category Toggles + Per-Target Reminders](docs/log/16-reminders-and-category-toggles.md)
 
 - 2026-08-24 — Task 2: the generalized Reminder model, scheduler, and CRUD
+- 2026-08-24 — Task 1: built-in category toggles

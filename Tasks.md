@@ -339,9 +339,9 @@ the one existing single-reminder account is not auto-migrated (the old columns a
 fixed times, not real recurring-interval logic, is the whole point of "multiple times per day."
 
 ### Task 1 — Backend: built-in category toggles
-- [ ] `moodEnabled`/`symptomEnabled`/`medicationEnabled`/`habitEnabled` on `User` (all default
+- [x] `moodEnabled`/`symptomEnabled`/`medicationEnabled`/`habitEnabled` on `User` (all default
   `true`), added to `PATCH /api/users/me` and to `serializeUser()` in `auth.ts` (not just `/me`).
-- [ ] Toggling one of these off also disables every `Reminder` targeting that built-in category.
+- [x] Toggling one of these off also disables every `Reminder` targeting that built-in category.
 
 ### Task 2 — Backend: generalized `Reminder` model, scheduler, and CRUD
 - [x] `ReminderTarget` enum + `Reminder`/`ReminderSend` models, replacing the single
