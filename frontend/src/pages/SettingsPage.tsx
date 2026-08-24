@@ -15,6 +15,8 @@ import {
   PushPermissionDeniedError,
 } from "../lib/pushNotifications";
 import { CategoryCreateForm, type Category } from "../components/CategoryCreateForm";
+import { MedicationCreateForm } from "../components/MedicationCreateForm";
+import type { Medication } from "../components/MedicationEntryForm";
 
 // Mirrors Card.tsx's own visual styling (rounded-2xl border, surface background, shadow) but
 // widens the column instead of Card's `max-w-sm` default - a 2026-08-19 design review found
@@ -610,6 +612,212 @@ function BuiltInCategoriesSection() {
   );
 }
 
+// Lists and manages a user's own medications - previously the only way to create one at all
+// was buried inside logging a dose (see MedicationEntryForm's own inline "+ Add another
+// medication" affordance); PATCH/DELETE /api/medications/:id already existed on the backend with
+// no frontend caller at all until this section. Mirrors CategoriesSection's own list/edit/create
+// shape, minus the built-in-vs-custom distinction Category has (every Medication is a user's own,
+// there's no system-wide medication concept) and minus a valueType picker (Medication only ever
+// has a name and an optional dosage).
+function MedicationsSection() {
+  const [medications, setMedications] = useState<Medication[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDosage, setEditDosage] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<Medication[]>("/api/medications")
+      .then((res) => {
+        if (!cancelled) setMedications(res);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function handleCreated(medication: Medication) {
+    setMedications((prev) => [...prev, medication].sort((a, b) => a.name.localeCompare(b.name)));
+    setShowCreateForm(false);
+    setActionMessage("Medication added.");
+  }
+
+  function startEdit(medication: Medication) {
+    setEditingId(medication.id);
+    setEditName(medication.name);
+    setEditDosage(medication.dosage ?? "");
+    setEditError(null);
+  }
+
+  async function handleEditSave(id: string) {
+    if (!editName.trim()) {
+      setEditError("Give this medication a name.");
+      return;
+    }
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const updated = await apiFetch<Medication>(`/api/medications/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: editName.trim(), dosage: editDosage.trim() || undefined }),
+      });
+      setMedications((prev) => prev.map((m) => (m.id === id ? updated : m)));
+      setEditingId(null);
+    } catch {
+      setEditError("Something went wrong saving this medication. Please try again.");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    // A real hard delete, unlike Category's archive - schema.prisma's MedicationLog.medication
+    // relation is onDelete: Cascade, so this also permanently removes every logged dose against
+    // it, not just the medication definition. The confirmation is explicit about that, rather
+    // than reusing CategoriesSection's own "existing entries are kept" wording, which would be
+    // actively wrong here.
+    const confirmed = window.confirm(
+      "Delete this medication? This also permanently deletes every logged entry for it. This can't be undone.",
+    );
+    if (!confirmed) return;
+
+    const previous = medications;
+    setMedications((prev) => prev.filter((m) => m.id !== id));
+    try {
+      await apiFetch(`/api/medications/${id}`, { method: "DELETE" });
+      setActionMessage("Medication deleted.");
+    } catch {
+      setMedications(previous);
+      setActionMessage(null);
+    }
+  }
+
+  return (
+    <SectionCard>
+      <CollapsibleSection title="Medications" storageKey="settings.medications">
+        <p className="mb-4 text-sm text-text-muted">
+          Manage the medications you log doses for - add a new one, rename one, or remove one you no
+          longer take.
+        </p>
+        {loading && <p className="text-sm text-text-muted">Loading…</p>}
+        {loadError && (
+          <p role="alert" className="text-sm text-danger">
+            Couldn't load your medications. Please refresh the page.
+          </p>
+        )}
+        {!loading && !loadError && (
+          <>
+            {actionMessage && (
+              <p role="status" className="mb-3 text-sm text-success">
+                {actionMessage}
+              </p>
+            )}
+            {medications.length === 0 ? (
+              <p className="text-sm text-text-muted">No medications yet.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {medications.map((medication) => {
+                  const isEditing = editingId === medication.id;
+                  return (
+                    <li
+                      key={medication.id}
+                      className="rounded-xl border border-border bg-surface-muted p-3"
+                    >
+                      {isEditing ? (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex gap-2">
+                            <TextField
+                              label="Name"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                            />
+                            <TextField
+                              label="Dosage"
+                              value={editDosage}
+                              onChange={(e) => setEditDosage(e.target.value)}
+                            />
+                          </div>
+                          {editError && (
+                            <p role="alert" className="text-sm text-danger">
+                              {editError}
+                            </p>
+                          )}
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              onClick={() => handleEditSave(medication.id)}
+                              disabled={editSaving}
+                            >
+                              {editSaving ? "Saving…" : "Save"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              onClick={() => setEditingId(null)}
+                              disabled={editSaving}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-text">{medication.name}</p>
+                            {medication.dosage && (
+                              <p className="text-xs text-text-muted">{medication.dosage}</p>
+                            )}
+                          </div>
+                          <div className="flex shrink-0 gap-2">
+                            <Button variant="secondary" onClick={() => startEdit(medication)}>
+                              Edit
+                            </Button>
+                            <Button variant="secondary" onClick={() => handleDelete(medication.id)}>
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {showCreateForm ? (
+              <div className="mt-4 border-t border-border pt-4">
+                <MedicationCreateForm
+                  onCreated={handleCreated}
+                  onCancel={() => setShowCreateForm(false)}
+                />
+              </div>
+            ) : (
+              <Button
+                type="button"
+                onClick={() => setShowCreateForm(true)}
+                className="mt-4 self-start"
+              >
+                + New medication
+              </Button>
+            )}
+          </>
+        )}
+      </CollapsibleSection>
+    </SectionCard>
+  );
+}
+
 function describeValueType(category: Category): string {
   switch (category.valueType) {
     case "boolean":
@@ -1045,6 +1253,10 @@ export function SettingsPage() {
 
         <section className="mt-6">
           <BuiltInCategoriesSection />
+        </section>
+
+        <section className="mt-6">
+          <MedicationsSection />
         </section>
 
         <section className="mt-6">
