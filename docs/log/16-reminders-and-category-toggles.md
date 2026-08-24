@@ -481,3 +481,157 @@ that task lands.
   empty state returned afterward.
 
 ---
+
+## 2026-08-24 — Task 5: reminders management rewrite
+
+**Task:** [Phase 16, Task 5](../../Tasks.md#task-5--frontend-reminders-management-rewrite) - the
+final piece of this phase: replace the old single-checkbox-plus-time `RemindersSection` (already
+non-functional since Task 2 removed the `User` fields it PATCHed) with full management over the
+generalized per-target `Reminder` model from Task 2 - a list with resolved target labels, times as
+chips, an enabled toggle, edit/delete, and a "+ Add reminder" form with a target-type picker, a
+Medication/Category sub-picker, and repeatable fixed-time inputs.
+
+### Background / concepts
+
+#### Props vs. state ownership: why the create form doesn't own its own push logic
+
+`ReminderCreateForm` only ever gathers and validates input; `RemindersSection` (the parent) decides
+whether creating this reminder needs to run the push-subscribe flow first. This split exists
+because only the parent knows `hasEnabledReminder` (whether the account already has *any* enabled
+reminder) - the one piece of state that decides whether push subscription is even necessary. Folding
+that decision into the form itself would have meant either lifting the whole reminders list into
+the form (defeating the point of a small, focused form) or duplicating the "is this the first
+enabled reminder" computation in two places.
+
+#### Gesture preservation, generalized
+
+The old `RemindersSection` called `subscribeToPush()` *before* its own `PATCH /api/users/me`, with
+an explicit comment explaining why: an `await` between the user's click and
+`Notification.requestPermission()` risks losing the browser's "was this tied to a real user
+gesture" window, which mobile Chrome in particular enforces by silently auto-denying the prompt
+rather than showing it. The same ordering constraint applies here, just generalized across more
+call sites: `handleCreate` and `handleToggleEnabled` both call `subscribeToPush()` (when applicable)
+*before* their own `POST`/`PATCH` to `/api/reminders`, not after - the network round trip to create
+or update a reminder must never sit between the click and the permission request.
+
+#### A real bug this task's own manual verification caught: stale medication/category lists
+
+`RemindersSection` fetches its own `medications`/`categories` lists once, on its own mount - the
+same "each section owns its own fetch/state, no shared store" convention this app already uses
+throughout Settings and Dashboard. That convention broke down for one specific interaction: a user
+creates a brand-new medication in `MedicationsSection` (or a category in `CategoriesSection`),
+*then*, without reloading, opens "+ Add reminder" to attach a reminder to what they just created -
+`RemindersSection`'s own `medications`/`categories` state was still the pre-creation snapshot from
+page load, so the just-created medication/category simply didn't appear in the sub-picker at all.
+Found directly via manual browser verification (not the automated suite, which mocks fetch and
+never has this staleness), by creating "Diazepam" in `MedicationsSection` and then immediately
+trying to attach a `MEDICATION` reminder to it in the same page session. Fixed by refetching both
+lists at the moment "+ Add reminder" is clicked (`handleOpenCreateForm`), rather than only on the
+section's own mount - keeps the existing "no shared store" convention intact (no new cross-section
+reactivity added) while making the one interaction that actually needs fresh data get it.
+
+#### Two accessible-name collisions found while writing this task's own tests
+
+- Playwright/Testing Library's `getByLabelText` also matches an element via its own `aria-label`,
+  not just a `<label>` association - `aria-label="Remove time 2"` on the per-time "Remove" button
+  collided with `getByLabelText(/time 2/i)` intended for the *input* labeled "Time 2", once a
+  second time row existed. Fixed by anchoring every such query to `/^time 1$/i` / `/^time 2$/i`.
+- The target-type picker's own hint text (e.g. "e.g. Diazepam every morning" on "A specific
+  medication") means an unscoped `getByRole("radio", { name: /diazepam/i })` matches *both* that
+  hint and the real per-medication radio in the sub-picker once it's open - fixed by scoping the
+  query to the sub-picker's own `radiogroup` (`aria-label="Which medication?"` /
+  `"Which category?"`) via Testing Library's `within(...)`.
+
+#### The `withReminders` test helper's own bug, and why it existed
+
+The first version of `withReminders` (a `routedFetchMock` wrapper supplying sensible GET defaults
+for `/api/reminders`/`/api/medications`/`/api/categories`) built its result as
+`{ ...bareDefaults, ...overrides }`. `routedFetchMock`'s own matching loop returns on the *first*
+key whose path matches a given request, and a bare (method-less) key matches *any* method - so a
+test supplying only `"POST /api/reminders"` (a brand-new key, appended after the already-early bare
+default) still had every POST intercepted by the earlier bare `"/api/reminders"` default, silently
+returning `[]` instead of the intended handler. A first attempted fix (renaming the defaults to
+`"GET /api/reminders"`) made things worse: a plain `apiFetch` GET call never sets an explicit
+`method` on the request at all (relying on `fetch`'s own implicit default), so `init?.method` is
+`undefined`, not the literal string `"GET"` - a `"GET /path"` key can *never* match a plain GET
+request from this app's own `apiFetch`, only the request-shape-aware special case `routedFetchMock`
+already hand-writes for `/api/users/me` handles that correctly. The actual fix: build the merged
+object from the test's own `overrides` *first* (so a test-supplied method-specific key keeps its
+early position), then fill in a bare default only for a path with no key of its own yet - this
+automates supplying the "bare GET fallback" half of the pattern every other describe block in this
+file already gets by simply writing both keys directly, method-specific first, in one literal.
+
+### What was done
+
+- **`frontend/src/components/ReminderCreateForm.tsx`** (new): exports `Reminder`/`ReminderTarget`/
+  `ReminderCreateInput`. A target-type radiogroup (mirrors `CategoryCreateForm`'s own pattern),
+  a Medication/Category sub-picker that only appears for those two targets, and a repeatable list
+  of plain `<input type="time">` rows (capped at 6, matching the backend's own `MAX_TIMES`) - no
+  interval-math helper. Maps `PushPermissionDeniedError`/`ApiError` codes
+  (`REMINDER_ALREADY_EXISTS`/`MEDICATION_NOT_FOUND`/`CATEGORY_NOT_FOUND`/`VALIDATION_ERROR`) to
+  friendly messages.
+- **`frontend/src/pages/SettingsPage.tsx`**: `RemindersSection` fully rewritten - fetches
+  `/api/reminders`/`/api/medications`/`/api/categories` together on mount; renders each reminder
+  with its resolved target label (`reminderTargetLabel`), times as chips, an auto-saving `enabled`
+  checkbox, and Edit (inline times editor, matching Categories/Medications' own edit-row shape) /
+  Delete. `reminderInactiveNote` explains *why* a disabled reminder is inactive when that reason
+  is something the user set elsewhere: a matching built-in-category toggle being off (cross-checked
+  against `useAuth()`'s own `moodEnabled`/etc. - no separate fetch needed, `RemindersSection` is
+  always rendered inside `SettingsPage`'s own `AuthProvider`) or a `CATEGORY` reminder's category
+  having been archived (cross-checked against the fetched `/api/categories` list, which already
+  excludes archived ones by default - no backend change needed to detect this). `UserProfile`'s
+  stale `reminderEnabled`/`reminderTime` fields and the unused `DEFAULT_REMINDER_TIME` constant
+  (both dead since Task 2 removed the matching backend columns) were removed.
+- **`handleCreate`/`handleToggleEnabled`**: both call `subscribeToPush()` before their own
+  `POST`/`PATCH` when the action is about to create the account's first enabled reminder (gesture
+  preservation - see above); `handleToggleEnabled`/`handleDelete` call `unsubscribeFromPush()`
+  (best-effort) when the action removes the account's *last* enabled reminder.
+- **`handleOpenCreateForm`**: refetches medications/categories before opening the create form (see
+  the stale-list bug above).
+
+### Why it's needed
+
+Closes Phase 16 - reminders were entirely unreachable from the app since Task 2 merged (the old
+Settings UI referenced backend fields that no longer existed), and per-medication/per-category
+reminders (the concrete motivating example: independent Diazepam-at-10:00 and Sertraline-at-08:30
+reminders) had no UI to create at all until this task.
+
+### Decisions
+
+- **The create form never talks to `/api/reminders` itself** - it only gathers/validates input and
+  delegates the actual request (and any push-subscribe decision) to its parent, via a single
+  `onSubmit` prop. Keeps the "who decides whether push is needed" logic in exactly one place.
+- **Every real gap found during this task's own verification was root-caused and fixed, not
+  papered over** - the stale medication/category lists, the two accessible-name collisions, and the
+  `withReminders` test-helper ordering bug were each tracked down to their actual cause (not just
+  worked around in the test/script that happened to surface them) before moving on.
+
+### State at end of this step
+
+Phase 16 is complete: built-in category toggles (backend and frontend), Medications management,
+and full per-target/multi-time reminders management are all shipped and independently verified.
+
+### Verification
+
+- `npm test` (frontend): full suite green (300 tests, up from 285) - 14 new reminders tests
+  (explanatory message when push unsupported, empty state, list rendering with resolved labels
+  across all three shapes, create for GENERAL/MEDICATION/CATEGORY including the sub-picker
+  validation error, permission-denied handling, toggle-on/toggle-off triggering
+  subscribe/unsubscribe correctly, edit times, delete triggering unsubscribe, and both inactive-note
+  cases) replacing the 5 old tests that no longer matched the removed single-reminder model.
+- `npx tsc -b`, `npm run build`: clean. `npx oxlint`: only the same two pre-existing warnings noted
+  in earlier entries. `npx prettier --check`: clean on this task's own files; the same two
+  pre-existing, untouched files remain.
+- Manual, real-browser verification (Playwright against the built frontend + a running backend, a
+  persistent browser context with the Push API's `subscribe`/`getSubscription` faked - real push
+  service connectivity isn't reachable from this sandbox, confirmed separately, and is unrelated to
+  this task's own changes to `pushNotifications.ts`, which is otherwise untouched): registered a
+  fresh account; created a medication and a custom category; created a `GENERAL` reminder (real
+  `Notification.requestPermission()` flow, form only closes on genuine success); created a
+  `MEDICATION` reminder via the sub-picker (this is what caught the stale-list bug above, fixed,
+  then re-verified working); created a `CATEGORY` reminder with two independent times; edited a
+  reminder's time; toggled a reminder off; toggled a built-in category off in Settings and confirmed
+  the correct inactive note appeared on its matching reminder after reload; deleted a reminder and
+  confirmed it was really gone.
+
+---

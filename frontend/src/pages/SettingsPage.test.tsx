@@ -305,102 +305,402 @@ describe("SettingsPage — reminders", () => {
     vi.mocked(pushNotifications.unsubscribeFromPush).mockReset().mockResolvedValue(undefined);
   });
 
-  it("shows an explanatory message instead of the toggle when push isn't supported", async () => {
+  // Every test in this block hits three fetches on mount (GET /api/reminders, /api/medications,
+  // /api/categories) in addition to the two every SettingsPage render already fires - a small
+  // wrapper around routedFetchMock so each test only has to specify what it actually cares about,
+  // the same "sensible defaults, only override what matters" shape withAuthedUser already uses in
+  // the categories describe block below.
+  //
+  // Deliberately NOT `routedFetchMock({ ...bareDefaults, ...overrides })` - routedFetchMock's own
+  // matching loop returns on the *first* key whose path matches (see its own comment above), so a
+  // bare (method-less) key intercepts every method for that path, GET included. Spreading bare
+  // defaults first and a test's own overrides second still lets a genuinely new key (e.g. this
+  // test's own "POST /api/reminders") end up positioned *after* an already-early bare default for
+  // the same path - meaning that early bare default swallows the POST too, before the override is
+  // ever reached (confirmed directly: this was a real, if short-lived, bug in this exact test file
+  // - a create/edit/delete would silently hit the bare `[]` default instead of the intended
+  // handler). Building the merged object from the *test's own overrides first*, then filling in a
+  // bare default only for a path with no key of its own yet, keeps a test-supplied method-specific
+  // key at its natural early position while still getting a working bare GET fallback for mount -
+  // exactly the ordering every other describe block in this file already gets "for free" by simply
+  // writing both keys directly, method-specific first, in one literal (see e.g. the medications
+  // block's own "creates a new medication" test) - this just automates supplying the bare default
+  // half of that pattern, without disturbing the position of whatever a test explicitly wrote.
+  function withReminders(overrides: Record<string, (init?: RequestInit) => Response> = {}) {
+    const merged: Record<string, (init?: RequestInit) => Response> = { ...overrides };
+    const bareDefaults: Record<string, (init?: RequestInit) => Response> = {
+      "/api/reminders": () => jsonResponse(200, []),
+      "/api/medications": () => jsonResponse(200, []),
+      "/api/categories": () => jsonResponse(200, []),
+      "/api/push/vapid-public-key": () => jsonResponse(200, { publicKey: "test-public-key" }),
+    };
+    for (const [path, respond] of Object.entries(bareDefaults)) {
+      if (!(path in merged)) merged[path] = respond;
+    }
+    return routedFetchMock(merged);
+  }
+
+  const generalReminder = {
+    id: "rem-general",
+    userId: "user-1",
+    target: "general",
+    medicationId: null,
+    categoryId: null,
+    times: ["20:00"],
+    enabled: true,
+    createdAt: "2026-08-24T00:00:00.000Z",
+    medication: null,
+    category: null,
+  };
+  const medicationReminder = {
+    id: "rem-medication",
+    userId: "user-1",
+    target: "medication",
+    medicationId: "med-1",
+    categoryId: null,
+    times: ["10:00"],
+    enabled: true,
+    createdAt: "2026-08-24T00:00:00.000Z",
+    medication: { name: "Diazepam", dosage: "2mg" },
+    category: null,
+  };
+  const categoryReminder = {
+    id: "rem-category",
+    userId: "user-1",
+    target: "category",
+    medicationId: null,
+    categoryId: "cat-1",
+    times: ["09:00", "15:00"],
+    enabled: true,
+    createdAt: "2026-08-24T00:00:00.000Z",
+    medication: null,
+    category: { name: "Water intake", icon: "💧" },
+  };
+  const diazepam = {
+    id: "med-1",
+    userId: "user-1",
+    name: "Diazepam",
+    dosage: "2mg",
+    createdAt: "2026-08-24T00:00:00.000Z",
+  };
+  const waterCategory = {
+    id: "cat-1",
+    userId: "user-1",
+    name: "Water intake",
+    icon: "💧",
+    valueType: "numeric",
+    scaleMin: null,
+    scaleMax: null,
+    archivedAt: null,
+    createdAt: "2026-08-24T00:00:00.000Z",
+  };
+
+  it("shows an explanatory message instead of the list when push isn't supported", async () => {
     vi.mocked(pushNotifications.isPushSupported).mockReturnValue(false);
-    const fetchMock = routedFetchMock();
+    const fetchMock = withReminders();
     vi.stubGlobal("fetch", fetchMock);
     renderSettingsPage();
 
     await screen.findByLabelText(/display name/i);
     expect(screen.getByText(/can't receive notifications/i)).toBeInTheDocument();
-    expect(screen.queryByLabelText(/remind me/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no reminders yet/i)).not.toBeInTheDocument();
   });
 
-  it("loads the saved reminder time and enabled state", async () => {
-    const fetchMock = routedFetchMock({
-      "GET /api/users/me": () =>
-        jsonResponse(200, { ...DEFAULT_PROFILE, reminderEnabled: true, reminderTime: "07:30" }),
+  it("shows 'No reminders yet' when the list is empty", async () => {
+    const fetchMock = withReminders();
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    expect(await screen.findByText(/no reminders yet/i)).toBeInTheDocument();
+  });
+
+  it("lists reminders with their resolved target label and times as chips", async () => {
+    const fetchMock = withReminders({
+      "/api/reminders": () =>
+        jsonResponse(200, [generalReminder, medicationReminder, categoryReminder]),
     });
     vi.stubGlobal("fetch", fetchMock);
     renderSettingsPage();
 
-    await screen.findByLabelText(/display name/i);
-    expect(screen.getByLabelText(/remind me$/i)).toBeChecked();
-    expect(screen.getByLabelText(/remind me at/i)).toHaveValue("07:30");
+    expect(await screen.findByText("General")).toBeInTheDocument();
+    expect(screen.getByText("Diazepam — 2mg")).toBeInTheDocument();
+    expect(screen.getByText("💧 Water intake")).toBeInTheDocument();
+    expect(screen.getByText("20:00")).toBeInTheDocument();
+    expect(screen.getByText("09:00")).toBeInTheDocument();
+    expect(screen.getByText("15:00")).toBeInTheDocument();
   });
 
-  it("subscribes to push and saves the preference when turning reminders on", async () => {
-    const fetchMock = routedFetchMock({
-      "/api/push/vapid-public-key": () => jsonResponse(200, { publicKey: "test-public-key" }),
-      "PATCH /api/users/me": (init) => {
+  it("creates a GENERAL reminder, subscribing to push since it's the account's first enabled reminder", async () => {
+    const created = { ...generalReminder };
+    const fetchMock = withReminders({
+      "POST /api/reminders": (init) => {
         const body = JSON.parse(init?.body as string);
-        return jsonResponse(200, { ...DEFAULT_PROFILE, ...body });
+        return jsonResponse(201, { ...created, ...body });
       },
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderSettingsPage();
 
-    await screen.findByLabelText(/display name/i);
-    await user.click(screen.getByLabelText(/remind me$/i));
-    await user.clear(screen.getByLabelText(/remind me at/i));
-    await user.type(screen.getByLabelText(/remind me at/i), "07:30");
-    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    await screen.findByText(/no reminders yet/i);
+    await user.click(screen.getByRole("button", { name: "+ Add reminder" }));
+    await user.click(screen.getByRole("radio", { name: /general/i }));
+    await user.type(screen.getByLabelText(/^time 1$/i), "20:00");
+    await user.click(screen.getByRole("button", { name: /create reminder/i }));
 
-    expect(await screen.findByText(/reminder settings saved/i)).toBeInTheDocument();
+    expect(await screen.findByText("General")).toBeInTheDocument();
     expect(pushNotifications.subscribeToPush).toHaveBeenCalledWith("test-public-key");
 
-    const patchCall = fetchMock.mock.calls.find(
-      ([url, init]) => url.includes("/api/users/me") && init?.method === "PATCH",
+    const postCall = fetchMock.mock.calls.find(
+      ([url, init]) => url.includes("/api/reminders") && init?.method === "POST",
     );
-    const body = JSON.parse((patchCall as [string, RequestInit])[1].body as string);
-    expect(body).toEqual({ reminderEnabled: true, reminderTime: "07:30" });
+    const body = JSON.parse((postCall as [string, RequestInit])[1].body as string);
+    expect(body).toEqual({ target: "general", times: ["20:00"] });
   });
 
-  it("unsubscribes and saves the preference when turning reminders off", async () => {
-    const fetchMock = routedFetchMock({
-      "GET /api/users/me": () =>
-        jsonResponse(200, { ...DEFAULT_PROFILE, reminderEnabled: true, reminderTime: "20:00" }),
-      "PATCH /api/users/me": (init) => {
+  it("creates a MEDICATION reminder via the medication sub-picker", async () => {
+    const fetchMock = withReminders({
+      "POST /api/reminders": (init) => {
         const body = JSON.parse(init?.body as string);
-        return jsonResponse(200, { ...DEFAULT_PROFILE, ...body });
+        return jsonResponse(201, { ...medicationReminder, ...body });
+      },
+      "/api/reminders": () => jsonResponse(200, [generalReminder]),
+      "/api/medications": () => jsonResponse(200, [diazepam]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByText("General");
+    await user.click(screen.getByRole("button", { name: "+ Add reminder" }));
+    await user.click(screen.getByRole("radio", { name: /a specific medication/i }));
+    // Scoped to the medication sub-picker's own radiogroup - "A specific medication"'s own hint
+    // text also mentions "Diazepam" as an example, so an unscoped match is ambiguous between the
+    // two radios.
+    await user.click(
+      within(screen.getByRole("radiogroup", { name: /which medication/i })).getByRole("radio", {
+        name: /diazepam/i,
+      }),
+    );
+    await user.type(screen.getByLabelText(/^time 1$/i), "10:00");
+    await user.click(screen.getByRole("button", { name: /create reminder/i }));
+
+    expect(await screen.findByText("Diazepam — 2mg")).toBeInTheDocument();
+    // subscribeToPush is not called here - a GENERAL reminder was already enabled, so this
+    // browser is already subscribed.
+    expect(pushNotifications.subscribeToPush).not.toHaveBeenCalled();
+
+    const postCall = fetchMock.mock.calls.find(
+      ([url, init]) => url.includes("/api/reminders") && init?.method === "POST",
+    );
+    const body = JSON.parse((postCall as [string, RequestInit])[1].body as string);
+    expect(body).toEqual({ target: "medication", medicationId: "med-1", times: ["10:00"] });
+  });
+
+  it("creates a CATEGORY reminder via the category sub-picker, with two independent times", async () => {
+    const fetchMock = withReminders({
+      "/api/categories": () => jsonResponse(200, [waterCategory]),
+      "POST /api/reminders": (init) => {
+        const body = JSON.parse(init?.body as string);
+        return jsonResponse(201, { ...categoryReminder, ...body });
       },
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderSettingsPage();
 
-    await screen.findByLabelText(/display name/i);
-    await user.click(screen.getByLabelText(/remind me$/i));
-    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    await screen.findByText(/no reminders yet/i);
+    await user.click(screen.getByRole("button", { name: "+ Add reminder" }));
+    await user.click(screen.getByRole("radio", { name: /a specific category/i }));
+    // Scoped for the same reason as the medication sub-picker above - "A specific category"'s own
+    // hint text also mentions "Water intake" as an example.
+    await user.click(
+      within(screen.getByRole("radiogroup", { name: /which category/i })).getByRole("radio", {
+        name: /water intake/i,
+      }),
+    );
+    await user.type(screen.getByLabelText(/^time 1$/i), "09:00");
+    await user.click(screen.getByRole("button", { name: /add another time/i }));
+    await user.type(screen.getByLabelText(/^time 2$/i), "15:00");
+    await user.click(screen.getByRole("button", { name: /create reminder/i }));
 
-    expect(await screen.findByText(/reminder settings saved/i)).toBeInTheDocument();
-    expect(pushNotifications.unsubscribeFromPush).toHaveBeenCalledOnce();
-    expect(pushNotifications.subscribeToPush).not.toHaveBeenCalled();
+    // Scoped to the Reminders section itself - the same category also appears in
+    // CategoriesSection further down the page (it independently fetches the same
+    // /api/categories list this test provides for the create form's own sub-picker).
+    const remindersContent = document.getElementById(
+      "collapsible-section-settings.reminders-content",
+    ) as HTMLElement;
+    expect(await within(remindersContent).findByText("💧 Water intake")).toBeInTheDocument();
+
+    const postCall = fetchMock.mock.calls.find(
+      ([url, init]) => url.includes("/api/reminders") && init?.method === "POST",
+    );
+    const body = JSON.parse((postCall as [string, RequestInit])[1].body as string);
+    expect(body).toEqual({ target: "category", categoryId: "cat-1", times: ["09:00", "15:00"] });
   });
 
-  it("shows a specific message when notification permission is denied", async () => {
+  it("requires choosing a medication before submitting a MEDICATION reminder", async () => {
+    const fetchMock = withReminders({
+      "/api/medications": () => jsonResponse(200, [diazepam]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByText(/no reminders yet/i);
+    await user.click(screen.getByRole("button", { name: "+ Add reminder" }));
+    await user.click(screen.getByRole("radio", { name: /a specific medication/i }));
+    await user.type(screen.getByLabelText(/^time 1$/i), "10:00");
+    await user.click(screen.getByRole("button", { name: /create reminder/i }));
+
+    expect(await screen.findByText(/choose which medication/i)).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => url.includes("/api/reminders") && init?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("shows a specific message when notification permission is denied while creating", async () => {
     vi.mocked(pushNotifications.subscribeToPush).mockRejectedValue(
       new pushNotifications.PushPermissionDeniedError(),
     );
-    const fetchMock = routedFetchMock({
-      "/api/push/vapid-public-key": () => jsonResponse(200, { publicKey: "test-public-key" }),
+    const fetchMock = withReminders();
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByText(/no reminders yet/i);
+    await user.click(screen.getByRole("button", { name: "+ Add reminder" }));
+    await user.click(screen.getByRole("radio", { name: /general/i }));
+    await user.type(screen.getByLabelText(/^time 1$/i), "20:00");
+    await user.click(screen.getByRole("button", { name: /create reminder/i }));
+
+    expect(await screen.findByText(/notifications were blocked/i)).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => url.includes("/api/reminders") && init?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("toggling the only enabled reminder off unsubscribes from push", async () => {
+    const fetchMock = withReminders({
+      "PATCH /api/reminders": (init) => {
+        const body = JSON.parse(init?.body as string);
+        return jsonResponse(200, { ...generalReminder, ...body });
+      },
+      "/api/reminders": () => jsonResponse(200, [generalReminder]),
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderSettingsPage();
 
-    await screen.findByLabelText(/display name/i);
-    await user.click(screen.getByLabelText(/remind me$/i));
-    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    await screen.findByText("General");
+    await user.click(screen.getByLabelText(/^enabled$/i));
 
-    expect(await screen.findByText(/notifications were blocked/i)).toBeInTheDocument();
-    // The preference must not be silently saved as "on" when nothing was actually subscribed.
+    await vi.waitFor(() => expect(pushNotifications.unsubscribeFromPush).toHaveBeenCalledOnce());
+    expect(pushNotifications.subscribeToPush).not.toHaveBeenCalled();
+  });
+
+  it("toggling a disabled reminder back on subscribes to push again", async () => {
+    const disabled = { ...generalReminder, enabled: false };
+    const fetchMock = withReminders({
+      "PATCH /api/reminders": (init) => {
+        const body = JSON.parse(init?.body as string);
+        return jsonResponse(200, { ...disabled, ...body });
+      },
+      "/api/reminders": () => jsonResponse(200, [disabled]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByText("General");
+    await user.click(screen.getByLabelText(/^enabled$/i));
+
+    await vi.waitFor(() =>
+      expect(pushNotifications.subscribeToPush).toHaveBeenCalledWith("test-public-key"),
+    );
+    expect(pushNotifications.unsubscribeFromPush).not.toHaveBeenCalled();
+  });
+
+  it("edits a reminder's times", async () => {
+    const fetchMock = withReminders({
+      "PATCH /api/reminders": (init) => {
+        const body = JSON.parse(init?.body as string);
+        return jsonResponse(200, { ...generalReminder, ...body });
+      },
+      "/api/reminders": () => jsonResponse(200, [generalReminder]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByText("General");
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const timeField = screen.getByLabelText(/^time 1$/i);
+    await user.clear(timeField);
+    await user.type(timeField, "18:00");
+    const editRow = timeField.closest("li") as HTMLElement;
+    await user.click(within(editRow).getByRole("button", { name: /^save$/i }));
+
+    expect(await screen.findByText("18:00")).toBeInTheDocument();
+  });
+
+  it("deletes the only enabled reminder, unsubscribing from push", async () => {
+    const fetchMock = withReminders({
+      "DELETE /api/reminders": () => jsonResponse(200, { message: "Deleted" }),
+      "/api/reminders": () => jsonResponse(200, [generalReminder]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderSettingsPage();
+
+    await screen.findByText("General");
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByText(/no reminders yet/i)).toBeInTheDocument();
+    await vi.waitFor(() => expect(pushNotifications.unsubscribeFromPush).toHaveBeenCalledOnce());
+  });
+
+  it("shows an inline note when a reminder is disabled because its built-in category is toggled off", async () => {
+    const disabledByToggle = { ...medicationReminder, enabled: false };
+    const fetchMock = routedFetchMock({
+      "/api/auth/refresh": () =>
+        jsonResponse(200, {
+          user: { ...DEFAULT_PROFILE, isAdmin: false, medicationEnabled: false },
+          accessToken: "test-token",
+        }),
+      "/api/reminders": () => jsonResponse(200, [disabledByToggle]),
+      "/api/medications": () => jsonResponse(200, [diazepam]),
+      "/api/categories": () => jsonResponse(200, []),
+      "/api/push/vapid-public-key": () => jsonResponse(200, { publicKey: "test-public-key" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    expect(await screen.findByText("Diazepam — 2mg")).toBeInTheDocument();
     expect(
-      fetchMock.mock.calls.some(
-        ([url, init]) => url.includes("/api/users/me") && init?.method === "PATCH",
-      ),
-    ).toBe(false);
+      screen.getByText(/medications is currently turned off in settings/i),
+    ).toBeInTheDocument();
+  });
+
+  it("shows an inline note when a CATEGORY reminder's category has been archived", async () => {
+    const disabledArchived = { ...categoryReminder, enabled: false };
+    const fetchMock = withReminders({
+      "/api/reminders": () => jsonResponse(200, [disabledArchived]),
+      // The category itself is gone from GET /api/categories - archived categories are excluded
+      // from that list by default (see categories.ts), which is exactly the signal used to tell
+      // "archived" apart from "just manually turned off."
+      "/api/categories": () => jsonResponse(200, []),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    expect(await screen.findByText("💧 Water intake")).toBeInTheDocument();
+    expect(screen.getByText(/this category has been archived/i)).toBeInTheDocument();
   });
 });
 

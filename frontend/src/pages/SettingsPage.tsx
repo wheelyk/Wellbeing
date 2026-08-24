@@ -17,6 +17,12 @@ import {
 import { CategoryCreateForm, type Category } from "../components/CategoryCreateForm";
 import { MedicationCreateForm } from "../components/MedicationCreateForm";
 import type { Medication } from "../components/MedicationEntryForm";
+import {
+  ReminderCreateForm,
+  type Reminder,
+  type ReminderTarget,
+  type ReminderCreateInput,
+} from "../components/ReminderCreateForm";
 
 // Mirrors Card.tsx's own visual styling (rounded-2xl border, surface background, shadow) but
 // widens the column instead of Card's `max-w-sm` default - a 2026-08-19 design review found
@@ -49,15 +55,11 @@ interface UserProfile {
   displayName: string;
   timezone: string;
   createdAt: string;
-  reminderEnabled: boolean;
-  reminderTime: string | null;
   moodEnabled: boolean;
   symptomEnabled: boolean;
   medicationEnabled: boolean;
   habitEnabled: boolean;
 }
-
-const DEFAULT_REMINDER_TIME = "20:00";
 
 // A deliberately short, curated list rather than the full ~400-zone IANA database
 // (`Intl.supportedValuesOf("timeZone")` would work too, but a dropdown with hundreds of
@@ -289,23 +291,107 @@ function AppearanceSection() {
   );
 }
 
+// Maps a reminder's target to the built-in-category toggle (Settings > Built-in categories,
+// itself mirrored on AuthUser - see AuthContext.tsx) that can explain why it's currently
+// disabled - GENERAL has no matching toggle (it's the whole-app nudge, not tied to any one
+// category), and CATEGORY is handled separately below (an archived, not toggled-off, category).
+const TOGGLE_FIELD_BY_TARGET: Partial<Record<ReminderTarget, keyof CategoryToggles>> = {
+  mood: "moodEnabled",
+  symptom: "symptomEnabled",
+  habit: "habitEnabled",
+  medication: "medicationEnabled",
+};
+
+const TOGGLE_FIELD_LABEL: Record<keyof CategoryToggles, string> = {
+  moodEnabled: "Mood",
+  symptomEnabled: "Symptoms",
+  medicationEnabled: "Medications",
+  habitEnabled: "Habits",
+};
+
+function reminderTargetLabel(reminder: Reminder): string {
+  switch (reminder.target) {
+    case "general":
+      return "General";
+    case "mood":
+      return "Mood";
+    case "symptom":
+      return "Symptom";
+    case "habit":
+      return "Habits";
+    case "medication":
+      return reminder.medication
+        ? reminder.medication.dosage
+          ? `${reminder.medication.name} — ${reminder.medication.dosage}`
+          : reminder.medication.name
+        : "Medication";
+    case "category":
+      return reminder.category
+        ? `${reminder.category.icon ? `${reminder.category.icon} ` : ""}${reminder.category.name}`
+        : "Category";
+  }
+}
+
+// Explains *why* an already-disabled reminder is disabled, when that reason is something the
+// user set elsewhere rather than this reminder's own toggle - so re-enabling it here wouldn't
+// actually do anything until the real cause is addressed. Returns null once the reminder is
+// enabled (the toggle switch on the row already communicates "off" plainly enough on its own) or
+// when there's no more specific reason than "the user turned this one off."
+function reminderInactiveNote(
+  reminder: Reminder,
+  toggles: CategoryToggles,
+  visibleCategoryIds: Set<string>,
+): string | null {
+  if (reminder.enabled) return null;
+
+  const toggleField = TOGGLE_FIELD_BY_TARGET[reminder.target];
+  if (toggleField && !toggles[toggleField]) {
+    return `${TOGGLE_FIELD_LABEL[toggleField]} is currently turned off in Settings.`;
+  }
+  if (
+    reminder.target === "category" &&
+    reminder.categoryId &&
+    !visibleCategoryIds.has(reminder.categoryId)
+  ) {
+    return "This category has been archived.";
+  }
+  return null;
+}
+
+// Replaces the old single checkbox-plus-time model (one reminder per account) with full CRUD
+// over the generalized per-target Reminder model (see backend/src/routes/reminders.ts) - a
+// management list (resolved target label, times as chips, an enabled toggle, edit/delete) plus a
+// "+ Add reminder" form. The existing subscribeToPush/unsubscribeFromPush gesture-preservation
+// logic in pushNotifications.ts is reused completely unchanged, just re-triggered by "this is
+// about to become the account's first enabled reminder" / "this was the account's last enabled
+// reminder" instead of one checkbox's own on/off state.
 function RemindersSection() {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [reminderEnabled, setReminderEnabled] = useState(false);
-  const [reminderTime, setReminderTime] = useState(DEFAULT_REMINDER_TIME);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [medications, setMedications] = useState<Medication[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [vapidPublicKey, setVapidPublicKey] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTimes, setEditTimes] = useState<string[]>([]);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [rowError, setRowError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<UserProfile>("/api/users/me")
-      .then((profile) => {
+    Promise.all([
+      apiFetch<Reminder[]>("/api/reminders"),
+      apiFetch<Medication[]>("/api/medications"),
+      apiFetch<Category[]>("/api/categories"),
+    ])
+      .then(([remindersRes, medicationsRes, categoriesRes]) => {
         if (cancelled) return;
-        setReminderEnabled(profile.reminderEnabled ?? false);
-        setReminderTime(profile.reminderTime ?? DEFAULT_REMINDER_TIME);
+        setReminders(remindersRes);
+        setMedications(medicationsRes);
+        setCategories(categoriesRes);
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -313,67 +399,156 @@ function RemindersSection() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
-    // Fetched up front (not inside handleSubmit) so enabling reminders can call
-    // subscribeToPush - and therefore Notification.requestPermission() - with no network
-    // round-trip in between the click and the permission request. Browsers only honor a
-    // permission request as tied to the user's actual gesture for a short window; an awaited
-    // fetch in between (the previous shape of this code) was long enough for mobile Chrome to
-    // silently auto-deny the request without ever showing the real prompt, which also means it
-    // never persisted an actual "blocked" site entry - confirmed directly against a real device.
+    // Fetched up front, alongside everything above, for the same reason the old single-reminder
+    // RemindersSection already fetched it up front rather than inside a submit handler: enabling
+    // push has to call Notification.requestPermission() with no network round-trip in between the
+    // user's click and that call, or mobile Chrome silently auto-denies it without ever showing
+    // the real prompt - confirmed directly against a real device (see pushNotifications.ts).
     apiFetch<{ publicKey: string }>("/api/push/vapid-public-key")
       .then((res) => {
         if (!cancelled) setVapidPublicKey(res.publicKey);
       })
       .catch(() => {
-        // Reminders simply can't be enabled from this session if this fails - handleSubmit's
-        // own guard below surfaces that, rather than duplicating an error message here too.
+        // A create/enable that would need push simply fails with its own guard below - no need
+        // to duplicate an error message here too.
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    setSaveError(null);
-    setSaved(false);
-    setSaving(true);
+  const toggles: CategoryToggles = {
+    moodEnabled: user?.moodEnabled ?? true,
+    symptomEnabled: user?.symptomEnabled ?? true,
+    medicationEnabled: user?.medicationEnabled ?? true,
+    habitEnabled: user?.habitEnabled ?? true,
+  };
+  const visibleCategoryIds = new Set(categories.map((c) => c.id));
+  const hasEnabledReminder = reminders.some((r) => r.enabled);
 
+  // Medications/categories were only ever fetched once, on this section's own mount - stale the
+  // moment a user creates one in MedicationsSection/CategoriesSection further down the same page
+  // and then opens this form to attach a reminder to it, since those are separate, independently-
+  // mounted sections with no shared store (the same deliberate "each section owns its own fetch/
+  // state" convention DashboardSummary's own comment documents - see also this project's Explore-
+  // confirmed research for Task 5). Refetching right as the form opens, rather than continuously,
+  // keeps the sub-pickers correct for the interaction that actually needs them without adding
+  // cross-section reactivity this app doesn't otherwise have.
+  async function handleOpenCreateForm() {
     try {
-      if (reminderEnabled) {
-        // Requests notification permission and subscribes this browser first - if the user
-        // says no, or this browser can't do push at all, the preference below is never saved
-        // as enabled, so Settings doesn't claim a reminder will arrive when nothing was ever
-        // actually set up to deliver one. Uses the key already fetched on mount (see the effect
-        // above) rather than fetching it here - an await right before requestPermission() risks
-        // losing the user gesture this call needs.
+      const [medicationsRes, categoriesRes] = await Promise.all([
+        apiFetch<Medication[]>("/api/medications"),
+        apiFetch<Category[]>("/api/categories"),
+      ]);
+      setMedications(medicationsRes);
+      setCategories(categoriesRes);
+    } catch {
+      // Falls back to whatever was already loaded - the create form still works, just possibly
+      // missing a very recently added medication/category until the next refresh.
+    }
+    setShowCreateForm(true);
+  }
+
+  async function handleCreate(input: ReminderCreateInput) {
+    if (!hasEnabledReminder) {
+      if (!vapidPublicKey) {
+        throw new Error("VAPID public key is not available yet");
+      }
+      await subscribeToPush(vapidPublicKey);
+    }
+    const reminder = await apiFetch<Reminder>("/api/reminders", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    setReminders((prev) => [...prev, reminder]);
+    setShowCreateForm(false);
+  }
+
+  async function handleToggleEnabled(reminder: Reminder, nextEnabled: boolean) {
+    setRowError(null);
+    const wasOnlyEnabledOne = reminder.enabled && reminders.filter((r) => r.enabled).length === 1;
+    try {
+      if (nextEnabled && !hasEnabledReminder) {
         if (!vapidPublicKey) {
           throw new Error("VAPID public key is not available yet");
         }
         await subscribeToPush(vapidPublicKey);
-      } else {
+      }
+      const updated = await apiFetch<Reminder>(`/api/reminders/${reminder.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: nextEnabled }),
+      });
+      setReminders((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      if (!nextEnabled && wasOnlyEnabledOne) {
         // Best-effort - reminders can be turned off from a different browser/device than the
         // one that's actually subscribed, so there may be nothing to unsubscribe here at all.
-        await unsubscribeFromPush();
+        await unsubscribeFromPush().catch(() => {});
       }
-
-      await apiFetch("/api/users/me", {
-        method: "PATCH",
-        body: JSON.stringify({ reminderEnabled, reminderTime }),
-      });
-      setSaved(true);
     } catch (err) {
       if (err instanceof PushPermissionDeniedError) {
-        setSaveError(
+        setRowError(
           "Notifications were blocked. Allow notifications for this site in your browser's settings, then try again.",
         );
-      } else if (err instanceof ApiError && err.code === "VALIDATION_ERROR") {
-        setSaveError("Please check the highlighted fields.");
       } else {
-        setSaveError("Something went wrong. Please try again.");
+        setRowError("Something went wrong. Please try again.");
       }
+    }
+  }
+
+  function startEditTimes(reminder: Reminder) {
+    setEditingId(reminder.id);
+    setEditTimes(reminder.times);
+    setEditError(null);
+  }
+
+  function handleEditTimeChange(index: number, value: string) {
+    setEditTimes((prev) => prev.map((t, i) => (i === index ? value : t)));
+  }
+
+  function handleEditAddTime() {
+    setEditTimes((prev) => [...prev, ""]);
+  }
+
+  function handleEditRemoveTime(index: number) {
+    setEditTimes((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function handleEditSave(id: string) {
+    const filtered = editTimes.map((t) => t.trim()).filter(Boolean);
+    if (filtered.length === 0) {
+      setEditError("At least one time is required.");
+      return;
+    }
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const updated = await apiFetch<Reminder>(`/api/reminders/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ times: filtered }),
+      });
+      setReminders((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      setEditingId(null);
+    } catch {
+      setEditError("Something went wrong saving this reminder. Please try again.");
     } finally {
-      setSaving(false);
+      setEditSaving(false);
+    }
+  }
+
+  async function handleDelete(reminder: Reminder) {
+    const confirmed = window.confirm("Delete this reminder? This can't be undone.");
+    if (!confirmed) return;
+
+    const wasOnlyEnabledOne = reminder.enabled && reminders.filter((r) => r.enabled).length === 1;
+    const previous = reminders;
+    setReminders((prev) => prev.filter((r) => r.id !== reminder.id));
+    try {
+      await apiFetch(`/api/reminders/${reminder.id}`, { method: "DELETE" });
+      if (wasOnlyEnabledOne) {
+        await unsubscribeFromPush().catch(() => {});
+      }
+    } catch {
+      setReminders(previous);
     }
   }
 
@@ -392,7 +567,7 @@ function RemindersSection() {
       <SectionCard>
         <CollapsibleSection title="Reminders" storageKey="settings.reminders">
           <p role="alert" className="text-sm text-danger">
-            Couldn't load your reminder settings. Please refresh the page.
+            Couldn't load your reminders. Please refresh the page.
           </p>
         </CollapsibleSection>
       </SectionCard>
@@ -405,50 +580,147 @@ function RemindersSection() {
         {!isPushSupported() ? (
           <p className="text-sm text-text-muted">
             This browser can't receive notifications. On iPhone, add WellTrack to your Home Screen
-            first (Share → Add to Home Screen), then open it from there to enable reminders.
+            first (Share → Add to Home Screen), then open it from there to set up reminders.
           </p>
         ) : (
-          <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
-            <p className="text-sm text-text-muted">
-              Get a notification if you haven't logged anything yet by a time you choose.
+          <>
+            <p className="mb-4 text-sm text-text-muted">
+              Get a notification if you haven't logged something yet by a time (or times) you choose
+              - one reminder for General, Mood, Symptom, or Habits, plus as many as you like for
+              specific medications or categories.
             </p>
-            <label className="flex items-center gap-2 text-sm font-medium text-text">
-              <input
-                type="checkbox"
-                checked={reminderEnabled}
-                onChange={(e) => setReminderEnabled(e.target.checked)}
-                className="h-4 w-4 rounded border-border text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-              />
-              Remind me
-            </label>
-            {reminderEnabled && (
-              <div className="flex flex-col gap-1">
-                <label htmlFor="reminder-time" className="text-sm font-medium text-text">
-                  Remind me at
-                </label>
-                <input
-                  id="reminder-time"
-                  type="time"
-                  value={reminderTime}
-                  onChange={(e) => setReminderTime(e.target.value)}
-                  className="w-40 rounded-lg border border-border px-3 py-3 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            {rowError && (
+              <p role="alert" className="mb-3 text-sm text-danger">
+                {rowError}
+              </p>
+            )}
+            {reminders.length === 0 ? (
+              <p className="text-sm text-text-muted">No reminders yet.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {reminders.map((reminder) => {
+                  const isEditing = editingId === reminder.id;
+                  const inactiveNote = reminderInactiveNote(reminder, toggles, visibleCategoryIds);
+                  return (
+                    <li
+                      key={reminder.id}
+                      className="rounded-xl border border-border bg-surface-muted p-3"
+                    >
+                      {isEditing ? (
+                        <div className="flex flex-col gap-2">
+                          <p className="text-sm font-medium text-text">
+                            {reminderTargetLabel(reminder)}
+                          </p>
+                          {editTimes.map((time, index) => (
+                            <div key={index} className="flex items-end gap-2">
+                              <TextField
+                                label={`Time ${index + 1}`}
+                                type="time"
+                                value={time}
+                                onChange={(e) => handleEditTimeChange(index, e.target.value)}
+                                className="w-40"
+                              />
+                              {editTimes.length > 1 && (
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  onClick={() => handleEditRemoveTime(index)}
+                                  aria-label={`Remove time ${index + 1}`}
+                                >
+                                  Remove
+                                </Button>
+                              )}
+                            </div>
+                          ))}
+                          {editTimes.length < 6 && (
+                            <button
+                              type="button"
+                              onClick={handleEditAddTime}
+                              className="self-start text-sm font-medium text-brand hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                            >
+                              + Add another time
+                            </button>
+                          )}
+                          {editError && (
+                            <p role="alert" className="text-sm text-danger">
+                              {editError}
+                            </p>
+                          )}
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              onClick={() => handleEditSave(reminder.id)}
+                              disabled={editSaving}
+                            >
+                              {editSaving ? "Saving…" : "Save"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              onClick={() => setEditingId(null)}
+                              disabled={editSaving}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-text">{reminderTargetLabel(reminder)}</p>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {reminder.times.map((time) => (
+                                <span
+                                  key={time}
+                                  className="rounded-full bg-surface px-2 py-0.5 text-xs text-text-muted"
+                                >
+                                  {time}
+                                </span>
+                              ))}
+                            </div>
+                            <label className="mt-2 flex items-center gap-2 text-sm text-text">
+                              <input
+                                type="checkbox"
+                                checked={reminder.enabled}
+                                onChange={(e) => handleToggleEnabled(reminder, e.target.checked)}
+                                className="h-4 w-4 rounded border-border text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                              />
+                              Enabled
+                            </label>
+                            {inactiveNote && (
+                              <p className="mt-1 text-xs text-text-muted">{inactiveNote}</p>
+                            )}
+                          </div>
+                          <div className="flex shrink-0 gap-2">
+                            <Button variant="secondary" onClick={() => startEditTimes(reminder)}>
+                              Edit
+                            </Button>
+                            <Button variant="secondary" onClick={() => handleDelete(reminder)}>
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {showCreateForm ? (
+              <div className="mt-4 border-t border-border pt-4">
+                <ReminderCreateForm
+                  medications={medications}
+                  categories={categories}
+                  onSubmit={handleCreate}
+                  onCancel={() => setShowCreateForm(false)}
                 />
               </div>
+            ) : (
+              <Button type="button" onClick={handleOpenCreateForm} className="mt-4 self-start">
+                + Add reminder
+              </Button>
             )}
-            {saveError && (
-              <p role="alert" className="text-sm text-danger">
-                {saveError}
-              </p>
-            )}
-            {saved && !saveError && (
-              <p role="status" className="text-sm text-success">
-                Reminder settings saved.
-              </p>
-            )}
-            <Button type="submit" disabled={saving} className="self-start">
-              {saving ? "Saving…" : "Save"}
-            </Button>
-          </form>
+          </>
         )}
       </CollapsibleSection>
     </SectionCard>

@@ -288,3 +288,4 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-24 — Task 1: built-in category toggles
 - 2026-08-24 — Task 3: frontend built-in category toggles
 - 2026-08-24 — Task 4: Medications management (closes a pre-existing gap)
+- 2026-08-24 — Task 5: reminders management rewrite
