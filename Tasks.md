@@ -361,7 +361,7 @@ fixed times, not real recurring-interval logic, is the whole point of "multiple 
   unchanged (browsing past data is a different concern from "can I log a new one").
 
 ### Task 4 — Frontend: Medications management (closes a pre-existing gap)
-- [ ] A "Medications" Settings section (list/rename/dosage-edit/delete), mirroring the existing
+- [x] A "Medications" Settings section (list/rename/dosage-edit/delete), mirroring the existing
   custom-`CategoriesSection`/`CategoryCreateForm.tsx` shape - closes a real gap found during
   research: `PATCH`/`DELETE /api/medications/:id` existed on the backend with no frontend UI at
   all, only an inline "add a medication" affordance buried inside logging a dose.

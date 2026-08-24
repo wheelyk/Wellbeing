@@ -490,6 +490,132 @@ describe("SettingsPage — built-in categories", () => {
   });
 });
 
+describe("SettingsPage — medications", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const diazepam = {
+    id: "med-1",
+    userId: "user-1",
+    name: "Diazepam",
+    dosage: "2mg",
+    createdAt: "2026-08-24T00:00:00.000Z",
+  };
+
+  it("shows 'No medications yet' when the list is empty", async () => {
+    const fetchMock = routedFetchMock({
+      "/api/medications": () => jsonResponse(200, []),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    expect(await screen.findByText(/no medications yet/i)).toBeInTheDocument();
+  });
+
+  it("lists a medication with its dosage", async () => {
+    const fetchMock = routedFetchMock({
+      "/api/medications": () => jsonResponse(200, [diazepam]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    expect(await screen.findByText("Diazepam")).toBeInTheDocument();
+    expect(screen.getByText("2mg")).toBeInTheDocument();
+  });
+
+  it("adds a new medication and shows it in the list", async () => {
+    const created = {
+      id: "med-2",
+      userId: "user-1",
+      name: "Sertraline",
+      dosage: null,
+      createdAt: "2026-08-24T00:00:00.000Z",
+    };
+    // Method-specific override listed first - a bare (method-less) key would otherwise catch
+    // the POST too before this one is checked (same reasoning as the categories tests below).
+    const fetchMock = routedFetchMock({
+      "POST /api/medications": () => jsonResponse(201, created),
+      "/api/medications": () => jsonResponse(200, []),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByText(/no medications yet/i);
+    await user.click(screen.getByRole("button", { name: "+ New medication" }));
+    await user.type(screen.getByLabelText(/medication name/i), "Sertraline");
+    await user.click(screen.getByRole("button", { name: /add medication/i }));
+
+    expect(await screen.findByText("Sertraline")).toBeInTheDocument();
+    expect(await screen.findByText(/medication added/i)).toBeInTheDocument();
+  });
+
+  it("edits a medication's name and dosage", async () => {
+    const updated = { ...diazepam, name: "Diazepam", dosage: "5mg" };
+    const fetchMock = routedFetchMock({
+      "PATCH /api/medications": (init) => {
+        const body = JSON.parse(init?.body as string);
+        return jsonResponse(200, { ...diazepam, ...body });
+      },
+      "/api/medications": () => jsonResponse(200, [diazepam]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByText("Diazepam");
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const dosageField = screen.getByLabelText(/^dosage$/i);
+    await user.clear(dosageField);
+    await user.type(dosageField, updated.dosage);
+    const editRow = dosageField.closest("li") as HTMLElement;
+    await user.click(within(editRow).getByRole("button", { name: /^save$/i }));
+
+    expect(await screen.findByText("5mg")).toBeInTheDocument();
+  });
+
+  it("deletes a medication after a confirmation that warns logged entries are lost too", async () => {
+    const fetchMock = routedFetchMock({
+      "DELETE /api/medications": () => jsonResponse(200, { message: "Deleted" }),
+      "/api/medications": () => jsonResponse(200, [diazepam]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderSettingsPage();
+
+    await screen.findByText("Diazepam");
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/permanently deletes every logged entry/i),
+    );
+    expect(await screen.findByText(/medication deleted/i)).toBeInTheDocument();
+    expect(screen.queryByText("Diazepam")).not.toBeInTheDocument();
+  });
+
+  it("does not delete when the confirmation is declined", async () => {
+    const fetchMock = routedFetchMock({
+      "/api/medications": () => jsonResponse(200, [diazepam]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderSettingsPage();
+
+    await screen.findByText("Diazepam");
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => url.includes("/api/medications") && init?.method === "DELETE",
+      ),
+    ).toBe(false);
+    expect(screen.getByText("Diazepam")).toBeInTheDocument();
+  });
+});
+
 describe("SettingsPage — categories", () => {
   beforeEach(() => {
     vi.restoreAllMocks();

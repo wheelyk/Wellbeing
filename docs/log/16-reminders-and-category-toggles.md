@@ -391,3 +391,93 @@ and is currently non-functional; out of scope for this task).
   persistence, not just in-memory state that a reload would have reset).
 
 ---
+
+## 2026-08-24 — Task 4: Medications management (closes a pre-existing gap)
+
+**Task:** [Phase 16, Task 4](../../Tasks.md#task-4--frontend-medications-management-closes-a-pre-existing-gap)
+- a "Medications" Settings section to list, rename/redose, and delete a user's own medications.
+Not a technical dependency of the reminders work (medications already fully worked via the
+existing inline add-affordance) - closes a real, independently-discovered gap: `PATCH`/`DELETE
+/api/medications/:id` have existed on the backend since Phase 4, with no frontend caller at all
+until this task. The only way to create a medication was buried inside `MedicationEntryForm`'s own
+"+ Add another medication" affordance while logging a dose - there was nowhere to rename one,
+fix a typo'd dosage, or remove one no longer taken, and (looking ahead to Task 5) nowhere to set
+one up *before* ever logging a dose against it, which per-medication reminders need.
+
+### Background / concepts
+
+#### A real hard delete, not an archive - and why the confirmation says so explicitly
+
+`CategoriesSection`'s own delete action archives (`archivedAt`, never a real `DELETE`), because a
+system category with real logging history behind it needs to stay resolvable in History
+indefinitely (see `docs/log/15-categories.md`). `Medication` has no such constraint - there's no
+system-wide medication concept, and `medications.ts`'s `DELETE` route (unchanged by this task) has
+always been a genuine hard delete that cascades to every `MedicationLog` against it
+(`onDelete: Cascade` in `schema.prisma`). Reusing `CategoriesSection`'s own confirmation wording
+("existing entries are kept...") here would have been actively *wrong* - it would tell a user their
+logged doses are safe when this action removes them permanently. The new section's own
+confirmation says exactly what happens instead: "This also permanently deletes every logged entry
+for it."
+
+#### A standalone create form, not a reused one
+
+`MedicationEntryForm.tsx` already has its own inline "add a medication" flow (the pre-existing
+affordance this task's gap analysis singled out) - but its `onCreated`-equivalent hands back
+`(log, medication)` together, shaped around "a dose was just logged against a medication that may
+have just been created inline in the same submit." Settings' own create flow only ever needs the
+medication itself, with no dose attached. Rather than contort one component to serve both shapes,
+`MedicationCreateForm.tsx` is a new, smaller, standalone form (mirrors `CategoryCreateForm.tsx`'s
+own role for categories) - name plus an optional dosage, `POST /api/medications`, nothing else.
+
+### What was done
+
+- **`frontend/src/components/MedicationCreateForm.tsx`** (new): name + optional dosage form,
+  `POST /api/medications`, mirroring `CategoryCreateForm.tsx`'s shape minus the value-type picker
+  (`Medication` has no equivalent of `Category.valueType`).
+- **`frontend/src/pages/SettingsPage.tsx`**: new `MedicationsSection` (list/edit/delete, plus the
+  new create form), placed between `BuiltInCategoriesSection` and the existing custom-
+  `CategoriesSection`. Reuses the already-exported `Medication` type from
+  `MedicationEntryForm.tsx` rather than redefining it.
+
+### Why it's needed
+
+Directly closes the gap found while researching Task 2/5: without this, "set up a Diazepam
+reminder before ever logging a dose" (the whole point of Task 5's per-medication reminders) would
+have had no way to create the medication in the first place outside of logging a dose first.
+
+### Decisions
+
+- **A real hard delete with an explicit, accurate warning** - see above; reusing Category's own
+  "kept" wording would have misrepresented what actually happens.
+- **A new standalone create form rather than reusing `MedicationEntryForm`'s inline one** - the two
+  call sites hand back meaningfully different shapes (medication alone vs. medication-plus-log);
+  forcing one shared component to serve both would have made both worse.
+
+### State at end of this step
+
+Medications can now be listed, created, renamed/redosed, and deleted entirely from Settings -
+independently verified (via a real Playwright script against the built frontend and a running
+backend, not just the automated suites) to be the exact same backend-owned list
+`MedicationEntryForm`'s own picker on Dashboard reads from, not a separate parallel one. Phase 16's
+only remaining piece is Task 5 (reminders management rewrite) - `RemindersSection` in Settings
+still references `User` fields Task 2 removed from the backend and remains non-functional until
+that task lands.
+
+### Verification
+
+- `npm test` (frontend): full suite green (291 tests, up from 285) - 6 new tests covering the
+  empty state, listing with dosage, create, edit, delete (asserting the exact cascade-warning
+  confirmation text), and declined-confirmation-does-nothing.
+- `npx tsc -b`, `npm run build`: clean. `npx oxlint`: only the same two pre-existing warnings noted
+  in Task 3's entry, in files this task didn't touch either. `npx prettier --check`: clean on this
+  task's own files after one `--write` pass; the same two pre-existing, untouched-by-this-task
+  files as Task 3 remain (confirmed via `git status`).
+- Manual, real-browser verification (Playwright against the built frontend + a running backend):
+  registered a fresh account, confirmed the empty state; created "Diazepam" with dosage "2mg" and
+  confirmed it listed correctly; confirmed it also appeared in Dashboard's real
+  `MedicationEntryForm` picker (proving one shared backend list, not a UI-only duplicate); edited
+  the dosage to "5mg" and confirmed it persisted in the list; deleted it, confirming the real
+  confirm-dialog text read "This also permanently deletes every logged entry for it," and that the
+  empty state returned afterward.
+
+---
