@@ -146,3 +146,95 @@ will need its own rewrite (Task 5) before reminders are reachable from the app a
   `docs/log/15-categories.md`'s Task 1 entry, not caused by this feature.
 
 ---
+
+## 2026-08-24 — Task 1: built-in category toggles
+
+**Task:** [Phase 16, Task 1](../../Tasks.md#task-1--backend-built-in-category-toggles) - let a
+user turn each of the four built-in categories (Mood/Symptom/Medication/Habit) on or off
+individually, hiding it from Dashboard/Quick Add without touching any data already logged under
+it. Implemented after Task 2 (above), since this task's own cross-feature rule - turning a
+category off also disables any `Reminder` aimed at it - reads from Task 2's `Reminder` model.
+
+### Background / concepts
+
+#### A real bug found while generating this task's own migration
+
+Starting this task's migration turned up a genuine mistake in Task 2's schema, unrelated to the
+toggle columns themselves: `Reminder.category` (`categoryId String?`) had no explicit `onDelete`,
+and its own schema comment claimed "Restrict is Prisma's default for a relation with no onDelete
+specified" - true only for a **required** relation. For an **optional** one (which this is - the
+same reasoning `CategoryLog.category` uses does *not* transfer, because `CategoryLog.categoryId`
+is non-nullable), Prisma's actual unspecified-onDelete default is `SetNull`. The hand-written
+`migration.sql` from Task 2 said `RESTRICT` (matching the intended design), but what `prisma db
+push` actually applied to the dev database - back when Task 2's migration history was reconciled
+via `prisma migrate resolve --applied` rather than genuinely replayed - was `SetNull`, since that
+reflected the schema as literally written at the time, not the comment's stated intent. This
+surfaced as `prisma migrate dev` refusing to run for this task's own change, reporting drift
+between the actual database and migration history and asking to reset the whole dev database.
+
+Rather than reset (real, if disposable, local data), the actual constraint was inspected directly
+(`pg_get_constraintdef` via a scratch script - `psql` isn't installed in this environment, so a
+one-off Prisma `$queryRawUnsafe` stood in for it), confirmed as the `SetNull` mismatch above, and
+corrected in two steps: the live constraint was fixed via `$executeRawUnsafe` to match what
+Task 2's own already-applied migration history says (`RESTRICT`) - restoring consistency without
+any data loss - and then `schema.prisma` was corrected to declare `onDelete: Restrict` explicitly
+rather than leaving it implicit, so the true default can never silently diverge from the intended
+design again. `SetNull` would have been a real bug in production: a hard-deleted category (however
+rare) would have silently left a `CATEGORY`-target `Reminder` pointing at nothing, rather than
+blocking the delete the way the design always intended.
+
+### What was done
+
+- **`backend/prisma/schema.prisma`**: four new `User` booleans, all `@default(true)`:
+  `moodEnabled`, `symptomEnabled`, `medicationEnabled`, `habitEnabled`. Also fixes
+  `Reminder.category`'s `onDelete` to be explicit `Restrict` (see above).
+- **`backend/src/routes/users.ts`**: `updateSchema`/`PROFILE_SELECT` extended with all four
+  fields. `PATCH /me` also disables (`enabled: false`, never a delete) every `Reminder` whose
+  `target` matches a toggle flipped to `false` in the same request - `MOOD`/`SYMPTOM`/`HABIT`
+  directly, `MEDICATION` for every reminder regardless of which specific medication it names.
+  Fires whenever the field is sent as `false` at all (not only on a genuine true→false
+  transition) - a harmless no-op on repeat, the same tolerance `categories.ts`'s own repeat-archive
+  already has. Turning a category back on deliberately does **not** re-enable those reminders.
+- **`backend/src/routes/auth.ts`**: `serializeUser()` (shared by `/login` and `/refresh`) gains all
+  four fields - the same lesson `isAdmin` already established: `AuthContext` is populated from
+  session endpoints, not `GET /api/users/me`, so a flag added only there would leave the frontend's
+  session-derived state stale until a manual refetch.
+- **Migration** (`category_toggles`): adds the four `users` columns; the `Reminder.category` FK
+  fix above required no new migration statement of its own, since the live constraint was already
+  hand-corrected to match what the schema now states explicitly.
+
+### Why it's needed
+
+Toggling categories off was explored earlier in the project and shelved in favor of the
+custom-category hybrid that shipped in Phase 15; the user asked for it back in addition to (not
+instead of) that hybrid. The reminder side-effect exists so a disabled category can't keep quietly
+pushing notifications for something the user just said they don't want to see or log anymore.
+
+### Decisions
+
+- **Disable-only, no auto-re-enable on toggle-back-on** - re-enabling a reminder is a decision the
+  user makes explicitly from the reminders list (Task 5), never an automatic side effect of an
+  unrelated toggle, so a notification can never silently resume without a fresh confirmation.
+- **Fixed the `Reminder.category` FK bug as part of this task, not a separate PR** - it was found
+  while doing this task's own migration work and touches the same file/relation Task 1 already
+  needed to reason about; deferring it to a later, unrelated PR would have meant carrying a known,
+  understood correctness bug in already-merged `main` for no benefit.
+
+### State at end of this step
+
+Backend toggles are complete, tested, and wired to the reminder model. No frontend yet - `AuthUser`
+doesn't carry the four flags, Settings has no toggle UI, and Dashboard/QuickAdd/Summary don't
+conditionally render on them (Task 3).
+
+### Verification
+
+- `npm test` (backend): full suite green (289 tests), including new `users.test.ts` cases for the
+  toggle defaults, independent updates, presence on `/login`/`/refresh` (not just `GET /me`), and
+  the toggle-disables-reminder / toggle-back-on-does-not-re-enable behavior.
+- `npx tsc --noEmit`, `npm run build`, `npx eslint .`, `npx prettier --check`: all clean.
+- The FK drift was resolved without a database reset: the live `reminders_category_id_fkey`
+  constraint was inspected directly, confirmed to be `SetNull` against an intended/`RESTRICT`
+  migration history, corrected in place, then a clean `prisma migrate dev` produced the real
+  migration for the toggle columns with no further drift.
+
+---

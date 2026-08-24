@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { clearRefreshTokenCookie } from "../lib/cookies";
 import { isAdminEmail } from "../lib/isAdmin";
+import { ReminderTarget } from "../generated/prisma/client";
 
 // Validates by actually constructing an Intl.DateTimeFormat with this zone - the same call
 // `backend/src/lib/timezone.ts` makes for real, downstream, to resolve a user's calendar day -
@@ -29,6 +30,10 @@ const updateSchema = z
   .object({
     displayName: z.string().trim().min(1, "Display name can't be empty"),
     timezone: z.string().refine(isValidTimeZone, "Not a recognized timezone"),
+    moodEnabled: z.boolean(),
+    symptomEnabled: z.boolean(),
+    medicationEnabled: z.boolean(),
+    habitEnabled: z.boolean(),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
@@ -41,7 +46,23 @@ const PROFILE_SELECT = {
   displayName: true,
   timezone: true,
   createdAt: true,
+  moodEnabled: true,
+  symptomEnabled: true,
+  medicationEnabled: true,
+  habitEnabled: true,
 } as const;
+
+// Maps each toggle field to the Reminder target it gates - used only on the false-going-false
+// transition below, to decide which Reminder rows to disable alongside the category itself.
+const TOGGLE_TARGETS: Record<
+  "moodEnabled" | "symptomEnabled" | "medicationEnabled" | "habitEnabled",
+  ReminderTarget
+> = {
+  moodEnabled: ReminderTarget.MOOD,
+  symptomEnabled: ReminderTarget.SYMPTOM,
+  medicationEnabled: ReminderTarget.MEDICATION,
+  habitEnabled: ReminderTarget.HABIT,
+};
 
 export const usersRouter = Router();
 
@@ -80,6 +101,26 @@ usersRouter.patch("/me", async (req, res) => {
     data: parsed.data,
     select: PROFILE_SELECT,
   });
+
+  // Turning a built-in category off also disables (not deletes) any Reminder aimed at it -
+  // MEDICATION reminders included, regardless of which specific medicationId they're for. Fires
+  // whenever the field is sent as false, whether or not it was already false - a harmless no-op
+  // on repeat, the same "re-archiving an already-archived category" tolerance categories.ts's own
+  // DELETE route allows. Turning a category back on deliberately does NOT re-enable those
+  // reminders - the user re-enables them explicitly from the reminders list, so a notification
+  // never silently resumes without a fresh confirmation.
+  const targetsToDisable = (
+    Object.keys(TOGGLE_TARGETS) as Array<keyof typeof TOGGLE_TARGETS>
+  ).filter((field) => parsed.data[field] === false);
+  if (targetsToDisable.length > 0) {
+    await prisma.reminder.updateMany({
+      where: {
+        userId: req.userId,
+        target: { in: targetsToDisable.map((field) => TOGGLE_TARGETS[field]) },
+      },
+      data: { enabled: false },
+    });
+  }
 
   res.json({ ...user, isAdmin: isAdminEmail(user.email) });
 });

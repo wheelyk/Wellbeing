@@ -26,6 +26,16 @@ model User {
   resetTokenHash      String?   @map("reset_token_hash")
   resetTokenExpiresAt DateTime? @map("reset_token_expires_at")
 
+  // Lets a user hide a built-in category (Mood/Symptom/Medication/Habit) from Dashboard/Quick Add
+  // without touching any data already logged under it - the toggle-off direction explored
+  // alongside the custom-Category feature and shipped here as a follow-up. All default true so
+  // every existing account keeps today's behavior unchanged. Turning one off also disables (not
+  // deletes) any Reminder targeting that category - see routes/users.ts's PATCH /me.
+  moodEnabled       Boolean @default(true) @map("mood_enabled")
+  symptomEnabled    Boolean @default(true) @map("symptom_enabled")
+  medicationEnabled Boolean @default(true) @map("medication_enabled")
+  habitEnabled      Boolean @default(true) @map("habit_enabled")
+
   moodLogs          MoodLog[]
   habits            Habit[]
   habitLogs         HabitLog[]
@@ -357,12 +367,19 @@ model Reminder {
   // Cascade: mirrors Medication's own real hard-delete (MedicationLog also cascades from it) -
   // a reminder about a medication that no longer exists has nothing left to be about.
   medication Medication? @relation(fields: [medicationId], references: [id], onDelete: Cascade)
-  // Restrict, not Cascade: Category is never hard-deleted (categories.ts's own DELETE route only
-  // sets archivedAt), so a Cascade here would almost never fire in practice. Instead, archiving a
-  // category explicitly sets enabled: false on every Reminder targeting it (see categories.ts/
-  // adminCategories.ts) - "stop acting on it" rather than relying on a delete path that doesn't
-  // really happen.
-  category Category? @relation(fields: [categoryId], references: [id])
+  // Restrict, not Cascade - and not left as the bare default either: for an *optional* scalar
+  // relation like this one (categoryId is nullable), Prisma's actual unspecified-onDelete default
+  // is SetNull, not Restrict (Restrict is only the implicit default for a *required* relation,
+  // which is why CategoryLog.category - categoryId is non-nullable there - gets it "for free").
+  // SetNull would silently leave a CATEGORY-target reminder pointing at no category at all if a
+  // hard delete ever did happen - nonsensical, since a CATEGORY reminder's whole meaning comes
+  // from the category it names. Restrict is stated explicitly here instead, so a hard delete is
+  // blocked at the database level rather than corrupting the row. In practice this almost never
+  // fires either way: Category is never hard-deleted (categories.ts's own DELETE route only sets
+  // archivedAt), and archiving a category explicitly sets enabled: false on every Reminder
+  // targeting it (see categories.ts/adminCategories.ts) - "stop acting on it" rather than relying
+  // on a delete path that doesn't really happen.
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   sends    ReminderSend[]
 
   // Every "list my reminders" query (GET /api/reminders) filters by user; the scheduler's own
