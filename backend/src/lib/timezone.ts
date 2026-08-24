@@ -106,8 +106,8 @@ export function todayInTimezone(timeZone: string): string {
 }
 
 // The current wall-clock time in the user's timezone, as "HH:mm" (24-hour, zero-padded) - the
-// same shape `User.reminderTime` is stored in, so the reminder scheduler can compare the two
-// directly as strings rather than parsing either one into numbers first.
+// same shape each entry in `Reminder.times` is stored in, so the reminder scheduler can compare
+// the two directly as strings rather than parsing either one into numbers first.
 export function currentTimeInTimezone(timeZone: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone,
