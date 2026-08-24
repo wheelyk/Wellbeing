@@ -105,7 +105,25 @@ function groupEntriesByDay(entries: RecentEntry[]): RecentEntryGroup[] {
 // long enough to miss the dispatch - so staleness is bounded at POLL_INTERVAL_MS even then.
 const POLL_INTERVAL_MS = 10_000;
 
-export function DashboardSummary() {
+interface DashboardSummaryProps {
+  // Whether each built-in category is currently on (Settings > Built-in categories) - all
+  // default true, matching every existing call site (and every test rendering this component
+  // with no props) so today's "show all four" summary line is unchanged unless a caller
+  // explicitly says otherwise. Only affects which clauses appear in the summary line below -
+  // the underlying dashboard data (streak, recent entries) is unaffected by these, since
+  // disabling a category never hides history that already exists.
+  moodEnabled?: boolean;
+  symptomEnabled?: boolean;
+  medicationEnabled?: boolean;
+  habitEnabled?: boolean;
+}
+
+export function DashboardSummary({
+  moodEnabled = true,
+  symptomEnabled = true,
+  medicationEnabled = true,
+  habitEnabled = true,
+}: DashboardSummaryProps = {}) {
   const [data, setData] = useState<DashboardSummaryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -222,19 +240,38 @@ export function DashboardSummary() {
     data.medicationSummary.total > 0 ||
     data.habitSummary.loggedCount > 0;
 
+  // Built one clause per still-enabled category, in the same fixed Mood/Symptoms/Medications/
+  // Habits order the line has always used - a disabled category's clause is omitted outright,
+  // not shown as zero, since it isn't offered for logging today at all. If every category
+  // happens to be disabled while `hasLoggedAnything` is still true (stale data logged before a
+  // toggle was flipped off), falling through to the friendly empty-state message below reads
+  // better than an empty summary line.
+  const summaryParts: string[] = [];
+  if (moodEnabled) {
+    summaryParts.push(`Mood: ${data.mood ? `${data.mood.mood}/5` : "Not logged yet"}`);
+  }
+  if (symptomEnabled) {
+    summaryParts.push(`Symptoms: ${data.symptomCount} logged`);
+  }
+  if (medicationEnabled) {
+    summaryParts.push(
+      `Medications: ${data.medicationSummary.taken}/${data.medicationSummary.total} taken`,
+    );
+  }
+  if (habitEnabled) {
+    summaryParts.push(
+      `Habits: ${data.habitSummary.loggedCount}/${data.habitSummary.totalHabits} logged`,
+    );
+  }
+
   return (
     <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
       {/* h2, not h1 - DashboardPage's own "Welcome, {name}" heading is the page's one <h1>; this
           card is a section within the page, not a second top-level heading. */}
       <h2 className="text-2xl font-semibold text-text">{formatDisplayDate(data.date)}</h2>
 
-      {hasLoggedAnything ? (
-        <p className="mt-2 text-text">
-          Mood: {data.mood ? `${data.mood.mood}/5` : "Not logged yet"} · Symptoms:{" "}
-          {data.symptomCount} logged · Medications: {data.medicationSummary.taken}/
-          {data.medicationSummary.total} taken · Habits: {data.habitSummary.loggedCount}/
-          {data.habitSummary.totalHabits} logged
-        </p>
+      {hasLoggedAnything && summaryParts.length > 0 ? (
+        <p className="mt-2 text-text">{summaryParts.join(" · ")}</p>
       ) : (
         <p className="mt-2 text-text-muted">
           Nothing logged yet today — use one of the Quick Add buttons below to get started.

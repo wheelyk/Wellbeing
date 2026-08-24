@@ -128,4 +128,63 @@ describe("DashboardPage", () => {
     // via the shared dashboardQuickAddEvent, not a coincidence of some other trigger.
     expect(screen.getByRole("dialog", { name: "Log a medication" })).toBeInTheDocument();
   });
+
+  it("hides a disabled built-in category's section and Quick Add entry, but leaves the others alone", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/auth/refresh")) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            user: {
+              id: "user-1",
+              email: "test@example.com",
+              displayName: "Test User",
+              timezone: "UTC",
+              createdAt: "2026-01-01T00:00:00.000Z",
+              isAdmin: false,
+              moodEnabled: true,
+              symptomEnabled: true,
+              medicationEnabled: false,
+              habitEnabled: true,
+            },
+            accessToken: "test-token",
+          }),
+        );
+      }
+      if (url.includes("/api/dashboard")) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            date: "2026-08-17",
+            mood: null,
+            symptomCount: 0,
+            medicationSummary: { taken: 0, total: 0 },
+            habitSummary: { loggedCount: 0, totalHabits: 0 },
+            recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
+            streak: { current: 0, daysLoggedThisWeek: 0 },
+          }),
+        );
+      }
+      if (url.includes("-logs")) {
+        return Promise.resolve(
+          jsonResponse(200, { entries: [], limit: 10, offset: 0, hasMore: false }),
+        );
+      }
+      return Promise.resolve(jsonResponse(200, []));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    renderDashboard();
+
+    expect(await screen.findByText("Recent mood entries")).toBeInTheDocument();
+    expect(screen.getByText("Recent habit entries")).toBeInTheDocument();
+    expect(screen.getByText("Recent symptom entries")).toBeInTheDocument();
+    expect(screen.queryByText("Recent medications")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add medication entry" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Quick add" }));
+    expect(screen.queryByRole("menuitem", { name: /medication/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /mood/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /symptom/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /habit/i })).toBeInTheDocument();
+  });
 });

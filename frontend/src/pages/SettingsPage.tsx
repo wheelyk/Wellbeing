@@ -49,6 +49,10 @@ interface UserProfile {
   createdAt: string;
   reminderEnabled: boolean;
   reminderTime: string | null;
+  moodEnabled: boolean;
+  symptomEnabled: boolean;
+  medicationEnabled: boolean;
+  habitEnabled: boolean;
 }
 
 const DEFAULT_REMINDER_TIME = "20:00";
@@ -444,6 +448,163 @@ function RemindersSection() {
             </Button>
           </form>
         )}
+      </CollapsibleSection>
+    </SectionCard>
+  );
+}
+
+interface CategoryToggles {
+  moodEnabled: boolean;
+  symptomEnabled: boolean;
+  medicationEnabled: boolean;
+  habitEnabled: boolean;
+}
+
+const DEFAULT_TOGGLES: CategoryToggles = {
+  moodEnabled: true,
+  symptomEnabled: true,
+  medicationEnabled: true,
+  habitEnabled: true,
+};
+
+const TOGGLE_ITEMS: Array<{ key: keyof CategoryToggles; label: string; description: string }> = [
+  { key: "moodEnabled", label: "Mood", description: "Daily mood check-ins." },
+  { key: "symptomEnabled", label: "Symptoms", description: "Track symptom severity over time." },
+  { key: "medicationEnabled", label: "Medications", description: "Log doses taken or missed." },
+  { key: "habitEnabled", label: "Habits", description: "Yes/no, numeric, or duration habits." },
+];
+
+// Lets a user hide one of the four built-in categories from Dashboard/Quick Add without
+// touching anything already logged under it - placed above CategoriesSection (custom
+// categories), since both are ultimately about "what shows up to log," just for the built-in
+// four versus a user's own extensible ones.
+function BuiltInCategoriesSection() {
+  const { updateUser } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [toggles, setToggles] = useState<CategoryToggles>(DEFAULT_TOGGLES);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<UserProfile>("/api/users/me")
+      .then((profile) => {
+        if (cancelled) return;
+        setToggles({
+          moodEnabled: profile.moodEnabled ?? true,
+          symptomEnabled: profile.symptomEnabled ?? true,
+          medicationEnabled: profile.medicationEnabled ?? true,
+          habitEnabled: profile.habitEnabled ?? true,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setSaveError(null);
+    setSaved(false);
+    setSaving(true);
+    try {
+      const profile = await apiFetch<UserProfile>("/api/users/me", {
+        method: "PATCH",
+        body: JSON.stringify(toggles),
+      });
+      const updated: CategoryToggles = {
+        moodEnabled: profile.moodEnabled ?? true,
+        symptomEnabled: profile.symptomEnabled ?? true,
+        medicationEnabled: profile.medicationEnabled ?? true,
+        habitEnabled: profile.habitEnabled ?? true,
+      };
+      setToggles(updated);
+      // Keeps Dashboard/Quick Add/the summary line in sync immediately in this same session,
+      // rather than only after a reload re-runs rehydrateSession - the same lesson isAdmin
+      // already established for AuthContext-derived state (see AuthContext.tsx's own comment on
+      // updateUser).
+      updateUser(updated);
+      setSaved(true);
+    } catch {
+      setSaveError("Something went wrong. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <SectionCard>
+        <CollapsibleSection title="Built-in categories" storageKey="settings.builtInCategories">
+          <p className="text-sm text-text-muted">Loading…</p>
+        </CollapsibleSection>
+      </SectionCard>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <SectionCard>
+        <CollapsibleSection title="Built-in categories" storageKey="settings.builtInCategories">
+          <p role="alert" className="text-sm text-danger">
+            Couldn't load your category settings. Please refresh the page.
+          </p>
+        </CollapsibleSection>
+      </SectionCard>
+    );
+  }
+
+  return (
+    <SectionCard>
+      <CollapsibleSection title="Built-in categories" storageKey="settings.builtInCategories">
+        <p className="mb-4 text-sm text-text-muted">
+          Turn off any of these you don't want to track - they'll disappear from Dashboard and Quick
+          Add, but anything already logged stays exactly as it is.
+        </p>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
+          <div className="flex flex-col gap-3">
+            {/* The description sits outside <label> (a sibling <p>, not nested text) so it
+                doesn't get folded into the checkbox's own accessible name alongside item.label -
+                getByLabelText(/^mood$/i) needs "Mood" alone, not "Mood Daily mood check-ins." */}
+            {TOGGLE_ITEMS.map((item) => (
+              <div key={item.key}>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={toggles[item.key]}
+                    onChange={(e) =>
+                      setToggles((prev) => ({ ...prev, [item.key]: e.target.checked }))
+                    }
+                    className="h-4 w-4 rounded border-border text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                  />
+                  <span className="text-sm font-medium text-text">{item.label}</span>
+                </label>
+                <p className="ml-6 text-xs text-text-muted">{item.description}</p>
+              </div>
+            ))}
+          </div>
+          {saveError && (
+            <p role="alert" className="text-sm text-danger">
+              {saveError}
+            </p>
+          )}
+          {saved && !saveError && (
+            <p role="status" className="text-sm text-success">
+              Category settings saved.
+            </p>
+          )}
+          <Button type="submit" disabled={saving} className="self-start">
+            {saving ? "Saving…" : "Save category settings"}
+          </Button>
+        </form>
       </CollapsibleSection>
     </SectionCard>
   );
@@ -880,6 +1041,10 @@ export function SettingsPage() {
 
         <section className="mt-6">
           <RemindersSection />
+        </section>
+
+        <section className="mt-6">
+          <BuiltInCategoriesSection />
         </section>
 
         <section className="mt-6">

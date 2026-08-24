@@ -356,7 +356,7 @@ fixed times, not real recurring-interval logic, is the whole point of "multiple 
   orphans, every reminder targeting it.
 
 ### Task 3 — Frontend: built-in category toggles
-- [ ] Settings toggle section; `AuthUser` gains the four booleans; `DashboardPage.tsx`/
+- [x] Settings toggle section; `AuthUser` gains the four booleans; `DashboardPage.tsx`/
   `QuickAddFab.tsx`/`DashboardSummary.tsx` conditionally render per flag. History deliberately
   unchanged (browsing past data is a different concern from "can I log a new one").
 

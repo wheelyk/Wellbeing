@@ -404,6 +404,92 @@ describe("SettingsPage — reminders", () => {
   });
 });
 
+describe("SettingsPage — built-in categories", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("loads the four toggles, all on by default", async () => {
+    const fetchMock = routedFetchMock({
+      "GET /api/users/me": () =>
+        jsonResponse(200, {
+          ...DEFAULT_PROFILE,
+          moodEnabled: true,
+          symptomEnabled: true,
+          medicationEnabled: true,
+          habitEnabled: true,
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    expect(await screen.findByLabelText(/^mood$/i)).toBeChecked();
+    expect(screen.getByLabelText(/^symptoms$/i)).toBeChecked();
+    expect(screen.getByLabelText(/^medications$/i)).toBeChecked();
+    expect(screen.getByLabelText(/^habits$/i)).toBeChecked();
+  });
+
+  it("reflects a category that's already off", async () => {
+    const fetchMock = routedFetchMock({
+      "GET /api/users/me": () =>
+        jsonResponse(200, {
+          ...DEFAULT_PROFILE,
+          moodEnabled: true,
+          symptomEnabled: true,
+          medicationEnabled: false,
+          habitEnabled: true,
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    await screen.findByLabelText(/^mood$/i);
+    expect(screen.getByLabelText(/^medications$/i)).not.toBeChecked();
+  });
+
+  it("saves a toggle change and shows a confirmation", async () => {
+    const fetchMock = routedFetchMock({
+      "GET /api/users/me": () =>
+        jsonResponse(200, {
+          ...DEFAULT_PROFILE,
+          moodEnabled: true,
+          symptomEnabled: true,
+          medicationEnabled: true,
+          habitEnabled: true,
+        }),
+      "PATCH /api/users/me": (init) => {
+        const body = JSON.parse(init?.body as string);
+        return jsonResponse(200, { ...DEFAULT_PROFILE, ...body });
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByLabelText(/^mood$/i);
+    await user.click(screen.getByLabelText(/^medications$/i));
+    await user.click(screen.getByRole("button", { name: /save category settings/i }));
+
+    expect(await screen.findByText(/category settings saved/i)).toBeInTheDocument();
+
+    const patchCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        url.includes("/api/users/me") &&
+        init?.method === "PATCH" &&
+        JSON.parse(init.body as string).medicationEnabled !== undefined,
+    );
+    expect(patchCall).toBeDefined();
+    const [, requestInit] = patchCall as [string, RequestInit];
+    const body = JSON.parse(requestInit.body as string);
+    expect(body).toEqual({
+      moodEnabled: true,
+      symptomEnabled: true,
+      medicationEnabled: false,
+      habitEnabled: true,
+    });
+  });
+});
+
 describe("SettingsPage — categories", () => {
   beforeEach(() => {
     vi.restoreAllMocks();

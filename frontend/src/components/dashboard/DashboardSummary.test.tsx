@@ -185,6 +185,47 @@ describe("DashboardSummary", () => {
     expect(entry.textContent).not.toMatch(/today|yesterday/i);
   });
 
+  it("omits a disabled category's clause from the summary line, keeping the others", async () => {
+    mockDashboardFetch({
+      date: "2026-08-17",
+      mood: { id: "mood-1", mood: 4 },
+      symptomCount: 2,
+      medicationSummary: { taken: 1, total: 2 },
+      habitSummary: { loggedCount: 1, totalHabits: 3 },
+      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    });
+
+    render(<DashboardSummary medicationEnabled={false} />);
+
+    const summary = await screen.findByText(/mood: 4\/5/i);
+    expect(summary.textContent).toMatch(/mood: 4\/5 · symptoms: 2 logged · habits: 1\/3 logged/i);
+    expect(summary.textContent).not.toMatch(/medications/i);
+  });
+
+  it("falls back to the friendly empty state when every category is disabled", async () => {
+    mockDashboardFetch({
+      date: "2026-08-17",
+      mood: { id: "mood-1", mood: 4 },
+      symptomCount: 2,
+      medicationSummary: { taken: 1, total: 2 },
+      habitSummary: { loggedCount: 1, totalHabits: 3 },
+      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    });
+
+    render(
+      <DashboardSummary
+        moodEnabled={false}
+        symptomEnabled={false}
+        medicationEnabled={false}
+        habitEnabled={false}
+      />,
+    );
+
+    expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
+  });
+
   it("shows 'Not logged yet' for mood when no mood log exists for the day", async () => {
     mockDashboardFetch({
       date: "2026-08-17",

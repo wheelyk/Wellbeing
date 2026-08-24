@@ -27,21 +27,41 @@ export function DashboardPage() {
         <p className="mt-2 text-text-muted">You&apos;re logged in as {user?.email}.</p>
 
         <div className="mt-8">
-          <DashboardSummary />
+          <DashboardSummary
+            moodEnabled={user?.moodEnabled ?? true}
+            symptomEnabled={user?.symptomEnabled ?? true}
+            medicationEnabled={user?.medicationEnabled ?? true}
+            habitEnabled={user?.habitEnabled ?? true}
+          />
         </div>
 
         {/* One column on mobile (screen width is the scarce resource - see the implementation
             log entry), two from md: (768px) up once there's enough width for a second column
-            without cramping either one. */}
+            without cramping either one. Each of the four built-in sections is gated on its own
+            toggle (Settings > Built-in categories) - `?? true` treats a still-loading/missing
+            user (e.g. the brief window before rehydrateSession resolves) the same as "enabled,"
+            matching the backend's own default, rather than flashing every section away and back.
+            History deliberately isn't gated the same way - browsing past data is a different
+            concern from "can I log a new one" (see docs/log/16-reminders-and-category-toggles.md's
+            Task 3 entry). */}
         <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
-          <MoodSection />
-          <HabitSection />
-          <MedicationSection />
-          <SymptomSection />
+          {(user?.moodEnabled ?? true) && <MoodSection />}
+          {(user?.habitEnabled ?? true) && <HabitSection />}
+          {(user?.medicationEnabled ?? true) && <MedicationSection />}
+          {(user?.symptomEnabled ?? true) && <SymptomSection />}
           <CategorySection />
         </div>
       </main>
-      <BottomNav centerAction={<QuickAddFab />} />
+      <BottomNav
+        centerAction={
+          <QuickAddFab
+            moodEnabled={user?.moodEnabled ?? true}
+            symptomEnabled={user?.symptomEnabled ?? true}
+            medicationEnabled={user?.medicationEnabled ?? true}
+            habitEnabled={user?.habitEnabled ?? true}
+          />
+        }
+      />
     </div>
   );
 }
