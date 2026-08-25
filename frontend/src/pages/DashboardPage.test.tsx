@@ -33,22 +33,20 @@ describe("DashboardPage", () => {
   });
 
   it("renders the nav, the dashboard summary, and all log-type sections together", async () => {
-    // Every section fires its own fetch on mount; some (Medication, Symptom, Category) fire two
+    // Every section fires its own fetch on mount; some (Medication, Category) fire two
     // simultaneous calls via Promise.all, so mockImplementation is required here (not
     // mockResolvedValue) to give each call its own fresh, independently-readable Response -
     // see docs/log/08-git-github-workflow.md for why mockResolvedValue silently breaks this.
     // DashboardSummary's GET /api/dashboard expects a differently-shaped object; the *-logs
-    // endpoints (mood/symptom/medication/category) are paginated ({entries, limit, offset,
-    // hasMore} - see backend/src/lib/pagination.ts) while their sibling list endpoints
-    // (/api/categories, /api/medications, /api/symptoms) are still plain arrays - both
-    // special-cased by URL here.
+    // endpoints (mood/medication/category) are paginated ({entries, limit, offset, hasMore} -
+    // see backend/src/lib/pagination.ts) while their sibling list endpoints (/api/categories,
+    // /api/medications) are still plain arrays - both special-cased by URL here.
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/api/dashboard")) {
         return Promise.resolve(
           jsonResponse(200, {
             date: "2026-08-17",
             mood: null,
-            symptomCount: 0,
             medicationSummary: { taken: 0, total: 0 },
             recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
             streak: { current: 0, daysLoggedThisWeek: 0 },
@@ -80,13 +78,11 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("button", { name: "Add mood entry" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add category entry" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add medication entry" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add symptom entry" })).toBeInTheDocument();
 
     expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
     expect(await screen.findByText("Recent mood entries")).toBeInTheDocument();
     expect(await screen.findByText("Your categories")).toBeInTheDocument();
     expect(await screen.findByText("Recent medications")).toBeInTheDocument();
-    expect(await screen.findByText("Recent symptom entries")).toBeInTheDocument();
   });
 
   it("opens a section's add dialog directly from the floating Quick Add button", async () => {
@@ -96,7 +92,6 @@ describe("DashboardPage", () => {
           jsonResponse(200, {
             date: "2026-08-17",
             mood: null,
-            symptomCount: 0,
             medicationSummary: { taken: 0, total: 0 },
             recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
             streak: { current: 0, daysLoggedThisWeek: 0 },
@@ -140,7 +135,6 @@ describe("DashboardPage", () => {
               createdAt: "2026-01-01T00:00:00.000Z",
               isAdmin: false,
               moodEnabled: true,
-              symptomEnabled: true,
               medicationEnabled: false,
             },
             accessToken: "test-token",
@@ -152,7 +146,6 @@ describe("DashboardPage", () => {
           jsonResponse(200, {
             date: "2026-08-17",
             mood: null,
-            symptomCount: 0,
             medicationSummary: { taken: 0, total: 0 },
             recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
             streak: { current: 0, daysLoggedThisWeek: 0 },
@@ -173,14 +166,12 @@ describe("DashboardPage", () => {
 
     expect(await screen.findByText("Recent mood entries")).toBeInTheDocument();
     expect(screen.getByText("Your categories")).toBeInTheDocument();
-    expect(screen.getByText("Recent symptom entries")).toBeInTheDocument();
     expect(screen.queryByText("Recent medications")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add medication entry" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Quick add" }));
     expect(screen.queryByRole("menuitem", { name: /medication/i })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /mood/i })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /symptom/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /more/i })).toBeInTheDocument();
   });
 });

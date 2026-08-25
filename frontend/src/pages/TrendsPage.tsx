@@ -23,7 +23,6 @@ interface TrendsData {
   startDate: string;
   endDate: string;
   days: string[];
-  symptomSeverity: { series: TrendPoint[]; average: number | null };
   mood: { series: TrendPoint[]; average: number | null };
   categoryTrends: CategoryTrend[];
   activity: { days: ActivityDay[] };
@@ -35,17 +34,17 @@ const PERIOD_LABELS: Record<TrendsPeriod, string> = {
   "90d": "the last 90 days",
 };
 
-// These hex values mirror index.css's `--color-brand` / `--color-brand-dark` theme tokens - SVG
-// `fill`/`stroke` attributes (used inside TrendLineChart) don't accept Tailwind utility classes,
-// so the two charts on this page pass the same colors as plain hex rather than duplicating a
-// third source of truth for them.
-const SYMPTOM_CHART_COLOR = "#2563eb";
+// This hex value mirrors index.css's `--color-brand-dark` theme token - SVG `fill`/`stroke`
+// attributes (used inside TrendLineChart) don't accept Tailwind utility classes, so Mood's own
+// fixed chart passes this as plain hex rather than duplicating a third source of truth for it.
 const MOOD_CHART_COLOR = "#1d4ed8";
 
-// A small rotating palette for however many numeric/scale custom categories a user has - unlike
-// symptom/mood's own two fixed colors, this has to cover an unbounded number of charts; colors
-// repeat if there are more categories than swatches, which is an acceptable tradeoff for a
-// personal trends page rather than adding a full color-generation scheme.
+// A small rotating palette for however many numeric/scale categories a user has (every migrated
+// symptom included, now that Symptom unified into Category - see
+// docs/log/17-unify-mood-symptom-habit.md) - unlike Mood's own single fixed color, this has to
+// cover an unbounded number of charts; colors repeat if there are more categories than swatches,
+// which is an acceptable tradeoff for a personal trends page rather than adding a full
+// color-generation scheme.
 const CATEGORY_CHART_COLORS = ["#0d9488", "#c026d3", "#ea580c", "#4338ca", "#65a30d", "#be123c"];
 
 // A "scale" category already has a real bound (its own scaleMin/scaleMax, used directly - see
@@ -130,32 +129,6 @@ export function TrendsPage() {
             <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
               <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
                 <CollapsibleSection
-                  storageKey="trends.symptomSeverity"
-                  title={
-                    <>
-                      Symptom Severity —{" "}
-                      {data.symptomSeverity.average !== null
-                        ? `Avg: ${data.symptomSeverity.average.toFixed(1)}`
-                        : "No data yet"}
-                    </>
-                  }
-                >
-                  <p className="text-sm text-text-muted">
-                    Logged severity (1–10) over {PERIOD_LABELS[period]}.
-                  </p>
-                  <TrendLineChart
-                    points={data.symptomSeverity.series}
-                    domainMin={1}
-                    domainMax={10}
-                    color={SYMPTOM_CHART_COLOR}
-                    formatValue={(value) => `${value.toFixed(1)}/10`}
-                    ariaLabel={`Symptom severity chart for ${PERIOD_LABELS[period]}`}
-                  />
-                </CollapsibleSection>
-              </section>
-
-              <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-                <CollapsibleSection
                   storageKey="trends.mood"
                   title={
                     <>
@@ -234,8 +207,8 @@ export function TrendsPage() {
             <section className="mt-6 rounded-2xl border border-border bg-surface p-6 shadow-sm">
               <CollapsibleSection storageKey="trends.activity" title="Activity">
                 <p className="text-sm text-text-muted">
-                  Days with any logged entry (symptoms, mood, medications, or a custom category)
-                  over {PERIOD_LABELS[period]}.
+                  Days with any logged entry (mood, medications, or a custom category) over{" "}
+                  {PERIOD_LABELS[period]}.
                 </p>
                 <ActivityCalendar days={data.activity.days} />
               </CollapsibleSection>

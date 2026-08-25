@@ -63,22 +63,16 @@ await page.getByRole("button", { name: "Log in" }).click();
 await page.waitForURL("**/dashboard");
 await screenshot("03-login-then-dashboard");
 
-// Logs one real entry of each of the four types, so the before/after comparison this
-// screenshot feeds into actually proves the dashboard *functions* - not just that it renders
-// while empty. Mirrors the manual verification flow used when DashboardPage was decomposed
-// into per-log-type section components (see docs/log/08-git-github-workflow.md).
+// Logs one real entry of each remaining type, so the before/after comparison this screenshot
+// feeds into actually proves the dashboard *functions* - not just that it renders while empty.
+// Mirrors the manual verification flow used when DashboardPage was decomposed into per-log-type
+// section components (see docs/log/08-git-github-workflow.md). Habit and Symptom folded into
+// Category in Phase 17 (see docs/log/17-unify-mood-symptom-habit.md) - there's no dedicated
+// "Add symptom entry" button anymore, and every account already sees the 8 seeded system
+// categories (former system symptoms) from registration onward, so "Add category entry" opens
+// straight into "Log an entry", never an empty "Create your first category" state.
 await page.getByRole("button", { name: "Add mood entry" }).click();
 await page.getByRole("radio", { name: "Great", exact: true }).click();
-await page.getByRole("button", { name: /save entry/i }).click();
-await page.waitForTimeout(300);
-
-await page.getByRole("button", { name: "Add symptom entry" }).click();
-await page.waitForSelector("text=Log a symptom");
-await page.locator("select").first().selectOption({ index: 1 });
-await page
-  .getByRole("radiogroup", { name: /severity/i })
-  .getByRole("radio", { name: "5" })
-  .click();
 await page.getByRole("button", { name: /save entry/i }).click();
 await page.waitForTimeout(300);
 
@@ -95,7 +89,9 @@ await page.getByRole("button", { name: /save entry/i }).click();
 await page.waitForSelector("text=Ibuprofen — Taken");
 
 await page.getByRole("button", { name: "Add category entry" }).click();
-await page.waitForSelector("text=Create your first category");
+await page.waitForSelector("text=Log an entry");
+await page.getByRole("button", { name: /add a new category/i }).click();
+await page.waitForSelector("text=Create a new category");
 await page.getByLabel(/category name/i).fill("Exercise");
 await page.getByRole("radio", { name: /yes \/ no/i }).click();
 await page.getByRole("button", { name: /create category/i }).click();

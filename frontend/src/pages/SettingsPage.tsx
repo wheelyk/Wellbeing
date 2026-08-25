@@ -56,7 +56,6 @@ interface UserProfile {
   timezone: string;
   createdAt: string;
   moodEnabled: boolean;
-  symptomEnabled: boolean;
   medicationEnabled: boolean;
 }
 
@@ -296,13 +295,11 @@ function AppearanceSection() {
 // category), and CATEGORY is handled separately below (an archived, not toggled-off, category).
 const TOGGLE_FIELD_BY_TARGET: Partial<Record<ReminderTarget, keyof CategoryToggles>> = {
   mood: "moodEnabled",
-  symptom: "symptomEnabled",
   medication: "medicationEnabled",
 };
 
 const TOGGLE_FIELD_LABEL: Record<keyof CategoryToggles, string> = {
   moodEnabled: "Mood",
-  symptomEnabled: "Symptoms",
   medicationEnabled: "Medications",
 };
 
@@ -312,8 +309,6 @@ function reminderTargetLabel(reminder: Reminder): string {
       return "General";
     case "mood":
       return "Mood";
-    case "symptom":
-      return "Symptom";
     case "medication":
       return reminder.medication
         ? reminder.medication.dosage
@@ -414,7 +409,6 @@ function RemindersSection() {
 
   const toggles: CategoryToggles = {
     moodEnabled: user?.moodEnabled ?? true,
-    symptomEnabled: user?.symptomEnabled ?? true,
     medicationEnabled: user?.medicationEnabled ?? true,
   };
   const visibleCategoryIds = new Set(categories.map((c) => c.id));
@@ -580,8 +574,8 @@ function RemindersSection() {
           <>
             <p className="mb-4 text-sm text-text-muted">
               Get a notification if you haven't logged something yet by a time (or times) you choose
-              - one reminder for General, Mood, or Symptom, plus as many as you like for specific
-              medications or categories.
+              - one reminder for General or Mood, plus as many as you like for specific medications
+              or categories.
             </p>
             {rowError && (
               <p role="alert" className="mb-3 text-sm text-danger">
@@ -723,28 +717,28 @@ function RemindersSection() {
 
 interface CategoryToggles {
   moodEnabled: boolean;
-  symptomEnabled: boolean;
   medicationEnabled: boolean;
 }
 
 const DEFAULT_TOGGLES: CategoryToggles = {
   moodEnabled: true,
-  symptomEnabled: true,
   medicationEnabled: true,
 };
 
 const TOGGLE_ITEMS: Array<{ key: keyof CategoryToggles; label: string; description: string }> = [
   { key: "moodEnabled", label: "Mood", description: "Daily mood check-ins." },
-  { key: "symptomEnabled", label: "Symptoms", description: "Track symptom severity over time." },
   { key: "medicationEnabled", label: "Medications", description: "Log doses taken or missed." },
 ];
 
-// Lets a user hide one of the three remaining built-in categories from Dashboard/Quick Add
-// without touching anything already logged under it - placed above CategoriesSection (custom
+// Lets a user hide one of the two remaining built-in categories from Dashboard/Quick Add without
+// touching anything already logged under it - placed above CategoriesSection (custom
 // categories), since both are ultimately about "what shows up to log," just for these fixed
-// built-ins versus a user's own extensible ones. Habit had a fourth toggle here too until Phase
-// 17 folded it into Category - a former habit is now an ordinary personal category, hidden (via
-// archive) individually through CategoriesSection below, not a toggle of its own here.
+// built-ins versus a user's own extensible ones. Habit and Symptom each had a toggle here too
+// until Phase 17 folded them into Category - a former habit is now an ordinary personal category,
+// hidden (via archive) individually through CategoriesSection below; a former symptom is a
+// system-or-personal category, hidden per-row (via the Hide/Unhide action, for system ones -
+// Task 1's HiddenCategory mechanism) or archived (for personal ones) through that same section,
+// not a toggle of its own here.
 function BuiltInCategoriesSection() {
   const { updateUser } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -761,7 +755,6 @@ function BuiltInCategoriesSection() {
         if (cancelled) return;
         setToggles({
           moodEnabled: profile.moodEnabled ?? true,
-          symptomEnabled: profile.symptomEnabled ?? true,
           medicationEnabled: profile.medicationEnabled ?? true,
         });
       })
@@ -788,7 +781,6 @@ function BuiltInCategoriesSection() {
       });
       const updated: CategoryToggles = {
         moodEnabled: profile.moodEnabled ?? true,
-        symptomEnabled: profile.symptomEnabled ?? true,
         medicationEnabled: profile.medicationEnabled ?? true,
       };
       setToggles(updated);
@@ -1099,9 +1091,14 @@ function describeValueType(category: Category): string {
 // actions at all, mirroring how categories.ts's own PATCH/DELETE routes 404 on a system
 // category's id for a regular user (there's nothing to hide by disabling a button that would
 // fail anyway, but a visibly missing action is clearer than a button that errors on click).
+// includeHidden=true (see backend's categories.ts) is what this management list needs and
+// Dashboard/Quick Add's own fetch deliberately doesn't - a hidden system category still has to
+// show up here (with an Unhide action), or hiding it would be a one-way trip with no way back.
+type ManagedCategory = Category & { hidden: boolean };
+
 function CategoriesSection() {
   const { user } = useAuth();
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<ManagedCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -1114,7 +1111,7 @@ function CategoriesSection() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<Category[]>("/api/categories")
+    apiFetch<ManagedCategory[]>("/api/categories?includeHidden=true")
       .then((res) => {
         if (!cancelled) setCategories(res);
       })
@@ -1130,7 +1127,9 @@ function CategoriesSection() {
   }, []);
 
   function handleCreated(category: Category) {
-    setCategories((prev) => [...prev, category].sort((a, b) => a.name.localeCompare(b.name)));
+    setCategories((prev) =>
+      [...prev, { ...category, hidden: false }].sort((a, b) => a.name.localeCompare(b.name)),
+    );
     setShowCreateForm(false);
     setActionMessage("Category created.");
   }
@@ -1154,7 +1153,11 @@ function CategoriesSection() {
         method: "PATCH",
         body: JSON.stringify({ name: editName.trim(), icon: editIcon.trim() || null }),
       });
-      setCategories((prev) => prev.map((c) => (c.id === id ? updated : c)));
+      // PATCH's response has no `hidden` field of its own (editing never changes it) - preserved
+      // from the existing row rather than defaulting to false.
+      setCategories((prev) =>
+        prev.map((c) => (c.id === id ? { ...updated, hidden: c.hidden } : c)),
+      );
       setEditingId(null);
     } catch {
       setEditError("Something went wrong saving this category. Please try again.");
@@ -1182,12 +1185,43 @@ function CategoriesSection() {
     }
   }
 
+  // Hide/Unhide are only ever offered for a system category (not `isOwn`, see the render below) -
+  // this is what actually replaces the old blunt `symptomEnabled` toggle for the 8 former system
+  // symptoms (Phase 17 - see docs/log/17-unify-mood-symptom-habit.md's Task 5 entry): each one is
+  // now hidden or shown per-row instead of all-or-nothing. Uses Task 1's own
+  // POST/DELETE /api/categories/:id/hide endpoints.
+  async function handleHide(id: string) {
+    const previous = categories;
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, hidden: true } : c)));
+    try {
+      await apiFetch(`/api/categories/${id}/hide`, { method: "POST" });
+      setActionMessage("Category hidden.");
+    } catch {
+      setCategories(previous);
+      setActionMessage(null);
+    }
+  }
+
+  async function handleUnhide(id: string) {
+    const previous = categories;
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, hidden: false } : c)));
+    try {
+      await apiFetch(`/api/categories/${id}/hide`, { method: "DELETE" });
+      setActionMessage("Category unhidden.");
+    } catch {
+      setCategories(previous);
+      setActionMessage(null);
+    }
+  }
+
   return (
     <SectionCard>
       <CollapsibleSection title="Categories" storageKey="settings.categories">
         <p className="mb-4 text-sm text-text-muted">
-          Beyond mood, symptoms, and medications, create your own trackable categories - alongside
-          any an admin has added for everyone.
+          Beyond mood and medications, create your own trackable categories - alongside any an admin
+          has added for everyone (including every default symptom, like Headache or Fatigue). Hide a
+          built-in one you don&apos;t use instead of deleting it - your own categories are archived
+          instead, from the same list.
         </p>
         {user?.isAdmin && (
           <Link
@@ -1271,10 +1305,15 @@ function CategoriesSection() {
                                   Built-in
                                 </span>
                               )}
+                              {category.hidden && (
+                                <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+                                  Hidden
+                                </span>
+                              )}
                             </p>
                             <p className="text-xs text-text-muted">{describeValueType(category)}</p>
                           </div>
-                          {isOwn && (
+                          {isOwn ? (
                             <div className="flex shrink-0 gap-2">
                               <Button variant="secondary" onClick={() => startEdit(category)}>
                                 Edit
@@ -1285,6 +1324,21 @@ function CategoriesSection() {
                               >
                                 Archive
                               </Button>
+                            </div>
+                          ) : (
+                            <div className="flex shrink-0 gap-2">
+                              {category.hidden ? (
+                                <Button
+                                  variant="secondary"
+                                  onClick={() => handleUnhide(category.id)}
+                                >
+                                  Unhide
+                                </Button>
+                              ) : (
+                                <Button variant="secondary" onClick={() => handleHide(category.id)}>
+                                  Hide
+                                </Button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1350,8 +1404,8 @@ function ExportDataSection() {
     <SectionCard>
       <CollapsibleSection title="Export your data" storageKey="settings.export">
         <p className="mb-4 text-sm text-text-muted">
-          Download every mood, symptom, medication, and category entry you've logged - along with
-          your own symptom, medication, and category definitions - as a single JSON file.
+          Download every mood, medication, and category entry you've logged - along with your own
+          medication and category definitions - as a single JSON file.
         </p>
         <div className="flex flex-col gap-4">
           {exportError && (
@@ -1401,8 +1455,8 @@ function AccountDeletionSection() {
     <SectionCard>
       <CollapsibleSection title="Delete account" storageKey="settings.deleteAccount">
         <p className="mb-4 text-sm text-text-muted">
-          This permanently deletes your account and every symptom, mood, medication, and category
-          entry you've logged. This can't be undone.
+          This permanently deletes your account and every mood, medication, and category entry
+          you've logged. This can't be undone.
         </p>
         <div className="flex flex-col gap-4">
           <TextField

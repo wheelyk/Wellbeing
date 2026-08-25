@@ -709,13 +709,12 @@ describe("SettingsPage — built-in categories", () => {
     vi.restoreAllMocks();
   });
 
-  it("loads the three toggles, all on by default", async () => {
+  it("loads both toggles, all on by default", async () => {
     const fetchMock = routedFetchMock({
       "GET /api/users/me": () =>
         jsonResponse(200, {
           ...DEFAULT_PROFILE,
           moodEnabled: true,
-          symptomEnabled: true,
           medicationEnabled: true,
         }),
     });
@@ -723,7 +722,6 @@ describe("SettingsPage — built-in categories", () => {
     renderSettingsPage();
 
     expect(await screen.findByLabelText(/^mood$/i)).toBeChecked();
-    expect(screen.getByLabelText(/^symptoms$/i)).toBeChecked();
     expect(screen.getByLabelText(/^medications$/i)).toBeChecked();
   });
 
@@ -733,7 +731,6 @@ describe("SettingsPage — built-in categories", () => {
         jsonResponse(200, {
           ...DEFAULT_PROFILE,
           moodEnabled: true,
-          symptomEnabled: true,
           medicationEnabled: false,
         }),
     });
@@ -750,7 +747,6 @@ describe("SettingsPage — built-in categories", () => {
         jsonResponse(200, {
           ...DEFAULT_PROFILE,
           moodEnabled: true,
-          symptomEnabled: true,
           medicationEnabled: true,
         }),
       "PATCH /api/users/me": (init) => {
@@ -779,7 +775,6 @@ describe("SettingsPage — built-in categories", () => {
     const body = JSON.parse(requestInit.body as string);
     expect(body).toEqual({
       moodEnabled: true,
-      symptomEnabled: true,
       medicationEnabled: false,
     });
   });
@@ -1086,6 +1081,59 @@ describe("SettingsPage — categories", () => {
     await screen.findByText(/sleep hours/i);
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+  });
+
+  // Hide/Unhide (Phase 17, Task 1's HiddenCategory mechanism) is what actually replaces the old
+  // blunt symptomEnabled toggle for former system symptoms - see
+  // docs/log/17-unify-mood-symptom-habit.md's Task 5 entry. Offered only for a system category
+  // (never the user's own, which is archived instead - see the test above/below).
+  it("hides a system category and shows it as Hidden, offering Unhide instead", async () => {
+    const fetchMock = withAuthedUser({
+      "POST /api/categories/cat-system/hide": () =>
+        jsonResponse(200, { message: "Category hidden" }),
+      "/api/categories": () => jsonResponse(200, [systemCategory]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByText(/sleep hours/i);
+    expect(screen.queryByText("Hidden")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Hide" }));
+
+    expect(await screen.findByText("Hidden")).toBeInTheDocument();
+    expect(await screen.findByText(/category hidden/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Unhide" })).toBeInTheDocument();
+  });
+
+  it("unhides an already-hidden system category", async () => {
+    const fetchMock = withAuthedUser({
+      "DELETE /api/categories/cat-system/hide": () =>
+        jsonResponse(200, { message: "Category unhidden" }),
+      "/api/categories": () => jsonResponse(200, [{ ...systemCategory, hidden: true }]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByText("Hidden");
+    await user.click(screen.getByRole("button", { name: "Unhide" }));
+
+    expect(await screen.findByText(/category unhidden/i)).toBeInTheDocument();
+    expect(screen.queryByText("Hidden")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide" })).toBeInTheDocument();
+  });
+
+  it("never offers Hide/Unhide for the user's own category", async () => {
+    const fetchMock = withAuthedUser({
+      "/api/categories": () => jsonResponse(200, [ownCategory]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderSettingsPage();
+
+    await screen.findByText(/water intake/i);
+    expect(screen.queryByRole("button", { name: "Hide" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Unhide" })).not.toBeInTheDocument();
   });
 });
 

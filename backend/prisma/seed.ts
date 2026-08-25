@@ -1,15 +1,19 @@
-// Seeds the small set of system-default symptoms every user sees in their symptom picker,
-// without anyone having to create "Headache" for themselves. These rows have `userId: null`
-// (see the `Symptom` model's comment in schema.prisma) - that's what makes them system-wide
-// rather than owned by a particular account.
+// Seeds the small set of system-default symptom categories every user sees in their category
+// picker, without anyone having to create "Headache" for themselves. These rows have
+// `userId: null` (see the `Category` model's comment in schema.prisma) - that's what makes them
+// system-wide rather than owned by a particular account. Symptom unified into Category in Phase
+// 17 (see docs/log/17-unify-mood-symptom-habit.md's Task 4 entry) - what used to be seeded as
+// `Symptom` rows here is now seeded as `SCALE` (1-10) categories instead, matching exactly how
+// that migration itself mapped each existing symptom onto Category.
 //
 // Run directly with `npx prisma db seed`, or automatically after `prisma migrate dev`/`reset`
 // (wired up via `migrations.seed` in prisma.config.ts).
 // Reuses the same singleton (with its Postgres driver adapter already wired up) that every
 // route handler uses, rather than constructing a second PrismaClient here.
 import { prisma } from "../src/lib/prisma";
+import { CategoryValueType } from "../src/generated/prisma/client";
 
-const SYSTEM_SYMPTOMS: Array<{ name: string; description?: string }> = [
+const SYSTEM_SYMPTOM_CATEGORIES: Array<{ name: string; description?: string }> = [
   { name: "Headache" },
   { name: "Fatigue" },
   { name: "Nausea" },
@@ -21,23 +25,30 @@ const SYSTEM_SYMPTOMS: Array<{ name: string; description?: string }> = [
 ];
 
 async function main() {
-  for (const symptom of SYSTEM_SYMPTOMS) {
+  for (const category of SYSTEM_SYMPTOM_CATEGORIES) {
     // findFirst + create (rather than a unique constraint + upsert) because `name` isn't
-    // unique in the schema - a user is free to create their own symptom with the same name
+    // unique in the schema - a user is free to create their own category with the same name
     // as a system one, so uniqueness can't be enforced at the database level here. Scoping
-    // this existence check to userId: null specifically checks "does this system symptom
+    // this existence check to userId: null specifically checks "does this system category
     // already exist," which keeps the seed idempotent (safe to re-run) without that database
     // constraint.
-    const existing = await prisma.symptom.findFirst({
-      where: { userId: null, name: symptom.name },
+    const existing = await prisma.category.findFirst({
+      where: { userId: null, name: category.name },
     });
     if (existing) {
       continue;
     }
-    await prisma.symptom.create({
-      data: { userId: null, name: symptom.name, description: symptom.description },
+    await prisma.category.create({
+      data: {
+        userId: null,
+        name: category.name,
+        description: category.description,
+        valueType: CategoryValueType.SCALE,
+        scaleMin: 1,
+        scaleMax: 10,
+      },
     });
-    console.log(`Seeded system symptom: ${symptom.name}`);
+    console.log(`Seeded system category: ${category.name}`);
   }
 }
 

@@ -58,7 +58,6 @@ describe("GET /api/dashboard", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.mood).toBeNull();
-    expect(res.body.symptomCount).toBe(0);
     expect(res.body.medicationSummary).toEqual({ taken: 0, total: 0 });
     expect(res.body.recentEntries).toEqual({
       entries: [],
@@ -75,13 +74,13 @@ describe("GET /api/dashboard", () => {
     const loggedAt = `${date}T09:00:00.000Z`;
 
     const symptomRes = await request(app)
-      .post("/api/symptoms")
+      .post("/api/categories")
       .set(authed(accessToken))
-      .send({ name: "Headache" });
+      .send({ name: "Headache", valueType: "scale", scaleMin: 1, scaleMax: 10 });
     await request(app)
-      .post("/api/symptom-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ symptomId: symptomRes.body.id, severity: 6, loggedAt });
+      .send({ categoryId: symptomRes.body.id, valueNumeric: 6, loggedAt });
 
     await request(app).post("/api/mood-logs").set(authed(accessToken)).send({ mood: 4, loggedAt });
 
@@ -112,7 +111,6 @@ describe("GET /api/dashboard", () => {
     expect(res.status).toBe(200);
     expect(res.body.date).toBe(date);
     expect(res.body.mood).toMatchObject({ mood: 4 });
-    expect(res.body.symptomCount).toBe(1);
     expect(res.body.medicationSummary).toEqual({ taken: 1, total: 2 });
 
     const labels = res.body.recentEntries.entries.map(
@@ -202,9 +200,9 @@ describe("GET /api/dashboard", () => {
       icon: "⚡",
     });
 
-    // A day with *only* a category log (no mood/symptom/medication entry at all) still
-    // counts as "logged" for streak purposes - hasLoggedToday's own reasoning in
-    // reminderScheduler.ts applies identically here.
+    // A day with *only* a category log (no mood/medication entry at all) still counts as
+    // "logged" for streak purposes - hasLoggedToday's own reasoning in reminderScheduler.ts
+    // applies identically here.
     expect(res.body.streak.current).toBe(1);
   });
 

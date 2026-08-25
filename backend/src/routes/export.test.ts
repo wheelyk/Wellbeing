@@ -59,8 +59,6 @@ describe("GET /api/export", () => {
     // Never leak the password hash, even though it lives on the same underlying User row.
     expect(res.body.user.passwordHash).toBeUndefined();
     expect(res.body.moodLogs).toEqual([]);
-    expect(res.body.symptoms).toEqual([]);
-    expect(res.body.symptomLogs).toEqual([]);
     expect(res.body.medications).toEqual([]);
     expect(res.body.medicationLogs).toEqual([]);
     expect(res.body.categories).toEqual([]);
@@ -73,13 +71,13 @@ describe("GET /api/export", () => {
     const loggedAt = "2026-08-17T09:00:00.000Z";
 
     const symptomRes = await request(app)
-      .post("/api/symptoms")
+      .post("/api/categories")
       .set(authed(accessToken))
-      .send({ name: "Headache" });
+      .send({ name: "Headache", valueType: "scale", scaleMin: 1, scaleMax: 10 });
     await request(app)
-      .post("/api/symptom-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ symptomId: symptomRes.body.id, severity: 6, loggedAt });
+      .send({ categoryId: symptomRes.body.id, valueNumeric: 6, loggedAt });
 
     await request(app).post("/api/mood-logs").set(authed(accessToken)).send({ mood: 4, loggedAt });
 
@@ -104,13 +102,21 @@ describe("GET /api/export", () => {
     const res = await request(app).get("/api/export").set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.symptoms).toMatchObject([{ name: "Headache" }]);
-    expect(res.body.symptomLogs).toMatchObject([{ severity: 6, symptomName: "Headache" }]);
     expect(res.body.moodLogs).toMatchObject([{ mood: 4 }]);
     expect(res.body.medications).toMatchObject([{ name: "Lisinopril", dosage: "10mg" }]);
     expect(res.body.medicationLogs).toMatchObject([{ taken: true, medicationName: "Lisinopril" }]);
-    expect(res.body.categories).toMatchObject([{ name: "Walk", valueType: "boolean" }]);
-    expect(res.body.categoryLogs).toMatchObject([{ valueBoolean: true, categoryName: "Walk" }]);
+    expect(res.body.categories).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Headache", valueType: "scale" }),
+        expect.objectContaining({ name: "Walk", valueType: "boolean" }),
+      ]),
+    );
+    expect(res.body.categoryLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ valueNumeric: 6, categoryName: "Headache" }),
+        expect.objectContaining({ valueBoolean: true, categoryName: "Walk" }),
+      ]),
+    );
   });
 
   it("never returns another user's data", async () => {
@@ -122,33 +128,35 @@ describe("GET /api/export", () => {
       .post("/api/mood-logs")
       .set(authed(userB.accessToken))
       .send({ mood: 1, loggedAt });
-    const symptomRes = await request(app)
-      .post("/api/symptoms")
+    const categoryRes = await request(app)
+      .post("/api/categories")
       .set(authed(userB.accessToken))
-      .send({ name: "User B's symptom" });
+      .send({ name: "User B's category", valueType: "boolean" });
     await request(app)
-      .post("/api/symptom-logs")
+      .post("/api/category-logs")
       .set(authed(userB.accessToken))
-      .send({ symptomId: symptomRes.body.id, severity: 3, loggedAt });
+      .send({ categoryId: categoryRes.body.id, valueBoolean: true, loggedAt });
 
     const res = await request(app).get("/api/export").set(authed(userA.accessToken));
 
     expect(res.status).toBe(200);
     expect(res.body.user.id).toBe(userA.userId);
     expect(res.body.moodLogs).toEqual([]);
-    expect(res.body.symptoms).toEqual([]);
-    expect(res.body.symptomLogs).toEqual([]);
+    expect(res.body.categories).toEqual([]);
+    expect(res.body.categoryLogs).toEqual([]);
   });
 
-  it("excludes system-default symptoms from the symptoms definitions list", async () => {
-    const { accessToken } = await registerAndLogin("system-symptom");
+  it("excludes system-default categories from the categories definitions list", async () => {
+    const { accessToken } = await registerAndLogin("system-category");
 
-    // No user-created symptoms at all - only whatever system-default rows (Symptom.userId
-    // null) exist in the seeded database, which must not appear in this user's own export.
+    // No user-created categories at all - only whatever system-default rows (Category.userId
+    // null, including every former system symptom migrated in Phase 17 - see
+    // docs/log/17-unify-mood-symptom-habit.md) exist in the seeded database, which must not
+    // appear in this user's own export.
     const res = await request(app).get("/api/export").set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.symptoms).toEqual([]);
+    expect(res.body.categories).toEqual([]);
   });
 
   // Regression test for a documented-but-previously-unverified edge case (see this route's own

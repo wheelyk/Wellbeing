@@ -84,7 +84,7 @@ export function ActivityCalendar({ days }: ActivityCalendarProps) {
         >
           ✓
         </span>
-        Day with logged activity (symptoms, mood, medications, or categories)
+        Day with logged activity (mood, medications, or categories)
       </p>
     </div>
   );

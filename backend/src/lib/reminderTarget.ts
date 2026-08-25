@@ -1,21 +1,14 @@
 import { ReminderTarget as PrismaReminderTarget } from "../generated/prisma/client";
 
-// Same lowercase-API-vs-SCREAMING_CASE-database split as lib/habitType.ts/categoryValueType.ts,
-// for the same reason - this is the one place that translates between them, so every route only
-// ever deals with the lowercase API shape.
-export const API_REMINDER_TARGETS = [
-  "general",
-  "mood",
-  "symptom",
-  "medication",
-  "category",
-] as const;
+// Same lowercase-API-vs-SCREAMING_CASE-database split as lib/categoryValueType.ts, for the same
+// reason - this is the one place that translates between them, so every route only ever deals
+// with the lowercase API shape.
+export const API_REMINDER_TARGETS = ["general", "mood", "medication", "category"] as const;
 export type ApiReminderTarget = (typeof API_REMINDER_TARGETS)[number];
 
 const API_TO_PRISMA: Record<ApiReminderTarget, PrismaReminderTarget> = {
   general: PrismaReminderTarget.GENERAL,
   mood: PrismaReminderTarget.MOOD,
-  symptom: PrismaReminderTarget.SYMPTOM,
   medication: PrismaReminderTarget.MEDICATION,
   category: PrismaReminderTarget.CATEGORY,
 };
@@ -23,7 +16,6 @@ const API_TO_PRISMA: Record<ApiReminderTarget, PrismaReminderTarget> = {
 const PRISMA_TO_API: Record<PrismaReminderTarget, ApiReminderTarget> = {
   [PrismaReminderTarget.GENERAL]: "general",
   [PrismaReminderTarget.MOOD]: "mood",
-  [PrismaReminderTarget.SYMPTOM]: "symptom",
   [PrismaReminderTarget.MEDICATION]: "medication",
   [PrismaReminderTarget.CATEGORY]: "category",
 };
@@ -38,8 +30,4 @@ export function toApiReminderTarget(target: PrismaReminderTarget): ApiReminderTa
 
 // Targets that are always category-level (at most one reminder per user for each) - the
 // opposite of MEDICATION/CATEGORY, which always require a specific medicationId/categoryId.
-export const CATEGORY_LEVEL_TARGETS: ReadonlySet<ApiReminderTarget> = new Set([
-  "general",
-  "mood",
-  "symptom",
-]);
+export const CATEGORY_LEVEL_TARGETS: ReadonlySet<ApiReminderTarget> = new Set(["general", "mood"]);

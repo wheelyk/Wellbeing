@@ -219,7 +219,7 @@ describe("reminders routes", () => {
     const created = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "symptom", times: ["09:00"] });
+      .send({ target: "mood", times: ["09:00"] });
 
     const res = await request(app)
       .patch(`/api/reminders/${created.body.id}`)
@@ -228,7 +228,7 @@ describe("reminders routes", () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      target: "symptom",
+      target: "mood",
       times: ["09:00", "15:00"],
       enabled: false,
     });

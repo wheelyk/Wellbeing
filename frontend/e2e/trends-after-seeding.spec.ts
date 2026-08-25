@@ -7,10 +7,14 @@ const API_URL = process.env.E2E_API_URL ?? "http://localhost:4000";
 // Quick Add only ever creates "now" entries, so a real multi-day trend can't be produced by
 // driving the UI alone in a test that has to run in seconds, not days. Instead this seeds
 // directly through the same real backend API the app itself calls, using each log endpoint's
-// own explicit `loggedAt` backfill support (see moodLogs.ts/symptomLogs.ts) - still the real
+// own explicit `loggedAt` backfill support (see moodLogs.ts/categoryLogs.ts) - still the real
 // server and real database, just skipping the UI for the setup step, the way a fixture is
-// supposed to.
-test("Trends reflects mood and symptom entries seeded across several days", async ({ page }) => {
+// supposed to. The second series used to be seeded against a dedicated Symptom (via
+// /api/symptoms + /api/symptom-logs, with its own "Symptom Severity" chart); Symptom folded into
+// Category in Phase 17 (see docs/log/17-unify-mood-symptom-habit.md), so this now creates its own
+// scale-typed category via /api/categories and seeds against /api/category-logs instead - the
+// resulting chart is titled with that category's own name, not a fixed "Symptom Severity" label.
+test("Trends reflects mood and category entries seeded across several days", async ({ page }) => {
   const email = uniqueTestEmail("trends");
   await registerAndLandOnDashboard(page, email);
 
@@ -23,16 +27,19 @@ test("Trends reflects mood and symptom entries seeded across several days", asyn
   const { accessToken } = (await refreshRes.json()) as { accessToken: string };
   const authHeaders = { Authorization: `Bearer ${accessToken}` };
 
-  const symptomsRes = await page.request.get(`${API_URL}/api/symptoms`, { headers: authHeaders });
-  expect(symptomsRes.ok()).toBe(true);
-  const symptoms = (await symptomsRes.json()) as Array<{ id: string }>;
-  const symptomId = symptoms[0].id;
+  const categoryName = "E2E Trends Category";
+  const categoryRes = await page.request.post(`${API_URL}/api/categories`, {
+    headers: authHeaders,
+    data: { name: categoryName, valueType: "scale", scaleMin: 1, scaleMax: 10 },
+  });
+  expect(categoryRes.ok()).toBe(true);
+  const { id: categoryId } = (await categoryRes.json()) as { id: string };
 
   // Three days of data, well inside the default 7-day Trends period, each with a distinct
-  // mood/severity value so a flat "all the same number" chart couldn't accidentally pass this.
+  // mood/category value so a flat "all the same number" chart couldn't accidentally pass this.
   const daysAgo = [2, 1, 0];
   const moodValues = [3, 4, 5];
-  const severityValues = [4, 6, 8];
+  const categoryValues = [4, 6, 8];
 
   for (let i = 0; i < daysAgo.length; i++) {
     const loggedAt = new Date(Date.now() - daysAgo[i] * 24 * 60 * 60 * 1000).toISOString();
@@ -43,11 +50,11 @@ test("Trends reflects mood and symptom entries seeded across several days", asyn
     });
     expect(moodRes.ok()).toBe(true);
 
-    const symptomLogRes = await page.request.post(`${API_URL}/api/symptom-logs`, {
+    const categoryLogRes = await page.request.post(`${API_URL}/api/category-logs`, {
       headers: authHeaders,
-      data: { symptomId, severity: severityValues[i], loggedAt },
+      data: { categoryId, valueNumeric: categoryValues[i], loggedAt },
     });
-    expect(symptomLogRes.ok()).toBe(true);
+    expect(categoryLogRes.ok()).toBe(true);
   }
 
   await page.goto("/trends");
@@ -56,17 +63,17 @@ test("Trends reflects mood and symptom entries seeded across several days", asyn
   // the backend's own trends aggregation (backend/src/routes/trends.ts) has picked the seeded
   // rows up - this is the actual end-to-end assertion, not just "the page didn't crash."
   const expectedMoodAvg = (moodValues.reduce((a, b) => a + b, 0) / moodValues.length).toFixed(1);
-  const expectedSeverityAvg = (
-    severityValues.reduce((a, b) => a + b, 0) / severityValues.length
+  const expectedCategoryAvg = (
+    categoryValues.reduce((a, b) => a + b, 0) / categoryValues.length
   ).toFixed(1);
 
   await expect(page.getByText(`Mood — Avg: ${expectedMoodAvg}`)).toBeVisible();
-  await expect(
-    page.getByText(`Symptom Severity — Avg: ${expectedSeverityAvg}`),
-  ).toBeVisible();
+  await expect(page.getByText(`${categoryName} — Avg: ${expectedCategoryAvg}`)).toBeVisible();
 
   // The Activity calendar independently confirms the same three days show as logged, via each
   // day's own accessible label rather than the chart averages above.
   await expect(page.getByRole("group", { name: /Mood chart/i })).toBeVisible();
-  await expect(page.getByRole("group", { name: /Symptom severity chart/i })).toBeVisible();
+  await expect(
+    page.getByRole("group", { name: new RegExp(`${categoryName} chart`, "i") }),
+  ).toBeVisible();
 });

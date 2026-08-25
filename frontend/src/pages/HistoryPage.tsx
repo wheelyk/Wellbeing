@@ -7,7 +7,7 @@ import { apiFetch } from "../api/client";
 import { HistoryEditModal } from "./history/HistoryEditModal";
 import { ConfirmDeleteModal } from "./history/ConfirmDeleteModal";
 
-export type HistoryEntryType = "mood" | "symptom" | "medication" | "category";
+export type HistoryEntryType = "mood" | "medication" | "category";
 
 export interface HistoryEntry {
   id: string;
@@ -28,13 +28,12 @@ const PAGE_SIZE = 20;
 
 const TYPE_LABELS: Record<HistoryEntryType, string> = {
   mood: "Mood",
-  symptom: "Symptom",
   medication: "Medication",
   // One broad "Category" bucket, not one filter option per category - the backend's own
-  // /api/history?type= only supports this same type-level granularity for the other three types
-  // too (never "just this one symptom"), so this matches that existing precedent rather than
-  // introducing a finer filter dimension nothing else here has. Every former habit's entries
-  // fall under this same bucket now, not a dedicated "Habit" filter.
+  // /api/history?type= only supports this same type-level granularity for the other two types
+  // too, so this matches that existing precedent rather than introducing a finer filter
+  // dimension nothing else here has. Every former habit's and symptom's entries fall under this
+  // same bucket now, not a dedicated "Habit"/"Symptom" filter.
   category: "Category",
 };
 
@@ -44,7 +43,6 @@ const TYPE_LABELS: Record<HistoryEntryType, string> = {
 // handleDelete for the pattern this follows).
 const DELETE_PATH: Record<HistoryEntryType, string> = {
   mood: "/api/mood-logs",
-  symptom: "/api/symptom-logs",
   medication: "/api/medication-logs",
   category: "/api/category-logs",
 };
@@ -213,7 +211,7 @@ export function HistoryPage() {
       <main className="mx-auto max-w-3xl px-4 pt-8 pb-24 md:max-w-4xl md:pb-8 lg:max-w-5xl">
         <h1 className="text-2xl font-semibold text-text">History</h1>
         <p className="mt-2 text-text-muted">
-          Browse everything you&apos;ve logged, across mood, symptoms, medications, and categories.
+          Browse everything you&apos;ve logged, across mood, medications, and categories.
         </p>
 
         <div className="mt-6 rounded-2xl border border-border bg-surface p-4 shadow-sm">

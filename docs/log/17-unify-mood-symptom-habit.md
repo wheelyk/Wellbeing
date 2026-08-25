@@ -3,7 +3,7 @@
 ## 2026-08-25 — Task 1: per-user system-category hiding
 
 **Task:** [Phase 17, Task 1](../../Tasks.md#task-1--backend-per-user-system-category-hiding) - the
-foundation this whole phase's later data migrations depend on: a per-user way to hide a *system*
+foundation this whole phase's later data migrations depend on: a per-user way to hide a _system_
 category (one a user didn't create and can't archive themselves). Built first, ahead of any actual
 Mood/Symptom/Habit migration, because Symptom's system symptoms and Mood's new Mood/Energy/Stress
 categories (Tasks 4 and 6) both need somewhere for a user to say "I don't personally use this one"
@@ -20,7 +20,7 @@ nullable: every habit is already a user's own personal category-to-be, so once H
 (Task 2/3) a user who wants to stop tracking all their habits can just archive each one
 individually through the archive action every personal category already has - no toggle needed at
 all. `medicationEnabled` stays exactly as it is (Medication isn't part of this unification). The
-only genuine remaining gap is a category a user *can't* archive because they don't own it - a
+only genuine remaining gap is a category a user _can't_ archive because they don't own it - a
 system category (`userId: null`) - which is exactly Symptom's 8 seeded system symptoms and Mood's
 new Mood/Energy/Stress categories once they exist. So this task builds the smaller, more precisely
 targeted thing: hide/unhide for system categories only, not a universal replacement mechanism.
@@ -29,7 +29,7 @@ targeted thing: hide/unhide for system categories only, not a universal replacem
 
 Dashboard/Quick Add want a hidden category to genuinely disappear - that's the whole point of
 hiding it. But Settings' own category-management list (`CategoriesSection`, wired up in Task 3/5)
-needs to show a hidden category *with an Unhide action*, or hiding would be a one-way trip with no
+needs to show a hidden category _with an Unhide action_, or hiding would be a one-way trip with no
 way back once a category drops out of the only list that renders it. Rather than a separate
 endpoint, `GET /api/categories?includeHidden=true` serves the management view, with each category
 serialized with an explicit `hidden: boolean` field the frontend can key an Unhide-vs-Hide button
@@ -40,7 +40,7 @@ off of - the default (no query param) stays exactly as strict as before for Dash
 - **`backend/prisma/schema.prisma`**: `Category` gains `description: String?` - a small, generically
   useful field on its own, and also the only place `Symptom.description` will have to live once
   Task 4 migrates it (Category had nothing equivalent before this). New `HiddenCategory(id,
-  userId, categoryId, createdAt)`, `@@unique([userId, categoryId])`, both FKs `onDelete: Cascade` -
+userId, categoryId, createdAt)`, `@@unique([userId, categoryId])`, both FKs `onDelete: Cascade` -
   a hidden-category preference has no historical value of its own to protect (unlike
   `CategoryLog`), so cascading it away when either the user or the category itself goes is exactly
   right.
@@ -117,7 +117,7 @@ category already uses.
 
 #### Why this migration is hand-written, not `prisma migrate dev`-generated
 
-`prisma migrate dev` diffs the schema and generates SQL for the *shape* change (new/dropped
+`prisma migrate dev` diffs the schema and generates SQL for the _shape_ change (new/dropped
 columns, tables, enum values) - it has no way to know that every row in a table being dropped
 needs to land, transformed, in a table that already exists. Exactly the same reason
 `16-reminders-and-category-toggles.md`'s `generalize_reminders` migration was hand-written: the
@@ -130,7 +130,7 @@ the tool can't infer from a schema diff alone.
 `Habit`/`HabitLog`'s column shapes already match `Category`/`CategoryLog`'s almost exactly
 (`valueBoolean`/`valueNumeric`/`valueDurationMinutes`/`notes`/`loggedAt`, and `Habit.type` maps
 directly onto three of `Category`'s four `valueType`s). The one wrinkle is that
-`HabitLog.habitId` needs to become `CategoryLog.categoryId`, pointing at the *new* row, not the
+`HabitLog.habitId` needs to become `CategoryLog.categoryId`, pointing at the _new_ row, not the
 old one. Copying each habit's `id` verbatim into the new `categories` row (rather than letting
 Postgres generate a fresh uuid) means `habit_logs.habit_id` already equals the right
 `categories.id` with zero transformation - no lookup/join table needed at all, just a straight
@@ -168,7 +168,7 @@ type under the original name without the unwanted value, repoint the column at t
   already-generic `formatCategoryLogValue` branch covers it.
 - **`routes/export.ts`**: removed the dedicated `habits`/`habitLogs` fields and replaced them with
   `categories`/`categoryLogs` - this also closes a pre-existing gap noted in the plan: `export.ts`
-  never included Category/CategoryLog data of any kind before this task, for *any* category, not
+  never included Category/CategoryLog data of any kind before this task, for _any_ category, not
   just former habits.
 - **`routes/trends.ts`**: removed habit's own slot in the activity-map `Promise.all` (a former
   habit's logs now count toward `activeDays` via the generic `categoryLogs` bucket, which already
@@ -236,20 +236,21 @@ behavioral benefit to the user.
 
 **Task:** [Phase 17, Task 3](../../Tasks.md#task-3--frontend-habit-retirement) - remove every
 frontend trace of the dedicated Habit UI now that its backend is gone (Task 2, on its own branch
+
 - see that task's own entry above for the migration this depends on), so a former habit's data
-renders and is logged through the exact same generic Category components every other category
-already uses.
+  renders and is logged through the exact same generic Category components every other category
+  already uses.
 
 ### Background / concepts
 
 #### Why this task had to land carefully relative to Task 2
 
 Task 2 (backend) and Task 3 (frontend) are genuinely coupled in a way Phase 16's own
-backend/frontend split wasn't: Phase 16 generalized reminders *additively* (old and new endpoints
+backend/frontend split wasn't: Phase 16 generalized reminders _additively_ (old and new endpoints
 coexisted for a transition window), so either half could merge first without breaking the other.
 Task 2 is destructive instead - it deletes `/api/habits`, `/api/habit-logs`, and
 `habitSummary`/`habitEnabled` outright. Verifying Task 2 in isolation (its own PR's CI) surfaced
-this directly: with Task 2's backend running and the *old* (pre-Task-3) frontend still pointed at
+this directly: with Task 2's backend running and the _old_ (pre-Task-3) frontend still pointed at
 it, `DashboardSummary.tsx`'s `data.habitSummary.loggedCount` throws on every render (`habitSummary`
 no longer exists in the response), crashing the dashboard - confirmed via three real e2e failures
 in that PR's CI run, not a hypothetical. That means, unlike Task 2/3's own numbering, **Task 3 is
@@ -310,9 +311,9 @@ wasn't "harmless dead code," it was a guaranteed runtime crash the moment Task 2
   `habitSummary.loggedCount > 0`, a genuinely today-scoped count the backend computed specially for
   Habit. No equivalent "categories logged today" count exists in the generic `/api/dashboard`
   response (categories were never summarized this way, and Task 2's plan didn't add one) -
-  `recentEntries` alone can't safely substitute, since it's the N most recent entries *overall*,
+  `recentEntries` alone can't safely substitute, since it's the N most recent entries _overall_,
   not bounded to today, so treating "a category appears in recentEntries" as "logged today" would
-  wrongly count something logged days ago. Accepted consequence: a user who logs *only* a category
+  wrongly count something logged days ago. Accepted consequence: a user who logs _only_ a category
   today and nothing else sees the "Nothing logged yet today" empty state instead of a technically-
   more-accurate summary line - a narrow, deliberately-chosen gap rather than a wrong finding, and
   one to revisit if/when a real "any category logged today" signal is added to the dashboard
@@ -340,7 +341,7 @@ wasn't "harmless dead code," it was a guaranteed runtime crash the moment Task 2
   from their own not-yet-merged branches. Confirmed end-to-end: registered a fresh account; logged
   a mood entry and a boolean category entry ("Exercise") via `CategorySection`'s own "Add category
   entry" button; Dashboard's summary line rendered three clauses with no crash (`Mood: 5/5 ·
-  Symptoms: 0 logged · Medications: 0/0 taken`) and Recent entries showed both; History showed
+Symptoms: 0 logged · Medications: 0/0 taken`) and Recent entries showed both; History showed
   "Exercise: Done" under a `CATEGORY` label; Settings' Built-in categories list showed exactly
   three toggles (no Habits row); on a mobile viewport (412×915, matching `BottomNav`'s `md:hidden`
   breakpoint), Quick Add's menu showed Mood/Symptom/Medication/More… (no Habit item), and tapping
@@ -348,5 +349,310 @@ wasn't "harmless dead code," it was a guaranteed runtime crash the moment Task 2
   captured at each step. Both temporary processes and the worktree were torn down afterward.
 
 ---
+
+## 2026-08-25 — Task 4: Backend — Symptom → Category
+
+**Task:** [Phase 17, Task 4](../../Tasks.md#task-4--backend-symptom--category) - migrate every
+`Symptom`/`SymptomLog` row into `Category`/`CategoryLog` as SCALE (1-10) categories, then delete
+the dedicated Symptom routes/model entirely, mirroring Task 2's own Habit migration.
+
+### Background / concepts
+
+#### Why SCALE, and why 1-10 specifically
+
+Symptom's own `severity` field was always an `Int` validated to the 1-10 range
+(`symptomLogs.ts`'s `createSchema`) - the exact shape `Category`'s `SCALE` value type already
+exists to express (a bounded 1-N picker, sharing `NUMERIC`'s `valueNumeric` storage column). Every
+migrated symptom becomes a `SCALE` category with `scaleMin: 1, scaleMax: 10` fixed - not a
+per-symptom choice, since every symptom used the identical hardcoded range before this migration
+too.
+
+#### A genuine, deliberate behavior change: one combined chart becomes N independent ones
+
+Before this task, `trends.ts` computed a single `symptomSeverity` series/average across _every_
+symptom log a user had, regardless of which symptom it was logged against - one combined "Symptom
+Severity" chart. After migration, each symptom (system or personal) is its own independent SCALE
+category, so it gets its own independent chart through the already-generic `categoryTrends` array,
+the same way any other numeric/scale category does. A user tracking both "Headache" and "Joint
+pain" now sees two separate lines instead of one blended average - a real, visible change to
+Trends, accepted as the natural consequence of symptoms becoming genuinely independent categories
+rather than instances of one fixed "Symptom" type. (Mirrors the same kind of accepted UX change
+flagged for Task 6's planned Mood split.)
+
+#### Closing the "no admin route for Symptom" gap for free
+
+Symptom never had an admin-only management route - system symptoms only ever came from
+`prisma/seed.ts`, with no way to add, rename, or retire one without a direct database edit. Once
+migrated, every former system symptom is an ordinary system category (`userId: null`), immediately
+manageable through the already-existing `adminCategories.ts` (`GET`/`POST /api/admin/categories`,
+`PATCH`/`DELETE /api/admin/categories/:id`) with zero new admin code - the same "closes a
+pre-existing gap for free" pattern Task 2 hit for Habit's own missing admin support (there Habit
+never needed one, since every habit was already personal; here Symptom did need one, and now has
+it).
+
+### What was done
+
+- **`backend/prisma/schema.prisma`**: deleted `Symptom`, `SymptomLog` entirely; removed
+  `symptomEnabled`/`symptoms`/`symptomLogs` from `User`; removed `SYMPTOM` from `ReminderTarget`;
+  updated cross-referencing comments (`CategoryValueType`, `Category`, `CategoryLog`,
+  `ReminderTarget`) that pointed at Symptom as if it were still a live sibling model.
+- **Migration** (`symptom_to_category`, hand-written like `habit_to_category`): copies every
+  `symptoms` row into `categories` (reusing the same `id`, `description` carried across verbatim,
+  `value_type` fixed to `SCALE`, `scale_min`/`scale_max` fixed to `1`/`10`), copies every
+  `symptom_logs` row into `category_logs` (same `id`, `symptom_id` landing directly as
+  `category_id`, `severity` cast to `value_numeric` via `::float`), deletes any existing
+  `SYMPTOM`-target reminder, rebuilds the `reminder_target` enum without `SYMPTOM`, then drops
+  `symptom_logs`, `symptoms`, and `users.symptom_enabled`.
+- **Deleted**: `backend/src/routes/symptoms.ts`, `symptomLogs.ts`, and their test files; unmounted
+  both routers from `app.ts`.
+- **`lib/reminderTarget.ts`**/**`lib/reminderScheduler.ts`**: removed `"symptom"` from the API
+  target list, `CATEGORY_LEVEL_TARGETS`, and both switch statements (`reminderCopy`,
+  `hasLoggedTarget` - `GENERAL`'s own check is now a 3-way, not 4-way, `Promise.all`).
+- **`routes/users.ts`**/**`routes/auth.ts`**: removed `symptomEnabled` from the update schema,
+  profile selection, toggle-target map, and `serializeUser`.
+- **`routes/dashboard.ts`**: removed `symptomCount` and its dedicated query/streak-lookback
+  slot/recent-entries branch entirely - a former symptom's today-status now surfaces exactly the
+  way any other category's does.
+- **`routes/history.ts`**: removed the dedicated `"symptom"` `HISTORY_TYPE` and its inline label
+  builder - the already-generic `formatCategoryLogValue` branch covers it.
+- **`routes/export.ts`**: removed the dedicated `symptoms`/`symptomLogs` fields - former-symptom
+  data (personal ones; system ones are still deliberately excluded, same as before) now flows
+  through the existing generic `categories`/`categoryLogs` fields Task 2 already added.
+- **`routes/trends.ts`**: removed the dedicated `symptomSeverity` series/average computation and
+  its own `symptomLogs` query/bucket entirely (see Decisions below for the resulting behavior
+  change) - every migrated symptom category flows through the existing generic `categoryTrends`
+  array, which already handles `SCALE` types.
+- **Tests**: `dashboard.test.ts`, `export.test.ts`, `history.test.ts`, `reminders.test.ts`,
+  `trends.test.ts`, `users.test.ts` updated wherever they exercised symptom-specific code paths or
+  asserted on a "four" count that's now three; `symptoms.test.ts`/`symptomLogs.test.ts` deleted
+  outright (superseded by `categories.test.ts`/`categoryLogs.test.ts`'s own coverage plus
+  `adminCategories.test.ts`'s coverage of what used to be seed-only). `trends.test.ts`'s old
+  combined-symptom-averaging test was ported onto `categoryTrends` (a new
+  "computes per-day averages... for a scale category" test) rather than being lost, and its old
+  per-category-series test was changed from a bare `toHaveLength(1)` assertion to a `.find()` by
+  `categoryId`, since every migrated system symptom (14 of them, in the shared local dev database)
+  now legitimately shows up in every user's own `categoryTrends` alongside their own category.
+
+### Why it's needed
+
+Symptom was already structurally close to Category (nullable `userId` for system-vs-personal,
+`Restrict` on delete - Category literally copied this pattern originally) but duplicated
+Category's own machinery for no behavioral benefit, while genuinely lacking things Category already
+had for free (an admin route, a description field, per-user hiding).
+
+### Decisions
+
+- **The combined "Symptom Severity" chart splits into N independent per-symptom charts** - stated
+  plainly above since it's the one place behavior visibly changes for an existing user with several
+  symptoms tracked. Accepted as the correct consequence of "a symptom is now a category, and every
+  other category already gets its own independent chart," not something to special-case around.
+- **`symptomEnabled` is retired, not preserved** - matching Habit's own precedent from Task 2, and
+  confirmed directly in this plan's own Task 1 context: a former symptom is a system-or-personal
+  category now, hidden per-row via the `HiddenCategory` mechanism (Task 1) rather than gated by one
+  blunt whole-type toggle. The frontend side of this (removing the toggle, adding the per-row
+  Hide/Unhide UI) is Task 5, merged into this same branch before this PR was opened - see that
+  task's own entry below for why, and Task 2/3's own entries for the precedent this follows.
+- **`SYMPTOM`-target reminders are dropped, not remapped** - identical reasoning to Task 2's
+  `HABIT` target: a user with several symptoms has no single unambiguous destination category for
+  an old symptom-level reminder.
+
+### Verification
+
+- Migration verified against real before/after data: 14 symptoms / 41 symptom logs before;
+  categories grew by exactly 14 (28 -> 42) and category_logs grew by exactly 41 (22 -> 63) after;
+  spot-checked several migrated rows across both system (`userId: null`, e.g. "Anxiety", "Brain
+  fog" - description correctly carried over) and personal symptoms (three separate users' own
+  "Headache" symptoms, each becoming its own independent category with the correct owner
+  preserved); confirmed every migrated category is `SCALE` with `scaleMin: 1, scaleMax: 10`;
+  confirmed a sample of migrated logs carried `severity` into `valueNumeric` correctly (e.g. `8`,
+  `6`, `6`) with `valueBoolean`/`valueDurationMinutes` both `null`; confirmed the `reminder_target`
+  enum no longer contains `SYMPTOM`; confirmed `users.symptom_enabled` no longer exists.
+- `npm test` (backend): full suite green - 240 tests across 22 files (down from 265/24 pre-task,
+  net of the two deleted Symptom-specific test files and the tests converted/added in their
+  place).
+- `npx tsc --noEmit`, `npm run build`, `npx eslint .`, `npx prettier --check .`: all clean.
+- **A real gap this local verification missed, caught by CI**: `prisma/seed.ts` (the script that
+  seeds the 8 system symptoms into a fresh database) still called `prisma.symptom.create` -
+  `tsc --noEmit` doesn't catch this, since `backend/tsconfig.json`'s `include` is `["src"]` only,
+  and `prisma/seed.ts` lives outside it (`ts-node` compiles it directly when actually run,
+  bypassing that same `include` restriction). The shared local dev database this task's other
+  verification ran against had already been migrated mid-development, so `npx prisma db seed`
+  never got exercised against it in a way that would have surfaced this. CI's own fresh-database
+  e2e job did exercise it, and failed immediately with `TSError: Property 'symptom' does not exist
+on type 'PrismaClient'` - a real, useful catch. Fixed by seeding the same 8 rows as `SCALE`
+  (1-10) categories instead (`prisma.category.create`, `userId: null`), matching exactly how the
+  migration itself maps a `Symptom` onto `Category`; re-verified by running `npx prisma db seed`
+  directly against the local dev database (idempotent no-op there, since it already has all 8 from
+  the migration) and by the full backend suite staying green afterward. The genuine fresh-database
+  create path itself is what CI's own re-run (after this fix) proves, not something this local
+  environment could independently confirm without disturbing the shared dev database's existing
+  rows.
+- See Task 5's own entry below for the combined manual/real-browser verification pass, done once
+  the frontend fix was merged into this same branch (same reasoning as Task 2/3: this migration
+  alone, without Task 5, would crash the live Dashboard the same way Task 2 alone did before Task 3
+  merged in - see that task's own entry for the exact failure mode).
+
+---
+
+## 2026-08-25 — Task 5: Frontend — Symptom retirement
+
+**Task:** [Phase 17, Task 5](../../Tasks.md#task-5--frontend-symptom-retirement) - remove every
+frontend trace of the dedicated Symptom UI now that its backend is gone (Task 4, on its own
+branch - see that task's own entry for the migration this depends on), and add the per-row
+Hide/Unhide action to Settings' Categories list - this is what actually replaces the old blunt
+`symptomEnabled` toggle for the 8 former system symptoms.
+
+### Background / concepts
+
+#### Why this task, again, had to land carefully relative to Task 4
+
+Same coupling as Task 2/3: Task 4's backend migration is destructive (deletes
+`/api/symptoms`/`/api/symptom-logs`, drops `symptomCount`/`symptomEnabled` from the dashboard/
+profile responses entirely). Verifying Task 4 alone would reproduce the exact same
+`DashboardSummary.tsx` crash Task 2 did (`data.symptomCount > 0` isn't a direct property-access
+crash on its own, but `SymptomSection`'s own two now-404ing fetches, and `symptomEnabled` simply
+vanishing from every response, would still break the page in the same class of way) - so Task 5
+is merged into Task 4's own branch before that PR is opened, exactly as Task 2/3 were, and this
+task's own manual verification pass covers both together.
+
+### What was done
+
+- **Deleted**: `SymptomEntryForm.tsx` (including its inlined "add a symptom" mini-flow, superseded
+  by the already-separate `CategoryCreateForm.tsx`) and `SymptomSection.tsx`, plus their test
+  files.
+- **`AuthContext.tsx`**: removed `symptomEnabled` from `AuthUser`.
+- **`DashboardPage.tsx`**: removed the `SymptomSection` import/render and every `symptomEnabled`
+  prop pass-through - no replacement toggle, per the plan's own decision (see Task 1's entry): a
+  former symptom is a system-or-personal category, hidden per-row or archived like any other.
+- **`QuickAddFab.tsx`**: removed the dedicated "Symptom" menu item and `symptomEnabled` prop/
+  filter - logging a former symptom now goes through the existing "More…" entry, same as any
+  custom category.
+- **`DashboardSummary.tsx`**: removed `symptomCount` from the fetched-data interface, the
+  `"symptom"` `RecentEntry` type/icon, and the `symptomEnabled`-gated summary clause.
+- **`historyLogApi.ts`/`HistoryEditModal.tsx`/`HistoryPage.tsx`**: removed the `"symptom"`
+  `HistoryEntryType`/`fetchSymptomLog`/`fetchSymptoms`/`symptomLabel` and the modal's dedicated
+  `SymptomEntryForm` branch - a former symptom's entries flow through the already-generic
+  `"category"` branch/`categoryValueLabel`/`categoryLabel` in each of these files.
+- **`ReminderCreateForm.tsx`**: removed `"symptom"` from `ReminderTarget` and its target-picker
+  option - matches Task 4's backend already rejecting it.
+- **`TrendsPage.tsx`**: removed the dedicated "Symptom Severity" chart section entirely (and its
+  now-unused `symptomSeverity` field/`SYMPTOM_CHART_COLOR`) - every migrated symptom flows through
+  the existing generic `categoryTrends` loop instead, each getting its own independent chart (see
+  Task 4's own entry on this deliberate behavior change).
+- **`SettingsPage.tsx`** (the actual new functionality this task adds, not just cleanup):
+  - `CategoriesSection` now fetches `GET /api/categories?includeHidden=true` (Task 1's own
+    contract) instead of the plain default list, so a hidden system category still shows up here
+    (with an Unhide action) rather than disappearing with no way back.
+  - Added `handleHide`/`handleUnhide`, calling Task 1's `POST`/`DELETE /api/categories/:id/hide`,
+    offered only for a system category (`!isOwn`) - a personal category is archived instead, same
+    as before.
+  - Each system category row now shows a "Hidden" badge alongside the existing "Built-in" one when
+    `category.hidden` is true, and its action button toggles between "Hide"/"Unhide" accordingly.
+  - Removed `symptomEnabled` from `UserProfile`/`CategoryToggles`/`TOGGLE_ITEMS` and every
+    profile-fetch/save call site, matching Habit's own precedent from Task 3.
+- **Copy text**: updated every user-facing string that listed "symptoms" as a separate thing
+  alongside mood/medications (`SettingsPage.tsx`'s categories/export/delete-account sections,
+  `HistoryPage.tsx`, `ActivityCalendar.tsx`, `AdminCategoriesPage.tsx`, `CategorySection.tsx`,
+  `RatingScale.tsx`) to instead read "categories" or describe former symptoms as system categories.
+- **Tests**: `DashboardPage.test.tsx`, `DashboardSummary.test.tsx`, `QuickAddFab.test.tsx`,
+  `HistoryPage.test.tsx`, `TrendsPage.test.tsx`, `ActivityCalendar.test.tsx` updated wherever they
+  exercised symptom-specific UI; `historyLogApi.test.ts`'s `symptomLabel` test removed (no
+  replacement needed - `categoryLabel`'s own coverage already exercises the identical shape).
+  `SettingsPage.test.tsx` gained three new tests for the Hide/Unhide mechanism itself (hides a
+  system category and shows the Hidden badge/Unhide button; unhides one; never offers Hide/Unhide
+  for the user's own category) - genuinely new functionality, not just a migration of existing
+  coverage. `TrendsPage.test.tsx`'s "collapses each chart section independently" test was ported
+  onto a `categoryTrends` entry standing in for the now-gone Symptom Severity section, so the
+  underlying "collapsing one section doesn't affect another" behavior stayed covered.
+
+### Why it's needed
+
+Task 4 already deleted every backend endpoint the old Symptom-specific frontend code called -
+leaving it in place would have been a guaranteed runtime break the moment Task 4's backend
+shipped, the same class of problem Task 2 caused for Habit before Task 3 landed.
+
+### Decisions
+
+- **Hide/Unhide is the actual replacement for `symptomEnabled`, not a like-for-like toggle** -
+  confirmed directly in the plan's own Task 1 context: the 8 former system symptoms are no longer
+  one fixed thing a single boolean can gate, so each is hidden independently instead, matching how
+  Habit's own whole-type toggle was replaced by per-category archiving in Task 3.
+- **The dedicated "Symptom Severity" chart is not replaced with anything bespoke** - every migrated
+  symptom already gets its own chart via the generic `categoryTrends` array (Task 4's own
+  decision), so Task 5's frontend work here was pure deletion, not a new chart to build.
+
+### Verification
+
+- `npx tsc -b`, `npm run build`: clean.
+- `npx vitest run` (frontend): full suite green - 260 tests across 34 files (up from 240/24
+  post-Task-4-equivalent-frontend-state, net of 2 deleted Symptom-specific test files, several
+  tests converted, and 3 new Hide/Unhide tests added).
+- `npm run lint` (oxlint), `npx prettier --check .`: clean (two small pre-existing, unrelated
+  warnings - a `vite.config.ts` triple-slash-reference lint note and a `BottomNav.tsx` formatting
+  nit - predate this task and were left alone, out of scope).
+- **A second real gap, found only once PR #130's own CI ran the e2e suite against a genuinely
+  fresh database** (the same class of blind spot as `prisma/seed.ts` above, but this time in
+  `frontend/e2e/`): `quick-add-and-dashboard.spec.ts` still drove a "Symptom" Quick Add menu item
+  that Task 5 deleted (`QuickAddFab.tsx` no longer has one - former symptoms are logged through
+  the generic "More…" entry now, like any other category), and asserted a "Symptoms: N logged"
+  Dashboard summary clause that no longer exists. `trends-after-seeding.spec.ts` seeded data
+  through the since-deleted `/api/symptoms`/`/api/symptom-logs` endpoints and asserted a fixed
+  "Symptom Severity" chart title that Task 4 already replaced with one generic chart per category.
+  Neither is caught by `tsc`/`vitest` - both are plain Playwright specs the frontend's own
+  component-test run never executes, so nothing short of actually running the e2e suite (or CI's
+  own `e2e` job) would have surfaced this. Fixed by rewriting both specs against the generic
+  category API/UI: `quick-add-and-dashboard.spec.ts` now creates two personal categories via
+  "More…" → "+ Add a new category" (a scale-typed one standing in for a former symptom, a
+  boolean-typed one standing in for a former habit) rather than assuming either has a dedicated
+  menu item, and its summary-line assertion now expects just the two remaining clauses (Mood,
+  Medications); `trends-after-seeding.spec.ts` now creates its own named scale category via
+  `POST /api/categories` and seeds `/api/category-logs` against it, asserting that category's own
+  chart title rather than a fixed "Symptom Severity" one. Also worth noting as a real discovery
+  along the way: a brand-new account is never actually at 0 categories in this app - the 8 seeded
+  system categories (former system symptoms) are visible to every user from registration onward,
+  so "More…" always opens straight into "Log an entry," never "Create your first category"; the
+  original pre-Task-4 test's assumption of an empty-categories first run no longer holds and the
+  rewritten spec accounts for this. Verified by actually running the full e2e suite locally
+  (`backend` built and started with `NODE_ENV=test`, `frontend` built and served via `vite
+preview`, `npx playwright test` from `frontend/`) - all 4 specs green. One environmental false
+  positive was diagnosed and ruled out along the way: an initial local run hit the real
+  `authRateLimiter` (register got `429`s) despite `NODE_ENV=test` being intended to skip it in this
+  app's own middleware - traced to the backend process itself not actually inheriting that env var
+  the way it was first started (a shell-backgrounding quirk, confirmed by probing `/api/register`
+  directly with `curl` and seeing `429`s even though the intent was to skip the limiter);
+  restarting the backend with the env var properly applied made the rate limiter correctly skip
+  as designed, and the full suite passed cleanly, including the two rewritten specs.
+- **A third instance of the same class of gap**, this time in CI's separate `screenshots` job
+  (`.github/workflows/pr-preview.yml`, `frontend/scripts/capture-pr-screenshots.mjs`): a plain
+  driver script (not a Vitest/Playwright test - nothing in this repo's own test suites ever
+  executes it), still clicked an "Add symptom entry" button that no longer exists and assumed
+  "Add category entry" opens an empty "Create your first category" state - the same two now-stale
+  assumptions just fixed in the e2e specs above, independently duplicated in this third place.
+  Fixed the same way: dropped the dedicated symptom step, and changed the category step to open
+  via "Log an entry" -> "+ Add a new category" instead of assuming an empty-categories start.
+  Verified by actually running the script locally end-to-end (`SCREENSHOT_DIR=... node
+scripts/capture-pr-screenshots.mjs` against the same locally-built backend/frontend used for the
+  e2e suite above) and inspecting the resulting `04-dashboard-functioning-with-entries.png`
+  directly - confirmed it shows Mood 5/5, Ibuprofen — Taken, and Exercise: Done all present, not
+  just that the script exited zero.
+- Manual, real-browser verification (Playwright driving a real Chromium instance against a real
+  running backend + frontend dev server): Task 4's branch was checked out into a separate git
+  worktree and run there on port 4000 (this branch's own backend still has pre-Task-4 code, since
+  Task 4 hasn't merged yet), with this branch's frontend dev server on port 5173 pointed at it -
+  the same pairing approach Task 3's own verification used. Confirmed end-to-end: registered a
+  fresh account; logged a mood entry and a category entry against "Headache" (a migrated system
+  symptom, scale 1-10) via `CategorySection`; Dashboard's summary line rendered `Mood: 5/5 ·
+Medications: 0/0 taken` with no crash, and Recent entries showed both; Trends rendered one
+  independent chart per former system symptom (Anxiety, Brain fog, Depression, Fatigue, Headache,
+  Insomnia, Joint pain, Nausea), with Headache's own chart correctly showing `Avg: 6.0` from the
+  just-logged entry - not one combined "Symptom Severity" chart; Settings' Built-in categories
+  list showed exactly two toggles (Mood, Medications - no Symptoms row), and the Categories list
+  showed all 8 former system symptoms tagged "Built-in" with a "Hide" action each; clicking Hide on
+  "Anxiety" showed a "Category hidden." confirmation, added a "Hidden" badge next to it, and
+  swapped its action to "Unhide." Screenshots captured at each step. History's own equivalent pass
+  hit this app's own documented `authRateLimiter` (10 requests per 15 minutes per IP - see
+  `docs/log/01-auth-backend.md`) after several repeated verification registrations in quick
+  succession; the already-captured Dashboard/Trends/Settings evidence above was judged sufficient
+  without re-running it. Both temporary processes and the worktree were torn down afterward.
 
 ---
