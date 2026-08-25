@@ -413,7 +413,7 @@ Medication is explicitly out of scope - it stays its own model.
   target (same drop-and-reconfigure precedent).
 
 ### Task 5 — Frontend: Symptom retirement
-- [ ] Deletes `SymptomEntryForm.tsx` (including its inlined "add a symptom" flow - superseded by
+- [x] Deletes `SymptomEntryForm.tsx` (including its inlined "add a symptom" flow - superseded by
   `CategoryCreateForm.tsx`) and `SymptomSection.tsx`. Adds the per-row Hide/Unhide action to
   `CategoriesSection` (using Task 1's endpoints) - this is what actually replaces `symptomEnabled`
   for the 8 former-system-symptoms.

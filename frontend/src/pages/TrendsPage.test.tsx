@@ -23,10 +23,6 @@ function emptyTrendsData(period: "7d" | "30d" | "90d" = "7d") {
     startDate: days[0],
     endDate: days[days.length - 1],
     days,
-    symptomSeverity: {
-      series: days.map((date) => ({ date, average: null, count: 0 })),
-      average: null,
-    },
     mood: {
       series: days.map((date) => ({ date, average: null, count: 0 })),
       average: null,
@@ -90,26 +86,20 @@ describe("TrendsPage", () => {
 
     renderTrendsPage();
 
-    expect(await screen.findByText(/symptom severity — no data yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/mood — no data yet/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/not enough data yet for this period/i)).toHaveLength(2);
+    expect(await screen.findByText(/mood — no data yet/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/not enough data yet for this period/i)).toHaveLength(1);
     expect(fetchMock.mock.calls[0][0]).toContain("/api/trends?period=7d");
   });
 
   it("renders the computed averages when data is present", async () => {
     mockTrendsFetch(() => ({
       ...emptyTrendsData("7d"),
-      symptomSeverity: {
-        series: emptyTrendsData("7d").symptomSeverity.series,
-        average: 5.166666,
-      },
       mood: { series: emptyTrendsData("7d").mood.series, average: 3.4 },
     }));
 
     renderTrendsPage();
 
-    expect(await screen.findByText(/symptom severity — avg: 5\.2/i)).toBeInTheDocument();
-    expect(screen.getByText(/mood — avg: 3\.4/i)).toBeInTheDocument();
+    expect(await screen.findByText(/mood — avg: 3\.4/i)).toBeInTheDocument();
   });
 
   it("refetches with the new period when a different period button is clicked", async () => {
@@ -120,11 +110,11 @@ describe("TrendsPage", () => {
     });
 
     renderTrendsPage();
-    await screen.findByText(/symptom severity — no data yet/i);
+    await screen.findByText(/mood — no data yet/i);
 
     await user.click(screen.getByRole("radio", { name: "30 days" }));
 
-    await screen.findByText(/symptom severity — no data yet/i);
+    await screen.findByText(/mood — no data yet/i);
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("period=30d"))).toBe(true);
   });
@@ -133,22 +123,41 @@ describe("TrendsPage", () => {
     mockTrendsFetch(() => emptyTrendsData("7d"));
     renderTrendsPage();
 
-    await screen.findByText(/symptom severity — no data yet/i);
+    await screen.findByText(/mood — no data yet/i);
     expect(
       screen.getByText(/not a diagnosis, and not a claim about what's causing what/i),
     ).toBeInTheDocument();
   });
 
+  // Regression test: a migrated symptom (Phase 17 - see docs/log/17-unify-mood-symptom-habit.md)
+  // no longer gets a dedicated chart section of its own - a SCALE categoryTrends entry stands in
+  // here for "some second chart section alongside Mood," to keep exercising "collapsing one
+  // section doesn't touch another" now that Symptom Severity itself is gone.
   it("collapses each chart section independently via its own toggle", async () => {
-    mockTrendsFetch(() => emptyTrendsData("7d"));
+    const days = emptyTrendsData("7d").days;
+    mockTrendsFetch(() => ({
+      ...emptyTrendsData("7d"),
+      categoryTrends: [
+        {
+          categoryId: "cat-energy",
+          name: "Energy level",
+          icon: null,
+          valueType: "scale",
+          scaleMin: 1,
+          scaleMax: 5,
+          series: days.map((date) => ({ date, average: null, count: 0 })),
+          average: null,
+        },
+      ],
+    }));
     const user = userEvent.setup();
 
     renderTrendsPage();
-    await screen.findByText(/symptom severity — no data yet/i);
-    // Both TrendLineChart instances (symptom severity and mood) render this same empty-state
-    // copy when every point's average is null, as it is here - ActivityCalendar renders an
-    // actual (mostly-inactive) grid instead, not this text, since `emptyTrendsData` gives it
-    // real day entries rather than an empty array.
+    await screen.findByText(/mood — no data yet/i);
+    // Both TrendLineChart instances (Energy level and Mood) render this same empty-state copy
+    // when every point's average is null, as it is here - ActivityCalendar renders an actual
+    // (mostly-inactive) grid instead, not this text, since `emptyTrendsData` gives it real day
+    // entries rather than an empty array.
     expect(screen.getAllByText(/not enough data yet for this period/i)).toHaveLength(2);
     expect(screen.getByText(/days with any logged entry/i)).toBeInTheDocument();
 
@@ -158,10 +167,10 @@ describe("TrendsPage", () => {
     expect(screen.queryByText(/days with any logged entry/i)).not.toBeInTheDocument();
     expect(screen.getAllByText(/not enough data yet for this period/i)).toHaveLength(2);
 
-    await user.click(screen.getByRole("button", { name: /symptom severity/i }));
+    await user.click(screen.getByRole("button", { name: /energy level/i }));
 
-    expect(screen.queryByText(/logged severity \(1–10\) over/i)).not.toBeInTheDocument();
-    // Mood's own description is still showing - collapsing Symptom Severity didn't touch it.
+    expect(screen.queryByText(/logged 1–5 over/i)).not.toBeInTheDocument();
+    // Mood's own description is still showing - collapsing Energy level didn't touch it.
     expect(screen.getByText(/logged mood \(1–5\) over/i)).toBeInTheDocument();
   });
 
@@ -209,7 +218,7 @@ describe("TrendsPage", () => {
     mockTrendsFetch(() => emptyTrendsData("7d"));
     renderTrendsPage();
 
-    await screen.findByText(/symptom severity — no data yet/i);
+    await screen.findByText(/mood — no data yet/i);
     expect(screen.queryByText(/avg: /i)).not.toBeInTheDocument();
   });
 });

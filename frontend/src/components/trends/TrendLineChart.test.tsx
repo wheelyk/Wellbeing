@@ -15,7 +15,7 @@ describe("TrendLineChart", () => {
         domainMax={10}
         color="#2563eb"
         formatValue={(v) => `${v}/10`}
-        ariaLabel="Symptom severity chart"
+        ariaLabel="Example chart"
       />,
     );
 
@@ -33,11 +33,11 @@ describe("TrendLineChart", () => {
         domainMax={10}
         color="#2563eb"
         formatValue={(v) => `${v}/10`}
-        ariaLabel="Symptom severity chart"
+        ariaLabel="Example chart"
       />,
     );
 
-    expect(screen.getByRole("group", { name: "Symptom severity chart" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Example chart" })).toBeInTheDocument();
     expect(screen.queryByText(/not enough data yet/i)).not.toBeInTheDocument();
   });
 
@@ -52,7 +52,7 @@ describe("TrendLineChart", () => {
         domainMax={10}
         color="#2563eb"
         formatValue={(v) => `${v}/10`}
-        ariaLabel="Symptom severity chart"
+        ariaLabel="Example chart"
       />,
     );
 
@@ -79,13 +79,13 @@ describe("TrendLineChart", () => {
         domainMax={10}
         color="#2563eb"
         formatValue={(v) => `${v}/10`}
-        ariaLabel="Symptom severity chart"
+        ariaLabel="Example chart"
       />,
     );
 
     // The real point is still shown (the group renders, and the real day's hit target still
     // reports its actual value) - this state must never hide the data that does exist.
-    expect(screen.getByRole("group", { name: "Symptom severity chart" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Example chart" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /(aug\s*16|16\s*aug):\s*6\/10/i }),
     ).toBeInTheDocument();
@@ -104,7 +104,7 @@ describe("TrendLineChart", () => {
         domainMax={10}
         color="#2563eb"
         formatValue={(v) => `${v}/10`}
-        ariaLabel="Symptom severity chart"
+        ariaLabel="Example chart"
       />,
     );
 
@@ -123,7 +123,7 @@ describe("TrendLineChart", () => {
         domainMax={10}
         color="#2563eb"
         formatValue={(v) => `${v}/10`}
-        ariaLabel="Symptom severity chart"
+        ariaLabel="Example chart"
       />,
     );
 
@@ -139,7 +139,7 @@ describe("TrendLineChart", () => {
         domainMax={10}
         color="#2563eb"
         formatValue={(v) => `${v}/10`}
-        ariaLabel="Symptom severity chart"
+        ariaLabel="Example chart"
       />,
     );
 

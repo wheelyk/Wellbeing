@@ -1,25 +1,22 @@
 import { apiFetch } from "../../api/client";
 import type { HistoryEntryType } from "../HistoryPage";
 import type { MoodLog } from "../../components/MoodEntryForm";
-import type { Symptom, SymptomLog } from "../../components/SymptomEntryForm";
 import type { MedicationLog } from "../../components/MedicationEntryForm";
 import type { CategoryLog } from "../../components/CategoryEntryForm";
 import type { Category } from "../../components/CategoryCreateForm";
 
 // The unified GET /api/history endpoint (see backend/src/routes/history.ts) only returns a
 // display-ready {label, notes, loggedAt} shape - enough to render the list, but not enough to
-// pre-fill a real edit form (e.g. a symptom entry's label is "Headache — Severity 6/10", which
-// has no machine-readable symptomId in it anywhere). The actual structured fields
-// (mood/energy/stress, symptomId/severity, categoryId/valueX) only live on the per-type
-// endpoints, so editing has to go back to those - see findLogById below for how, given the
-// backend can't be touched for this task and none of those endpoints support a "fetch by id"
-// lookup. Reuses the exact same MoodLog/SymptomLog/Symptom types the Dashboard's own
-// MoodEntryForm/SymptomEntryForm already export, rather than maintaining a second, parallel set
-// of near-identical interfaces - this is what actually lets HistoryEditModal render those same
-// form components directly instead of rebuilding its own.
+// pre-fill a real edit form (e.g. a category entry's label is "Headache: 6/10", which has no
+// machine-readable categoryId in it anywhere). The actual structured fields (mood/energy/stress,
+// categoryId/valueX) only live on the per-type endpoints, so editing has to go back to those -
+// see findLogById below for how, given the backend can't be touched for this task and none of
+// those endpoints support a "fetch by id" lookup. Reuses the exact same MoodLog/CategoryLog types
+// the Dashboard's own MoodEntryForm/CategoryEntryForm already export, rather than maintaining a
+// second, parallel set of near-identical interfaces - this is what actually lets
+// HistoryEditModal render those same form components directly instead of rebuilding its own.
 const LIST_PATH: Record<HistoryEntryType, string> = {
   mood: "/api/mood-logs",
-  symptom: "/api/symptom-logs",
   medication: "/api/medication-logs",
   category: "/api/category-logs",
 };
@@ -29,7 +26,7 @@ interface LogPage<T> {
   hasMore: boolean;
 }
 
-// The four per-type log-list endpoints only support limit/offset pagination - there's no "give
+// The three per-type log-list endpoints only support limit/offset pagination - there's no "give
 // me the one with this id" lookup (adding one would mean touching backend/, out of scope for
 // this task). Entries within a type are always returned newest-first, the same order the
 // History list itself already sorts by, so this pages through that same order and stops as soon
@@ -63,9 +60,6 @@ async function findLogById<T extends { id: string; loggedAt: string }>(
 export function fetchMoodLog(id: string, loggedAtHint: string): Promise<MoodLog | null> {
   return findLogById<MoodLog>("mood", id, loggedAtHint);
 }
-export function fetchSymptomLog(id: string, loggedAtHint: string): Promise<SymptomLog | null> {
-  return findLogById<SymptomLog>("symptom", id, loggedAtHint);
-}
 export function fetchMedicationLog(
   id: string,
   loggedAtHint: string,
@@ -76,9 +70,6 @@ export function fetchCategoryLog(id: string, loggedAtHint: string): Promise<Cate
   return findLogById<CategoryLog>("category", id, loggedAtHint);
 }
 
-export function fetchSymptoms(): Promise<Symptom[]> {
-  return apiFetch<Symptom[]>("/api/symptoms");
-}
 export function fetchCategories(): Promise<Category[]> {
   return apiFetch<Category[]>("/api/categories");
 }
@@ -97,10 +88,6 @@ export function moodLabel(log: {
   if (log.energy !== null) parts.push(`Energy ${log.energy}/7`);
   if (log.stress !== null) parts.push(`Stress ${log.stress}/7`);
   return parts.join(" · ");
-}
-
-export function symptomLabel(symptomName: string, severity: number): string {
-  return `${symptomName} — Severity ${severity}/10`;
 }
 
 export function medicationLabel(name: string, dosage: string | null, taken: boolean): string {

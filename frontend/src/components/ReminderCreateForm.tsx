@@ -6,7 +6,7 @@ import { TextField } from "./TextField";
 import type { Category } from "./CategoryCreateForm";
 import type { Medication } from "./MedicationEntryForm";
 
-export type ReminderTarget = "general" | "mood" | "symptom" | "medication" | "category";
+export type ReminderTarget = "general" | "mood" | "medication" | "category";
 
 export interface Reminder {
   id: string;
@@ -31,7 +31,6 @@ export interface ReminderCreateInput {
 const TARGET_OPTIONS: Array<{ value: ReminderTarget; label: string; hint: string }> = [
   { value: "general", label: "General", hint: "Nudge if nothing's been logged at all yet" },
   { value: "mood", label: "Mood", hint: "Nudge if mood hasn't been logged today" },
-  { value: "symptom", label: "Symptom", hint: "Nudge if no symptom has been logged today" },
   { value: "medication", label: "A specific medication", hint: "e.g. Diazepam every morning" },
   { value: "category", label: "A specific category", hint: "e.g. Water intake every few hours" },
 ];

@@ -1,20 +1,14 @@
 import { describe, it, expect } from "vitest";
-import {
-  moodLabel,
-  symptomLabel,
-  medicationLabel,
-  categoryValueLabel,
-  categoryLabel,
-} from "./historyLogApi";
+import { moodLabel, medicationLabel, categoryValueLabel, categoryLabel } from "./historyLogApi";
 
 // This file's label-formatting functions mirror backend/src/routes/history.ts's own copies of
 // the same logic exactly (see historyLogApi.ts's own top-of-file comment on why) - previously
 // untested here, the same real gap the backend's own dashboard.ts/history.ts tests just closed:
 // only boolean-type category values had ever been exercised by any test, anywhere in the
 // codebase, across all three independent copies of this formatting logic (two backend, one
-// frontend). These used to test the near-identical habitValueLabel/habitLabel, which covered the
-// same three value types before Habit unified into Category (Phase 17) - see
-// docs/log/17-unify-mood-symptom-habit.md.
+// frontend). These used to test the near-identical habitValueLabel/habitLabel (Habit) and
+// symptomLabel (Symptom), which covered the same shapes before both unified into Category (Phase
+// 17) - see docs/log/17-unify-mood-symptom-habit.md.
 describe("historyLogApi label formatting", () => {
   describe("moodLabel", () => {
     it("shows just the mood when energy/stress are null", () => {
@@ -28,10 +22,6 @@ describe("historyLogApi label formatting", () => {
         "Mood 3/5 · Energy 5/7 · Stress 2/7",
       );
     });
-  });
-
-  it("symptomLabel combines the symptom name and severity", () => {
-    expect(symptomLabel("Headache", 6)).toBe("Headache — Severity 6/10");
   });
 
   describe("medicationLabel", () => {

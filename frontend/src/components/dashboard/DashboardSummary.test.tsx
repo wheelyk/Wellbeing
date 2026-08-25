@@ -43,7 +43,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       mood: null,
-      symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
@@ -55,20 +54,19 @@ describe("DashboardSummary", () => {
     expect(screen.getByText(/no current logging streak/i)).toBeInTheDocument();
     expect(screen.getByText(/you haven't logged anything yet/i)).toBeInTheDocument();
     // The friendly empty-state copy above should replace, not sit alongside, the raw
-    // "0 logged / 0/0 taken" summary line.
-    expect(screen.queryByText(/symptoms: 0 logged/i)).not.toBeInTheDocument();
+    // "0/0 taken" summary line.
+    expect(screen.queryByText(/medications: 0\/0 taken/i)).not.toBeInTheDocument();
   });
 
   it("renders the date, the day's summary line, streak, and recent entries", async () => {
     mockDashboardFetch({
       date: "2026-08-17",
       mood: { id: "mood-1", mood: 4 },
-      symptomCount: 2,
       medicationSummary: { taken: 1, total: 2 },
       recentEntries: {
         entries: [
           {
-            type: "symptom",
+            type: "category",
             label: "Headache",
             value: "6/10",
             loggedAt: "2026-08-17T14:30:00.000Z",
@@ -93,9 +91,7 @@ describe("DashboardSummary", () => {
     expect(heading.textContent).toMatch(/august/i);
     expect(heading.textContent).toMatch(/17/);
     expect(heading.textContent).toMatch(/2026/);
-    expect(
-      screen.getByText(/mood: 4\/5 · symptoms: 2 logged · medications: 1\/2 taken/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/mood: 4\/5 · medications: 1\/2 taken/i)).toBeInTheDocument();
     expect(screen.getByText(/logging streak: 3 days/i)).toBeInTheDocument();
     expect(screen.getByText(/logged 4 of 7 days this week/i)).toBeInTheDocument();
     expect(screen.getByText(/headache — 6\/10/i)).toBeInTheDocument();
@@ -118,7 +114,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       mood: null,
-      symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       recentEntries: {
         entries: [{ type: "mood", label: "Mood", value: "4/5", loggedAt: daysAgoIso(0) }],
@@ -138,7 +133,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       mood: null,
-      symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       recentEntries: {
         entries: [{ type: "category", label: "Nap", value: "30 min", loggedAt: daysAgoIso(1) }],
@@ -159,7 +153,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       mood: null,
-      symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       recentEntries: {
         entries: [
@@ -182,7 +175,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       mood: { id: "mood-1", mood: 4 },
-      symptomCount: 2,
       medicationSummary: { taken: 1, total: 2 },
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
@@ -191,7 +183,6 @@ describe("DashboardSummary", () => {
     render(<DashboardSummary medicationEnabled={false} />);
 
     const summary = await screen.findByText(/mood: 4\/5/i);
-    expect(summary.textContent).toMatch(/mood: 4\/5 · symptoms: 2 logged/i);
     expect(summary.textContent).not.toMatch(/medications/i);
   });
 
@@ -199,15 +190,12 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       mood: { id: "mood-1", mood: 4 },
-      symptomCount: 2,
       medicationSummary: { taken: 1, total: 2 },
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
 
-    render(
-      <DashboardSummary moodEnabled={false} symptomEnabled={false} medicationEnabled={false} />,
-    );
+    render(<DashboardSummary moodEnabled={false} medicationEnabled={false} />);
 
     expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
   });
@@ -216,12 +204,11 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       mood: null,
-      symptomCount: 1,
-      medicationSummary: { taken: 0, total: 0 },
+      medicationSummary: { taken: 1, total: 1 },
       recentEntries: {
         entries: [
           {
-            type: "symptom",
+            type: "category",
             label: "Headache",
             value: "6/10",
             loggedAt: "2026-08-17T14:30:00.000Z",
@@ -259,7 +246,6 @@ describe("DashboardSummary", () => {
     const baseFields = {
       date: "2026-08-17",
       mood: null,
-      symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     };
@@ -308,7 +294,6 @@ describe("DashboardSummary", () => {
     const baseFields = {
       date: "2026-08-17",
       mood: null,
-      symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     };
@@ -355,7 +340,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       mood: null,
-      symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       recentEntries: {
         entries: [
@@ -386,7 +370,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       mood: null,
-      symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       recentEntries: {
         entries: [{ type: "mood", label: "Mood", value: "4/5", loggedAt: daysAgoIso(0) }],
@@ -419,7 +402,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       mood: null,
-      symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 1, daysLoggedThisWeek: 1 },
@@ -441,9 +423,8 @@ describe("DashboardSummary", () => {
       date: "2026-08-17",
       // Non-null so hasLoggedAnything is true from the first fetch onward - otherwise the
       // component renders its "Nothing logged yet today" empty state instead of the
-      // "Symptoms: N logged" summary line this test asserts on.
+      // "Medications: N/N taken" summary line this test asserts on.
       mood: { id: "mood-1", mood: 4 },
-      medicationSummary: { taken: 0, total: 0 },
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     };
@@ -451,19 +432,22 @@ describe("DashboardSummary", () => {
     const fetchMock = vi.fn().mockImplementation(() => {
       callCount += 1;
       return Promise.resolve(
-        jsonResponse(200, { ...baseFields, symptomCount: callCount === 1 ? 0 : 1 }),
+        jsonResponse(200, {
+          ...baseFields,
+          medicationSummary: { taken: callCount === 1 ? 0 : 1, total: 1 },
+        }),
       );
     });
     vi.stubGlobal("fetch", fetchMock);
 
     render(<DashboardSummary />);
 
-    expect(await screen.findByText(/symptoms: 0 logged/i)).toBeInTheDocument();
+    expect(await screen.findByText(/medications: 0\/1 taken/i)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    dispatchDashboardEntryChanged("symptom");
+    dispatchDashboardEntryChanged("medication");
 
-    expect(await screen.findByText(/symptoms: 1 logged/i)).toBeInTheDocument();
+    expect(await screen.findByText(/medications: 1\/1 taken/i)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -471,7 +455,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       mood: null,
-      symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
@@ -482,7 +465,7 @@ describe("DashboardSummary", () => {
     const callsBeforeUnmount = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
 
     unmount();
-    dispatchDashboardEntryChanged("symptom");
+    dispatchDashboardEntryChanged("medication");
     // Nothing to await on directly (there should be no new fetch) - a microtask flush is enough
     // to prove a stray refetch didn't slip in via a listener that outlived the component.
     await Promise.resolve();

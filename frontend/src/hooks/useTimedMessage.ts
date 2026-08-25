@@ -15,8 +15,8 @@ interface TimedMessageControls {
 }
 
 // A small piece of state that shows a message and clears itself after `durationMs` - factored
-// out of the Dashboard sections (Mood/Symptom/Medication/Category) since each needs the exact
-// same "say 'Saved.' then quietly go away" behavior for their post-save confirmation.
+// out of the Dashboard sections (Mood/Medication/Category) since each needs the exact same "say
+// 'Saved.' then quietly go away" behavior for their post-save confirmation.
 export function useTimedMessage(durationMs = DEFAULT_DURATION_MS): TimedMessageControls {
   const [message, setMessage] = useState<string | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
