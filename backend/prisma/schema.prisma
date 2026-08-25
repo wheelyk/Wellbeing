@@ -26,19 +26,20 @@ model User {
   resetTokenHash      String?   @map("reset_token_hash")
   resetTokenExpiresAt DateTime? @map("reset_token_expires_at")
 
-  // Lets a user hide a built-in category (Mood/Symptom/Medication/Habit) from Dashboard/Quick Add
+  // Lets a user hide a built-in category (Mood/Symptom/Medication) from Dashboard/Quick Add
   // without touching any data already logged under it - the toggle-off direction explored
   // alongside the custom-Category feature and shipped here as a follow-up. All default true so
   // every existing account keeps today's behavior unchanged. Turning one off also disables (not
   // deletes) any Reminder targeting that category - see routes/users.ts's PATCH /me.
+  //
+  // habitEnabled (Phase 16) was removed when Habit unified into Category (Phase 17) - a former
+  // habit is now an ordinary personal category, individually archivable like any other, so no
+  // whole-type toggle is needed for it anymore. See docs/log/17-unify-mood-symptom-habit.md.
   moodEnabled       Boolean @default(true) @map("mood_enabled")
   symptomEnabled    Boolean @default(true) @map("symptom_enabled")
   medicationEnabled Boolean @default(true) @map("medication_enabled")
-  habitEnabled      Boolean @default(true) @map("habit_enabled")
 
   moodLogs          MoodLog[]
-  habits            Habit[]
-  habitLogs         HabitLog[]
   medications       Medication[]
   medicationLogs    MedicationLog[]
   symptoms          Symptom[]
@@ -84,68 +85,6 @@ model MoodLog {
   // by date, so this composite index is what keeps those queries fast as log counts grow.
   @@index([userId, loggedAt])
   @@map("mood_logs")
-}
-
-// A habit's `type` decides which single column on HabitLog is expected to be populated —
-// see HabitLog below for why separate nullable columns were chosen over one polymorphic
-// "value" column.
-enum HabitType {
-  BOOLEAN
-  NUMERIC
-  DURATION
-
-  @@map("habit_type")
-}
-
-model Habit {
-  id        String    @id @default(uuid())
-  userId    String    @map("user_id")
-  name      String
-  type      HabitType
-  createdAt DateTime  @default(now()) @map("created_at")
-
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  habitLogs HabitLog[]
-
-  // A user's own habit list is always read as "all of this user's habits," so a single-column
-  // index on user_id (rather than a composite one) is enough here - there's no secondary sort/
-  // range dimension the way logged_at is for the log tables.
-  @@index([userId])
-  @@map("habits")
-}
-
-model HabitLog {
-  id      String @id @default(uuid())
-  userId  String @map("user_id")
-  habitId String @map("habit_id")
-
-  // Exactly one of these three is populated, matching the parent Habit's `type` - enforced in
-  // application code (see backend/src/routes/habitLogs.ts), not by a database CHECK constraint.
-  // Postgres/Prisma can't express "exactly one of these three columns is non-null, and which
-  // one depends on a value in a *different* table's row" declaratively, so three plain nullable
-  // columns plus a hand-written validator was chosen over a single `Json` "value" column: three
-  // typed columns keep the common queries (e.g. "average numeric value for this habit") a plain
-  // typed SQL aggregate instead of a JSON-extraction expression, at the cost of the app-level
-  // check this file's route module performs on every create/update.
-  valueBoolean         Boolean? @map("value_boolean")
-  valueNumeric         Float?   @map("value_numeric")
-  valueDurationMinutes Int?     @map("value_duration_minutes")
-
-  notes    String?
-  loggedAt DateTime @default(now()) @map("logged_at") @db.Timestamptz(3)
-
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // Deleting a Habit cascades to its logs too (not just User -> Habit/HabitLog): a HabitLog's
-  // value only makes sense in light of its parent Habit's type, so an orphaned log with no
-  // parent habit to interpret it against isn't a state worth allowing to exist.
-  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
-
-  // Same reasoning as MoodLog's composite index: every planned query filters by user and
-  // ranges/orders by logged_at together.
-  @@index([userId, loggedAt])
-  // Supports "this habit's log history" lookups (e.g. a per-habit detail/trend view).
-  @@index([habitId, loggedAt])
-  @@map("habit_logs")
 }
 
 // A user's own list of medications they take (e.g. "Ibuprofen", "Vitamin D"), with an optional
@@ -246,11 +185,12 @@ model SymptomLog {
 }
 
 // A category's `valueType` decides which single column on CategoryLog is expected to be
-// populated - the same three (BOOLEAN/NUMERIC/DURATION) Habit already has, plus SCALE: a
-// bounded 1-N picker (see Category.scaleMin/scaleMax) generalizing what Mood/Symptom already do
-// with their own fixed scales. SCALE shares NUMERIC's storage column (valueNumeric) - the two
-// differ only in whether a min/max bound is enforced at write time, not in how the value itself
-// is stored.
+// populated - BOOLEAN/NUMERIC/DURATION (the same three the now-retired Habit model used to have,
+// before it unified into Category - see docs/log/17-unify-mood-symptom-habit.md), plus SCALE: a
+// bounded 1-N picker (see Category.scaleMin/scaleMax) generalizing what Mood/Symptom still do
+// with their own fixed scales, as of this writing. SCALE shares NUMERIC's storage column
+// (valueNumeric) - the two differ only in whether a min/max bound is enforced at write time, not
+// in how the value itself is stored.
 enum CategoryValueType {
   BOOLEAN
   NUMERIC
@@ -275,8 +215,8 @@ model Category {
   description String?
   valueType   CategoryValueType @map("value_type")
   // Only meaningful when valueType is SCALE - enforced in application code (see
-  // routes/categories.ts and categoryLogs.ts), the same choice Symptom/Habit already made for
-  // their own type-conditional fields rather than a DB CHECK constraint.
+  // routes/categories.ts and categoryLogs.ts), the same choice Symptom already makes for its own
+  // type-conditional fields rather than a DB CHECK constraint.
   scaleMin    Int?              @map("scale_min")
   scaleMax    Int?              @map("scale_max")
   // Archiving (not deleting) is this model's primary "remove" action - a system category used by
@@ -325,8 +265,9 @@ model CategoryLog {
   categoryId String @map("category_id")
 
   // Exactly one of these three is populated, matching the parent Category's `valueType` -
-  // enforced in application code (see routes/categoryLogs.ts), the same shape and reasoning as
-  // HabitLog's own three nullable value columns.
+  // enforced in application code (see routes/categoryLogs.ts). The same shape and column names
+  // the now-retired HabitLog model used to have (see docs/log/17-unify-mood-symptom-habit.md) -
+  // its own rows were migrated directly into this table for exactly that reason.
   valueBoolean         Boolean? @map("value_boolean")
   valueNumeric         Float?   @map("value_numeric")
   valueDurationMinutes Int?     @map("value_duration_minutes")
@@ -351,16 +292,20 @@ model CategoryLog {
 }
 
 // What a Reminder is "about." GENERAL is the original whole-app "you haven't logged anything
-// today" nudge; MOOD/SYMPTOM/HABIT are category-level (no per-instance granularity - there's
-// only ever at most one reminder per user for each of these three); MEDICATION and CATEGORY are
-// always paired with a specific Medication/Category row (see Reminder.medicationId/categoryId
-// below) - a user can have one reminder for "Diazepam" and a completely independent one for
-// "Sertraline," which a category-level MEDICATION reminder couldn't express.
+// today" nudge; MOOD/SYMPTOM are category-level (no per-instance granularity - there's only ever
+// at most one reminder per user for each of these); MEDICATION and CATEGORY are always paired
+// with a specific Medication/Category row (see Reminder.medicationId/categoryId below) - a user
+// can have one reminder for "Diazepam" and a completely independent one for "Sertraline," which a
+// category-level MEDICATION reminder couldn't express.
+//
+// HABIT (Phase 16) was removed when Habit unified into Category (Phase 17) - any existing
+// HABIT-target reminder was deleted by that migration (confirmed directly: drop and let the user
+// reconfigure, rather than attempt a lossy auto-remap to one specific former habit). A former
+// habit's own reminder is now just a CATEGORY-target reminder like any other category's.
 enum ReminderTarget {
   GENERAL
   MOOD
   SYMPTOM
-  HABIT
   MEDICATION
   CATEGORY
 
@@ -371,8 +316,8 @@ enum ReminderTarget {
 // now have any number of these, each aimed at a different target. `medicationId`/`categoryId`
 // are mutually exclusive with each other and only ever set together with the matching `target`
 // (MEDICATION -> medicationId, CATEGORY -> categoryId) - enforced in application code (see
-// routes/reminders.ts), the same choice this schema already makes for HabitLog's/CategoryLog's
-// own type-conditional value columns rather than a DB CHECK constraint.
+// routes/reminders.ts), the same choice this schema already makes for CategoryLog's own
+// type-conditional value columns rather than a DB CHECK constraint.
 model Reminder {
   id           String         @id @default(uuid())
   userId       String         @map("user_id")

@@ -392,7 +392,7 @@ Medication is explicitly out of scope - it stays its own model.
   categories only (a personal category is archived, not hidden).
 
 ### Task 2 — Backend: Habit → Category
-- [ ] Hand-written migration copying `habits`/`habit_logs` into `categories`/`category_logs`
+- [x] Hand-written migration copying `habits`/`habit_logs` into `categories`/`category_logs`
   (column shapes already match 1:1), then dropping the old tables/enum. Deletes `habits.ts`/
   `habitLogs.ts`/`lib/habitType.ts`. Folds `dashboard.ts`/`history.ts`/`export.ts` into the
   already-generic Category paths (also closes the pre-existing gap that `export.ts` omits

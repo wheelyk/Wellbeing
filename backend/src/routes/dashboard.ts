@@ -23,34 +23,24 @@ const querySchema = z
   })
   .merge(paginationQuerySchema);
 
-type RecentEntryType = "mood" | "symptom" | "medication" | "habit" | "category";
+type RecentEntryType = "mood" | "symptom" | "medication" | "category";
 
 interface RecentEntry {
   type: RecentEntryType;
   label: string;
   value: string;
   loggedAt: string;
-  // Only present for type "category" - unlike the four fixed types, "category" isn't
+  // Only present for type "category" - unlike the three fixed types, "category" isn't
   // self-describing on its own; the frontend needs to know *which* category (for its icon) and
   // it's a categoryId a log's own edit/delete actions target.
   categoryId?: string;
   icon?: string | null;
 }
 
-function formatHabitValue(log: {
-  valueBoolean: boolean | null;
-  valueNumeric: number | null;
-  valueDurationMinutes: number | null;
-}): string {
-  if (log.valueBoolean !== null) return log.valueBoolean ? "Done" : "Not done";
-  if (log.valueNumeric !== null) return `${log.valueNumeric}`;
-  if (log.valueDurationMinutes !== null) return `${log.valueDurationMinutes} min`;
-  return "—";
-}
-
-// Same three-column shape as formatHabitValue, plus SCALE (sharing NUMERIC's valueNumeric
-// column) formatted as "value/max" when the category's own scaleMax is known - mirroring how
-// Mood/Symptom's own fixed scales already render (e.g. "4/5", "7/10").
+// Exactly one of valueBoolean/valueNumeric/valueDurationMinutes is populated, matching the
+// parent Category's own valueType - SCALE shares NUMERIC's storage column, formatted as
+// "value/max" when the category's own scaleMax is known, mirroring how Mood/Symptom's own fixed
+// scales already render (e.g. "4/5", "7/10").
 function formatCategoryLogValue(log: {
   valueBoolean: boolean | null;
   valueNumeric: number | null;
@@ -106,87 +96,67 @@ dashboardRouter.get("/", async (req, res) => {
   const { limit: recentEntriesLimit = DEFAULT_LOG_LIST_LIMIT, offset: recentEntriesOffset = 0 } =
     parsedQuery.data;
 
-  const [latestMood, symptomCount, medicationLogsToday, habitLogsToday, totalHabits] =
-    await Promise.all([
-      prisma.moodLog.findFirst({
-        where: { userId: req.userId, loggedAt: { gte: start, lt: end } },
-        // `id` as a secondary sort key - see moodLogs.ts's identical `orderBy` for why this
-        // matters: without it, which of two same-`loggedAt` mood entries counts as "the latest"
-        // isn't guaranteed to stay consistent across requests.
-        orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
-      }),
-      prisma.symptomLog.count({
-        where: { userId: req.userId, loggedAt: { gte: start, lt: end } },
-      }),
-      prisma.medicationLog.findMany({
-        where: { userId: req.userId, loggedAt: { gte: start, lt: end } },
-        select: { taken: true },
-      }),
-      prisma.habitLog.findMany({
-        where: { userId: req.userId, loggedAt: { gte: start, lt: end } },
-        select: { habitId: true },
-      }),
-      prisma.habit.count({ where: { userId: req.userId } }),
-    ]);
+  const [latestMood, symptomCount, medicationLogsToday] = await Promise.all([
+    prisma.moodLog.findFirst({
+      where: { userId: req.userId, loggedAt: { gte: start, lt: end } },
+      // `id` as a secondary sort key - see moodLogs.ts's identical `orderBy` for why this
+      // matters: without it, which of two same-`loggedAt` mood entries counts as "the latest"
+      // isn't guaranteed to stay consistent across requests.
+      orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
+    }),
+    prisma.symptomLog.count({
+      where: { userId: req.userId, loggedAt: { gte: start, lt: end } },
+    }),
+    prisma.medicationLog.findMany({
+      where: { userId: req.userId, loggedAt: { gte: start, lt: end } },
+      select: { taken: true },
+    }),
+  ]);
 
   const medicationSummary = {
     taken: medicationLogsToday.filter((log) => log.taken).length,
     total: medicationLogsToday.length,
   };
 
-  const habitSummary = {
-    // Distinct habits with at least one log today, not raw log count - logging the same habit
-    // twice in a day shouldn't inflate "how many of my habits did I touch today."
-    loggedCount: new Set(habitLogsToday.map((log) => log.habitId)).size,
-    totalHabits,
-  };
-
-  // Merging four separately-sorted, separately-paginated tables into one time-ordered page can't
+  // Merging three separately-sorted, separately-paginated tables into one time-ordered page can't
   // just `take: limit, skip: offset` any single table - the entry at merged position `offset` might
-  // come from any of the four. Instead, each table is asked for enough of its own most-recent rows
+  // come from any of the three. Instead, each table is asked for enough of its own most-recent rows
   // to cover the worst case where a single type accounts for every entry up to and including one
   // past the requested page (`offset + limit + 1`, the same N+1 "is there more?" trick as
   // `fetchPage` in lib/pagination.ts, just applied before the merge instead of after).
   const perTypeFetch = recentEntriesOffset + recentEntriesLimit + 1;
 
-  // `id` as a secondary sort key on all four queries below - see moodLogs.ts's identical
+  // `id` as a secondary sort key on every query below - see moodLogs.ts's identical
   // `orderBy` for why: without it, two logs sharing the exact same `loggedAt` have no guaranteed
   // relative order across separate requests, which the merge-then-slice logic just below relies
   // on being stable.
-  const [recentMood, recentSymptoms, recentMedications, recentHabits, recentCategories] =
-    await Promise.all([
-      prisma.moodLog.findMany({
-        where: { userId: req.userId },
-        orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
-        take: perTypeFetch,
-      }),
-      prisma.symptomLog.findMany({
-        where: { userId: req.userId },
-        orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
-        take: perTypeFetch,
-        include: { symptom: { select: { name: true } } },
-      }),
-      prisma.medicationLog.findMany({
-        where: { userId: req.userId },
-        orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
-        take: perTypeFetch,
-        include: { medication: { select: { name: true } } },
-      }),
-      prisma.habitLog.findMany({
-        where: { userId: req.userId },
-        orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
-        take: perTypeFetch,
-        include: { habit: { select: { name: true } } },
-      }),
-      prisma.categoryLog.findMany({
-        where: { userId: req.userId },
-        orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
-        take: perTypeFetch,
-        include: {
-          category: { select: { name: true, icon: true, valueType: true, scaleMax: true } },
-        },
-      }),
-    ]);
+  const [recentMood, recentSymptoms, recentMedications, recentCategories] = await Promise.all([
+    prisma.moodLog.findMany({
+      where: { userId: req.userId },
+      orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
+      take: perTypeFetch,
+    }),
+    prisma.symptomLog.findMany({
+      where: { userId: req.userId },
+      orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
+      take: perTypeFetch,
+      include: { symptom: { select: { name: true } } },
+    }),
+    prisma.medicationLog.findMany({
+      where: { userId: req.userId },
+      orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
+      take: perTypeFetch,
+      include: { medication: { select: { name: true } } },
+    }),
+    prisma.categoryLog.findMany({
+      where: { userId: req.userId },
+      orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
+      take: perTypeFetch,
+      include: {
+        category: { select: { name: true, icon: true, valueType: true, scaleMax: true } },
+      },
+    }),
+  ]);
 
   const mergedRecentEntries: RecentEntry[] = [
     ...recentMood.map((log): RecentEntry => ({
@@ -205,12 +175,6 @@ dashboardRouter.get("/", async (req, res) => {
       type: "medication",
       label: log.medication.name,
       value: log.taken ? "Taken" : "Not taken",
-      loggedAt: log.loggedAt.toISOString(),
-    })),
-    ...recentHabits.map((log): RecentEntry => ({
-      type: "habit",
-      label: log.habit.name,
-      value: formatHabitValue(log),
       loggedAt: log.loggedAt.toISOString(),
     })),
     ...recentCategories.map((log): RecentEntry => ({
@@ -239,22 +203,15 @@ dashboardRouter.get("/", async (req, res) => {
   // table since that's all this calculation uses.
   const lookbackStart = new Date(start.getTime() - STREAK_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
   const lookbackWhere = { userId: req.userId, loggedAt: { gte: lookbackStart, lt: end } };
-  const [moodDates, symptomDates, medicationDates, habitDates, categoryDates] = await Promise.all([
+  const [moodDates, symptomDates, medicationDates, categoryDates] = await Promise.all([
     prisma.moodLog.findMany({ where: lookbackWhere, select: { loggedAt: true } }),
     prisma.symptomLog.findMany({ where: lookbackWhere, select: { loggedAt: true } }),
     prisma.medicationLog.findMany({ where: lookbackWhere, select: { loggedAt: true } }),
-    prisma.habitLog.findMany({ where: lookbackWhere, select: { loggedAt: true } }),
     prisma.categoryLog.findMany({ where: lookbackWhere, select: { loggedAt: true } }),
   ]);
 
   const loggedDates = new Set<string>();
-  for (const log of [
-    ...moodDates,
-    ...symptomDates,
-    ...medicationDates,
-    ...habitDates,
-    ...categoryDates,
-  ]) {
+  for (const log of [...moodDates, ...symptomDates, ...medicationDates, ...categoryDates]) {
     loggedDates.add(formatDateInTimezone(log.loggedAt, user.timezone));
   }
 
@@ -265,7 +222,6 @@ dashboardRouter.get("/", async (req, res) => {
     mood: latestMood,
     symptomCount,
     medicationSummary,
-    habitSummary,
     recentEntries,
     streak,
   });

@@ -63,8 +63,8 @@ describe("GET /api/export", () => {
     expect(res.body.symptomLogs).toEqual([]);
     expect(res.body.medications).toEqual([]);
     expect(res.body.medicationLogs).toEqual([]);
-    expect(res.body.habits).toEqual([]);
-    expect(res.body.habitLogs).toEqual([]);
+    expect(res.body.categories).toEqual([]);
+    expect(res.body.categoryLogs).toEqual([]);
     expect(typeof res.body.exportedAt).toBe("string");
   });
 
@@ -92,14 +92,14 @@ describe("GET /api/export", () => {
       .set(authed(accessToken))
       .send({ medicationId: medicationRes.body.id, taken: true, loggedAt });
 
-    const habitRes = await request(app)
-      .post("/api/habits")
+    const categoryRes = await request(app)
+      .post("/api/categories")
       .set(authed(accessToken))
-      .send({ name: "Walk", type: "boolean" });
+      .send({ name: "Walk", valueType: "boolean" });
     await request(app)
-      .post("/api/habit-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ habitId: habitRes.body.id, valueBoolean: true, loggedAt });
+      .send({ categoryId: categoryRes.body.id, valueBoolean: true, loggedAt });
 
     const res = await request(app).get("/api/export").set(authed(accessToken));
 
@@ -109,8 +109,8 @@ describe("GET /api/export", () => {
     expect(res.body.moodLogs).toMatchObject([{ mood: 4 }]);
     expect(res.body.medications).toMatchObject([{ name: "Lisinopril", dosage: "10mg" }]);
     expect(res.body.medicationLogs).toMatchObject([{ taken: true, medicationName: "Lisinopril" }]);
-    expect(res.body.habits).toMatchObject([{ name: "Walk", type: "boolean" }]);
-    expect(res.body.habitLogs).toMatchObject([{ valueBoolean: true, habitName: "Walk" }]);
+    expect(res.body.categories).toMatchObject([{ name: "Walk", valueType: "boolean" }]);
+    expect(res.body.categoryLogs).toMatchObject([{ valueBoolean: true, categoryName: "Walk" }]);
   });
 
   it("never returns another user's data", async () => {

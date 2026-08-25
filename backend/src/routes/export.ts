@@ -1,48 +1,60 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
-import { serializeHabit } from "../lib/habitType";
+import { serializeCategory } from "../lib/categoryValueType";
 
 export const exportRouter = Router();
 
 // GET /api/export - lets a user download everything they've ever logged (plus the
-// symptom/medication/habit definitions those logs reference) as a single JSON file. Every
+// symptom/medication/category definitions those logs reference) as a single JSON file. Every
 // query below is scoped to req.userId, the same ownership boundary every other route in this
 // app enforces (see dashboard.ts/history.ts) - nothing here is a system-wide export.
 //
-// System-default symptoms (Symptom.userId null, see schema.prisma) are deliberately excluded
-// from the `symptoms` definitions list below, since they aren't something this user created or
-// owns - the same distinction symptoms.ts's own GET / makes between "mine" and "everyone's."
-// Any symptomLogs entry that references one still carries its name inline (symptomName below),
-// so the export is still self-contained without pulling in symptoms belonging to no one.
+// System-default symptoms/categories (userId null, see schema.prisma) are deliberately excluded
+// from the `symptoms`/`categories` definitions lists below, since they aren't something this user
+// created or owns - the same distinction symptoms.ts's/categories.ts's own GET / routes make
+// between "mine" and "everyone's." Any log entry that references one still carries its name
+// inline (symptomName/categoryName below), so the export is still self-contained without pulling
+// in definitions belonging to no one.
 exportRouter.get("/", async (req, res) => {
   const userId = req.userId as string;
 
-  const [user, moodLogs, symptoms, symptomLogs, medications, medicationLogs, habits, habitLogs] =
-    await Promise.all([
-      prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true, email: true, displayName: true, timezone: true, createdAt: true },
-      }),
-      prisma.moodLog.findMany({ where: { userId }, orderBy: { loggedAt: "asc" } }),
-      prisma.symptom.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
-      prisma.symptomLog.findMany({
-        where: { userId },
-        orderBy: { loggedAt: "asc" },
-        include: { symptom: { select: { name: true } } },
-      }),
-      prisma.medication.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
-      prisma.medicationLog.findMany({
-        where: { userId },
-        orderBy: { loggedAt: "asc" },
-        include: { medication: { select: { name: true } } },
-      }),
-      prisma.habit.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
-      prisma.habitLog.findMany({
-        where: { userId },
-        orderBy: { loggedAt: "asc" },
-        include: { habit: { select: { name: true } } },
-      }),
-    ]);
+  const [
+    user,
+    moodLogs,
+    symptoms,
+    symptomLogs,
+    medications,
+    medicationLogs,
+    categories,
+    categoryLogs,
+  ] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, displayName: true, timezone: true, createdAt: true },
+    }),
+    prisma.moodLog.findMany({ where: { userId }, orderBy: { loggedAt: "asc" } }),
+    prisma.symptom.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
+    prisma.symptomLog.findMany({
+      where: { userId },
+      orderBy: { loggedAt: "asc" },
+      include: { symptom: { select: { name: true } } },
+    }),
+    prisma.medication.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
+    prisma.medicationLog.findMany({
+      where: { userId },
+      orderBy: { loggedAt: "asc" },
+      include: { medication: { select: { name: true } } },
+    }),
+    // Personal categories only (userId set) - this is also where every former habit's own
+    // definition now lives, since Habit unified into Category (Phase 17) - see
+    // docs/log/17-unify-mood-symptom-habit.md.
+    prisma.category.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
+    prisma.categoryLog.findMany({
+      where: { userId },
+      orderBy: { loggedAt: "asc" },
+      include: { category: { select: { name: true } } },
+    }),
+  ]);
 
   // Same "user row could have been deleted since the access token was issued" case dashboard.ts
   // and users.ts's GET /me both already guard against - a genuine 404, not an auth failure.
@@ -70,8 +82,11 @@ exportRouter.get("/", async (req, res) => {
       ...log,
       medicationName: medication.name,
     })),
-    habits: habits.map(serializeHabit),
-    habitLogs: habitLogs.map(({ habit, ...log }) => ({ ...log, habitName: habit.name })),
+    categories: categories.map(serializeCategory),
+    categoryLogs: categoryLogs.map(({ category, ...log }) => ({
+      ...log,
+      categoryName: category.name,
+    })),
   };
 
   // Content-Disposition: attachment is what turns this from "browser navigates to and renders

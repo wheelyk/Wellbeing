@@ -145,14 +145,14 @@ describe("GET /api/trends", () => {
     const today = todayInTimezone("UTC");
     const loggedAt = `${today}T09:00:00.000Z`;
 
-    const habitRes = await request(app)
-      .post("/api/habits")
+    const categoryRes = await request(app)
+      .post("/api/categories")
       .set(authed(accessToken))
-      .send({ name: "Walk", type: "boolean" });
+      .send({ name: "Walk", valueType: "boolean" });
     await request(app)
-      .post("/api/habit-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ habitId: habitRes.body.id, valueBoolean: true, loggedAt });
+      .send({ categoryId: categoryRes.body.id, valueBoolean: true, loggedAt });
 
     const res = await request(app).get("/api/trends").set(authed(accessToken));
 
@@ -164,9 +164,10 @@ describe("GET /api/trends", () => {
     expect(otherDays.every((d: { hasActivity: boolean }) => d.hasActivity === false)).toBe(true);
   });
 
-  // Regression test: the test above (despite its own title) only actually seeds a *habit* log -
-  // a medication log alone marking a day active had never been exercised by any test, even
-  // though it goes through its own separate `bucketByDay(medicationLogs, ...)` call in trends.ts.
+  // Regression test: the test above (despite its own title) only actually seeds a boolean
+  // *category* log - a medication log alone marking a day active had never been exercised by any
+  // test, even though it goes through its own separate `bucketByDay(medicationLogs, ...)` call in
+  // trends.ts.
   it("marks a day active from a medication log alone, with no other log type present", async () => {
     const { accessToken } = await registerAndLogin("activity-medication-only");
     const today = todayInTimezone("UTC");
@@ -327,7 +328,8 @@ describe("GET /api/trends", () => {
     // The boolean category's own entry still counts toward the activity calendar...
     const todayActivity = res.body.activity.days.find((d: { date: string }) => d.date === today);
     expect(todayActivity).toMatchObject({ hasActivity: true });
-    // ...but it gets no chart of its own, the same way Habit never has one either.
+    // ...but it gets no chart of its own, the same way any boolean/duration category never has
+    // one (including former habits, now that Habit unified into Category).
     expect(res.body.categoryTrends.some((t: { name: string }) => t.name === "Read today")).toBe(
       false,
     );

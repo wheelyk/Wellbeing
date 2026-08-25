@@ -29,8 +29,6 @@ function reminderCopy(reminder: ReminderWithTargets): { title: string; body: str
       return { title: APP_TITLE, body: "Time to log your mood." };
     case "SYMPTOM":
       return { title: APP_TITLE, body: "Time to log a symptom." };
-    case "HABIT":
-      return { title: APP_TITLE, body: "Time to log a habit." };
     case "MEDICATION": {
       const name = reminder.medication?.name ?? "your medication";
       const label = reminder.medication?.dosage ? `${name} (${reminder.medication.dosage})` : name;
@@ -45,9 +43,10 @@ function reminderCopy(reminder: ReminderWithTargets): { title: string; body: str
 }
 
 // Whether the user has already logged against this specific reminder's own target yet today -
-// GENERAL keeps the original blanket five-table check; every other target is scoped to just its
-// own log table (and, for MEDICATION/CATEGORY, to the specific medication/category this reminder
-// is about - a "Diazepam" reminder isn't satisfied by logging "Sertraline").
+// GENERAL keeps the original blanket check (now four tables, since Habit unified into Category -
+// see docs/log/17-unify-mood-symptom-habit.md); every other target is scoped to just its own log
+// table (and, for MEDICATION/CATEGORY, to the specific medication/category this reminder is about
+// - a "Diazepam" reminder isn't satisfied by logging "Sertraline").
 async function hasLoggedTarget(
   reminder: ReminderWithTargets,
   userId: string,
@@ -58,27 +57,18 @@ async function hasLoggedTarget(
 
   switch (reminder.target) {
     case "GENERAL": {
-      const [mood, symptom, medication, habit, category] = await Promise.all([
+      const [mood, symptom, medication, category] = await Promise.all([
         prisma.moodLog.findFirst({ where, select: { id: true } }),
         prisma.symptomLog.findFirst({ where, select: { id: true } }),
         prisma.medicationLog.findFirst({ where, select: { id: true } }),
-        prisma.habitLog.findFirst({ where, select: { id: true } }),
         prisma.categoryLog.findFirst({ where, select: { id: true } }),
       ]);
-      return (
-        mood !== null ||
-        symptom !== null ||
-        medication !== null ||
-        habit !== null ||
-        category !== null
-      );
+      return mood !== null || symptom !== null || medication !== null || category !== null;
     }
     case "MOOD":
       return (await prisma.moodLog.findFirst({ where, select: { id: true } })) !== null;
     case "SYMPTOM":
       return (await prisma.symptomLog.findFirst({ where, select: { id: true } })) !== null;
-    case "HABIT":
-      return (await prisma.habitLog.findFirst({ where, select: { id: true } })) !== null;
     case "MEDICATION":
       return (
         (await prisma.medicationLog.findFirst({
