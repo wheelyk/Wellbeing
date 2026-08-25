@@ -136,8 +136,8 @@ describe("DELETE /api/push/subscribe", () => {
   });
 
   // Same "don't leak which case it is" ownership check every other delete in this app already
-  // follows (see moodLogs.ts et al.) - a subscription that exists but belongs to someone else is
-  // left untouched, not confirmed or denied via a different status code.
+  // follows (see categoryLogs.ts et al.) - a subscription that exists but belongs to someone else
+  // is left untouched, not confirmed or denied via a different status code.
   it("never lets one user's unsubscribe remove another user's subscription", async () => {
     const owner = await registerAndLogin("unsubscribe-owner");
     const attacker = await registerAndLogin("unsubscribe-attacker");

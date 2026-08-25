@@ -25,8 +25,6 @@ function reminderCopy(reminder: ReminderWithTargets): { title: string; body: str
   switch (reminder.target) {
     case "GENERAL":
       return { title: APP_TITLE, body: "You haven't logged anything today yet." };
-    case "MOOD":
-      return { title: APP_TITLE, body: "Time to log your mood." };
     case "MEDICATION": {
       const name = reminder.medication?.name ?? "your medication";
       const label = reminder.medication?.dosage ? `${name} (${reminder.medication.dosage})` : name;
@@ -41,7 +39,7 @@ function reminderCopy(reminder: ReminderWithTargets): { title: string; body: str
 }
 
 // Whether the user has already logged against this specific reminder's own target yet today -
-// GENERAL keeps the original blanket check (now three tables, since Habit and Symptom both
+// GENERAL keeps the original blanket check (now two tables, since Habit, Symptom, and Mood all
 // unified into Category - see docs/log/17-unify-mood-symptom-habit.md); every other target is
 // scoped to just its own log table (and, for MEDICATION/CATEGORY, to the specific
 // medication/category this reminder is about - a "Diazepam" reminder isn't satisfied by logging
@@ -56,15 +54,12 @@ async function hasLoggedTarget(
 
   switch (reminder.target) {
     case "GENERAL": {
-      const [mood, medication, category] = await Promise.all([
-        prisma.moodLog.findFirst({ where, select: { id: true } }),
+      const [medication, category] = await Promise.all([
         prisma.medicationLog.findFirst({ where, select: { id: true } }),
         prisma.categoryLog.findFirst({ where, select: { id: true } }),
       ]);
-      return mood !== null || medication !== null || category !== null;
+      return medication !== null || category !== null;
     }
-    case "MOOD":
-      return (await prisma.moodLog.findFirst({ where, select: { id: true } })) !== null;
     case "MEDICATION":
       return (
         (await prisma.medicationLog.findFirst({

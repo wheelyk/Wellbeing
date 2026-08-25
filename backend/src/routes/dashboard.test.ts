@@ -57,7 +57,6 @@ describe("GET /api/dashboard", () => {
     const res = await request(app).get("/api/dashboard").set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.mood).toBeNull();
     expect(res.body.medicationSummary).toEqual({ taken: 0, total: 0 });
     expect(res.body.recentEntries).toEqual({
       entries: [],
@@ -82,7 +81,18 @@ describe("GET /api/dashboard", () => {
       .set(authed(accessToken))
       .send({ categoryId: symptomRes.body.id, valueNumeric: 6, loggedAt });
 
-    await request(app).post("/api/mood-logs").set(authed(accessToken)).send({ mood: 4, loggedAt });
+    // A personal category standing in for what a Mood check-in now looks like (Mood itself
+    // unified into Category in Phase 17 - see docs/log/17-unify-mood-symptom-habit.md) - a
+    // system Mood category also exists via prisma/seed.ts, but this test creates its own rather
+    // than depending on seeded state, the same reasoning "Headache" above already follows.
+    const moodRes = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Mood", valueType: "scale", scaleMin: 1, scaleMax: 5 });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId: moodRes.body.id, valueNumeric: 4, loggedAt });
 
     const medicationRes = await request(app)
       .post("/api/medications")
@@ -110,7 +120,6 @@ describe("GET /api/dashboard", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.date).toBe(date);
-    expect(res.body.mood).toMatchObject({ mood: 4 });
     expect(res.body.medicationSummary).toEqual({ taken: 1, total: 2 });
 
     const labels = res.body.recentEntries.entries.map(
@@ -209,14 +218,20 @@ describe("GET /api/dashboard", () => {
   it("scopes results to the requested date only, excluding entries on other days", async () => {
     const { accessToken } = await registerAndLogin("scoped");
 
-    await request(app)
-      .post("/api/mood-logs")
+    const medicationRes = await request(app)
+      .post("/api/medications")
       .set(authed(accessToken))
-      .send({ mood: 2, loggedAt: "2026-08-10T09:00:00.000Z" });
-    await request(app)
-      .post("/api/mood-logs")
-      .set(authed(accessToken))
-      .send({ mood: 5, loggedAt: "2026-08-17T09:00:00.000Z" });
+      .send({ name: "Ibuprofen" });
+    await request(app).post("/api/medication-logs").set(authed(accessToken)).send({
+      medicationId: medicationRes.body.id,
+      taken: true,
+      loggedAt: "2026-08-10T09:00:00.000Z",
+    });
+    await request(app).post("/api/medication-logs").set(authed(accessToken)).send({
+      medicationId: medicationRes.body.id,
+      taken: false,
+      loggedAt: "2026-08-17T09:00:00.000Z",
+    });
 
     const res = await request(app)
       .get("/api/dashboard")
@@ -224,19 +239,25 @@ describe("GET /api/dashboard", () => {
       .set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.mood).toMatchObject({ mood: 2 });
+    // Only the 08-10 log should count - the 08-17 one must not leak into this day's summary.
+    expect(res.body.medicationSummary).toEqual({ taken: 1, total: 1 });
   });
 
   it("resolves a late-night entry to the correct calendar day for a non-UTC user's streak", async () => {
     const { accessToken, userId } = await registerAndLogin("timezone");
     await prisma.user.update({ where: { id: userId }, data: { timezone: "America/Los_Angeles" } });
 
+    const medicationRes = await request(app)
+      .post("/api/medications")
+      .set(authed(accessToken))
+      .send({ name: "Ibuprofen" });
     // 11pm on Jan 16 in Los Angeles (PST, UTC-8) is 7am Jan 17 in UTC - this must be counted
     // as a Jan 16 entry for this user, not Jan 17.
-    await request(app)
-      .post("/api/mood-logs")
-      .set(authed(accessToken))
-      .send({ mood: 3, loggedAt: "2026-01-17T07:00:00.000Z" });
+    await request(app).post("/api/medication-logs").set(authed(accessToken)).send({
+      medicationId: medicationRes.body.id,
+      taken: true,
+      loggedAt: "2026-01-17T07:00:00.000Z",
+    });
 
     const res = await request(app)
       .get("/api/dashboard")
@@ -244,7 +265,7 @@ describe("GET /api/dashboard", () => {
       .set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.mood).toMatchObject({ mood: 3 });
+    expect(res.body.medicationSummary).toEqual({ taken: 1, total: 1 });
     expect(res.body.streak.current).toBe(1);
 
     // The same entry must NOT show up for Jan 17 (the UTC calendar day) for this user.
@@ -252,7 +273,7 @@ describe("GET /api/dashboard", () => {
       .get("/api/dashboard")
       .query({ date: "2026-01-17" })
       .set(authed(accessToken));
-    expect(nextDayRes.body.mood).toBeNull();
+    expect(nextDayRes.body.medicationSummary).toEqual({ taken: 0, total: 0 });
   });
 
   it("never includes another user's entries", async () => {
@@ -261,10 +282,14 @@ describe("GET /api/dashboard", () => {
     const date = "2026-08-17";
     const loggedAt = `${date}T09:00:00.000Z`;
 
-    await request(app)
-      .post("/api/mood-logs")
+    const medicationRes = await request(app)
+      .post("/api/medications")
       .set(authed(userB.accessToken))
-      .send({ mood: 1, loggedAt });
+      .send({ name: "Ibuprofen" });
+    await request(app)
+      .post("/api/medication-logs")
+      .set(authed(userB.accessToken))
+      .send({ medicationId: medicationRes.body.id, taken: true, loggedAt });
 
     const res = await request(app)
       .get("/api/dashboard")
@@ -272,7 +297,7 @@ describe("GET /api/dashboard", () => {
       .set(authed(userA.accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.mood).toBeNull();
+    expect(res.body.medicationSummary).toEqual({ taken: 0, total: 0 });
     expect(res.body.recentEntries).toEqual({
       entries: [],
       limit: 10,
@@ -281,17 +306,26 @@ describe("GET /api/dashboard", () => {
     });
   });
 
-  it("paginates recentEntries across all four log types with ?limit=&offset=", async () => {
+  it("paginates recentEntries across both log types with ?limit=&offset=", async () => {
     const { accessToken } = await registerAndLogin("paginate-recent");
 
-    // 12 mood logs, spaced an hour apart, is enough to force pagination on its own - proves the
-    // merge-then-slice logic works even when a single type accounts for every entry in a page,
-    // not just the easy case of one entry per type.
+    const category = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Mood", valueType: "scale", scaleMin: 1, scaleMax: 5 });
+
+    // 12 category logs, spaced an hour apart, is enough to force pagination on its own - proves
+    // the merge-then-slice logic works even when a single type accounts for every entry in a
+    // page, not just the easy case of one entry per type.
     for (let i = 0; i < 12; i++) {
       await request(app)
-        .post("/api/mood-logs")
+        .post("/api/category-logs")
         .set(authed(accessToken))
-        .send({ mood: 3, loggedAt: `2026-08-17T${String(9 + i).padStart(2, "0")}:00:00.000Z` });
+        .send({
+          categoryId: category.body.id,
+          valueNumeric: 3,
+          loggedAt: `2026-08-17T${String(9 + i).padStart(2, "0")}:00:00.000Z`,
+        });
     }
 
     const firstPage = await request(app)

@@ -56,7 +56,7 @@ medicationsRouter.patch("/:id", async (req, res) => {
 
   // findFirst scoped to userId (not just findUnique by id) so a medication belonging to
   // another user - or a not-yet-supported system medication - is treated as not found rather
-  // than confirming its existence via a 403, matching the mood-logs pattern.
+  // than confirming its existence via a 403, matching the category-logs pattern.
   const existing = await prisma.medication.findFirst({
     where: { id: req.params.id, userId: req.userId },
   });

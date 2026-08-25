@@ -17,30 +17,27 @@ export const exportRouter = Router();
 exportRouter.get("/", async (req, res) => {
   const userId = req.userId as string;
 
-  const [user, moodLogs, medications, medicationLogs, categories, categoryLogs] = await Promise.all(
-    [
-      prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true, email: true, displayName: true, timezone: true, createdAt: true },
-      }),
-      prisma.moodLog.findMany({ where: { userId }, orderBy: { loggedAt: "asc" } }),
-      prisma.medication.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
-      prisma.medicationLog.findMany({
-        where: { userId },
-        orderBy: { loggedAt: "asc" },
-        include: { medication: { select: { name: true } } },
-      }),
-      // Personal categories only (userId set) - this is also where every former habit's and
-      // symptom's own definition now lives, since both unified into Category (Phase 17) - see
-      // docs/log/17-unify-mood-symptom-habit.md.
-      prisma.category.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
-      prisma.categoryLog.findMany({
-        where: { userId },
-        orderBy: { loggedAt: "asc" },
-        include: { category: { select: { name: true } } },
-      }),
-    ],
-  );
+  const [user, medications, medicationLogs, categories, categoryLogs] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, displayName: true, timezone: true, createdAt: true },
+    }),
+    prisma.medication.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
+    prisma.medicationLog.findMany({
+      where: { userId },
+      orderBy: { loggedAt: "asc" },
+      include: { medication: { select: { name: true } } },
+    }),
+    // Personal categories only (userId set) - this is also where every former habit's and
+    // symptom's own definition now lives, since both unified into Category (Phase 17) - see
+    // docs/log/17-unify-mood-symptom-habit.md.
+    prisma.category.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
+    prisma.categoryLog.findMany({
+      where: { userId },
+      orderBy: { loggedAt: "asc" },
+      include: { category: { select: { name: true } } },
+    }),
+  ]);
 
   // Same "user row could have been deleted since the access token was issued" case dashboard.ts
   // and users.ts's GET /me both already guard against - a genuine 404, not an auth failure.
@@ -57,7 +54,6 @@ exportRouter.get("/", async (req, res) => {
   const body = {
     exportedAt: exportedAt.toISOString(),
     user,
-    moodLogs,
     medications,
     medicationLogs: medicationLogs.map(({ medication, ...log }) => ({
       ...log,

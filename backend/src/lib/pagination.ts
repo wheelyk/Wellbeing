@@ -1,9 +1,10 @@
 import { z } from "zod";
 
-// Shared by every single-table log-list endpoint (mood/symptom/medication/habit logs) - see
-// history.ts for the more involved multi-table version of the same idea. A smaller default than
-// History's own (20) since these are meant to back a compact "recent entries" list under a
-// Quick-Add button, not a full browsing page.
+// Shared by every single-table log-list endpoint (medication/category logs - every other former
+// log type unified into Category, see docs/log/17-unify-mood-symptom-habit.md) - see history.ts
+// for the more involved multi-table version of the same idea. A smaller default than History's
+// own (20) since these are meant to back a compact "recent entries" list under a Quick-Add
+// button, not a full browsing page.
 export const DEFAULT_LOG_LIST_LIMIT = 10;
 export const MAX_LOG_LIST_LIMIT = 100;
 

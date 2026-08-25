@@ -26,21 +26,19 @@ model User {
   resetTokenHash      String?   @map("reset_token_hash")
   resetTokenExpiresAt DateTime? @map("reset_token_expires_at")
 
-  // Lets a user hide a built-in category (Mood/Medication) from Dashboard/Quick Add without
+  // Lets a user hide the one remaining built-in (Medication) from Dashboard/Quick Add without
   // touching any data already logged under it - the toggle-off direction explored alongside the
-  // custom-Category feature and shipped here as a follow-up. All default true so every existing
-  // account keeps today's behavior unchanged. Turning one off also disables (not deletes) any
-  // Reminder targeting that category - see routes/users.ts's PATCH /me.
+  // custom-Category feature and shipped here as a follow-up. Defaults true so every existing
+  // account keeps today's behavior unchanged. Turning it off also disables (not deletes) any
+  // Reminder targeting it - see routes/users.ts's PATCH /me.
   //
-  // habitEnabled (Phase 16) and symptomEnabled (Phase 17) were both removed once Habit/Symptom
-  // unified into Category - a former habit is an ordinary personal category (individually
-  // archivable, no whole-type toggle needed); a former symptom is a system-or-personal category a
-  // user hides per-row via HiddenCategory instead of one blunt toggle for all of them. See
-  // docs/log/17-unify-mood-symptom-habit.md.
-  moodEnabled       Boolean @default(true) @map("mood_enabled")
+  // habitEnabled (Phase 16), symptomEnabled and moodEnabled (both Phase 17) were all removed once
+  // Habit/Symptom/Mood unified into Category - a former habit is an ordinary personal category
+  // (individually archivable, no whole-type toggle needed); a former symptom or Mood/Energy/Stress
+  // is a system category a user hides per-row via HiddenCategory instead of one blunt toggle for
+  // all of them. See docs/log/17-unify-mood-symptom-habit.md.
   medicationEnabled Boolean @default(true) @map("medication_enabled")
 
-  moodLogs          MoodLog[]
   medications       Medication[]
   medicationLogs    MedicationLog[]
   pushSubscriptions PushSubscription[]
@@ -67,23 +65,6 @@ model PushSubscription {
   // Every reminder-send pass queries "all subscriptions for this user."
   @@index([userId])
   @@map("push_subscriptions")
-}
-
-model MoodLog {
-  id       String   @id @default(uuid())
-  userId   String   @map("user_id")
-  mood     Int
-  energy   Int?
-  stress   Int?
-  notes    String?
-  loggedAt DateTime @default(now()) @map("logged_at") @db.Timestamptz(3)
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Every dashboard/history/trends query in later phases filters by user and orders/ranges
-  // by date, so this composite index is what keeps those queries fast as log counts grow.
-  @@index([userId, loggedAt])
-  @@map("mood_logs")
 }
 
 // A user's own list of medications they take (e.g. "Ibuprofen", "Vitamin D"), with an optional
@@ -122,7 +103,7 @@ model MedicationLog {
   medication Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
 
   // Denormalized userId (in addition to the medicationId relation) rather than joining through
-  // Medication for every read - the same shape MoodLog uses, and it's what lets a "list my
+  // Medication for every read - the same shape CategoryLog uses, and it's what lets a "list my
   // medication logs" query filter directly on this table instead of joining out to Medication
   // first. The application layer still independently verifies medicationId belongs to userId
   // before every write (see routes/medicationLogs.ts) - this column is not, on its own, a
@@ -136,11 +117,11 @@ model MedicationLog {
 // A category's `valueType` decides which single column on CategoryLog is expected to be
 // populated - BOOLEAN/NUMERIC/DURATION (the same three the now-retired Habit model used to have,
 // before it unified into Category - see docs/log/17-unify-mood-symptom-habit.md), plus SCALE: a
-// bounded 1-N picker (see Category.scaleMin/scaleMax) generalizing what Mood still does, and what
-// the now-retired Symptom model used to do with its own fixed 1-10 severity scale before it too
-// unified into Category. SCALE shares NUMERIC's storage column (valueNumeric) - the two differ
-// only in whether a min/max bound is enforced at write time, not in how the value itself is
-// stored.
+// bounded 1-N picker (see Category.scaleMin/scaleMax) generalizing what the now-retired Symptom
+// model used to do with its own fixed 1-10 severity scale, and what Mood/Energy/Stress now do too
+// (1-5 and 1-7 respectively) since both unified into Category. SCALE shares NUMERIC's storage
+// column (valueNumeric) - the two differ only in whether a min/max bound is enforced at write
+// time, not in how the value itself is stored.
 enum CategoryValueType {
   BOOLEAN
   NUMERIC
@@ -150,10 +131,10 @@ enum CategoryValueType {
   @@map("category_value_type")
 }
 
-// A user-extensible trackable category, alongside (not replacing) the four fixed built-in
-// categories above. `userId` follows the exact same nullable convention Symptom already
-// established: null = a system-wide category (created only via the admin-only routes, visible
-// to every user), set = a user's own personal category, visible only to them.
+// A user-extensible trackable category, alongside (not replacing) the one remaining fixed
+// built-in above (Medication). `userId` follows the exact same nullable convention Symptom
+// already established: null = a system-wide category (created only via the admin-only routes,
+// visible to every user), set = a user's own personal category, visible only to them.
 model Category {
   id          String            @id @default(uuid())
   userId      String?           @map("user_id")
@@ -234,8 +215,8 @@ model CategoryLog {
   // system categories.
   category Category @relation(fields: [categoryId], references: [id])
 
-  // Same reasoning as MoodLog's composite index: every dashboard/history/trends query filters by
-  // user and orders/ranges by date together.
+  // Same reasoning every log table in this schema shares: every dashboard/history/trends query
+  // filters by user and orders/ranges by date together.
   @@index([userId, loggedAt])
   // Supports "this category's log history" lookups (e.g. a per-category detail/trend view).
   @@index([categoryId, loggedAt])
@@ -243,20 +224,22 @@ model CategoryLog {
 }
 
 // What a Reminder is "about." GENERAL is the original whole-app "you haven't logged anything
-// today" nudge; MOOD is category-level (no per-instance granularity - there's only ever at most
-// one reminder per user for it); MEDICATION and CATEGORY are always paired with a specific
-// Medication/Category row (see Reminder.medicationId/categoryId below) - a user can have one
-// reminder for "Diazepam" and a completely independent one for "Sertraline," which a
-// category-level MEDICATION reminder couldn't express.
+// today" nudge; MEDICATION and CATEGORY are always paired with a specific Medication/Category row
+// (see Reminder.medicationId/categoryId below) - a user can have one reminder for "Diazepam" and a
+// completely independent one for "Sertraline," which a category-level target couldn't express.
 //
-// HABIT (Phase 16) and SYMPTOM (Phase 17) were both removed once Habit/Symptom unified into
-// Category - any existing HABIT- or SYMPTOM-target reminder was deleted by its own migration
-// (confirmed directly both times: drop and let the user reconfigure, rather than attempt a lossy
-// auto-remap to one specific former habit/symptom). A former habit or symptom's own reminder is
-// now just a CATEGORY-target reminder like any other category's.
+// HABIT and SYMPTOM (both Phase 17) were removed once Habit/Symptom unified into Category - any
+// existing HABIT- or SYMPTOM-target reminder was deleted by its own migration (confirmed directly
+// both times: drop and let the user reconfigure, rather than attempt a lossy auto-remap to one
+// specific former habit/symptom). MOOD (also Phase 17) was removed the same way Mood itself
+// unified into Category, but is the one deliberate exception to drop-and-reconfigure: since there
+// was always at most one MOOD-target reminder per user and exactly one unambiguous destination
+// (the new system Mood category), its own migration remapped any existing MOOD-target reminder to
+// a CATEGORY-target reminder pointing at that category instead of deleting it - see
+// docs/log/17-unify-mood-symptom-habit.md. A former habit, symptom, or mood reminder is now just a
+// CATEGORY-target reminder like any other category's.
 enum ReminderTarget {
   GENERAL
-  MOOD
   MEDICATION
   CATEGORY
 

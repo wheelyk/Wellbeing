@@ -33,30 +33,40 @@ async function createMedication(accessToken: string, name: string) {
   return res.body.id as string;
 }
 
-async function createCategory(accessToken: string, name: string, valueType: string = "boolean") {
+async function createCategory(
+  accessToken: string,
+  name: string,
+  valueType: string = "boolean",
+  scaleBounds?: { scaleMin: number; scaleMax: number },
+) {
   const res = await request(app)
     .post("/api/categories")
     .set(authed(accessToken))
-    .send({ name, valueType });
+    .send({ name, valueType, ...scaleBounds });
   return res.body.id as string;
 }
 
-// Seeds one log of each of the three remaining types for a given user, spaced an hour apart via
-// explicit loggedAt timestamps so ordering assertions are deterministic instead of relying on
-// however fast the requests happen to fire. Symptom used to be a fourth, independent type here -
-// folded into Category (Phase 17), so a former symptom's own log is now just a second category
-// entry, not a distinct type - see docs/log/17-unify-mood-symptom-habit.md.
+// Seeds one log of each of the two remaining types for a given user, plus a second category log
+// (standing in for what used to be a dedicated Mood entry), spaced an hour apart via explicit
+// loggedAt timestamps so ordering assertions are deterministic instead of relying on however fast
+// the requests happen to fire. Symptom and Mood were both once fourth/independent types here -
+// both folded into Category (Phase 17), so each is now just another category entry, not a
+// distinct type - see docs/log/17-unify-mood-symptom-habit.md.
 async function seedOneOfEach(accessToken: string, baseIso: string) {
   const base = new Date(baseIso).getTime();
   const at = (hoursAgo: number) => new Date(base - hoursAgo * 60 * 60 * 1000).toISOString();
 
   const medicationId = await createMedication(accessToken, "Ibuprofen");
+  const moodCategoryId = await createCategory(accessToken, "Mood", "scale", {
+    scaleMin: 1,
+    scaleMax: 5,
+  });
   const categoryId = await createCategory(accessToken, "Exercise");
 
   await request(app)
-    .post("/api/mood-logs")
+    .post("/api/category-logs")
     .set(authed(accessToken))
-    .send({ mood: 4, loggedAt: at(1) });
+    .send({ categoryId: moodCategoryId, valueNumeric: 4, loggedAt: at(1) });
   await request(app)
     .post("/api/medication-logs")
     .set(authed(accessToken))
@@ -73,7 +83,7 @@ describe("GET /api/history", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns a unified, chronologically-sorted list across all three log types", async () => {
+  it("returns a unified, chronologically-sorted list across both remaining log types", async () => {
     const { accessToken } = await registerAndLogin("unified");
     await seedOneOfEach(accessToken, "2026-06-01T12:00:00.000Z");
 
@@ -82,7 +92,7 @@ describe("GET /api/history", () => {
     expect(res.status).toBe(200);
     expect(res.body.entries).toHaveLength(3);
     expect(res.body.entries.map((e: { type: string }) => e.type)).toEqual([
-      "mood",
+      "category",
       "medication",
       "category",
     ]);
@@ -90,7 +100,7 @@ describe("GET /api/history", () => {
     const times = res.body.entries.map((e: { loggedAt: string }) => new Date(e.loggedAt).getTime());
     expect(times).toEqual([...times].sort((a, b) => b - a));
 
-    expect(res.body.entries[0]).toMatchObject({ type: "mood", label: "Mood 4/5" });
+    expect(res.body.entries[0]).toMatchObject({ type: "category", label: "Mood: 4/5" });
     expect(res.body.entries[1]).toMatchObject({
       type: "medication",
       label: "Ibuprofen — Taken",
@@ -180,18 +190,22 @@ describe("GET /api/history", () => {
 
   it("filters by date range (from/to, inclusive)", async () => {
     const { accessToken } = await registerAndLogin("filter-date");
+    const categoryId = await createCategory(accessToken, "Mood", "scale", {
+      scaleMin: 1,
+      scaleMax: 5,
+    });
     await request(app)
-      .post("/api/mood-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ mood: 1, loggedAt: "2026-01-01T09:00:00.000Z" });
+      .send({ categoryId, valueNumeric: 1, loggedAt: "2026-01-01T09:00:00.000Z" });
     await request(app)
-      .post("/api/mood-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ mood: 3, loggedAt: "2026-02-15T09:00:00.000Z" });
+      .send({ categoryId, valueNumeric: 3, loggedAt: "2026-02-15T09:00:00.000Z" });
     await request(app)
-      .post("/api/mood-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ mood: 5, loggedAt: "2026-03-30T09:00:00.000Z" });
+      .send({ categoryId, valueNumeric: 5, loggedAt: "2026-03-30T09:00:00.000Z" });
 
     const res = await request(app)
       .get("/api/history")
@@ -200,7 +214,7 @@ describe("GET /api/history", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.entries).toHaveLength(1);
-    expect(res.body.entries[0].label).toBe("Mood 3/5");
+    expect(res.body.entries[0].label).toBe("Mood: 3/5");
   });
 
   // Regression test: `from`/`to` are calendar-day strings that must be resolved against *this
@@ -216,24 +230,28 @@ describe("GET /api/history", () => {
       .patch("/api/users/me")
       .set(authed(accessToken))
       .send({ timezone: "America/New_York" });
+    const categoryId = await createCategory(accessToken, "Mood", "scale", {
+      scaleMin: 1,
+      scaleMax: 5,
+    });
 
     // Jan 31, 9pm local - a naive UTC-midnight filter for `from: 2026-02-01` would wrongly
     // include this (its UTC date is already Feb 1), but it isn't really Feb 1 for this user.
     await request(app)
-      .post("/api/mood-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ mood: 1, loggedAt: "2026-02-01T02:00:00.000Z" });
+      .send({ categoryId, valueNumeric: 1, loggedAt: "2026-02-01T02:00:00.000Z" });
     // Feb 1, 7am local - unambiguously inside the requested day under either interpretation.
     await request(app)
-      .post("/api/mood-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ mood: 3, loggedAt: "2026-02-01T12:00:00.000Z" });
+      .send({ categoryId, valueNumeric: 3, loggedAt: "2026-02-01T12:00:00.000Z" });
     // Feb 1, 9pm local - a naive UTC `to: 2026-02-01` filter would wrongly exclude this (its UTC
     // date has already rolled to Feb 2), even though it's still Feb 1 for this user.
     await request(app)
-      .post("/api/mood-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ mood: 5, loggedAt: "2026-02-02T02:00:00.000Z" });
+      .send({ categoryId, valueNumeric: 5, loggedAt: "2026-02-02T02:00:00.000Z" });
 
     const res = await request(app)
       .get("/api/history")
@@ -242,8 +260,8 @@ describe("GET /api/history", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.entries.map((e: { label: string }) => e.label).sort()).toEqual([
-      "Mood 3/5",
-      "Mood 5/5",
+      "Mood: 3/5",
+      "Mood: 5/5",
     ]);
   });
 
@@ -275,12 +293,20 @@ describe("GET /api/history", () => {
 
   it("paginates with limit/offset and reports hasMore correctly", async () => {
     const { accessToken } = await registerAndLogin("pagination");
-    // Five mood logs, one hour apart, so ordering is deterministic.
+    const categoryId = await createCategory(accessToken, "Mood", "scale", {
+      scaleMin: 1,
+      scaleMax: 5,
+    });
+    // Five category logs, one hour apart, so ordering is deterministic.
     for (let i = 0; i < 5; i++) {
       await request(app)
-        .post("/api/mood-logs")
+        .post("/api/category-logs")
         .set(authed(accessToken))
-        .send({ mood: 3, loggedAt: new Date(Date.UTC(2026, 6, 1, i)).toISOString() });
+        .send({
+          categoryId,
+          valueNumeric: 3,
+          loggedAt: new Date(Date.UTC(2026, 6, 1, i)).toISOString(),
+        });
     }
 
     const page1 = await request(app)
@@ -315,7 +341,14 @@ describe("GET /api/history", () => {
     const userA = await registerAndLogin("scope-a");
     const userB = await registerAndLogin("scope-b");
     await seedOneOfEach(userA.accessToken, "2026-06-03T12:00:00.000Z");
-    await request(app).post("/api/mood-logs").set(authed(userB.accessToken)).send({ mood: 2 });
+    const userBCategoryId = await createCategory(userB.accessToken, "Mood", "scale", {
+      scaleMin: 1,
+      scaleMax: 5,
+    });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(userB.accessToken))
+      .send({ categoryId: userBCategoryId, valueNumeric: 2 });
 
     const res = await request(app).get("/api/history").set(authed(userA.accessToken));
 
