@@ -71,9 +71,10 @@ jobs:
         working-directory: backend
         run: npx prisma generate
 
-      # Seeds the system-default symptoms (Headache, Fatigue, etc.) - the capture script picks
-      # one from the symptom dropdown while logging a real symptom entry below, and that
-      # dropdown is empty on a completely fresh CI database without this.
+      # Seeds the system-default categories (Headache, Fatigue, etc. - migrated from the old
+      # Symptom model in Phase 17, see docs/log/17-unify-mood-symptom-habit.md and
+      # backend/prisma/seed.ts) - proves a completely fresh database seeds cleanly, the same gap
+      # that once let a stale seed.ts go undetected (see that same log entry).
       - name: Seed the database
         working-directory: backend
         run: npx prisma db seed

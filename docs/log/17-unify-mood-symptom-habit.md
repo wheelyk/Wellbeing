@@ -622,6 +622,19 @@ preview`, `npx playwright test` from `frontend/`) - all 4 specs green. One envir
   directly with `curl` and seeing `429`s even though the intent was to skip the limiter);
   restarting the backend with the env var properly applied made the rate limiter correctly skip
   as designed, and the full suite passed cleanly, including the two rewritten specs.
+- **A third instance of the same class of gap**, this time in CI's separate `screenshots` job
+  (`.github/workflows/pr-preview.yml`, `frontend/scripts/capture-pr-screenshots.mjs`): a plain
+  driver script (not a Vitest/Playwright test - nothing in this repo's own test suites ever
+  executes it), still clicked an "Add symptom entry" button that no longer exists and assumed
+  "Add category entry" opens an empty "Create your first category" state - the same two now-stale
+  assumptions just fixed in the e2e specs above, independently duplicated in this third place.
+  Fixed the same way: dropped the dedicated symptom step, and changed the category step to open
+  via "Log an entry" -> "+ Add a new category" instead of assuming an empty-categories start.
+  Verified by actually running the script locally end-to-end (`SCREENSHOT_DIR=... node
+scripts/capture-pr-screenshots.mjs` against the same locally-built backend/frontend used for the
+  e2e suite above) and inspecting the resulting `04-dashboard-functioning-with-entries.png`
+  directly - confirmed it shows Mood 5/5, Ibuprofen — Taken, and Exercise: Done all present, not
+  just that the script exited zero.
 - Manual, real-browser verification (Playwright driving a real Chromium instance against a real
   running backend + frontend dev server): Task 4's branch was checked out into a separate git
   worktree and run there on port 4000 (this branch's own backend still has pre-Task-4 code, since
