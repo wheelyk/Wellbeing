@@ -105,24 +105,22 @@ trendsRouter.get("/", async (req, res) => {
   const { end } = getDayRangeUtc(endDate, timezone);
   const rangeWhere = { userId: req.userId, loggedAt: { gte: start, lt: end } };
 
-  const [symptomLogs, moodLogs, medicationLogs, habitLogs, categories, categoryLogs] =
-    await Promise.all([
-      prisma.symptomLog.findMany({ where: rangeWhere, select: { severity: true, loggedAt: true } }),
-      prisma.moodLog.findMany({ where: rangeWhere, select: { mood: true, loggedAt: true } }),
-      prisma.medicationLog.findMany({ where: rangeWhere, select: { loggedAt: true } }),
-      prisma.habitLog.findMany({ where: rangeWhere, select: { loggedAt: true } }),
-      // Every category visible to this user (their own + any system/admin ones) - fetched
-      // regardless of period, so a numeric/scale category with zero logs *in this window* still
-      // gets its own chart (an honest "not enough data yet" state), the same way symptom/mood
-      // charts already render before a brand-new user has logged anything at all.
-      prisma.category.findMany({
-        where: { archivedAt: null, OR: [{ userId: null }, { userId: req.userId }] },
-      }),
-      prisma.categoryLog.findMany({
-        where: rangeWhere,
-        select: { categoryId: true, valueNumeric: true, loggedAt: true },
-      }),
-    ]);
+  const [symptomLogs, moodLogs, medicationLogs, categories, categoryLogs] = await Promise.all([
+    prisma.symptomLog.findMany({ where: rangeWhere, select: { severity: true, loggedAt: true } }),
+    prisma.moodLog.findMany({ where: rangeWhere, select: { mood: true, loggedAt: true } }),
+    prisma.medicationLog.findMany({ where: rangeWhere, select: { loggedAt: true } }),
+    // Every category visible to this user (their own + any system/admin ones) - fetched
+    // regardless of period, so a numeric/scale category with zero logs *in this window* still
+    // gets its own chart (an honest "not enough data yet" state), the same way symptom/mood
+    // charts already render before a brand-new user has logged anything at all.
+    prisma.category.findMany({
+      where: { archivedAt: null, OR: [{ userId: null }, { userId: req.userId }] },
+    }),
+    prisma.categoryLog.findMany({
+      where: rangeWhere,
+      select: { categoryId: true, valueNumeric: true, loggedAt: true },
+    }),
+  ]);
 
   // Buckets a log array's values by the calendar day (in the user's timezone) each entry's
   // precise `loggedAt` instant falls on - the same "resolve to a day string, then group" approach
@@ -150,10 +148,11 @@ trendsRouter.get("/", async (req, res) => {
     symptomByDay,
     moodByDay,
     bucketByDay(medicationLogs, () => true),
-    bucketByDay(habitLogs, () => true),
     // Any category log counts toward a day being "active" - including boolean/duration ones,
     // which get no chart of their own below (see categorySeries) but still count the same way
-    // dashboard.ts's streak and reminderScheduler.ts's hasLoggedToday already treat them.
+    // dashboard.ts's streak and reminderScheduler.ts's hasLoggedTarget already treat them. This
+    // also covers every former habit's own activity now, since Habit unified into Category
+    // (Phase 17) - see docs/log/17-unify-mood-symptom-habit.md.
     bucketByDay(categoryLogs, () => true),
   ]) {
     for (const date of dateSet.keys()) activeDays.add(date);
@@ -177,11 +176,12 @@ trendsRouter.get("/", async (req, res) => {
   const symptomAverage = mean(symptomLogs.map((log) => log.severity));
   const moodAverage = mean(moodLogs.map((log) => log.mood));
 
-  // One chart per numeric/scale custom category, mirroring symptomSeries/moodSeries's own
-  // build - boolean/duration categories get no chart here, the same way Habit (which has the
-  // same three/four value types) never has one either. `TrendLineChart` on the frontend is
-  // reused directly for these (see docs/log/15-categories.md's Task 4 entry) - it's already
-  // generic over domain/color/formatValue, so no new chart component is needed.
+  // One chart per numeric/scale category (built-in or custom), mirroring symptomSeries/
+  // moodSeries's own build - boolean/duration categories get no chart here (former habits
+  // included, now that Habit unified into Category - see
+  // docs/log/17-unify-mood-symptom-habit.md). `TrendLineChart` on the frontend is reused directly
+  // for these (see docs/log/15-categories.md's Task 4 entry) - it's already generic over
+  // domain/color/formatValue, so no new chart component is needed.
   const categoryLogsByCategoryId = new Map<string, typeof categoryLogs>();
   for (const log of categoryLogs) {
     const bucket = categoryLogsByCategoryId.get(log.categoryId);

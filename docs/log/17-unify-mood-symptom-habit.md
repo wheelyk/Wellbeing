@@ -105,3 +105,248 @@ outside of what a test or an admin manually sets.
   was leftover process state, not a real bug.)
 
 ---
+
+## 2026-08-25 — Task 2: Backend — Habit → Category
+
+**Task:** [Phase 17, Task 2](../../Tasks.md#task-2--backend-habit--category) - migrate every
+`Habit`/`HabitLog` row into `Category`/`CategoryLog`, then delete the dedicated Habit
+routes/model/enum entirely so former-habit data flows through the same generic paths every other
+category already uses.
+
+### Background / concepts
+
+#### Why this migration is hand-written, not `prisma migrate dev`-generated
+
+`prisma migrate dev` diffs the schema and generates SQL for the *shape* change (new/dropped
+columns, tables, enum values) - it has no way to know that every row in a table being dropped
+needs to land, transformed, in a table that already exists. Exactly the same reason
+`16-reminders-and-category-toggles.md`'s `generalize_reminders` migration was hand-written: the
+data migration (`INSERT ... SELECT ... FROM habits`) has to be interleaved with the schema changes
+(dropping `habits`, `habit_logs`, `habit_type`, `HABIT` from the `reminder_target` enum) in an order
+the tool can't infer from a schema diff alone.
+
+#### Reusing the same row ids removes the need for a join
+
+`Habit`/`HabitLog`'s column shapes already match `Category`/`CategoryLog`'s almost exactly
+(`valueBoolean`/`valueNumeric`/`valueDurationMinutes`/`notes`/`loggedAt`, and `Habit.type` maps
+directly onto three of `Category`'s four `valueType`s). The one wrinkle is that
+`HabitLog.habitId` needs to become `CategoryLog.categoryId`, pointing at the *new* row, not the
+old one. Copying each habit's `id` verbatim into the new `categories` row (rather than letting
+Postgres generate a fresh uuid) means `habit_logs.habit_id` already equals the right
+`categories.id` with zero transformation - no lookup/join table needed at all, just a straight
+`INSERT ... SELECT` from `habit_logs` into `category_logs`.
+
+#### Postgres can't drop one value from an enum directly
+
+Removing `HABIT` from the `reminder_target` enum (now that no reminder can target a Habit)
+can't be done with a single `ALTER TYPE ... DROP VALUE` - Postgres has no such statement. The
+standard workaround, used identically here: rename the old enum type out of the way, create a new
+type under the original name without the unwanted value, repoint the column at the new type via a
+`USING` cast, then drop the renamed-away old type.
+
+### What was done
+
+- **`backend/prisma/schema.prisma`**: deleted `HabitType`, `Habit`, `HabitLog` entirely; removed
+  `habitEnabled`/`habits`/`habitLogs` from `User`; removed `HABIT` from `ReminderTarget`; updated
+  cross-referencing comments on `CategoryValueType`/`Category.scaleMin`/`CategoryLog`/
+  `ReminderTarget` that used to point at Habit as a still-live sibling model.
+- **Migration** (`habit_to_category`, hand-written): copies every `habits` row into `categories`
+  (reusing the same `id`, mapping `type` to the matching `category_value_type`), copies every
+  `habit_logs` row into `category_logs` (same `id`, `habit_id` landing directly as `category_id`),
+  deletes any existing `HABIT`-target reminder, rebuilds the `reminder_target` enum without
+  `HABIT`, then drops `habit_logs`, `habits`, `habit_type`, and `users.habit_enabled`.
+- **Deleted**: `backend/src/routes/habits.ts`, `habitLogs.ts`, `lib/habitType.ts`, and their test
+  files; unmounted both routers from `app.ts`.
+- **`lib/reminderTarget.ts`**/**`lib/reminderScheduler.ts`**: removed `"habit"` from the API
+  target list and both switch statements (`reminderCopy`, `hasLoggedTarget`).
+- **`routes/users.ts`**/**`routes/auth.ts`**: removed `habitEnabled` from the update schema,
+  profile selection, toggle-target map, and `serializeUser`.
+- **`routes/dashboard.ts`**: removed `habitSummary` and its two supporting queries/formatter
+  entirely - a former habit's today-status now surfaces exactly the way any other category's does,
+  through the existing generic `recentEntries`/streak machinery.
+- **`routes/history.ts`**: removed the dedicated `"habit"` `HISTORY_TYPE` and its formatter - the
+  already-generic `formatCategoryLogValue` branch covers it.
+- **`routes/export.ts`**: removed the dedicated `habits`/`habitLogs` fields and replaced them with
+  `categories`/`categoryLogs` - this also closes a pre-existing gap noted in the plan: `export.ts`
+  never included Category/CategoryLog data of any kind before this task, for *any* category, not
+  just former habits.
+- **`routes/trends.ts`**: removed habit's own slot in the activity-map `Promise.all` (a former
+  habit's logs now count toward `activeDays` via the generic `categoryLogs` bucket, which already
+  existed) - no dedicated chart needed since Habit never had one either.
+- **Tests**: `users.test.ts`, `dashboard.test.ts`, `export.test.ts`, `history.test.ts`,
+  `reminders.test.ts`, `trends.test.ts` updated to create/log categories instead of habits
+  wherever a test had been exercising habit-specific code paths; `habits.test.ts`/
+  `habitLogs.test.ts` deleted outright (superseded by `categories.test.ts`/`categoryLogs.test.ts`'s
+  existing coverage of the same shape).
+
+### Why it's needed
+
+Habit was already structurally almost identical to Category (same three-value-column log shape,
+three of four value types) - keeping it as a separate hand-written model/route pair going forward
+would mean maintaining two copies of logic that already exists once, generically, for no
+behavioral benefit to the user.
+
+### Decisions
+
+- **Archive-not-delete, not cascade-delete, for a migrated habit with logged history** (confirmed
+  with the project owner ahead of this plan). A migrated habit is simply a personal category now,
+  and personal categories are never hard-deleted while they have logs - `CategoryLog.category` is
+  `Restrict`, matching Symptom's own existing pattern. This is a genuine behavior change from
+  today's `HabitLog.habit: onDelete: Cascade`, accepted deliberately rather than preserved.
+- **`HABIT`-target reminders are dropped, not remapped**, matching Phase 16's own established
+  precedent: a user with multiple habits has no single unambiguous destination category for an
+  old habit-level reminder, so the migration deletes any such row rather than guessing which
+  specific category it should now point at. (This is unlike Task 6's planned `MOOD` remap, where
+  exactly one destination category exists.)
+- **`export.ts`'s pre-existing Category/CategoryLog gap is fixed now, not deferred** - former-habit
+  data needs a home in the export somewhere, and adding the two missing generic fields was the
+  natural, minimal way to give it one, rather than inventing a habit-shaped export field that would
+  need its own removal later.
+
+### Verification
+
+- Migration verified against real before/after data (not just "it ran"): row counts checked before
+  the migration (habits, habit_logs) and after (categories, category_logs) matched exactly; spot-
+  checked several individual rows across all three value types (boolean, numeric, duration),
+  confirming `id` reuse, correct `valueType` mapping, and `userId`/`loggedAt` preservation; a habit
+  with multiple logs was checked to confirm every one of its logs landed against the same new
+  category id.
+- `npm test` (backend): full suite green - 265 tests across 24 files. One isolated intermittent
+  failure in `reminderScheduler.test.ts` on the first full-suite run after this task's changes,
+  passing cleanly both alone and on a full-suite re-run - the same pre-existing environmental
+  flakiness under heavy parallel local database load documented in `docs/log/15-categories.md`/
+  `docs/log/16-reminders-and-category-toggles.md`/Task 1's own entry above, not a regression from
+  this task.
+- `npx tsc --noEmit`, `npm run build`, `npx eslint .`, `npx prettier --check .`: all clean.
+- Manual, real-server verification (curl against a running local backend): registered a fresh
+  account, confirmed its profile response no longer carries `habitEnabled`; confirmed
+  `GET /api/habits` now 404s; created a boolean category and logged it, then confirmed it renders
+  correctly through `GET /api/dashboard` (in `recentEntries`, contributing to the streak),
+  `GET /api/history` (`{type: "category", label: "Walk: Done"}`), `GET /api/trends` (marks the
+  activity calendar active, contributes no chart of its own), and `GET /api/export`
+  (`categories`/`categoryLogs`, with `categoryName` carried onto each log); confirmed
+  `POST /api/reminders` with `target: "habit"` now 400s validation while `target: "category"`
+  against the same category id still 201s. (As in Task 1, a stray backend process from an earlier
+  session was found already bound to port 4000 before this pass - killed and replaced with a fresh
+  build before trusting any of the above.)
+
+---
+
+## 2026-08-25 — Task 3: Frontend — Habit retirement
+
+**Task:** [Phase 17, Task 3](../../Tasks.md#task-3--frontend-habit-retirement) - remove every
+frontend trace of the dedicated Habit UI now that its backend is gone (Task 2, on its own branch
+- see that task's own entry above for the migration this depends on), so a former habit's data
+renders and is logged through the exact same generic Category components every other category
+already uses.
+
+### Background / concepts
+
+#### Why this task had to land carefully relative to Task 2
+
+Task 2 (backend) and Task 3 (frontend) are genuinely coupled in a way Phase 16's own
+backend/frontend split wasn't: Phase 16 generalized reminders *additively* (old and new endpoints
+coexisted for a transition window), so either half could merge first without breaking the other.
+Task 2 is destructive instead - it deletes `/api/habits`, `/api/habit-logs`, and
+`habitSummary`/`habitEnabled` outright. Verifying Task 2 in isolation (its own PR's CI) surfaced
+this directly: with Task 2's backend running and the *old* (pre-Task-3) frontend still pointed at
+it, `DashboardSummary.tsx`'s `data.habitSummary.loggedCount` throws on every render (`habitSummary`
+no longer exists in the response), crashing the dashboard - confirmed via three real e2e failures
+in that PR's CI run, not a hypothetical. That means, unlike Task 2/3's own numbering, **Task 3 is
+actually safe to merge to `main` on its own first** (an unchanged Task-2-era backend simply ignores
+a frontend that no longer asks for Habit data), while **Task 2 is not safe to merge alone** before
+Task 3 follows immediately - flagged explicitly on Task 2's own PR.
+
+### What was done
+
+- **Deleted**: `HabitCreateForm.tsx`, `HabitEntryForm.tsx`, `HabitSection.tsx`, and their three
+  test files - `CategoryCreateForm.tsx`/`CategoryEntryForm.tsx`/`CategorySection.tsx` already cover
+  the identical ground.
+- **`AuthContext.tsx`**: removed `habitEnabled` from `AuthUser`.
+- **`DashboardPage.tsx`**: removed the `HabitSection` import/render and every `habitEnabled` prop
+  pass-through to `DashboardSummary`/`QuickAddFab` - no replacement toggle, since a former habit is
+  now just a personal category, archived individually through `CategorySection` like any other.
+- **`QuickAddFab.tsx`**: removed the dedicated "Habit" menu item and `habitEnabled` prop/filter -
+  logging a former habit now goes through the existing "More…" entry, same as any custom category.
+- **`DashboardSummary.tsx`**: removed `habitSummary` from the fetched-data interface, the `"habit"`
+  `RecentEntry` type/icon, and the `habitEnabled`-gated summary clause. `hasLoggedAnything` now
+  checks only mood/symptomCount/medicationSummary (documented as a deliberate, minor narrowing
+  below - see Decisions).
+- **`historyLogApi.ts`/`HistoryEditModal.tsx`/`HistoryPage.tsx`**: removed the `"habit"`
+  `HistoryEntryType`/`fetchHabitLog`/`fetchHabits`/`habitValueLabel`/`habitLabel` and the modal's
+  dedicated `HabitEntryForm` branch - a former habit's entries flow through the already-generic
+  `"category"` branch/`categoryValueLabel`/`categoryLabel` in each of these files.
+- **`ReminderCreateForm.tsx`**: removed `"habit"` from `ReminderTarget` and its target-picker
+  option - matches Task 2's backend already rejecting it.
+- **`lib/dashboardQuickAddEvent.ts`/`lib/dashboardEntryChangedEvent.ts`**: removed `"habit"` from
+  both event-type unions.
+- **Copy text**: updated every user-facing string that listed "habits" as a separate thing
+  alongside mood/symptoms/medications (`SettingsPage.tsx`'s reminders/categories/export/delete-
+  account sections, `HistoryPage.tsx`, `TrendsPage.tsx`, `ActivityCalendar.tsx`,
+  `AdminCategoriesPage.tsx`, `CategorySection.tsx`) to instead read "categories" or omit the clause
+  entirely, matching what each surface actually does now.
+- **`scripts/capture-pr-screenshots.mjs`** and **`e2e/quick-add-and-dashboard.spec.ts`**: the
+  "Habit" quick-add step (dedicated menu item -> `Create your first habit` -> `/api/habits`) was
+  replaced with the equivalent Category flow (the "More…" entry -> `Create your first category` ->
+  `/api/categories`) - both scripts drive a real browser against a real running app, so they needed
+  the same UI-path update as the production code itself.
+- **Tests**: `SettingsPage.test.tsx`, `DashboardPage.test.tsx`, `QuickAddFab.test.tsx`,
+  `DashboardSummary.test.tsx`, `HistoryPage.test.tsx`, `ActivityCalendar.test.tsx` updated wherever
+  they exercised habit-specific UI or asserted on a "four" count that's now three;
+  `historyLogApi.test.ts`'s `habitValueLabel`/`habitLabel` tests (boolean/numeric-including-zero/
+  duration-including-zero coverage) were converted to test `categoryValueLabel`/`categoryLabel`
+  instead - the same real behavior, now reached through the surviving generic functions, plus one
+  new case (`"scale"`) that had no test at all before this change.
+
+### Why it's needed
+
+Task 2 already deleted every backend endpoint this frontend code called - leaving it in place
+wasn't "harmless dead code," it was a guaranteed runtime crash the moment Task 2's backend shipped
+(see Background above).
+
+### Decisions
+
+- **`hasLoggedAnything` no longer counts a same-day category log.** The pre-Task-3 code checked
+  `habitSummary.loggedCount > 0`, a genuinely today-scoped count the backend computed specially for
+  Habit. No equivalent "categories logged today" count exists in the generic `/api/dashboard`
+  response (categories were never summarized this way, and Task 2's plan didn't add one) -
+  `recentEntries` alone can't safely substitute, since it's the N most recent entries *overall*,
+  not bounded to today, so treating "a category appears in recentEntries" as "logged today" would
+  wrongly count something logged days ago. Accepted consequence: a user who logs *only* a category
+  today and nothing else sees the "Nothing logged yet today" empty state instead of a technically-
+  more-accurate summary line - a narrow, deliberately-chosen gap rather than a wrong finding, and
+  one to revisit if/when a real "any category logged today" signal is added to the dashboard
+  response.
+- **No replacement toggle for former habits**, confirmed by the Phase 17 plan itself: since
+  `Habit.userId` was never nullable, every migrated habit is already a personal category a user can
+  archive individually - a whole-type toggle would be solving a problem that no longer exists once
+  "Habit" stops being one fixed thing and becomes N independent categories.
+
+### Verification
+
+- `npx tsc -b`, `npm run build`: clean.
+- `npx vitest run` (frontend): full suite green - 278 tests across 36 files (up from 265 across
+  30 files pre-Task-3, net of the 6 deleted Habit-specific test files and several tests
+  converted/added in their place).
+- `npm run lint` (oxlint), `npx prettier --check .`: clean (two pre-existing, unrelated formatting
+  warnings in `e2e/trends-after-seeding.spec.ts`/`BottomNav.tsx` predate this task and were left
+  alone, out of scope).
+- Manual, real-browser verification (Playwright driving a real Chromium instance against a real
+  running backend + frontend dev server, not just the automated suite): to get a backend whose
+  schema actually matches Task 2's migrated local database (this branch's own backend still has
+  pre-Task-2 code, since Task 2 hasn't merged yet), Task 2's branch was checked out into a separate
+  git worktree and run there on port 4000, with this branch's frontend dev server on port 5173
+  pointed at it - the same two-process setup the real deployed app uses, just both halves sourced
+  from their own not-yet-merged branches. Confirmed end-to-end: registered a fresh account; logged
+  a mood entry and a boolean category entry ("Exercise") via `CategorySection`'s own "Add category
+  entry" button; Dashboard's summary line rendered three clauses with no crash (`Mood: 5/5 ·
+  Symptoms: 0 logged · Medications: 0/0 taken`) and Recent entries showed both; History showed
+  "Exercise: Done" under a `CATEGORY` label; Settings' Built-in categories list showed exactly
+  three toggles (no Habits row); on a mobile viewport (412×915, matching `BottomNav`'s `md:hidden`
+  breakpoint), Quick Add's menu showed Mood/Symptom/Medication/More… (no Habit item), and tapping
+  "More…" opened the generic category-log dialog pre-populated with "Exercise". Screenshots
+  captured at each step. Both temporary processes and the worktree were torn down afterward.
+
+---
+
+---

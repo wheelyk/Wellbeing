@@ -7,7 +7,6 @@ export const API_REMINDER_TARGETS = [
   "general",
   "mood",
   "symptom",
-  "habit",
   "medication",
   "category",
 ] as const;
@@ -17,7 +16,6 @@ const API_TO_PRISMA: Record<ApiReminderTarget, PrismaReminderTarget> = {
   general: PrismaReminderTarget.GENERAL,
   mood: PrismaReminderTarget.MOOD,
   symptom: PrismaReminderTarget.SYMPTOM,
-  habit: PrismaReminderTarget.HABIT,
   medication: PrismaReminderTarget.MEDICATION,
   category: PrismaReminderTarget.CATEGORY,
 };
@@ -26,7 +24,6 @@ const PRISMA_TO_API: Record<PrismaReminderTarget, ApiReminderTarget> = {
   [PrismaReminderTarget.GENERAL]: "general",
   [PrismaReminderTarget.MOOD]: "mood",
   [PrismaReminderTarget.SYMPTOM]: "symptom",
-  [PrismaReminderTarget.HABIT]: "habit",
   [PrismaReminderTarget.MEDICATION]: "medication",
   [PrismaReminderTarget.CATEGORY]: "category",
 };
@@ -45,5 +42,4 @@ export const CATEGORY_LEVEL_TARGETS: ReadonlySet<ApiReminderTarget> = new Set([
   "general",
   "mood",
   "symptom",
-  "habit",
 ]);

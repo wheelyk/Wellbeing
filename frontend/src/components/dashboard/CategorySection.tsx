@@ -10,8 +10,8 @@ import { useTimedMessage } from "../../hooks/useTimedMessage";
 import { listenForDashboardQuickAdd } from "../../lib/dashboardQuickAddEvent";
 import { dispatchDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
 
-// Mirrors HabitSection's formatHabitValue, generalized to the fourth "scale" type (rendered as
-// "value/max", matching how Mood/Symptom's own fixed scales already display).
+// The fourth "scale" type renders as "value/max", matching how Mood/Symptom's own fixed scales
+// already display; boolean/numeric/duration cover what a former habit's own three types needed.
 function formatCategoryLogValue(log: CategoryLog, category: Category | undefined): string {
   if (!category) return "—";
   if (log.valueBoolean !== null) return log.valueBoolean ? "Done" : "Not done";
@@ -25,8 +25,7 @@ function formatCategoryLogValue(log: CategoryLog, category: Category | undefined
   return "—";
 }
 
-// Mirrors HabitSection's HabitFormMode - a third state for defining a category first when the
-// user has none yet.
+// A third state for defining a category first when the user has none yet.
 type CategoryFormMode = "closed" | "log" | "create-category";
 
 // Mirrors every other Section's own PAGE_SIZE/offset-pagination shape.
@@ -39,11 +38,13 @@ interface CategoryLogPage {
   hasMore: boolean;
 }
 
-// Unlike the four fixed Dashboard sections (MoodSection, SymptomSection, MedicationSection,
-// HabitSection - one file each, by this project's own established "adding a log type means
-// adding a file" convention, see QuickAddFab.tsx's comment), custom categories are unbounded and
-// created at any time by a user or the admin - this section is deliberately the one exception,
-// looping over whatever GET /api/categories returns instead of needing a new file per category.
+// Unlike the three fixed Dashboard sections (MoodSection, SymptomSection, MedicationSection - one
+// file each, by this project's own established "adding a log type means adding a file"
+// convention, see QuickAddFab.tsx's comment), custom categories are unbounded and created at any
+// time by a user or the admin - this section is deliberately the one exception, looping over
+// whatever GET /api/categories returns instead of needing a new file per category. Every former
+// habit (Habit unified into Category - see docs/log/17-unify-mood-symptom-habit.md) renders
+// through this same loop now too, not a dedicated fourth fixed section.
 export function CategorySection() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryLogs, setCategoryLogs] = useState<CategoryLog[]>([]);
@@ -189,7 +190,7 @@ export function CategorySection() {
         {!categoriesLoading && !loadError && categories.length === 0 && (
           <p className="text-text-muted">
             You haven&apos;t created any categories yet — use the button above to define your own
-            (e.g. Water intake, Reading, Sleep) beyond mood, symptoms, medications and habits.
+            (e.g. Water intake, Reading, Sleep) beyond mood, symptoms, and medications.
           </p>
         )}
         {!categoriesLoading && !loadError && categories.length > 0 && categoryLogs.length === 0 && (

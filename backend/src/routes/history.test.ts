@@ -38,11 +38,11 @@ async function createMedication(accessToken: string, name: string) {
   return res.body.id as string;
 }
 
-async function createHabit(accessToken: string, name: string) {
+async function createCategory(accessToken: string, name: string, valueType: string = "boolean") {
   const res = await request(app)
-    .post("/api/habits")
+    .post("/api/categories")
     .set(authed(accessToken))
-    .send({ name, type: "boolean" });
+    .send({ name, valueType });
   return res.body.id as string;
 }
 
@@ -55,7 +55,7 @@ async function seedOneOfEach(accessToken: string, baseIso: string) {
 
   const symptomId = await createSymptom(accessToken, "Headache");
   const medicationId = await createMedication(accessToken, "Ibuprofen");
-  const habitId = await createHabit(accessToken, "Exercise");
+  const categoryId = await createCategory(accessToken, "Exercise");
 
   await request(app)
     .post("/api/mood-logs")
@@ -70,9 +70,9 @@ async function seedOneOfEach(accessToken: string, baseIso: string) {
     .set(authed(accessToken))
     .send({ medicationId, taken: true, loggedAt: at(3) });
   await request(app)
-    .post("/api/habit-logs")
+    .post("/api/category-logs")
     .set(authed(accessToken))
-    .send({ habitId, valueBoolean: true, loggedAt: at(4) });
+    .send({ categoryId, valueBoolean: true, loggedAt: at(4) });
 }
 
 describe("GET /api/history", () => {
@@ -93,7 +93,7 @@ describe("GET /api/history", () => {
       "mood",
       "symptom",
       "medication",
-      "habit",
+      "category",
     ]);
     // Sorted most-recent-first.
     const times = res.body.entries.map((e: { loggedAt: string }) => new Date(e.loggedAt).getTime());
@@ -108,35 +108,35 @@ describe("GET /api/history", () => {
       type: "medication",
       label: "Ibuprofen — Taken",
     });
-    expect(res.body.entries[3]).toMatchObject({ type: "habit", label: "Exercise: Done" });
+    expect(res.body.entries[3]).toMatchObject({ type: "category", label: "Exercise: Done" });
     // Each entry's own id is present and is the id the corresponding per-type DELETE endpoint
     // expects - the same id used to create it via the per-type routes above.
     res.body.entries.forEach((entry: { id: string }) => expect(entry.id).toBeDefined());
   });
 
-  // Regression test: `seedOneOfEach`'s habit is always `type: "boolean"`, so formatHabitValue's
-  // numeric/duration branches (this route's own, separate copy of the same logic dashboard.ts
-  // has) had never actually been exercised by any test here either.
-  it("formats numeric and duration habit values correctly", async () => {
-    const { accessToken } = await registerAndLogin("habit-value-formats");
+  // Regression test: `seedOneOfEach`'s category is always `valueType: "boolean"`, so
+  // formatCategoryLogValue's numeric/duration branches had never actually been exercised by any
+  // test here either.
+  it("formats numeric and duration category values correctly", async () => {
+    const { accessToken } = await registerAndLogin("category-value-formats");
 
-    const numericHabit = await request(app)
-      .post("/api/habits")
+    const numericCategory = await request(app)
+      .post("/api/categories")
       .set(authed(accessToken))
-      .send({ name: "Glasses of water", type: "numeric" });
+      .send({ name: "Glasses of water", valueType: "numeric" });
     await request(app)
-      .post("/api/habit-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ habitId: numericHabit.body.id, valueNumeric: 6 });
+      .send({ categoryId: numericCategory.body.id, valueNumeric: 6 });
 
-    const durationHabit = await request(app)
-      .post("/api/habits")
+    const durationCategory = await request(app)
+      .post("/api/categories")
       .set(authed(accessToken))
-      .send({ name: "Meditation", type: "duration" });
+      .send({ name: "Meditation", valueType: "duration" });
     await request(app)
-      .post("/api/habit-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ habitId: durationHabit.body.id, valueDurationMinutes: 15 });
+      .send({ categoryId: durationCategory.body.id, valueDurationMinutes: 15 });
 
     const res = await request(app).get("/api/history").set(authed(accessToken));
 
@@ -144,7 +144,7 @@ describe("GET /api/history", () => {
     expect(labels).toEqual(expect.arrayContaining(["Glasses of water: 6", "Meditation: 15 min"]));
   });
 
-  it("includes custom category logs, formatted the same way as habit values, and filters by them too", async () => {
+  it("includes custom category logs, formatted the same way as any other category, and filters by them too", async () => {
     const { accessToken } = await registerAndLogin("category-entries");
 
     const scaleCategory = await request(app)

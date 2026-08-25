@@ -13,7 +13,7 @@ function jsonResponse(status: number, body: unknown): Response {
 
 // This component only ever fires a single `fetch` call (one GET /api/dashboard, no
 // Promise.all), so `.mockResolvedValue` returning the same Response object for every call is
-// safe here - unlike MedicationSection/HabitSection, which fire two calls and specifically
+// safe here - unlike MedicationSection/CategorySection, which fire two calls and specifically
 // need `.mockImplementation` instead (see those components' tests for why).
 function mockDashboardFetch(body: unknown, status = 200) {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(status, body)));
@@ -45,7 +45,6 @@ describe("DashboardSummary", () => {
       mood: null,
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
-      habitSummary: { loggedCount: 0, totalHabits: 0 },
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
@@ -66,7 +65,6 @@ describe("DashboardSummary", () => {
       mood: { id: "mood-1", mood: 4 },
       symptomCount: 2,
       medicationSummary: { taken: 1, total: 2 },
-      habitSummary: { loggedCount: 1, totalHabits: 3 },
       recentEntries: {
         entries: [
           {
@@ -96,9 +94,7 @@ describe("DashboardSummary", () => {
     expect(heading.textContent).toMatch(/17/);
     expect(heading.textContent).toMatch(/2026/);
     expect(
-      screen.getByText(
-        /mood: 4\/5 · symptoms: 2 logged · medications: 1\/2 taken · habits: 1\/3 logged/i,
-      ),
+      screen.getByText(/mood: 4\/5 · symptoms: 2 logged · medications: 1\/2 taken/i),
     ).toBeInTheDocument();
     expect(screen.getByText(/logging streak: 3 days/i)).toBeInTheDocument();
     expect(screen.getByText(/logged 4 of 7 days this week/i)).toBeInTheDocument();
@@ -124,7 +120,6 @@ describe("DashboardSummary", () => {
       mood: null,
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
-      habitSummary: { loggedCount: 0, totalHabits: 0 },
       recentEntries: {
         entries: [{ type: "mood", label: "Mood", value: "4/5", loggedAt: daysAgoIso(0) }],
         limit: 10,
@@ -145,9 +140,8 @@ describe("DashboardSummary", () => {
       mood: null,
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
-      habitSummary: { loggedCount: 0, totalHabits: 0 },
       recentEntries: {
-        entries: [{ type: "habit", label: "Nap", value: "30 min", loggedAt: daysAgoIso(1) }],
+        entries: [{ type: "category", label: "Nap", value: "30 min", loggedAt: daysAgoIso(1) }],
         limit: 10,
         offset: 0,
         hasMore: false,
@@ -167,7 +161,6 @@ describe("DashboardSummary", () => {
       mood: null,
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
-      habitSummary: { loggedCount: 0, totalHabits: 0 },
       recentEntries: {
         entries: [
           { type: "medication", label: "Diazepam", value: "Taken", loggedAt: daysAgoIso(10) },
@@ -191,7 +184,6 @@ describe("DashboardSummary", () => {
       mood: { id: "mood-1", mood: 4 },
       symptomCount: 2,
       medicationSummary: { taken: 1, total: 2 },
-      habitSummary: { loggedCount: 1, totalHabits: 3 },
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
@@ -199,7 +191,7 @@ describe("DashboardSummary", () => {
     render(<DashboardSummary medicationEnabled={false} />);
 
     const summary = await screen.findByText(/mood: 4\/5/i);
-    expect(summary.textContent).toMatch(/mood: 4\/5 · symptoms: 2 logged · habits: 1\/3 logged/i);
+    expect(summary.textContent).toMatch(/mood: 4\/5 · symptoms: 2 logged/i);
     expect(summary.textContent).not.toMatch(/medications/i);
   });
 
@@ -209,18 +201,12 @@ describe("DashboardSummary", () => {
       mood: { id: "mood-1", mood: 4 },
       symptomCount: 2,
       medicationSummary: { taken: 1, total: 2 },
-      habitSummary: { loggedCount: 1, totalHabits: 3 },
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
 
     render(
-      <DashboardSummary
-        moodEnabled={false}
-        symptomEnabled={false}
-        medicationEnabled={false}
-        habitEnabled={false}
-      />,
+      <DashboardSummary moodEnabled={false} symptomEnabled={false} medicationEnabled={false} />,
     );
 
     expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
@@ -232,7 +218,6 @@ describe("DashboardSummary", () => {
       mood: null,
       symptomCount: 1,
       medicationSummary: { taken: 0, total: 0 },
-      habitSummary: { loggedCount: 0, totalHabits: 0 },
       recentEntries: {
         entries: [
           {
@@ -255,7 +240,7 @@ describe("DashboardSummary", () => {
   });
 
   it("loads more recent entries by refetching with a larger limit when Load more is clicked", async () => {
-    // Unlike the four per-type sections (offset-based, appending pages), this component
+    // Unlike the per-type sections (offset-based, appending pages), this component
     // re-fetches the whole summary with a bigger `limit` on every poll tick too - see
     // DashboardSummary.tsx's own comment on why appending pages independently of polling would
     // let a background poll silently discard anything "Load more" had added.
@@ -266,7 +251,7 @@ describe("DashboardSummary", () => {
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
     const entryB = {
-      type: "habit",
+      type: "category",
       label: "Nap",
       value: "30 min",
       loggedAt: "2026-08-16T09:00:00.000Z",
@@ -276,7 +261,6 @@ describe("DashboardSummary", () => {
       mood: null,
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
-      habitSummary: { loggedCount: 0, totalHabits: 0 },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     };
     const fetchMock = vi.fn().mockImplementation((url: string) => {
@@ -316,7 +300,7 @@ describe("DashboardSummary", () => {
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
     const entryB = {
-      type: "habit",
+      type: "category",
       label: "Nap",
       value: "30 min",
       loggedAt: "2026-08-16T09:00:00.000Z",
@@ -326,7 +310,6 @@ describe("DashboardSummary", () => {
       mood: null,
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
-      habitSummary: { loggedCount: 0, totalHabits: 0 },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     };
     const fetchMock = vi.fn().mockImplementation((url: string) => {
@@ -359,7 +342,7 @@ describe("DashboardSummary", () => {
 
     await user.click(screen.getByRole("button", { name: /load less/i }));
 
-    // Genuinely refetched at the smaller limit (not a local truncation, unlike the four
+    // Genuinely refetched at the smaller limit (not a local truncation, unlike the
     // per-type sections) - Nap disappears because the mocked limit=10 response never included
     // it, not because the component hid it client-side.
     await waitFor(() => expect(screen.queryByText(/nap — 30 min/i)).not.toBeInTheDocument());
@@ -374,11 +357,10 @@ describe("DashboardSummary", () => {
       mood: null,
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
-      habitSummary: { loggedCount: 0, totalHabits: 0 },
       recentEntries: {
         entries: [
           { type: "mood", label: "Mood", value: "4/5", loggedAt: daysAgoIso(0) },
-          { type: "habit", label: "Nap", value: "30 min", loggedAt: daysAgoIso(1) },
+          { type: "category", label: "Nap", value: "30 min", loggedAt: daysAgoIso(1) },
         ],
         limit: 10,
         offset: 0,
@@ -406,7 +388,6 @@ describe("DashboardSummary", () => {
       mood: null,
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
-      habitSummary: { loggedCount: 0, totalHabits: 0 },
       recentEntries: {
         entries: [{ type: "mood", label: "Mood", value: "4/5", loggedAt: daysAgoIso(0) }],
         limit: 10,
@@ -440,7 +421,6 @@ describe("DashboardSummary", () => {
       mood: null,
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
-      habitSummary: { loggedCount: 0, totalHabits: 0 },
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 1, daysLoggedThisWeek: 1 },
     });
@@ -451,7 +431,7 @@ describe("DashboardSummary", () => {
   });
 
   // The actual fix: previously this card only ever learned about a fresh save/delete from one
-  // of the four Dashboard sections by waiting out its own POLL_INTERVAL_MS (10s) poll - see
+  // of the Dashboard sections by waiting out its own POLL_INTERVAL_MS (10s) poll - see
   // dashboardEntryChangedEvent.ts and this component's own POLL_INTERVAL_MS comment. This test
   // never advances real or fake time (no `vi.useFakeTimers`/`vi.advanceTimersByTime` anywhere in
   // this file), and `findByText`'s default wait is well under 10s, so the updated text only
@@ -464,7 +444,6 @@ describe("DashboardSummary", () => {
       // "Symptoms: N logged" summary line this test asserts on.
       mood: { id: "mood-1", mood: 4 },
       medicationSummary: { taken: 0, total: 0 },
-      habitSummary: { loggedCount: 0, totalHabits: 0 },
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     };
@@ -494,7 +473,6 @@ describe("DashboardSummary", () => {
       mood: null,
       symptomCount: 0,
       medicationSummary: { taken: 0, total: 0 },
-      habitSummary: { loggedCount: 0, totalHabits: 0 },
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });

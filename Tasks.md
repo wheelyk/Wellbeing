@@ -392,7 +392,7 @@ Medication is explicitly out of scope - it stays its own model.
   categories only (a personal category is archived, not hidden).
 
 ### Task 2 — Backend: Habit → Category
-- [ ] Hand-written migration copying `habits`/`habit_logs` into `categories`/`category_logs`
+- [x] Hand-written migration copying `habits`/`habit_logs` into `categories`/`category_logs`
   (column shapes already match 1:1), then dropping the old tables/enum. Deletes `habits.ts`/
   `habitLogs.ts`/`lib/habitType.ts`. Folds `dashboard.ts`/`history.ts`/`export.ts` into the
   already-generic Category paths (also closes the pre-existing gap that `export.ts` omits
@@ -400,7 +400,7 @@ Medication is explicitly out of scope - it stays its own model.
   reminders are deleted, not migrated - confirmed drop-and-reconfigure precedent from Phase 16).
 
 ### Task 3 — Frontend: Habit retirement
-- [ ] Deletes `HabitCreateForm.tsx`/`HabitEntryForm.tsx`/`HabitSection.tsx` (already covered by
+- [x] Deletes `HabitCreateForm.tsx`/`HabitEntryForm.tsx`/`HabitSection.tsx` (already covered by
   `CategoryCreateForm.tsx`/`CategoryEntryForm.tsx`/`CategorySection.tsx`). Removes `habitEnabled`
   from `AuthUser`/`SettingsPage.tsx`/Dashboard gating - no replacement toggle needed, since a
   former habit is now an ordinary personal category a user can archive individually.

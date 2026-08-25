@@ -1,4 +1,4 @@
-// A tiny, deliberately loose contract between QuickAddFab and the four Dashboard sections -
+// A tiny, deliberately loose contract between QuickAddFab and the three Dashboard sections -
 // dispatched as a plain DOM CustomEvent rather than lifted React state or a context provider,
 // matching this app's existing "no shared store between sections" decision (see the
 // implementation log entry on the original Dashboard decomposition). QuickAddFab doesn't need
@@ -9,8 +9,10 @@ export const DASHBOARD_QUICK_ADD_EVENT = "welltrack:dashboard-quick-add";
 
 // "category" is the one type not backed by its own fixed Dashboard section file - it's handled
 // by the single, data-driven CategorySection instead (see its own comment for why), covering
-// every custom category rather than one type per file the way the other four are.
-export type DashboardQuickAddType = "mood" | "symptom" | "medication" | "habit" | "category";
+// every custom category (including every former habit, now that Habit unified into Category -
+// see docs/log/17-unify-mood-symptom-habit.md) rather than one type per file the way the other
+// three are.
+export type DashboardQuickAddType = "mood" | "symptom" | "medication" | "category";
 
 export function dispatchDashboardQuickAdd(type: DashboardQuickAddType): void {
   window.dispatchEvent(

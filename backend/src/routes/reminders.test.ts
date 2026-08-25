@@ -166,13 +166,13 @@ describe("reminders routes", () => {
     const first = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "habit", times: ["09:00"] });
+      .send({ target: "mood", times: ["09:00"] });
     expect(first.status).toBe(201);
 
     const second = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "habit", times: ["15:00"] });
+      .send({ target: "mood", times: ["15:00"] });
     expect(second.status).toBe(409);
     expect(second.body.error.code).toBe("REMINDER_ALREADY_EXISTS");
   });

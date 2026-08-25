@@ -3,7 +3,6 @@ import { NavBar } from "../components/NavBar";
 import { BottomNav } from "../components/BottomNav";
 import { DashboardSummary } from "../components/dashboard/DashboardSummary";
 import { MoodSection } from "../components/dashboard/MoodSection";
-import { HabitSection } from "../components/dashboard/HabitSection";
 import { MedicationSection } from "../components/dashboard/MedicationSection";
 import { SymptomSection } from "../components/dashboard/SymptomSection";
 import { CategorySection } from "../components/dashboard/CategorySection";
@@ -31,22 +30,23 @@ export function DashboardPage() {
             moodEnabled={user?.moodEnabled ?? true}
             symptomEnabled={user?.symptomEnabled ?? true}
             medicationEnabled={user?.medicationEnabled ?? true}
-            habitEnabled={user?.habitEnabled ?? true}
           />
         </div>
 
         {/* One column on mobile (screen width is the scarce resource - see the implementation
             log entry), two from md: (768px) up once there's enough width for a second column
-            without cramping either one. Each of the four built-in sections is gated on its own
-            toggle (Settings > Built-in categories) - `?? true` treats a still-loading/missing
-            user (e.g. the brief window before rehydrateSession resolves) the same as "enabled,"
-            matching the backend's own default, rather than flashing every section away and back.
-            History deliberately isn't gated the same way - browsing past data is a different
-            concern from "can I log a new one" (see docs/log/16-reminders-and-category-toggles.md's
-            Task 3 entry). */}
+            without cramping either one. Each of the three remaining built-in sections is gated on
+            its own toggle (Settings > Built-in categories) - `?? true` treats a still-loading/
+            missing user (e.g. the brief window before rehydrateSession resolves) the same as
+            "enabled," matching the backend's own default, rather than flashing every section away
+            and back. Habit had a fourth toggle/section here until Phase 17 folded it into
+            Category (see docs/log/17-unify-mood-symptom-habit.md's Task 3 entry) - a former habit
+            is now an ordinary personal category, rendered (and archived individually) through
+            CategorySection below, not a toggle of its own. History deliberately isn't gated the
+            same way - browsing past data is a different concern from "can I log a new one" (see
+            docs/log/16-reminders-and-category-toggles.md's Task 3 entry). */}
         <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
           {(user?.moodEnabled ?? true) && <MoodSection />}
-          {(user?.habitEnabled ?? true) && <HabitSection />}
           {(user?.medicationEnabled ?? true) && <MedicationSection />}
           {(user?.symptomEnabled ?? true) && <SymptomSection />}
           <CategorySection />
@@ -58,7 +58,6 @@ export function DashboardPage() {
             moodEnabled={user?.moodEnabled ?? true}
             symptomEnabled={user?.symptomEnabled ?? true}
             medicationEnabled={user?.medicationEnabled ?? true}
-            habitEnabled={user?.habitEnabled ?? true}
           />
         }
       />

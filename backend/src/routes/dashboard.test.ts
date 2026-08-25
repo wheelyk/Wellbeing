@@ -60,7 +60,6 @@ describe("GET /api/dashboard", () => {
     expect(res.body.mood).toBeNull();
     expect(res.body.symptomCount).toBe(0);
     expect(res.body.medicationSummary).toEqual({ taken: 0, total: 0 });
-    expect(res.body.habitSummary).toEqual({ loggedCount: 0, totalHabits: 0 });
     expect(res.body.recentEntries).toEqual({
       entries: [],
       limit: 10,
@@ -99,19 +98,14 @@ describe("GET /api/dashboard", () => {
       .set(authed(accessToken))
       .send({ medicationId: medicationRes.body.id, taken: false, loggedAt });
 
-    const habitRes = await request(app)
-      .post("/api/habits")
+    const categoryRes = await request(app)
+      .post("/api/categories")
       .set(authed(accessToken))
-      .send({ name: "Walk", type: "boolean" });
-    // A second habit that's never logged - exercises the "total habits" side of habitSummary.
+      .send({ name: "Walk", valueType: "boolean" });
     await request(app)
-      .post("/api/habits")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ name: "Meditate", type: "boolean" });
-    await request(app)
-      .post("/api/habit-logs")
-      .set(authed(accessToken))
-      .send({ habitId: habitRes.body.id, valueBoolean: true, loggedAt });
+      .send({ categoryId: categoryRes.body.id, valueBoolean: true, loggedAt });
 
     const res = await request(app).get("/api/dashboard").query({ date }).set(authed(accessToken));
 
@@ -120,7 +114,6 @@ describe("GET /api/dashboard", () => {
     expect(res.body.mood).toMatchObject({ mood: 4 });
     expect(res.body.symptomCount).toBe(1);
     expect(res.body.medicationSummary).toEqual({ taken: 1, total: 2 });
-    expect(res.body.habitSummary).toEqual({ loggedCount: 1, totalHabits: 2 });
 
     const labels = res.body.recentEntries.entries.map(
       (entry: { label: string; value: string }) => ({
@@ -142,32 +135,32 @@ describe("GET /api/dashboard", () => {
     expect(res.body.streak.daysLoggedThisWeek).toBe(1);
   });
 
-  // Regression test: the main summary test above only ever logs a *boolean* habit, so
-  // formatHabitValue's numeric/duration branches (dashboard.ts) had never actually been
+  // Regression test: the main summary test above only ever logs a *boolean* category, so
+  // formatCategoryLogValue's numeric/duration branches (dashboard.ts) had never actually been
   // exercised by any test - a real gap for a case this codebase explicitly supports (see
-  // habitLogs.ts's own three-way boolean/numeric/duration validation).
-  it("formats numeric and duration habit values correctly in recentEntries", async () => {
-    const { accessToken } = await registerAndLogin("habit-value-formats");
+  // categoryLogs.ts's own boolean/numeric/scale/duration validation).
+  it("formats numeric and duration category values correctly in recentEntries", async () => {
+    const { accessToken } = await registerAndLogin("category-value-formats");
     const date = "2026-08-17";
     const loggedAt = `${date}T09:00:00.000Z`;
 
-    const numericHabit = await request(app)
-      .post("/api/habits")
+    const numericCategory = await request(app)
+      .post("/api/categories")
       .set(authed(accessToken))
-      .send({ name: "Glasses of water", type: "numeric" });
+      .send({ name: "Glasses of water", valueType: "numeric" });
     await request(app)
-      .post("/api/habit-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ habitId: numericHabit.body.id, valueNumeric: 6, loggedAt });
+      .send({ categoryId: numericCategory.body.id, valueNumeric: 6, loggedAt });
 
-    const durationHabit = await request(app)
-      .post("/api/habits")
+    const durationCategory = await request(app)
+      .post("/api/categories")
       .set(authed(accessToken))
-      .send({ name: "Meditation", type: "duration" });
+      .send({ name: "Meditation", valueType: "duration" });
     await request(app)
-      .post("/api/habit-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ habitId: durationHabit.body.id, valueDurationMinutes: 15, loggedAt });
+      .send({ categoryId: durationCategory.body.id, valueDurationMinutes: 15, loggedAt });
 
     const res = await request(app).get("/api/dashboard").query({ date }).set(authed(accessToken));
 
@@ -209,7 +202,7 @@ describe("GET /api/dashboard", () => {
       icon: "⚡",
     });
 
-    // A day with *only* a category log (no mood/symptom/medication/habit entry at all) still
+    // A day with *only* a category log (no mood/symptom/medication entry at all) still
     // counts as "logged" for streak purposes - hasLoggedToday's own reasoning in
     // reminderScheduler.ts applies identically here.
     expect(res.body.streak.current).toBe(1);

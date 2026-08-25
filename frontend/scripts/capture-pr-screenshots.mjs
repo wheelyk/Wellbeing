@@ -94,12 +94,12 @@ await page
 await page.getByRole("button", { name: /save entry/i }).click();
 await page.waitForSelector("text=Ibuprofen — Taken");
 
-await page.getByRole("button", { name: "Add habit entry" }).click();
-await page.waitForSelector("text=Create your first habit");
-await page.getByLabel(/habit name/i).fill("Exercise");
+await page.getByRole("button", { name: "Add category entry" }).click();
+await page.waitForSelector("text=Create your first category");
+await page.getByLabel(/category name/i).fill("Exercise");
 await page.getByRole("radio", { name: /yes \/ no/i }).click();
-await page.getByRole("button", { name: /create habit/i }).click();
-await page.waitForSelector("text=Log a habit");
+await page.getByRole("button", { name: /create category/i }).click();
+await page.waitForSelector("text=Log an entry");
 await page.getByRole("radio", { name: "Yes" }).click();
 await page.getByRole("button", { name: /save entry/i }).click();
 await page.waitForSelector("text=Exercise: Done");

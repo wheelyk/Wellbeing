@@ -33,7 +33,6 @@ const updateSchema = z
     moodEnabled: z.boolean(),
     symptomEnabled: z.boolean(),
     medicationEnabled: z.boolean(),
-    habitEnabled: z.boolean(),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
@@ -49,19 +48,19 @@ const PROFILE_SELECT = {
   moodEnabled: true,
   symptomEnabled: true,
   medicationEnabled: true,
-  habitEnabled: true,
 } as const;
 
 // Maps each toggle field to the Reminder target it gates - used only on the false-going-false
 // transition below, to decide which Reminder rows to disable alongside the category itself.
+// habitEnabled (Phase 16) was removed when Habit unified into Category (Phase 17) - a former
+// habit is now an ordinary personal category with no whole-type toggle of its own anymore.
 const TOGGLE_TARGETS: Record<
-  "moodEnabled" | "symptomEnabled" | "medicationEnabled" | "habitEnabled",
+  "moodEnabled" | "symptomEnabled" | "medicationEnabled",
   ReminderTarget
 > = {
   moodEnabled: ReminderTarget.MOOD,
   symptomEnabled: ReminderTarget.SYMPTOM,
   medicationEnabled: ReminderTarget.MEDICATION,
-  habitEnabled: ReminderTarget.HABIT,
 };
 
 export const usersRouter = Router();
@@ -126,8 +125,8 @@ usersRouter.patch("/me", async (req, res) => {
 });
 
 usersRouter.delete("/me", async (req, res) => {
-  // Every relation from User (MoodLog, Habit, HabitLog, Medication, MedicationLog, Symptom,
-  // SymptomLog) is declared `onDelete: Cascade` in schema.prisma, so a single delete of the
+  // Every relation from User (MoodLog, Medication, MedicationLog, Symptom, SymptomLog, Category,
+  // CategoryLog) is declared `onDelete: Cascade` in schema.prisma, so a single delete of the
   // User row is enough - Postgres itself removes every row across every one of those tables
   // that references this user, in the same statement, with no separate application-level
   // transaction needed. (Confirmed directly: see users.test.ts's "removes every related row"
