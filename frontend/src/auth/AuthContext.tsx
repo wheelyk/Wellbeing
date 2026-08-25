@@ -27,11 +27,11 @@ export interface AuthUser {
   // Lets a user hide a built-in category from Dashboard/Quick Add without touching data already
   // logged under it (see backend's schema.prisma comment on these columns). All default true, so
   // treat a missing value the same as true rather than false - see DashboardPage.tsx's own
-  // `?? true` reads of these. Habit had its own toggle here too until Phase 17 folded it into
-  // Category - a former habit is now an ordinary personal category, archived individually rather
-  // than gated by a whole-type toggle.
+  // `?? true` reads of these. Habit and Symptom each had their own toggle here too until Phase 17
+  // folded them into Category - a former habit is an ordinary personal category, archived
+  // individually rather than gated by a whole-type toggle; a former symptom is a
+  // system-or-personal category hidden per-row (Settings > Categories) instead.
   moodEnabled: boolean;
-  symptomEnabled: boolean;
   medicationEnabled: boolean;
 }
 

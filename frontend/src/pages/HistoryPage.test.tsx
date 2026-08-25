@@ -40,14 +40,14 @@ describe("HistoryPage", () => {
               loggedAt: "2026-08-17T14:00:00.000Z",
             },
             {
-              id: "symptom-1",
-              type: "symptom",
-              label: "Headache — Severity 6/10",
+              id: "category-1",
+              type: "category",
+              label: "Headache: 6/10",
               notes: "Started after lunch",
               loggedAt: "2026-08-17T09:00:00.000Z",
             },
             {
-              id: "category-1",
+              id: "category-2",
               type: "category",
               label: "Exercise: Done",
               notes: null,
@@ -65,7 +65,7 @@ describe("HistoryPage", () => {
     renderPage();
 
     expect(await screen.findByText("Mood 4/5")).toBeInTheDocument();
-    expect(screen.getByText(/headache — severity 6\/10/i)).toBeInTheDocument();
+    expect(screen.getByText(/headache: 6\/10/i)).toBeInTheDocument();
     expect(screen.getByText("Started after lunch")).toBeInTheDocument();
     expect(screen.getByText(/exercise: done/i)).toBeInTheDocument();
     // Two distinct calendar days -> two date-group headings, each starting with a weekday name
@@ -200,9 +200,9 @@ describe("HistoryPage", () => {
 
   it("deletes an entry optimistically via the correct per-type endpoint, rolling back on failure", async () => {
     const entry = {
-      id: "sym-1",
-      type: "symptom",
-      label: "Headache — Severity 6/10",
+      id: "med-log-1",
+      type: "medication",
+      label: "Ibuprofen — Taken",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
@@ -221,19 +221,19 @@ describe("HistoryPage", () => {
     const user = userEvent.setup();
 
     renderPage();
-    await screen.findByText(/headache — severity 6\/10/i);
+    await screen.findByText(/ibuprofen — taken/i);
 
     // Delete now opens this app's own Modal-based confirmation dialog rather than a native
     // window.confirm() popup - clicking the row's Delete button only opens it; the actual
     // delete request only fires once the dialog's own "Delete" button is clicked.
-    await user.click(screen.getByRole("button", { name: /delete symptom entry/i }));
+    await user.click(screen.getByRole("button", { name: /delete medication entry/i }));
     await user.click(await screen.findByRole("button", { name: "Delete" }));
 
     // Optimistically removed, then rolled back once the DELETE call fails.
-    await screen.findByText(/headache — severity 6\/10/i);
+    await screen.findByText(/ibuprofen — taken/i);
     expect(deleteCallCount).toBe(1);
     const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
-    expect(deleteCall?.[0]).toContain(`/api/symptom-logs/${entry.id}`);
+    expect(deleteCall?.[0]).toContain(`/api/medication-logs/${entry.id}`);
   });
 
   it("deletes an entry and keeps it removed when the DELETE call succeeds", async () => {
@@ -656,71 +656,5 @@ describe("HistoryPage", () => {
 
     expect(await screen.findByText(/energy level: 5/i)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Edit entry" })).not.toBeInTheDocument();
-  });
-
-  it("resolves a symptom entry's name via /api/symptoms and PATCHes the symptom endpoint on save", async () => {
-    const entry = {
-      id: "sym-1",
-      type: "symptom",
-      label: "Headache — Severity 6/10",
-      notes: null,
-      loggedAt: "2026-08-17T09:00:00.000Z",
-    };
-    const fullSymptomLog = {
-      id: "sym-1",
-      userId: "user-1",
-      symptomId: "symptom-headache",
-      severity: 6,
-      notes: null,
-      loggedAt: entry.loggedAt,
-    };
-    const updatedSymptomLog = { ...fullSymptomLog, severity: 8 };
-    const symptoms = [{ id: "symptom-headache", userId: null, name: "Headache" }];
-    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-      if (init?.method === "PATCH" && url.includes("/api/symptom-logs/sym-1")) {
-        return Promise.resolve(jsonResponse(200, updatedSymptomLog));
-      }
-      if (url.includes("/api/history")) {
-        return Promise.resolve(
-          jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
-        );
-      }
-      if (url.includes("/api/symptom-logs")) {
-        return Promise.resolve(
-          jsonResponse(200, { entries: [fullSymptomLog], limit: 100, offset: 0, hasMore: false }),
-        );
-      }
-      if (url.includes("/api/symptoms")) {
-        return Promise.resolve(jsonResponse(200, symptoms));
-      }
-      return Promise.resolve(jsonResponse(401, { error: { message: "No session" } }));
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-
-    renderPage();
-    await screen.findByText(/headache — severity 6\/10/i);
-
-    await user.click(screen.getByRole("button", { name: /edit symptom entry/i }));
-    await screen.findByRole("heading", { name: "Edit symptom entry" });
-
-    // Pre-filled with the real symptom name, resolved from /api/symptoms via the log's
-    // symptomId, not just carried over from the generic history label.
-    expect(screen.getByRole("combobox", { name: /symptom/i })).toHaveValue("symptom-headache");
-    await user.click(screen.getByRole("radio", { name: "8" }));
-    await user.click(screen.getByRole("button", { name: "Save Changes" }));
-
-    await waitFor(() => {
-      const patchCall = fetchMock.mock.calls.find(
-        ([callUrl, callInit]) =>
-          String(callUrl).includes("/api/symptom-logs/sym-1") && callInit?.method === "PATCH",
-      );
-      expect(patchCall).toBeDefined();
-      const body = JSON.parse(String(patchCall?.[1]?.body));
-      expect(body.severity).toBe(8);
-      expect(body.symptomId).toBe("symptom-headache");
-    });
-
-    expect(await screen.findByText(/headache — severity 8\/10/i)).toBeInTheDocument();
   });
 });

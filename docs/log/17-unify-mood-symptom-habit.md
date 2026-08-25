@@ -476,3 +476,123 @@ had for free (an admin route, a description field, per-user hiding).
   merged in - see that task's own entry for the exact failure mode).
 
 ---
+
+## 2026-08-25 — Task 5: Frontend — Symptom retirement
+
+**Task:** [Phase 17, Task 5](../../Tasks.md#task-5--frontend-symptom-retirement) - remove every
+frontend trace of the dedicated Symptom UI now that its backend is gone (Task 4, on its own
+branch - see that task's own entry for the migration this depends on), and add the per-row
+Hide/Unhide action to Settings' Categories list - this is what actually replaces the old blunt
+`symptomEnabled` toggle for the 8 former system symptoms.
+
+### Background / concepts
+
+#### Why this task, again, had to land carefully relative to Task 4
+
+Same coupling as Task 2/3: Task 4's backend migration is destructive (deletes
+`/api/symptoms`/`/api/symptom-logs`, drops `symptomCount`/`symptomEnabled` from the dashboard/
+profile responses entirely). Verifying Task 4 alone would reproduce the exact same
+`DashboardSummary.tsx` crash Task 2 did (`data.symptomCount > 0` isn't a direct property-access
+crash on its own, but `SymptomSection`'s own two now-404ing fetches, and `symptomEnabled` simply
+vanishing from every response, would still break the page in the same class of way) - so Task 5
+is merged into Task 4's own branch before that PR is opened, exactly as Task 2/3 were, and this
+task's own manual verification pass covers both together.
+
+### What was done
+
+- **Deleted**: `SymptomEntryForm.tsx` (including its inlined "add a symptom" mini-flow, superseded
+  by the already-separate `CategoryCreateForm.tsx`) and `SymptomSection.tsx`, plus their test
+  files.
+- **`AuthContext.tsx`**: removed `symptomEnabled` from `AuthUser`.
+- **`DashboardPage.tsx`**: removed the `SymptomSection` import/render and every `symptomEnabled`
+  prop pass-through - no replacement toggle, per the plan's own decision (see Task 1's entry): a
+  former symptom is a system-or-personal category, hidden per-row or archived like any other.
+- **`QuickAddFab.tsx`**: removed the dedicated "Symptom" menu item and `symptomEnabled` prop/
+  filter - logging a former symptom now goes through the existing "More…" entry, same as any
+  custom category.
+- **`DashboardSummary.tsx`**: removed `symptomCount` from the fetched-data interface, the
+  `"symptom"` `RecentEntry` type/icon, and the `symptomEnabled`-gated summary clause.
+- **`historyLogApi.ts`/`HistoryEditModal.tsx`/`HistoryPage.tsx`**: removed the `"symptom"`
+  `HistoryEntryType`/`fetchSymptomLog`/`fetchSymptoms`/`symptomLabel` and the modal's dedicated
+  `SymptomEntryForm` branch - a former symptom's entries flow through the already-generic
+  `"category"` branch/`categoryValueLabel`/`categoryLabel` in each of these files.
+- **`ReminderCreateForm.tsx`**: removed `"symptom"` from `ReminderTarget` and its target-picker
+  option - matches Task 4's backend already rejecting it.
+- **`TrendsPage.tsx`**: removed the dedicated "Symptom Severity" chart section entirely (and its
+  now-unused `symptomSeverity` field/`SYMPTOM_CHART_COLOR`) - every migrated symptom flows through
+  the existing generic `categoryTrends` loop instead, each getting its own independent chart (see
+  Task 4's own entry on this deliberate behavior change).
+- **`SettingsPage.tsx`** (the actual new functionality this task adds, not just cleanup):
+  - `CategoriesSection` now fetches `GET /api/categories?includeHidden=true` (Task 1's own
+    contract) instead of the plain default list, so a hidden system category still shows up here
+    (with an Unhide action) rather than disappearing with no way back.
+  - Added `handleHide`/`handleUnhide`, calling Task 1's `POST`/`DELETE /api/categories/:id/hide`,
+    offered only for a system category (`!isOwn`) - a personal category is archived instead, same
+    as before.
+  - Each system category row now shows a "Hidden" badge alongside the existing "Built-in" one when
+    `category.hidden` is true, and its action button toggles between "Hide"/"Unhide" accordingly.
+  - Removed `symptomEnabled` from `UserProfile`/`CategoryToggles`/`TOGGLE_ITEMS` and every
+    profile-fetch/save call site, matching Habit's own precedent from Task 3.
+- **Copy text**: updated every user-facing string that listed "symptoms" as a separate thing
+  alongside mood/medications (`SettingsPage.tsx`'s categories/export/delete-account sections,
+  `HistoryPage.tsx`, `ActivityCalendar.tsx`, `AdminCategoriesPage.tsx`, `CategorySection.tsx`,
+  `RatingScale.tsx`) to instead read "categories" or describe former symptoms as system categories.
+- **Tests**: `DashboardPage.test.tsx`, `DashboardSummary.test.tsx`, `QuickAddFab.test.tsx`,
+  `HistoryPage.test.tsx`, `TrendsPage.test.tsx`, `ActivityCalendar.test.tsx` updated wherever they
+  exercised symptom-specific UI; `historyLogApi.test.ts`'s `symptomLabel` test removed (no
+  replacement needed - `categoryLabel`'s own coverage already exercises the identical shape).
+  `SettingsPage.test.tsx` gained three new tests for the Hide/Unhide mechanism itself (hides a
+  system category and shows the Hidden badge/Unhide button; unhides one; never offers Hide/Unhide
+  for the user's own category) - genuinely new functionality, not just a migration of existing
+  coverage. `TrendsPage.test.tsx`'s "collapses each chart section independently" test was ported
+  onto a `categoryTrends` entry standing in for the now-gone Symptom Severity section, so the
+  underlying "collapsing one section doesn't affect another" behavior stayed covered.
+
+### Why it's needed
+
+Task 4 already deleted every backend endpoint the old Symptom-specific frontend code called -
+leaving it in place would have been a guaranteed runtime break the moment Task 4's backend
+shipped, the same class of problem Task 2 caused for Habit before Task 3 landed.
+
+### Decisions
+
+- **Hide/Unhide is the actual replacement for `symptomEnabled`, not a like-for-like toggle** -
+  confirmed directly in the plan's own Task 1 context: the 8 former system symptoms are no longer
+  one fixed thing a single boolean can gate, so each is hidden independently instead, matching how
+  Habit's own whole-type toggle was replaced by per-category archiving in Task 3.
+- **The dedicated "Symptom Severity" chart is not replaced with anything bespoke** - every migrated
+  symptom already gets its own chart via the generic `categoryTrends` array (Task 4's own
+  decision), so Task 5's frontend work here was pure deletion, not a new chart to build.
+
+### Verification
+
+- `npx tsc -b`, `npm run build`: clean.
+- `npx vitest run` (frontend): full suite green - 260 tests across 34 files (up from 240/24
+  post-Task-4-equivalent-frontend-state, net of 2 deleted Symptom-specific test files, several
+  tests converted, and 3 new Hide/Unhide tests added).
+- `npm run lint` (oxlint), `npx prettier --check .`: clean (the same two pre-existing, unrelated
+  formatting warnings noted in Task 3's entry - `e2e/trends-after-seeding.spec.ts`/`BottomNav.tsx` -
+  predate this task and were left alone, out of scope).
+- Manual, real-browser verification (Playwright driving a real Chromium instance against a real
+  running backend + frontend dev server): Task 4's branch was checked out into a separate git
+  worktree and run there on port 4000 (this branch's own backend still has pre-Task-4 code, since
+  Task 4 hasn't merged yet), with this branch's frontend dev server on port 5173 pointed at it -
+  the same pairing approach Task 3's own verification used. Confirmed end-to-end: registered a
+  fresh account; logged a mood entry and a category entry against "Headache" (a migrated system
+  symptom, scale 1-10) via `CategorySection`; Dashboard's summary line rendered `Mood: 5/5 ·
+  Medications: 0/0 taken` with no crash, and Recent entries showed both; Trends rendered one
+  independent chart per former system symptom (Anxiety, Brain fog, Depression, Fatigue, Headache,
+  Insomnia, Joint pain, Nausea), with Headache's own chart correctly showing `Avg: 6.0` from the
+  just-logged entry - not one combined "Symptom Severity" chart; Settings' Built-in categories
+  list showed exactly two toggles (Mood, Medications - no Symptoms row), and the Categories list
+  showed all 8 former system symptoms tagged "Built-in" with a "Hide" action each; clicking Hide on
+  "Anxiety" showed a "Category hidden." confirmation, added a "Hidden" badge next to it, and
+  swapped its action to "Unhide." Screenshots captured at each step. History's own equivalent pass
+  hit this app's own documented `authRateLimiter` (10 requests per 15 minutes per IP - see
+  `docs/log/01-auth-backend.md`) after several repeated verification registrations in quick
+  succession; the already-captured Dashboard/Trends/Settings evidence above was judged sufficient
+  without re-running it. Both temporary processes and the worktree were torn down afterward.
+
+---
+
+---

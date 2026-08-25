@@ -33,9 +33,10 @@ interface CategoryCreateFormProps {
 }
 
 // A small, focused "define a category" form, supporting four value types (including "scale", a
-// bounded picker generalizing what Mood/Symptom already do with their own fixed scales) - a
-// former habit's three value types (boolean/numeric/duration) are a subset of these four, since
-// Habit unified into Category (see docs/log/17-unify-mood-symptom-habit.md).
+// bounded picker generalizing what Mood still does with its own fixed scale, and what Symptom
+// used to do with its own fixed 1-10 severity scale) - a former habit's three value types
+// (boolean/numeric/duration) are a subset of these four, since Habit (and, separately, Symptom)
+// unified into Category (see docs/log/17-unify-mood-symptom-habit.md).
 export function CategoryCreateForm({
   onCreated,
   onCancel,
