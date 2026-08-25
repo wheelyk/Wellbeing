@@ -30,7 +30,7 @@ interface MedicationEntryFormProps {
   onSaved: (log: MedicationLog, medication: Medication) => void;
   onCancel: () => void;
   // When present, the form starts pre-filled with this log's values and PATCHes it on submit
-  // instead of POSTing a new one - see MoodEntryForm's identical editingLog prop for the full
+  // instead of POSTing a new one - see CategoryEntryForm's identical editingLog prop for the full
   // explanation of why one form serves both create and edit.
   editingLog?: MedicationLog | null;
 }

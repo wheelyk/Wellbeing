@@ -30,9 +30,9 @@ export function MedicationSection() {
   const [medicationLoadError, setMedicationLoadError] = useState(false);
   const [showMedicationForm, setShowMedicationForm] = useState(false);
   // Reuses the same showMedicationForm area both create and edit render into - see
-  // MoodSection's identical editingLog state for the full explanation.
+  // CategorySection's identical editingLog state for the full explanation.
   const [editingLog, setEditingLog] = useState<MedicationLog | null>(null);
-  // Brief post-save confirmation - see MoodSection's identical use of useTimedMessage for the
+  // Brief post-save confirmation - see CategorySection's identical use of useTimedMessage for the
   // full explanation of why this is the whole success-feedback mechanism here.
   const { message: savedMessage, showMessage: showSavedMessage } = useTimedMessage();
 
@@ -62,7 +62,7 @@ export function MedicationSection() {
     };
   }, []);
 
-  // Lets QuickAddFab open this section's add form directly - see MoodSection's identical
+  // Lets QuickAddFab open this section's add form directly - see CategorySection's identical
   // listener, and dashboardQuickAddEvent.ts, for the full explanation.
   useEffect(
     () =>
@@ -88,7 +88,7 @@ export function MedicationSection() {
     }
   }
 
-  // Purely local - see MoodSection's identical handleLoadLess for the full explanation of why
+  // Purely local - see CategorySection's identical handleLoadLess for the full explanation of why
   // no network round-trip (or further hasMore check) is needed here.
   function handleLoadLess() {
     setMedicationLogs((prev) => prev.slice(0, PAGE_SIZE));

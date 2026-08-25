@@ -10,9 +10,9 @@ import { useTimedMessage } from "../../hooks/useTimedMessage";
 import { listenForDashboardQuickAdd } from "../../lib/dashboardQuickAddEvent";
 import { dispatchDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
 
-// The fourth "scale" type renders as "value/max", matching how Mood's own fixed scale (and,
-// before Symptom unified into Category, Symptom's own fixed severity scale) already displays;
-// boolean/numeric/duration cover what a former habit's own three types needed.
+// The fourth "scale" type renders as "value/max" - the same rendering Mood/Energy/Stress and
+// Symptom each used their own fixed scale for before both unified into Category; boolean/numeric/
+// duration cover what a former habit's own three types needed.
 function formatCategoryLogValue(log: CategoryLog, category: Category | undefined): string {
   if (!category) return "—";
   if (log.valueBoolean !== null) return log.valueBoolean ? "Done" : "Not done";
@@ -39,13 +39,13 @@ interface CategoryLogPage {
   hasMore: boolean;
 }
 
-// Unlike the two fixed Dashboard sections (MoodSection, MedicationSection - one file each, by
-// this project's own established "adding a log type means adding a file" convention, see
-// QuickAddFab.tsx's comment), custom categories are unbounded and created at any time by a user
-// or the admin - this section is deliberately the one exception, looping over whatever
-// GET /api/categories returns instead of needing a new file per category. Every former habit and
-// symptom (both unified into Category - see docs/log/17-unify-mood-symptom-habit.md) renders
-// through this same loop now too, not a dedicated fixed section of their own.
+// Unlike the one remaining fixed Dashboard section (MedicationSection - by this project's own
+// established "adding a log type means adding a file" convention, see QuickAddFab.tsx's comment),
+// custom categories are unbounded and created at any time by a user or the admin - this section
+// is deliberately the one exception, looping over whatever GET /api/categories returns instead of
+// needing a new file per category. Every former habit, symptom, and mood check-in (all three
+// unified into Category - see docs/log/17-unify-mood-symptom-habit.md) renders through this same
+// loop now too, not a dedicated fixed section of their own.
 export function CategorySection() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryLogs, setCategoryLogs] = useState<CategoryLog[]>([]);
@@ -191,7 +191,7 @@ export function CategorySection() {
         {!categoriesLoading && !loadError && categories.length === 0 && (
           <p className="text-text-muted">
             You haven&apos;t created any categories yet — use the button above to define your own
-            (e.g. Water intake, Reading, Sleep) beyond mood and medications.
+            (e.g. Water intake, Reading, Sleep) beyond medications.
           </p>
         )}
         {!categoriesLoading && !loadError && categories.length > 0 && categoryLogs.length === 0 && (

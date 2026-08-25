@@ -8,24 +8,25 @@ interface RatingScaleProps {
   lowLabel: string;
   highLabel: string;
   // Grid layout with this many columns (e.g. a "scale" category's 1-10 range, 5 per row) instead
-  // of the default single-row flex-wrap (e.g. mood's energy/stress, 7 values, fits on one line).
+  // of the default single-row flex-wrap (e.g. a 7-value range like Energy/Stress, which fits on
+  // one line).
   columns?: number;
-  // Clicking an already-selected value clears it back to "not set" - appropriate for an
-  // optional rating (mood's energy/stress) but not one that's always required (a "scale"
-  // category's own required value, which uses its own required-field error message instead).
+  // Clicking an already-selected value clears it back to "not set" - not used by a "scale"
+  // category's own value picker, which is always required and uses its own required-field error
+  // message instead; left available for any future optional rating that needs it.
   clearable?: boolean;
   error?: string | null;
 }
 
-// The "row of selectable number buttons" pattern shared by mood's energy/stress ratings and a
-// "scale" category's own value picker (including every former symptom, now that Symptom unified
-// into Category - see docs/log/17-unify-mood-symptom-habit.md) - previously three separate,
-// near-identical implementations (MoodEntryForm's own RatingRow, the now-retired
-// SymptomEntryForm's inline severity fieldset, and a third copy HistoryEditModal used to carry
-// before it was consolidated onto the shared entry forms - see the implementation log entry on
-// that refactor). Pulled out here once, per the Phase 5 checklist's "RatingScale" reusable
-// primitive, now that this exact shape has proven itself stable across independent forms rather
-// than being guessed at up front.
+// The "row of selectable number buttons" pattern every "scale" category's own value picker uses -
+// including every former symptom, and Mood/Energy/Stress themselves, now that Symptom and Mood
+// both unified into Category (see docs/log/17-unify-mood-symptom-habit.md) and are just SCALE
+// categories like any other. Previously three separate, near-identical implementations (the
+// now-retired MoodEntryForm's own RatingRow, the now-retired SymptomEntryForm's inline severity
+// fieldset, and a third copy HistoryEditModal used to carry before it was consolidated onto the
+// shared entry forms - see the implementation log entry on that refactor). Pulled out here once,
+// per the Phase 5 checklist's "RatingScale" reusable primitive, now that this exact shape has
+// proven itself stable across independent forms rather than being guessed at up front.
 export function RatingScale({
   label,
   values,

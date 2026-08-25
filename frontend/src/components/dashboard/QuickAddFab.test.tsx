@@ -59,25 +59,23 @@ describe("QuickAddFab", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("shows both built-in items plus More… when no props are given (every existing call site)", async () => {
+  it("shows the built-in item plus More… when no props are given (every existing call site)", async () => {
     const user = userEvent.setup();
     render(<QuickAddFab />);
 
     await user.click(screen.getByRole("button", { name: "Quick add" }));
 
-    expect(screen.getByRole("menuitem", { name: /mood/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /medication/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /more/i })).toBeInTheDocument();
   });
 
-  it("omits a disabled built-in category's item, but always keeps More…", async () => {
+  it("omits the built-in item when disabled, but always keeps More…", async () => {
     const user = userEvent.setup();
-    render(<QuickAddFab moodEnabled={false} medicationEnabled />);
+    render(<QuickAddFab medicationEnabled={false} />);
 
     await user.click(screen.getByRole("button", { name: "Quick add" }));
 
-    expect(screen.queryByRole("menuitem", { name: /mood/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /medication/i })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /medication/i })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /more/i })).toBeInTheDocument();
   });
 

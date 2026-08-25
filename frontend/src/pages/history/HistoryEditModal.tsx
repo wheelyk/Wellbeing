@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "../../components/Button";
 import { Modal } from "../../components/Modal";
-import { MoodEntryForm, type MoodLog } from "../../components/MoodEntryForm";
 import { MedicationEntryForm, type MedicationLog } from "../../components/MedicationEntryForm";
 import { CategoryEntryForm, type CategoryLog } from "../../components/CategoryEntryForm";
 import type { Category } from "../../components/CategoryCreateForm";
@@ -10,10 +9,8 @@ import {
   fetchCategories,
   fetchCategoryLog,
   fetchMedicationLog,
-  fetchMoodLog,
   categoryLabel,
   medicationLabel,
-  moodLabel,
 } from "./historyLogApi";
 
 interface HistoryEditModalProps {
@@ -28,24 +25,22 @@ interface HistoryEditModalProps {
 type LoadState = { status: "loading" } | { status: "error" } | { status: "ready"; view: ReadyView };
 
 type ReadyView =
-  | { kind: "mood"; log: MoodLog }
   | { kind: "medication"; log: MedicationLog }
   | { kind: "category"; log: CategoryLog; categories: Category[] };
 
 const TYPE_TITLE: Record<HistoryEntry["type"], string> = {
-  mood: "Edit mood entry",
   medication: "Edit medication entry",
   category: "Edit entry",
 };
 
 // Renders History's own pre-filled edit dialog for every log type - fetches the full structured
 // record each per-type endpoint owns (see historyLogApi.ts for why the unified history list
-// alone isn't enough to pre-fill a form), then hands it to the exact same MoodEntryForm/
-// MedicationEntryForm components the Dashboard's own Section components already use in edit mode
-// (each already supports an `editingLog` prop for this - see MoodEntryForm's own comment on why
-// one form serves both create and edit). Habit and Symptom each had their own branch here too
-// until Phase 17 folded them into Category - a former habit's or symptom's entries now go through
-// the same CategoryEntryForm branch below as any other category.
+// alone isn't enough to pre-fill a form), then hands it to the exact same MedicationEntryForm/
+// CategoryEntryForm components the Dashboard's own Section components already use in edit mode
+// (each already supports an `editingLog` prop for this). Mood, Habit, and Symptom each had their
+// own branch here too until Phase 17 folded all three into Category - a former habit's,
+// symptom's, or mood check-in's entries now go through the same CategoryEntryForm branch below as
+// any other category.
 // This used to be a fully self-contained, ~800-line duplicate of those forms - built that
 // way deliberately while a parallel workstream was also editing the Section components, to avoid
 // a guaranteed merge conflict (see the implementation log entry on the design-review-driven
@@ -62,11 +57,7 @@ export function HistoryEditModal({ entry, onClose, onSaved }: HistoryEditModalPr
     (async () => {
       try {
         let view: ReadyView;
-        if (entry.type === "mood") {
-          const log = await fetchMoodLog(entry.id, entry.loggedAt);
-          if (!log) throw new Error("Mood log not found");
-          view = { kind: "mood", log };
-        } else if (entry.type === "medication") {
+        if (entry.type === "medication") {
           const log = await fetchMedicationLog(entry.id, entry.loggedAt);
           if (!log) throw new Error("Medication log not found");
           view = { kind: "medication", log };
@@ -103,21 +94,6 @@ export function HistoryEditModal({ entry, onClose, onSaved }: HistoryEditModalPr
             </Button>
           </div>
         </div>
-      )}
-      {state.status === "ready" && state.view.kind === "mood" && (
-        <MoodEntryForm
-          editingLog={state.view.log}
-          onCancel={onClose}
-          onSaved={(log) =>
-            onSaved({
-              id: log.id,
-              type: "mood",
-              label: moodLabel(log),
-              notes: log.notes,
-              loggedAt: log.loggedAt,
-            })
-          }
-        />
       )}
       {state.status === "ready" && state.view.kind === "medication" && (
         <MedicationEntryForm
