@@ -3,15 +3,18 @@ import {
   moodLabel,
   symptomLabel,
   medicationLabel,
-  habitValueLabel,
-  habitLabel,
+  categoryValueLabel,
+  categoryLabel,
 } from "./historyLogApi";
 
 // This file's label-formatting functions mirror backend/src/routes/history.ts's own copies of
 // the same logic exactly (see historyLogApi.ts's own top-of-file comment on why) - previously
 // untested here, the same real gap the backend's own dashboard.ts/history.ts tests just closed:
-// only boolean-type habit values had ever been exercised by any test, anywhere in the codebase,
-// across all three independent copies of this formatting logic (two backend, one frontend).
+// only boolean-type category values had ever been exercised by any test, anywhere in the
+// codebase, across all three independent copies of this formatting logic (two backend, one
+// frontend). These used to test the near-identical habitValueLabel/habitLabel, which covered the
+// same three value types before Habit unified into Category (Phase 17) - see
+// docs/log/17-unify-mood-symptom-habit.md.
 describe("historyLogApi label formatting", () => {
   describe("moodLabel", () => {
     it("shows just the mood when energy/stress are null", () => {
@@ -38,13 +41,22 @@ describe("historyLogApi label formatting", () => {
     });
   });
 
-  describe("habitValueLabel", () => {
+  describe("categoryValueLabel", () => {
+    const numericCategory = { valueType: "numeric" as const, scaleMax: null };
+    const durationCategory = { valueType: "duration" as const, scaleMax: null };
+
     it("formats a boolean value as Done/Not done", () => {
       expect(
-        habitValueLabel({ valueBoolean: true, valueNumeric: null, valueDurationMinutes: null }),
+        categoryValueLabel(
+          { valueBoolean: true, valueNumeric: null, valueDurationMinutes: null },
+          numericCategory,
+        ),
       ).toBe("Done");
       expect(
-        habitValueLabel({ valueBoolean: false, valueNumeric: null, valueDurationMinutes: null }),
+        categoryValueLabel(
+          { valueBoolean: false, valueNumeric: null, valueDurationMinutes: null },
+          numericCategory,
+        ),
       ).toBe("Not done");
     });
 
@@ -55,30 +67,51 @@ describe("historyLogApi label formatting", () => {
     // the wrong branch entirely.
     it("formats a numeric value as its plain number, including zero", () => {
       expect(
-        habitValueLabel({ valueBoolean: null, valueNumeric: 6, valueDurationMinutes: null }),
+        categoryValueLabel(
+          { valueBoolean: null, valueNumeric: 6, valueDurationMinutes: null },
+          numericCategory,
+        ),
       ).toBe("6");
       expect(
-        habitValueLabel({ valueBoolean: null, valueNumeric: 0, valueDurationMinutes: null }),
+        categoryValueLabel(
+          { valueBoolean: null, valueNumeric: 0, valueDurationMinutes: null },
+          numericCategory,
+        ),
       ).toBe("0");
     });
 
     it("formats a duration value in minutes, including zero", () => {
       expect(
-        habitValueLabel({ valueBoolean: null, valueNumeric: null, valueDurationMinutes: 15 }),
+        categoryValueLabel(
+          { valueBoolean: null, valueNumeric: null, valueDurationMinutes: 15 },
+          durationCategory,
+        ),
       ).toBe("15 min");
       expect(
-        habitValueLabel({ valueBoolean: null, valueNumeric: null, valueDurationMinutes: 0 }),
+        categoryValueLabel(
+          { valueBoolean: null, valueNumeric: null, valueDurationMinutes: 0 },
+          durationCategory,
+        ),
       ).toBe("0 min");
+    });
+
+    it("formats a scale numeric value as value/max", () => {
+      expect(
+        categoryValueLabel(
+          { valueBoolean: null, valueNumeric: 4, valueDurationMinutes: null },
+          { valueType: "scale", scaleMax: 5 },
+        ),
+      ).toBe("4/5");
     });
   });
 
-  it("habitLabel combines the habit name and its formatted value", () => {
+  it("categoryLabel combines the category name and its formatted value", () => {
     expect(
-      habitLabel("Meditation", {
-        valueBoolean: null,
-        valueNumeric: null,
-        valueDurationMinutes: 15,
-      }),
+      categoryLabel(
+        "Meditation",
+        { valueBoolean: null, valueNumeric: null, valueDurationMinutes: 15 },
+        { valueType: "duration", scaleMax: null },
+      ),
     ).toBe("Meditation: 15 min");
   });
 });

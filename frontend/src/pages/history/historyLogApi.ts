@@ -3,8 +3,6 @@ import type { HistoryEntryType } from "../HistoryPage";
 import type { MoodLog } from "../../components/MoodEntryForm";
 import type { Symptom, SymptomLog } from "../../components/SymptomEntryForm";
 import type { MedicationLog } from "../../components/MedicationEntryForm";
-import type { HabitLog } from "../../components/HabitEntryForm";
-import type { Habit } from "../../components/HabitCreateForm";
 import type { CategoryLog } from "../../components/CategoryEntryForm";
 import type { Category } from "../../components/CategoryCreateForm";
 
@@ -12,18 +10,17 @@ import type { Category } from "../../components/CategoryCreateForm";
 // display-ready {label, notes, loggedAt} shape - enough to render the list, but not enough to
 // pre-fill a real edit form (e.g. a symptom entry's label is "Headache — Severity 6/10", which
 // has no machine-readable symptomId in it anywhere). The actual structured fields
-// (mood/energy/stress, symptomId/severity, habitId/valueX) only live on the per-type endpoints,
-// so editing has to go back to those - see findLogById below for how, given the backend can't be
-// touched for this task and none of those endpoints support a "fetch by id" lookup. Reuses the
-// exact same MoodLog/SymptomLog/HabitLog/Symptom/Habit types the Dashboard's own
-// MoodEntryForm/SymptomEntryForm/HabitEntryForm/HabitCreateForm already export, rather than
-// maintaining a second, parallel set of near-identical interfaces - this is what actually lets
-// HistoryEditModal render those same form components directly instead of rebuilding its own.
+// (mood/energy/stress, symptomId/severity, categoryId/valueX) only live on the per-type
+// endpoints, so editing has to go back to those - see findLogById below for how, given the
+// backend can't be touched for this task and none of those endpoints support a "fetch by id"
+// lookup. Reuses the exact same MoodLog/SymptomLog/Symptom types the Dashboard's own
+// MoodEntryForm/SymptomEntryForm already export, rather than maintaining a second, parallel set
+// of near-identical interfaces - this is what actually lets HistoryEditModal render those same
+// form components directly instead of rebuilding its own.
 const LIST_PATH: Record<HistoryEntryType, string> = {
   mood: "/api/mood-logs",
   symptom: "/api/symptom-logs",
   medication: "/api/medication-logs",
-  habit: "/api/habit-logs",
   category: "/api/category-logs",
 };
 
@@ -75,18 +72,12 @@ export function fetchMedicationLog(
 ): Promise<MedicationLog | null> {
   return findLogById<MedicationLog>("medication", id, loggedAtHint);
 }
-export function fetchHabitLog(id: string, loggedAtHint: string): Promise<HabitLog | null> {
-  return findLogById<HabitLog>("habit", id, loggedAtHint);
-}
 export function fetchCategoryLog(id: string, loggedAtHint: string): Promise<CategoryLog | null> {
   return findLogById<CategoryLog>("category", id, loggedAtHint);
 }
 
 export function fetchSymptoms(): Promise<Symptom[]> {
   return apiFetch<Symptom[]>("/api/symptoms");
-}
-export function fetchHabits(): Promise<Habit[]> {
-  return apiFetch<Habit[]>("/api/habits");
 }
 export function fetchCategories(): Promise<Category[]> {
   return apiFetch<Category[]>("/api/categories");
@@ -117,24 +108,9 @@ export function medicationLabel(name: string, dosage: string | null, taken: bool
   return `${base} — ${taken ? "Taken" : "Not taken"}`;
 }
 
-export function habitValueLabel(log: {
-  valueBoolean: boolean | null;
-  valueNumeric: number | null;
-  valueDurationMinutes: number | null;
-}): string {
-  if (log.valueBoolean !== null) return log.valueBoolean ? "Done" : "Not done";
-  if (log.valueNumeric !== null) return `${log.valueNumeric}`;
-  if (log.valueDurationMinutes !== null) return `${log.valueDurationMinutes} min`;
-  return "—";
-}
-
-export function habitLabel(habitName: string, log: Parameters<typeof habitValueLabel>[0]): string {
-  return `${habitName}: ${habitValueLabel(log)}`;
-}
-
-// Mirrors habitValueLabel, plus the "scale" type (sharing valueNumeric with plain "numeric") -
-// rendered as "value/max" using the category's own scaleMax, matching how
-// dashboard.ts/CategorySection.tsx already format a scale category's value.
+// Handles the "scale" type (sharing valueNumeric with plain "numeric") too - rendered as
+// "value/max" using the category's own scaleMax, matching how dashboard.ts/CategorySection.tsx
+// already format a scale category's value.
 export function categoryValueLabel(
   log: {
     valueBoolean: boolean | null;

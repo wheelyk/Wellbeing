@@ -47,8 +47,8 @@ describe("HistoryPage", () => {
               loggedAt: "2026-08-17T09:00:00.000Z",
             },
             {
-              id: "habit-1",
-              type: "habit",
+              id: "category-1",
+              type: "category",
               label: "Exercise: Done",
               notes: null,
               loggedAt: "2026-08-16T14:00:00.000Z",
@@ -402,8 +402,8 @@ describe("HistoryPage", () => {
               loggedAt: "2026-08-17T14:00:00.000Z",
             },
             {
-              id: "habit-1",
-              type: "habit",
+              id: "category-1",
+              type: "category",
               label: "Exercise: Done",
               notes: null,
               loggedAt: "2026-08-16T14:00:00.000Z",

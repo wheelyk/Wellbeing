@@ -4,22 +4,17 @@ import { Modal } from "../../components/Modal";
 import { MoodEntryForm, type MoodLog } from "../../components/MoodEntryForm";
 import { SymptomEntryForm, type Symptom, type SymptomLog } from "../../components/SymptomEntryForm";
 import { MedicationEntryForm, type MedicationLog } from "../../components/MedicationEntryForm";
-import { HabitEntryForm, type HabitLog } from "../../components/HabitEntryForm";
-import type { Habit } from "../../components/HabitCreateForm";
 import { CategoryEntryForm, type CategoryLog } from "../../components/CategoryEntryForm";
 import type { Category } from "../../components/CategoryCreateForm";
 import type { HistoryEntry } from "../HistoryPage";
 import {
   fetchCategories,
   fetchCategoryLog,
-  fetchHabitLog,
-  fetchHabits,
   fetchMedicationLog,
   fetchMoodLog,
   fetchSymptomLog,
   fetchSymptoms,
   categoryLabel,
-  habitLabel,
   medicationLabel,
   moodLabel,
   symptomLabel,
@@ -40,24 +35,24 @@ type ReadyView =
   | { kind: "mood"; log: MoodLog }
   | { kind: "symptom"; log: SymptomLog; symptoms: Symptom[] }
   | { kind: "medication"; log: MedicationLog }
-  | { kind: "habit"; log: HabitLog; habits: Habit[] }
   | { kind: "category"; log: CategoryLog; categories: Category[] };
 
 const TYPE_TITLE: Record<HistoryEntry["type"], string> = {
   mood: "Edit mood entry",
   symptom: "Edit symptom entry",
   medication: "Edit medication entry",
-  habit: "Edit habit entry",
   category: "Edit entry",
 };
 
 // Renders History's own pre-filled edit dialog for all four log types - fetches the full
 // structured record each per-type endpoint owns (see historyLogApi.ts for why the unified
 // history list alone isn't enough to pre-fill a form), then hands it to the exact same
-// MoodEntryForm/SymptomEntryForm/MedicationEntryForm/HabitEntryForm components the Dashboard's
-// own Section components already use in edit mode (each already supports an `editingLog` prop
-// for this - see MoodEntryForm's own comment on why one form serves both create and edit).
-// This used to be a fully self-contained, ~800-line duplicate of those four forms - built that
+// MoodEntryForm/SymptomEntryForm/MedicationEntryForm components the Dashboard's own Section
+// components already use in edit mode (each already supports an `editingLog` prop for this - see
+// MoodEntryForm's own comment on why one form serves both create and edit). Habit had a fourth
+// branch here too until Phase 17 folded it into Category - a former habit's entries now go
+// through the same CategoryEntryForm branch below as any other category.
+// This used to be a fully self-contained, ~800-line duplicate of those forms - built that
 // way deliberately while a parallel workstream was also editing the Section components, to avoid
 // a guaranteed merge conflict (see the implementation log entry on the design-review-driven
 // History edit-parity task). Consolidated back onto the shared forms once both pieces of work
@@ -88,13 +83,6 @@ export function HistoryEditModal({ entry, onClose, onSaved }: HistoryEditModalPr
           const log = await fetchMedicationLog(entry.id, entry.loggedAt);
           if (!log) throw new Error("Medication log not found");
           view = { kind: "medication", log };
-        } else if (entry.type === "habit") {
-          const [log, habits] = await Promise.all([
-            fetchHabitLog(entry.id, entry.loggedAt),
-            fetchHabits(),
-          ]);
-          if (!log) throw new Error("Habit log not found");
-          view = { kind: "habit", log, habits };
         } else {
           const [log, categories] = await Promise.all([
             fetchCategoryLog(entry.id, entry.loggedAt),
@@ -186,37 +174,13 @@ export function HistoryEditModal({ entry, onClose, onSaved }: HistoryEditModalPr
           }
         />
       )}
-      {state.status === "ready" && state.view.kind === "habit" && (
-        <HabitEntryForm
-          editingLog={state.view.log}
-          habits={state.view.habits}
-          onCancel={onClose}
-          // Habit's own "+ Add a new habit" escape hatch only renders for the create flow
-          // (`{!editingLog && ...}` inside HabitEntryForm) - this is always an edit here, so the
-          // callback is required by the prop type but never actually invoked.
-          onAddHabit={() => {}}
-          onSaved={(log) => {
-            const habit =
-              state.view.kind === "habit"
-                ? state.view.habits.find((h) => h.id === log.habitId)
-                : undefined;
-            onSaved({
-              id: log.id,
-              type: "habit",
-              label: habitLabel(habit?.name ?? "Habit", log),
-              notes: log.notes,
-              loggedAt: log.loggedAt,
-            });
-          }}
-        />
-      )}
       {state.status === "ready" && state.view.kind === "category" && (
         <CategoryEntryForm
           editingLog={state.view.log}
           categories={state.view.categories}
           onCancel={onClose}
-          // Same reasoning as HabitEntryForm's onAddHabit above - this is always an edit here,
-          // so CategoryEntryForm's own "+ Add a new category" escape hatch never renders.
+          // This is always an edit here, so CategoryEntryForm's own "+ Add a new category" escape
+          // hatch never renders - the callback is required by the prop type but never invoked.
           onAddCategory={() => {}}
           onSaved={(log) => {
             const category =

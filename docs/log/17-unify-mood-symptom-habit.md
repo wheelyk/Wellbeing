@@ -105,3 +105,120 @@ outside of what a test or an admin manually sets.
   was leftover process state, not a real bug.)
 
 ---
+
+## 2026-08-25 — Task 3: Frontend — Habit retirement
+
+**Task:** [Phase 17, Task 3](../../Tasks.md#task-3--frontend-habit-retirement) - remove every
+frontend trace of the dedicated Habit UI now that its backend is gone (Task 2, on its own branch
+- see that task's own entry above for the migration this depends on), so a former habit's data
+renders and is logged through the exact same generic Category components every other category
+already uses.
+
+### Background / concepts
+
+#### Why this task had to land carefully relative to Task 2
+
+Task 2 (backend) and Task 3 (frontend) are genuinely coupled in a way Phase 16's own
+backend/frontend split wasn't: Phase 16 generalized reminders *additively* (old and new endpoints
+coexisted for a transition window), so either half could merge first without breaking the other.
+Task 2 is destructive instead - it deletes `/api/habits`, `/api/habit-logs`, and
+`habitSummary`/`habitEnabled` outright. Verifying Task 2 in isolation (its own PR's CI) surfaced
+this directly: with Task 2's backend running and the *old* (pre-Task-3) frontend still pointed at
+it, `DashboardSummary.tsx`'s `data.habitSummary.loggedCount` throws on every render (`habitSummary`
+no longer exists in the response), crashing the dashboard - confirmed via three real e2e failures
+in that PR's CI run, not a hypothetical. That means, unlike Task 2/3's own numbering, **Task 3 is
+actually safe to merge to `main` on its own first** (an unchanged Task-2-era backend simply ignores
+a frontend that no longer asks for Habit data), while **Task 2 is not safe to merge alone** before
+Task 3 follows immediately - flagged explicitly on Task 2's own PR.
+
+### What was done
+
+- **Deleted**: `HabitCreateForm.tsx`, `HabitEntryForm.tsx`, `HabitSection.tsx`, and their three
+  test files - `CategoryCreateForm.tsx`/`CategoryEntryForm.tsx`/`CategorySection.tsx` already cover
+  the identical ground.
+- **`AuthContext.tsx`**: removed `habitEnabled` from `AuthUser`.
+- **`DashboardPage.tsx`**: removed the `HabitSection` import/render and every `habitEnabled` prop
+  pass-through to `DashboardSummary`/`QuickAddFab` - no replacement toggle, since a former habit is
+  now just a personal category, archived individually through `CategorySection` like any other.
+- **`QuickAddFab.tsx`**: removed the dedicated "Habit" menu item and `habitEnabled` prop/filter -
+  logging a former habit now goes through the existing "More…" entry, same as any custom category.
+- **`DashboardSummary.tsx`**: removed `habitSummary` from the fetched-data interface, the `"habit"`
+  `RecentEntry` type/icon, and the `habitEnabled`-gated summary clause. `hasLoggedAnything` now
+  checks only mood/symptomCount/medicationSummary (documented as a deliberate, minor narrowing
+  below - see Decisions).
+- **`historyLogApi.ts`/`HistoryEditModal.tsx`/`HistoryPage.tsx`**: removed the `"habit"`
+  `HistoryEntryType`/`fetchHabitLog`/`fetchHabits`/`habitValueLabel`/`habitLabel` and the modal's
+  dedicated `HabitEntryForm` branch - a former habit's entries flow through the already-generic
+  `"category"` branch/`categoryValueLabel`/`categoryLabel` in each of these files.
+- **`ReminderCreateForm.tsx`**: removed `"habit"` from `ReminderTarget` and its target-picker
+  option - matches Task 2's backend already rejecting it.
+- **`lib/dashboardQuickAddEvent.ts`/`lib/dashboardEntryChangedEvent.ts`**: removed `"habit"` from
+  both event-type unions.
+- **Copy text**: updated every user-facing string that listed "habits" as a separate thing
+  alongside mood/symptoms/medications (`SettingsPage.tsx`'s reminders/categories/export/delete-
+  account sections, `HistoryPage.tsx`, `TrendsPage.tsx`, `ActivityCalendar.tsx`,
+  `AdminCategoriesPage.tsx`, `CategorySection.tsx`) to instead read "categories" or omit the clause
+  entirely, matching what each surface actually does now.
+- **`scripts/capture-pr-screenshots.mjs`** and **`e2e/quick-add-and-dashboard.spec.ts`**: the
+  "Habit" quick-add step (dedicated menu item -> `Create your first habit` -> `/api/habits`) was
+  replaced with the equivalent Category flow (the "More…" entry -> `Create your first category` ->
+  `/api/categories`) - both scripts drive a real browser against a real running app, so they needed
+  the same UI-path update as the production code itself.
+- **Tests**: `SettingsPage.test.tsx`, `DashboardPage.test.tsx`, `QuickAddFab.test.tsx`,
+  `DashboardSummary.test.tsx`, `HistoryPage.test.tsx`, `ActivityCalendar.test.tsx` updated wherever
+  they exercised habit-specific UI or asserted on a "four" count that's now three;
+  `historyLogApi.test.ts`'s `habitValueLabel`/`habitLabel` tests (boolean/numeric-including-zero/
+  duration-including-zero coverage) were converted to test `categoryValueLabel`/`categoryLabel`
+  instead - the same real behavior, now reached through the surviving generic functions, plus one
+  new case (`"scale"`) that had no test at all before this change.
+
+### Why it's needed
+
+Task 2 already deleted every backend endpoint this frontend code called - leaving it in place
+wasn't "harmless dead code," it was a guaranteed runtime crash the moment Task 2's backend shipped
+(see Background above).
+
+### Decisions
+
+- **`hasLoggedAnything` no longer counts a same-day category log.** The pre-Task-3 code checked
+  `habitSummary.loggedCount > 0`, a genuinely today-scoped count the backend computed specially for
+  Habit. No equivalent "categories logged today" count exists in the generic `/api/dashboard`
+  response (categories were never summarized this way, and Task 2's plan didn't add one) -
+  `recentEntries` alone can't safely substitute, since it's the N most recent entries *overall*,
+  not bounded to today, so treating "a category appears in recentEntries" as "logged today" would
+  wrongly count something logged days ago. Accepted consequence: a user who logs *only* a category
+  today and nothing else sees the "Nothing logged yet today" empty state instead of a technically-
+  more-accurate summary line - a narrow, deliberately-chosen gap rather than a wrong finding, and
+  one to revisit if/when a real "any category logged today" signal is added to the dashboard
+  response.
+- **No replacement toggle for former habits**, confirmed by the Phase 17 plan itself: since
+  `Habit.userId` was never nullable, every migrated habit is already a personal category a user can
+  archive individually - a whole-type toggle would be solving a problem that no longer exists once
+  "Habit" stops being one fixed thing and becomes N independent categories.
+
+### Verification
+
+- `npx tsc -b`, `npm run build`: clean.
+- `npx vitest run` (frontend): full suite green - 278 tests across 36 files (up from 265 across
+  30 files pre-Task-3, net of the 6 deleted Habit-specific test files and several tests
+  converted/added in their place).
+- `npm run lint` (oxlint), `npx prettier --check .`: clean (two pre-existing, unrelated formatting
+  warnings in `e2e/trends-after-seeding.spec.ts`/`BottomNav.tsx` predate this task and were left
+  alone, out of scope).
+- Manual, real-browser verification (Playwright driving a real Chromium instance against a real
+  running backend + frontend dev server, not just the automated suite): to get a backend whose
+  schema actually matches Task 2's migrated local database (this branch's own backend still has
+  pre-Task-2 code, since Task 2 hasn't merged yet), Task 2's branch was checked out into a separate
+  git worktree and run there on port 4000, with this branch's frontend dev server on port 5173
+  pointed at it - the same two-process setup the real deployed app uses, just both halves sourced
+  from their own not-yet-merged branches. Confirmed end-to-end: registered a fresh account; logged
+  a mood entry and a boolean category entry ("Exercise") via `CategorySection`'s own "Add category
+  entry" button; Dashboard's summary line rendered three clauses with no crash (`Mood: 5/5 ·
+  Symptoms: 0 logged · Medications: 0/0 taken`) and Recent entries showed both; History showed
+  "Exercise: Done" under a `CATEGORY` label; Settings' Built-in categories list showed exactly
+  three toggles (no Habits row); on a mobile viewport (412×915, matching `BottomNav`'s `md:hidden`
+  breakpoint), Quick Add's menu showed Mood/Symptom/Medication/More… (no Habit item), and tapping
+  "More…" opened the generic category-log dialog pre-populated with "Exercise". Screenshots
+  captured at each step. Both temporary processes and the worktree were torn down afterward.
+
+---

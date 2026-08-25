@@ -110,8 +110,8 @@ export function AdminCategoriesPage() {
       <main className="mx-auto max-w-2xl px-4 pt-8 pb-24 md:pb-8">
         <h1 className="text-2xl font-semibold text-text">Manage global categories</h1>
         <p className="mt-2 text-text-muted">
-          Categories created here become built-in for every user, alongside mood, symptoms,
-          medications and habits.
+          Categories created here become built-in for every user, alongside mood, symptoms, and
+          medications.
         </p>
 
         <div className="mt-6 rounded-2xl border border-border bg-surface p-6 shadow-sm">

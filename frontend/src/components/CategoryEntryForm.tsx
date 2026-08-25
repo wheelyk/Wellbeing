@@ -19,15 +19,14 @@ export interface CategoryLog {
 
 interface CategoryEntryFormProps {
   categories: Category[];
-  /** Pre-selects a just-created category (mirrors HabitEntryForm's initialHabitId). */
+  /** Pre-selects a just-created category. */
   initialCategoryId?: string | null;
   onSaved: (log: CategoryLog) => void;
   onCancel: () => void;
   /** Lets the user jump to "define a new category" without leaving this form entirely. */
   onAddCategory: () => void;
-  // Same create/edit dual-purpose shape as HabitEntryForm's editingLog - categoryId is immutable
-  // once a log exists (see backend's categoryLogs.ts updateSchema), so the picker is locked to
-  // editingLog's category while editing.
+  // categoryId is immutable once a log exists (see backend's categoryLogs.ts updateSchema), so
+  // the picker is locked to editingLog's category while editing.
   editingLog?: CategoryLog | null;
 }
 

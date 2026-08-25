@@ -293,3 +293,4 @@ useful for browsing what's gone wrong before, rather than looking something spec
 ### [Unify Mood, Symptom, and Habit into the Generic Category Model](docs/log/17-unify-mood-symptom-habit.md)
 
 - 2026-08-25 — Task 1: per-user system-category hiding
+- 2026-08-25 — Task 3: frontend Habit retirement

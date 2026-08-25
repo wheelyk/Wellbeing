@@ -23,8 +23,8 @@ function renderDashboard() {
 }
 
 // A composition-level guard, not a re-test of each section's own behavior (that's already
-// covered by MoodSection.test.tsx / HabitSection.test.tsx / etc). This exists specifically to
-// catch a regression in how DashboardPage wires the four sections together - e.g. a future edit
+// covered by MoodSection.test.tsx / CategorySection.test.tsx / etc). This exists specifically to
+// catch a regression in how DashboardPage wires its sections together - e.g. a future edit
 // accidentally dropping one section's import, or breaking NavBar - since nothing else in the
 // suite renders DashboardPage as a whole.
 describe("DashboardPage", () => {
@@ -32,16 +32,16 @@ describe("DashboardPage", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the nav, the dashboard summary, and all four log-type sections together", async () => {
-    // Every section fires its own fetch on mount; some (Habit, Medication, Symptom) fire two
+  it("renders the nav, the dashboard summary, and all log-type sections together", async () => {
+    // Every section fires its own fetch on mount; some (Medication, Symptom, Category) fire two
     // simultaneous calls via Promise.all, so mockImplementation is required here (not
     // mockResolvedValue) to give each call its own fresh, independently-readable Response -
     // see docs/log/08-git-github-workflow.md for why mockResolvedValue silently breaks this.
-    // DashboardSummary's GET /api/dashboard expects a differently-shaped object; the four
-    // *-logs endpoints (mood/symptom/medication/habit) are paginated ({entries, limit, offset,
+    // DashboardSummary's GET /api/dashboard expects a differently-shaped object; the *-logs
+    // endpoints (mood/symptom/medication/category) are paginated ({entries, limit, offset,
     // hasMore} - see backend/src/lib/pagination.ts) while their sibling list endpoints
-    // (/api/habits, /api/medications, /api/symptoms) are still plain arrays - both special-cased
-    // by URL here.
+    // (/api/categories, /api/medications, /api/symptoms) are still plain arrays - both
+    // special-cased by URL here.
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/api/dashboard")) {
         return Promise.resolve(
@@ -50,7 +50,6 @@ describe("DashboardPage", () => {
             mood: null,
             symptomCount: 0,
             medicationSummary: { taken: 0, total: 0 },
-            habitSummary: { loggedCount: 0, totalHabits: 0 },
             recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
             streak: { current: 0, daysLoggedThisWeek: 0 },
           }),
@@ -79,13 +78,13 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
 
     expect(screen.getByRole("button", { name: "Add mood entry" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add habit entry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add category entry" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add medication entry" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add symptom entry" })).toBeInTheDocument();
 
     expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
     expect(await screen.findByText("Recent mood entries")).toBeInTheDocument();
-    expect(await screen.findByText("Recent habit entries")).toBeInTheDocument();
+    expect(await screen.findByText("Your categories")).toBeInTheDocument();
     expect(await screen.findByText("Recent medications")).toBeInTheDocument();
     expect(await screen.findByText("Recent symptom entries")).toBeInTheDocument();
   });
@@ -99,7 +98,6 @@ describe("DashboardPage", () => {
             mood: null,
             symptomCount: 0,
             medicationSummary: { taken: 0, total: 0 },
-            habitSummary: { loggedCount: 0, totalHabits: 0 },
             recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
             streak: { current: 0, daysLoggedThisWeek: 0 },
           }),
@@ -144,7 +142,6 @@ describe("DashboardPage", () => {
               moodEnabled: true,
               symptomEnabled: true,
               medicationEnabled: false,
-              habitEnabled: true,
             },
             accessToken: "test-token",
           }),
@@ -157,7 +154,6 @@ describe("DashboardPage", () => {
             mood: null,
             symptomCount: 0,
             medicationSummary: { taken: 0, total: 0 },
-            habitSummary: { loggedCount: 0, totalHabits: 0 },
             recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
             streak: { current: 0, daysLoggedThisWeek: 0 },
           }),
@@ -176,7 +172,7 @@ describe("DashboardPage", () => {
     renderDashboard();
 
     expect(await screen.findByText("Recent mood entries")).toBeInTheDocument();
-    expect(screen.getByText("Recent habit entries")).toBeInTheDocument();
+    expect(screen.getByText("Your categories")).toBeInTheDocument();
     expect(screen.getByText("Recent symptom entries")).toBeInTheDocument();
     expect(screen.queryByText("Recent medications")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add medication entry" })).not.toBeInTheDocument();
@@ -185,6 +181,6 @@ describe("DashboardPage", () => {
     expect(screen.queryByRole("menuitem", { name: /medication/i })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /mood/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /symptom/i })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /habit/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /more/i })).toBeInTheDocument();
   });
 });
