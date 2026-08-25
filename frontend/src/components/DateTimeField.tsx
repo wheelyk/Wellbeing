@@ -5,8 +5,8 @@ interface DateTimeFieldProps {
   label?: string;
 }
 
-// A labeled `datetime-local` input - every entry form (Mood/Symptom/Medication/Habit) needs one
-// identically, to let a backfilled entry's date/time be edited directly rather than always
+// A labeled `datetime-local` input - every entry form (Mood/Symptom/Medication/Category) needs
+// one identically, to let a backfilled entry's date/time be edited directly rather than always
 // defaulting to "now." Satisfies the Phase 5 checklist's "DatePicker" reusable primitive: named
 // DateTimeField rather than DatePicker since every real usage edits both the date and the time,
 // never just the date - a native `<input type="datetime-local">` under the hood rather than a

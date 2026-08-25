@@ -58,7 +58,6 @@ interface UserProfile {
   moodEnabled: boolean;
   symptomEnabled: boolean;
   medicationEnabled: boolean;
-  habitEnabled: boolean;
 }
 
 // A deliberately short, curated list rather than the full ~400-zone IANA database
@@ -298,7 +297,6 @@ function AppearanceSection() {
 const TOGGLE_FIELD_BY_TARGET: Partial<Record<ReminderTarget, keyof CategoryToggles>> = {
   mood: "moodEnabled",
   symptom: "symptomEnabled",
-  habit: "habitEnabled",
   medication: "medicationEnabled",
 };
 
@@ -306,7 +304,6 @@ const TOGGLE_FIELD_LABEL: Record<keyof CategoryToggles, string> = {
   moodEnabled: "Mood",
   symptomEnabled: "Symptoms",
   medicationEnabled: "Medications",
-  habitEnabled: "Habits",
 };
 
 function reminderTargetLabel(reminder: Reminder): string {
@@ -317,8 +314,6 @@ function reminderTargetLabel(reminder: Reminder): string {
       return "Mood";
     case "symptom":
       return "Symptom";
-    case "habit":
-      return "Habits";
     case "medication":
       return reminder.medication
         ? reminder.medication.dosage
@@ -421,7 +416,6 @@ function RemindersSection() {
     moodEnabled: user?.moodEnabled ?? true,
     symptomEnabled: user?.symptomEnabled ?? true,
     medicationEnabled: user?.medicationEnabled ?? true,
-    habitEnabled: user?.habitEnabled ?? true,
   };
   const visibleCategoryIds = new Set(categories.map((c) => c.id));
   const hasEnabledReminder = reminders.some((r) => r.enabled);
@@ -586,8 +580,8 @@ function RemindersSection() {
           <>
             <p className="mb-4 text-sm text-text-muted">
               Get a notification if you haven't logged something yet by a time (or times) you choose
-              - one reminder for General, Mood, Symptom, or Habits, plus as many as you like for
-              specific medications or categories.
+              - one reminder for General, Mood, or Symptom, plus as many as you like for specific
+              medications or categories.
             </p>
             {rowError && (
               <p role="alert" className="mb-3 text-sm text-danger">
@@ -731,27 +725,26 @@ interface CategoryToggles {
   moodEnabled: boolean;
   symptomEnabled: boolean;
   medicationEnabled: boolean;
-  habitEnabled: boolean;
 }
 
 const DEFAULT_TOGGLES: CategoryToggles = {
   moodEnabled: true,
   symptomEnabled: true,
   medicationEnabled: true,
-  habitEnabled: true,
 };
 
 const TOGGLE_ITEMS: Array<{ key: keyof CategoryToggles; label: string; description: string }> = [
   { key: "moodEnabled", label: "Mood", description: "Daily mood check-ins." },
   { key: "symptomEnabled", label: "Symptoms", description: "Track symptom severity over time." },
   { key: "medicationEnabled", label: "Medications", description: "Log doses taken or missed." },
-  { key: "habitEnabled", label: "Habits", description: "Yes/no, numeric, or duration habits." },
 ];
 
-// Lets a user hide one of the four built-in categories from Dashboard/Quick Add without
-// touching anything already logged under it - placed above CategoriesSection (custom
-// categories), since both are ultimately about "what shows up to log," just for the built-in
-// four versus a user's own extensible ones.
+// Lets a user hide one of the three remaining built-in categories from Dashboard/Quick Add
+// without touching anything already logged under it - placed above CategoriesSection (custom
+// categories), since both are ultimately about "what shows up to log," just for these fixed
+// built-ins versus a user's own extensible ones. Habit had a fourth toggle here too until Phase
+// 17 folded it into Category - a former habit is now an ordinary personal category, hidden (via
+// archive) individually through CategoriesSection below, not a toggle of its own here.
 function BuiltInCategoriesSection() {
   const { updateUser } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -770,7 +763,6 @@ function BuiltInCategoriesSection() {
           moodEnabled: profile.moodEnabled ?? true,
           symptomEnabled: profile.symptomEnabled ?? true,
           medicationEnabled: profile.medicationEnabled ?? true,
-          habitEnabled: profile.habitEnabled ?? true,
         });
       })
       .catch(() => {
@@ -798,7 +790,6 @@ function BuiltInCategoriesSection() {
         moodEnabled: profile.moodEnabled ?? true,
         symptomEnabled: profile.symptomEnabled ?? true,
         medicationEnabled: profile.medicationEnabled ?? true,
-        habitEnabled: profile.habitEnabled ?? true,
       };
       setToggles(updated);
       // Keeps Dashboard/Quick Add/the summary line in sync immediately in this same session,
@@ -1195,8 +1186,8 @@ function CategoriesSection() {
     <SectionCard>
       <CollapsibleSection title="Categories" storageKey="settings.categories">
         <p className="mb-4 text-sm text-text-muted">
-          Beyond mood, symptoms, medications and habits, create your own trackable categories -
-          alongside any an admin has added for everyone.
+          Beyond mood, symptoms, and medications, create your own trackable categories - alongside
+          any an admin has added for everyone.
         </p>
         {user?.isAdmin && (
           <Link
@@ -1359,8 +1350,8 @@ function ExportDataSection() {
     <SectionCard>
       <CollapsibleSection title="Export your data" storageKey="settings.export">
         <p className="mb-4 text-sm text-text-muted">
-          Download every mood, symptom, medication, and habit entry you've logged - along with your
-          own symptom, medication, and habit definitions - as a single JSON file.
+          Download every mood, symptom, medication, and category entry you've logged - along with
+          your own symptom, medication, and category definitions - as a single JSON file.
         </p>
         <div className="flex flex-col gap-4">
           {exportError && (
@@ -1410,8 +1401,8 @@ function AccountDeletionSection() {
     <SectionCard>
       <CollapsibleSection title="Delete account" storageKey="settings.deleteAccount">
         <p className="mb-4 text-sm text-text-muted">
-          This permanently deletes your account and every symptom, mood, medication, and habit entry
-          you've logged. This can't be undone.
+          This permanently deletes your account and every symptom, mood, medication, and category
+          entry you've logged. This can't be undone.
         </p>
         <div className="flex flex-col gap-4">
           <TextField

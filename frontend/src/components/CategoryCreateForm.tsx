@@ -32,10 +32,10 @@ interface CategoryCreateFormProps {
   createEndpoint?: string;
 }
 
-// A small, focused "define a category" form - the same role HabitCreateForm plays for habits,
-// generalized to four value types (including the new "scale" type, a bounded picker generalizing
-// what Mood/Symptom already do with their own fixed scales) since a category isn't limited to
-// habit's original three.
+// A small, focused "define a category" form, supporting four value types (including "scale", a
+// bounded picker generalizing what Mood/Symptom already do with their own fixed scales) - a
+// former habit's three value types (boolean/numeric/duration) are a subset of these four, since
+// Habit unified into Category (see docs/log/17-unify-mood-symptom-habit.md).
 export function CategoryCreateForm({
   onCreated,
   onCancel,

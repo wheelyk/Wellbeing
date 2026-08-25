@@ -234,8 +234,8 @@ export function TrendsPage() {
             <section className="mt-6 rounded-2xl border border-border bg-surface p-6 shadow-sm">
               <CollapsibleSection storageKey="trends.activity" title="Activity">
                 <p className="text-sm text-text-muted">
-                  Days with any logged entry (symptoms, mood, medications, habits, or a custom
-                  category) over {PERIOD_LABELS[period]}.
+                  Days with any logged entry (symptoms, mood, medications, or a custom category)
+                  over {PERIOD_LABELS[period]}.
                 </p>
                 <ActivityCalendar days={data.activity.days} />
               </CollapsibleSection>

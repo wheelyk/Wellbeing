@@ -709,7 +709,7 @@ describe("SettingsPage — built-in categories", () => {
     vi.restoreAllMocks();
   });
 
-  it("loads the four toggles, all on by default", async () => {
+  it("loads the three toggles, all on by default", async () => {
     const fetchMock = routedFetchMock({
       "GET /api/users/me": () =>
         jsonResponse(200, {
@@ -717,7 +717,6 @@ describe("SettingsPage — built-in categories", () => {
           moodEnabled: true,
           symptomEnabled: true,
           medicationEnabled: true,
-          habitEnabled: true,
         }),
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -726,7 +725,6 @@ describe("SettingsPage — built-in categories", () => {
     expect(await screen.findByLabelText(/^mood$/i)).toBeChecked();
     expect(screen.getByLabelText(/^symptoms$/i)).toBeChecked();
     expect(screen.getByLabelText(/^medications$/i)).toBeChecked();
-    expect(screen.getByLabelText(/^habits$/i)).toBeChecked();
   });
 
   it("reflects a category that's already off", async () => {
@@ -737,7 +735,6 @@ describe("SettingsPage — built-in categories", () => {
           moodEnabled: true,
           symptomEnabled: true,
           medicationEnabled: false,
-          habitEnabled: true,
         }),
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -755,7 +752,6 @@ describe("SettingsPage — built-in categories", () => {
           moodEnabled: true,
           symptomEnabled: true,
           medicationEnabled: true,
-          habitEnabled: true,
         }),
       "PATCH /api/users/me": (init) => {
         const body = JSON.parse(init?.body as string);
@@ -785,7 +781,6 @@ describe("SettingsPage — built-in categories", () => {
       moodEnabled: true,
       symptomEnabled: true,
       medicationEnabled: false,
-      habitEnabled: true,
     });
   });
 });

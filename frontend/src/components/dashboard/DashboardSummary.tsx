@@ -11,7 +11,7 @@ interface MoodLog {
 }
 
 interface RecentEntry {
-  type: "mood" | "symptom" | "medication" | "habit" | "category";
+  type: "mood" | "symptom" | "medication" | "category";
   label: string;
   value: string;
   loggedAt: string;
@@ -33,7 +33,6 @@ interface DashboardSummaryData {
   mood: MoodLog | null;
   symptomCount: number;
   medicationSummary: { taken: number; total: number };
-  habitSummary: { loggedCount: number; totalHabits: number };
   recentEntries: RecentEntryPage;
   streak: { current: number; daysLoggedThisWeek: number };
 }
@@ -61,9 +60,9 @@ const ENTRY_TYPE_ICON: Record<RecentEntry["type"], string> = {
   mood: "🙂",
   symptom: "🩺",
   medication: "💊",
-  habit: "✅",
   // Fallback only - a category entry normally carries its own `icon` (see the render below),
-  // used only if that category was created with no icon set at all.
+  // used only if that category was created with no icon set at all. Every former habit's entries
+  // render through this same "category" branch now, not a dedicated "habit" icon.
   category: "⭐",
 };
 
@@ -92,15 +91,15 @@ function groupEntriesByDay(entries: RecentEntry[]): RecentEntryGroup[] {
 }
 
 // How often to silently re-fetch the summary while this card is on screen. This card and the
-// four Quick Add sections below it (MoodSection, HabitSection, MedicationSection,
-// SymptomSection) are siblings in DashboardPage, each entirely self-contained and owning its
-// own fetch/state (see their own files) - by design, per the existing "adding another log type
-// means adding a new file, not editing shared state" pattern already established before this
-// task. That means there's no shared store this card can subscribe to for "a new entry was just
-// saved" - dashboardEntryChangedEvent.ts (a DOM CustomEvent, the same mechanism
+// Quick Add sections below it (MoodSection, MedicationSection, SymptomSection, CategorySection)
+// are siblings in DashboardPage, each entirely self-contained and owning its own fetch/state (see
+// their own files) - by design, per the existing "adding another log type means adding a new
+// file, not editing shared state" pattern already established before this task. That means
+// there's no shared store this card can subscribe to for "a new entry was just saved" -
+// dashboardEntryChangedEvent.ts (a DOM CustomEvent, the same mechanism
 // dashboardQuickAddEvent.ts already uses for the opposite direction) now covers the common case
 // instantly (see the listener registered below), without needing a shared store or lifting state
-// into any of those four components. This interval remains as the fallback for everything that
+// into any of those three components. This interval remains as the fallback for everything that
 // event can't see - another tab, another device, or a session resuming after being backgrounded
 // long enough to miss the dispatch - so staleness is bounded at POLL_INTERVAL_MS even then.
 const POLL_INTERVAL_MS = 10_000;
@@ -108,21 +107,22 @@ const POLL_INTERVAL_MS = 10_000;
 interface DashboardSummaryProps {
   // Whether each built-in category is currently on (Settings > Built-in categories) - all
   // default true, matching every existing call site (and every test rendering this component
-  // with no props) so today's "show all four" summary line is unchanged unless a caller
+  // with no props) so today's "show all three" summary line is unchanged unless a caller
   // explicitly says otherwise. Only affects which clauses appear in the summary line below -
   // the underlying dashboard data (streak, recent entries) is unaffected by these, since
-  // disabling a category never hides history that already exists.
+  // disabling a category never hides history that already exists. Habit had a fourth clause/
+  // toggle here too until Phase 17 folded it into Category - a former habit's activity is
+  // reflected in the streak/recent-entries data like any other category, just with no summary
+  // clause of its own.
   moodEnabled?: boolean;
   symptomEnabled?: boolean;
   medicationEnabled?: boolean;
-  habitEnabled?: boolean;
 }
 
 export function DashboardSummary({
   moodEnabled = true,
   symptomEnabled = true,
   medicationEnabled = true,
-  habitEnabled = true,
 }: DashboardSummaryProps = {}) {
   const [data, setData] = useState<DashboardSummaryData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -234,18 +234,22 @@ export function DashboardSummary({
     );
   }
 
+  // Deliberately just these three, not "any category logged today" too - unlike mood/symptomCount/
+  // medicationSummary above, the dashboard response has no bounded-to-today category count to
+  // check (recentEntries is the N most recent entries overall, not scoped to today, so treating
+  // "a category shows up in recentEntries" as "logged today" would be wrong for anything older).
   const hasLoggedAnything =
-    data.mood !== null ||
-    data.symptomCount > 0 ||
-    data.medicationSummary.total > 0 ||
-    data.habitSummary.loggedCount > 0;
+    data.mood !== null || data.symptomCount > 0 || data.medicationSummary.total > 0;
 
-  // Built one clause per still-enabled category, in the same fixed Mood/Symptoms/Medications/
-  // Habits order the line has always used - a disabled category's clause is omitted outright,
-  // not shown as zero, since it isn't offered for logging today at all. If every category
-  // happens to be disabled while `hasLoggedAnything` is still true (stale data logged before a
-  // toggle was flipped off), falling through to the friendly empty-state message below reads
-  // better than an empty summary line.
+  // Built one clause per still-enabled built-in, in the same fixed Mood/Symptoms/Medications
+  // order the line has always used - a disabled category's clause is omitted outright, not shown
+  // as zero, since it isn't offered for logging today at all. If every category happens to be
+  // disabled while `hasLoggedAnything` is still true (stale data logged before a toggle was
+  // flipped off), falling through to the friendly empty-state message below reads better than an
+  // empty summary line. Habits had a fourth clause here too until Phase 17 folded Habit into
+  // Category - a former habit's today-status now surfaces in the Recent entries list below like
+  // any other category, not as a summary clause of its own (there being no fixed, bounded set of
+  // categories to summarize into one "X/Y logged" count the way the four original built-ins had).
   const summaryParts: string[] = [];
   if (moodEnabled) {
     summaryParts.push(`Mood: ${data.mood ? `${data.mood.mood}/5` : "Not logged yet"}`);
@@ -256,11 +260,6 @@ export function DashboardSummary({
   if (medicationEnabled) {
     summaryParts.push(
       `Medications: ${data.medicationSummary.taken}/${data.medicationSummary.total} taken`,
-    );
-  }
-  if (habitEnabled) {
-    summaryParts.push(
-      `Habits: ${data.habitSummary.loggedCount}/${data.habitSummary.totalHabits} logged`,
     );
   }
 

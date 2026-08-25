@@ -400,7 +400,7 @@ Medication is explicitly out of scope - it stays its own model.
   reminders are deleted, not migrated - confirmed drop-and-reconfigure precedent from Phase 16).
 
 ### Task 3 — Frontend: Habit retirement
-- [ ] Deletes `HabitCreateForm.tsx`/`HabitEntryForm.tsx`/`HabitSection.tsx` (already covered by
+- [x] Deletes `HabitCreateForm.tsx`/`HabitEntryForm.tsx`/`HabitSection.tsx` (already covered by
   `CategoryCreateForm.tsx`/`CategoryEntryForm.tsx`/`CategorySection.tsx`). Removes `habitEnabled`
   from `AuthUser`/`SettingsPage.tsx`/Dashboard gating - no replacement toggle needed, since a
   former habit is now an ordinary personal category a user can archive individually.

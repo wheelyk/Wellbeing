@@ -25,13 +25,14 @@ export interface AuthUser {
   // Gates RequireAdmin.tsx and the admin-only link in Settings.
   isAdmin: boolean;
   // Lets a user hide a built-in category from Dashboard/Quick Add without touching data already
-  // logged under it (see backend's schema.prisma comment on these same four columns). All default
-  // true, so treat a missing value the same as true rather than false - see DashboardPage.tsx's
-  // own `?? true` reads of these.
+  // logged under it (see backend's schema.prisma comment on these columns). All default true, so
+  // treat a missing value the same as true rather than false - see DashboardPage.tsx's own
+  // `?? true` reads of these. Habit had its own toggle here too until Phase 17 folded it into
+  // Category - a former habit is now an ordinary personal category, archived individually rather
+  // than gated by a whole-type toggle.
   moodEnabled: boolean;
   symptomEnabled: boolean;
   medicationEnabled: boolean;
-  habitEnabled: boolean;
 }
 
 interface AuthState {
