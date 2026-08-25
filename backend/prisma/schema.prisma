@@ -47,6 +47,7 @@ model User {
   categories        Category[]
   categoryLogs      CategoryLog[]
   reminders         Reminder[]
+  hiddenCategories  HiddenCategory[]
 
   @@map("users")
 }
@@ -264,32 +265,58 @@ enum CategoryValueType {
 // established: null = a system-wide category (created only via the admin-only routes, visible
 // to every user), set = a user's own personal category, visible only to them.
 model Category {
-  id        String            @id @default(uuid())
-  userId    String?           @map("user_id")
-  name      String
-  icon      String?
-  valueType CategoryValueType @map("value_type")
+  id          String            @id @default(uuid())
+  userId      String?           @map("user_id")
+  name        String
+  icon        String?
+  // Optional freeform text about what this category is for - not used by any built-in category
+  // yet, but gives a home to context a category's own name doesn't capture on its own (e.g. what
+  // "Joint pain" specifically refers to for this user).
+  description String?
+  valueType   CategoryValueType @map("value_type")
   // Only meaningful when valueType is SCALE - enforced in application code (see
   // routes/categories.ts and categoryLogs.ts), the same choice Symptom/Habit already made for
   // their own type-conditional fields rather than a DB CHECK constraint.
-  scaleMin  Int?              @map("scale_min")
-  scaleMax  Int?              @map("scale_max")
+  scaleMin    Int?              @map("scale_min")
+  scaleMax    Int?              @map("scale_max")
   // Archiving (not deleting) is this model's primary "remove" action - a system category used by
   // even one user would otherwise become permanently undeletable the moment CategoryLog's
   // Restrict relation (below) kicks in, which is fine for a personal mistake but not for an admin
   // wanting to retire a bad built-in. Excluded from default listings; a log against an archived
   // category still resolves it by id in History, exactly like any other now-hidden reference.
-  archivedAt DateTime?        @map("archived_at")
-  createdAt DateTime          @default(now()) @map("created_at")
+  archivedAt  DateTime?         @map("archived_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
 
-  user      User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
   logs      CategoryLog[]
   reminders Reminder[]
+  hiddenBy  HiddenCategory[]
 
   // Every "list my categories" query (GET /api/categories) filters on userId (including the
   // NULL case for system categories), the same reasoning as Symptom's own index.
   @@index([userId])
   @@map("categories")
+}
+
+// A per-user "don't show me this system category" preference - the tool for a category a user
+// didn't create and can't archive themselves (a system-wide category, userId null). A user's own
+// personal category has no need for this at all: archiving (Category.archivedAt above) already
+// does the job, since they own it. Unlike CategoryLog, this has no historical value of its own -
+// deleting the user or the category itself should just make the preference disappear along with
+// it, so both FKs cascade.
+model HiddenCategory {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  categoryId String   @map("category_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  // A user can only hide a given category once - re-hiding an already-hidden one is a harmless
+  // no-op at the application layer (see routes/categories.ts), not a distinct row.
+  @@unique([userId, categoryId])
+  @@map("hidden_categories")
 }
 
 model CategoryLog {
@@ -307,7 +334,7 @@ model CategoryLog {
   notes    String?
   loggedAt DateTime @default(now()) @map("logged_at") @db.Timestamptz(3)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   // No onDelete: Cascade from Category - same reasoning as SymptomLog -> Symptom: deleting a
   // category (rather than archiving it) shouldn't silently destroy a user's historical logs
   // against it. Restrict is the safety net for the genuine zero-logs accidental-delete case;
@@ -359,14 +386,14 @@ model Reminder {
   // as several fixed times (e.g. ["09:00","12:00","15:00"]) without any real recurring-interval
   // logic - confirmed directly with the user that fixed times are the whole point, not true
   // intervals.
-  times     String[]
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
+  times        String[]
+  enabled      Boolean        @default(true)
+  createdAt    DateTime       @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Cascade: mirrors Medication's own real hard-delete (MedicationLog also cascades from it) -
   // a reminder about a medication that no longer exists has nothing left to be about.
-  medication Medication? @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  medication Medication?    @relation(fields: [medicationId], references: [id], onDelete: Cascade)
   // Restrict, not Cascade - and not left as the bare default either: for an *optional* scalar
   // relation like this one (categoryId is nullable), Prisma's actual unspecified-onDelete default
   // is SetNull, not Restrict (Restrict is only the implicit default for a *required* relation,
@@ -379,8 +406,8 @@ model Reminder {
   // archivedAt), and archiving a category explicitly sets enabled: false on every Reminder
   // targeting it (see categories.ts/adminCategories.ts) - "stop acting on it" rather than relying
   // on a delete path that doesn't really happen.
-  category Category? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  sends    ReminderSend[]
+  category   Category?      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  sends      ReminderSend[]
 
   // Every "list my reminders" query (GET /api/reminders) filters by user; the scheduler's own
   // tick queries "every enabled reminder" across all users, so no separate userId-only index is

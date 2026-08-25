@@ -289,3 +289,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-24 — Task 3: frontend built-in category toggles
 - 2026-08-24 — Task 4: Medications management (closes a pre-existing gap)
 - 2026-08-24 — Task 5: reminders management rewrite
+
+### [Unify Mood, Symptom, and Habit into the Generic Category Model](docs/log/17-unify-mood-symptom-habit.md)
+
+- 2026-08-25 — Task 1: per-user system-category hiding

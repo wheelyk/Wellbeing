@@ -333,8 +333,9 @@ untouched by any of this.
 
 ## Phase 16 — Built-in Category Toggles + Per-Target Reminders (post-MVP)
 
-Reference: [C:\Users\wheel\.claude\plans\cheeky-hatching-volcano.md](C:\Users\wheel\.claude\plans\cheeky-hatching-volcano.md) —
-"Built-in Category Toggles + Per-Target Reminders." Confirmed directly with the project owner:
+Reference: [docs/log/16-reminders-and-category-toggles.md](docs/log/16-reminders-and-category-toggles.md)
+(the original planning-session plan file this pointed to has since been reused for Phase 17 below -
+the docs log entry is the durable record). Confirmed directly with the project owner:
 the one existing single-reminder account is not auto-migrated (the old columns are just dropped);
 fixed times, not real recurring-interval logic, is the whole point of "multiple times per day."
 
@@ -372,6 +373,64 @@ fixed times, not real recurring-interval logic, is the whole point of "multiple 
   another time" input list) - the existing push-subscription gesture-preservation logic in
   `pushNotifications.ts` is reused unchanged, just re-triggered by "first enabled reminder
   created" / "last enabled reminder disabled or deleted" instead of one checkbox.
+
+---
+
+## Phase 17 — Unify Mood, Symptom, and Habit into the Generic Category Model (post-MVP)
+
+Reference: [C:\Users\wheel\.claude\plans\cheeky-hatching-volcano.md](C:\Users\wheel\.claude\plans\cheeky-hatching-volcano.md) —
+"Unify Mood, Symptom, and Habit into the Generic Category Model." Confirmed directly with the
+project owner: Mood splits into three independent system categories (Mood/Energy/Stress, each
+logged separately) rather than adding a compound-value mechanism to Category; Habit adopts
+Category's archive-not-delete pattern (a real behavior change from today's cascade-delete).
+Medication is explicitly out of scope - it stays its own model.
+
+### Task 1 — Backend: per-user system-category hiding
+- [x] New `Category.description` field (also gives `Symptom.description` a home once migrated).
+  New `HiddenCategory(userId, categoryId)` join table, cascade FKs both ways. `GET /api/categories`
+  excludes hidden categories; new `POST`/`DELETE /api/categories/:id/hide`, scoped to system
+  categories only (a personal category is archived, not hidden).
+
+### Task 2 — Backend: Habit → Category
+- [ ] Hand-written migration copying `habits`/`habit_logs` into `categories`/`category_logs`
+  (column shapes already match 1:1), then dropping the old tables/enum. Deletes `habits.ts`/
+  `habitLogs.ts`/`lib/habitType.ts`. Folds `dashboard.ts`/`history.ts`/`export.ts` into the
+  already-generic Category paths (also closes the pre-existing gap that `export.ts` omits
+  Category/CategoryLog entirely). Drops the `HABIT` reminder target (existing `HABIT`-target
+  reminders are deleted, not migrated - confirmed drop-and-reconfigure precedent from Phase 16).
+
+### Task 3 — Frontend: Habit retirement
+- [ ] Deletes `HabitCreateForm.tsx`/`HabitEntryForm.tsx`/`HabitSection.tsx` (already covered by
+  `CategoryCreateForm.tsx`/`CategoryEntryForm.tsx`/`CategorySection.tsx`). Removes `habitEnabled`
+  from `AuthUser`/`SettingsPage.tsx`/Dashboard gating - no replacement toggle needed, since a
+  former habit is now an ordinary personal category a user can archive individually.
+
+### Task 4 — Backend: Symptom → Category
+- [ ] Migration maps `severity` (1-10) onto `CategoryLog.valueNumeric` with `scaleMin`/`scaleMax`
+  fixed at 1/10, carries `description` across, preserves `userId` nullability as-is (system vs.
+  personal). Deletes `symptoms.ts`/`symptomLogs.ts` - closes the pre-existing "no admin route for
+  Symptom" gap for free via the already-generic `adminCategories.ts`. Drops the `SYMPTOM` reminder
+  target (same drop-and-reconfigure precedent).
+
+### Task 5 — Frontend: Symptom retirement
+- [ ] Deletes `SymptomEntryForm.tsx` (including its inlined "add a symptom" flow - superseded by
+  `CategoryCreateForm.tsx`) and `SymptomSection.tsx`. Adds the per-row Hide/Unhide action to
+  `CategoriesSection` (using Task 1's endpoints) - this is what actually replaces `symptomEnabled`
+  for the 8 former-system-symptoms.
+
+### Task 6 — Backend: Mood → Category (Mood/Energy/Stress)
+- [ ] Creates three new system categories (Mood 1-5, Energy 1-7, Stress 1-7). Migration splits
+  each `MoodLog` row into up to 3 `CategoryLog` rows sharing one `loggedAt` - `notes` carried only
+  on the Mood-value row (not duplicated 3x). Deletes `moodLogs.ts`. Migrates (not drops) any
+  existing `MOOD`-target reminder to a `CATEGORY`-target reminder pointing at the new Mood
+  category - the one deliberate exception to drop-and-reconfigure, since there's exactly one
+  unambiguous destination.
+
+### Task 7 — Frontend: Mood retirement
+- [ ] Deletes `MoodEntryForm.tsx`/`MoodSection.tsx`. Reduces `DashboardSummary`'s top line to just
+  the Medications clause (the only one left once Mood/Symptom/Habit are gone). Folds
+  `BuiltInCategoriesSection` into a single Medication checkbox inside `MedicationsSection`, since
+  it no longer has anything else to toggle.
 
 ---
 
