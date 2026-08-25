@@ -470,6 +470,22 @@ had for free (an admin route, a description field, per-user hiding).
   net of the two deleted Symptom-specific test files and the tests converted/added in their
   place).
 - `npx tsc --noEmit`, `npm run build`, `npx eslint .`, `npx prettier --check .`: all clean.
+- **A real gap this local verification missed, caught by CI**: `prisma/seed.ts` (the script that
+  seeds the 8 system symptoms into a fresh database) still called `prisma.symptom.create` -
+  `tsc --noEmit` doesn't catch this, since `backend/tsconfig.json`'s `include` is `["src"]` only,
+  and `prisma/seed.ts` lives outside it (`ts-node` compiles it directly when actually run,
+  bypassing that same `include` restriction). The shared local dev database this task's other
+  verification ran against had already been migrated mid-development, so `npx prisma db seed`
+  never got exercised against it in a way that would have surfaced this. CI's own fresh-database
+  e2e job did exercise it, and failed immediately with `TSError: Property 'symptom' does not exist
+  on type 'PrismaClient'` - a real, useful catch. Fixed by seeding the same 8 rows as `SCALE`
+  (1-10) categories instead (`prisma.category.create`, `userId: null`), matching exactly how the
+  migration itself maps a `Symptom` onto `Category`; re-verified by running `npx prisma db seed`
+  directly against the local dev database (idempotent no-op there, since it already has all 8 from
+  the migration) and by the full backend suite staying green afterward. The genuine fresh-database
+  create path itself is what CI's own re-run (after this fix) proves, not something this local
+  environment could independently confirm without disturbing the shared dev database's existing
+  rows.
 - See Task 5's own entry below for the combined manual/real-browser verification pass, done once
   the frontend fix was merged into this same branch (same reasoning as Task 2/3: this migration
   alone, without Task 5, would crash the live Dashboard the same way Task 2 alone did before Task 3
