@@ -406,7 +406,7 @@ Medication is explicitly out of scope - it stays its own model.
   former habit is now an ordinary personal category a user can archive individually.
 
 ### Task 4 — Backend: Symptom → Category
-- [ ] Migration maps `severity` (1-10) onto `CategoryLog.valueNumeric` with `scaleMin`/`scaleMax`
+- [x] Migration maps `severity` (1-10) onto `CategoryLog.valueNumeric` with `scaleMin`/`scaleMax`
   fixed at 1/10, carries `description` across, preserves `userId` nullability as-is (system vs.
   personal). Deletes `symptoms.ts`/`symptomLogs.ts` - closes the pre-existing "no admin route for
   Symptom" gap for free via the already-generic `adminCategories.ts`. Drops the `SYMPTOM` reminder

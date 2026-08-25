@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma";
 import type { CategoryValueType as PrismaCategoryValueType } from "../generated/prisma/client";
 import { getDayRangeUtc } from "../lib/timezone";
 
-const HISTORY_TYPES = ["mood", "symptom", "medication", "category"] as const;
+const HISTORY_TYPES = ["mood", "medication", "category"] as const;
 type HistoryType = (typeof HISTORY_TYPES)[number];
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -116,16 +116,15 @@ historyRouter.get("/", async (req, res) => {
   const wantsType = (t: HistoryType) => !type || type === t;
 
   // Pagination strategy (see IMPLEMENTATION_LOG.md's history entry for the full write-up):
-  // offset-based, applied *after* merging four independently-sorted per-type queries rather
-  // than a single SQL query, since mood/symptom/medication/habit logs live in four separate
-  // tables with no shared "all entries" table to page over directly. Each table is queried
-  // for its own `desc` order and capped at `offset + limit + 1` rows - enough for the merge
-  // below to produce a correct top-(offset+limit) result (a standard k-way merge of sorted
-  // streams), with the "+1" specifically so `hasMore` can be computed exactly rather than
-  // guessed at.
+  // offset-based, applied *after* merging three independently-sorted per-type queries rather
+  // than a single SQL query, since mood/medication/category logs live in three separate tables
+  // with no shared "all entries" table to page over directly. Each table is queried for its own
+  // `desc` order and capped at `offset + limit + 1` rows - enough for the merge below to produce
+  // a correct top-(offset+limit) result (a standard k-way merge of sorted streams), with the "+1"
+  // specifically so `hasMore` can be computed exactly rather than guessed at.
   const fetchCap = offset + limit + 1;
 
-  const [moodLogs, symptomLogs, medicationLogs, categoryLogs] = await Promise.all([
+  const [moodLogs, medicationLogs, categoryLogs] = await Promise.all([
     wantsType("mood")
       ? prisma.moodLog.findMany({
           where: { userId, ...dateFilter },
@@ -136,19 +135,6 @@ historyRouter.get("/", async (req, res) => {
           // the first place - the tiebreak needs to happen at the query level too.
           orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
           take: fetchCap,
-        })
-      : Promise.resolve([]),
-    wantsType("symptom")
-      ? prisma.symptomLog.findMany({
-          where: { userId, ...dateFilter },
-          // `id` as a secondary sort key - see moodLogs.ts's identical `orderBy` for why this
-          // matters. The in-memory merge below already breaks loggedAt ties by id for the
-          // *final* ordering, but that alone doesn't help if the DB-level `take: fetchCap` cutoff
-          // itself non-deterministically chose *which* tied rows survived to reach that merge in
-          // the first place - the tiebreak needs to happen at the query level too.
-          orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
-          take: fetchCap,
-          include: { symptom: true },
         })
       : Promise.resolve([]),
     wantsType("medication")
@@ -184,13 +170,6 @@ historyRouter.get("/", async (req, res) => {
       id: log.id,
       type: "mood" as const,
       label: moodLabel(log),
-      notes: log.notes,
-      loggedAt: log.loggedAt.toISOString(),
-    })),
-    ...symptomLogs.map((log) => ({
-      id: log.id,
-      type: "symptom" as const,
-      label: `${log.symptom.name} — Severity ${log.severity}/10`,
       notes: log.notes,
       loggedAt: log.loggedAt.toISOString(),
     })),

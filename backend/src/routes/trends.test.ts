@@ -64,7 +64,6 @@ describe("GET /api/trends", () => {
       expect(res.body.days).toHaveLength(expectedDays);
       expect(res.body.endDate).toBe(todayInTimezone("UTC"));
       expect(res.body.startDate).toBe(addDaysToDateStr(res.body.endDate, -(expectedDays - 1)));
-      expect(res.body.symptomSeverity.series).toHaveLength(expectedDays);
       expect(res.body.mood.series).toHaveLength(expectedDays);
       expect(res.body.activity.days).toHaveLength(expectedDays);
     },
@@ -75,42 +74,17 @@ describe("GET /api/trends", () => {
     const res = await request(app).get("/api/trends").set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.symptomSeverity.average).toBeNull();
     expect(res.body.mood.average).toBeNull();
-    expect(
-      res.body.symptomSeverity.series.every((p: { average: null }) => p.average === null),
-    ).toBe(true);
     expect(res.body.mood.series.every((p: { average: null }) => p.average === null)).toBe(true);
     expect(
       res.body.activity.days.every((d: { hasActivity: boolean }) => d.hasActivity === false),
     ).toBe(true);
   });
 
-  it("computes per-day averages and an overall period average for symptom severity and mood", async () => {
+  it("computes per-day averages and an overall period average for mood", async () => {
     const { accessToken } = await registerAndLogin("averages");
     const today = todayInTimezone("UTC");
     const yesterday = addDaysToDateStr(today, -1);
-
-    const symptomRes = await request(app)
-      .post("/api/symptoms")
-      .set(authed(accessToken))
-      .send({ name: "Headache" });
-
-    // Two severity logs on the same day (average to 6) and one on a different day (severity 2) -
-    // overall average across all three individual logs is (4 + 8 + 2) / 3, not a mean-of-daily-
-    // averages, per the route's documented weighting choice.
-    await request(app)
-      .post("/api/symptom-logs")
-      .set(authed(accessToken))
-      .send({ symptomId: symptomRes.body.id, severity: 4, loggedAt: `${today}T09:00:00.000Z` });
-    await request(app)
-      .post("/api/symptom-logs")
-      .set(authed(accessToken))
-      .send({ symptomId: symptomRes.body.id, severity: 8, loggedAt: `${today}T14:00:00.000Z` });
-    await request(app)
-      .post("/api/symptom-logs")
-      .set(authed(accessToken))
-      .send({ symptomId: symptomRes.body.id, severity: 2, loggedAt: `${yesterday}T09:00:00.000Z` });
 
     await request(app)
       .post("/api/mood-logs")
@@ -127,20 +101,70 @@ describe("GET /api/trends", () => {
       .set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.symptomSeverity.average).toBeCloseTo((4 + 8 + 2) / 3);
     expect(res.body.mood.average).toBeCloseTo((3 + 5) / 2);
+  });
 
-    const todayPoint = res.body.symptomSeverity.series.find(
-      (p: { date: string }) => p.date === today,
+  // Regression test: a migrated symptom (Phase 17 - see docs/log/17-unify-mood-symptom-habit.md)
+  // is just a SCALE category now, so its own per-day/overall averaging has to flow through the
+  // same generic categoryTrends computation every other numeric/scale category uses - this is
+  // the multi-log-per-day weighting scenario the old dedicated symptomSeverity computation used
+  // to cover on its own, ported onto categoryTrends instead of being lost in the migration.
+  it("computes per-day averages and an overall period average for a scale category, weighted by individual logs not daily means", async () => {
+    const { accessToken } = await registerAndLogin("category-averages");
+    const today = todayInTimezone("UTC");
+    const yesterday = addDaysToDateStr(today, -1);
+
+    const symptomRes = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Headache", valueType: "scale", scaleMin: 1, scaleMax: 10 });
+
+    // Two logs on the same day (average to 6) and one on a different day (severity 2) - overall
+    // average across all three individual logs is (4 + 8 + 2) / 3, not a mean-of-daily-averages,
+    // per the route's documented weighting choice.
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({
+        categoryId: symptomRes.body.id,
+        valueNumeric: 4,
+        loggedAt: `${today}T09:00:00.000Z`,
+      });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({
+        categoryId: symptomRes.body.id,
+        valueNumeric: 8,
+        loggedAt: `${today}T14:00:00.000Z`,
+      });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({
+        categoryId: symptomRes.body.id,
+        valueNumeric: 2,
+        loggedAt: `${yesterday}T09:00:00.000Z`,
+      });
+
+    const res = await request(app)
+      .get("/api/trends")
+      .query({ period: "7d" })
+      .set(authed(accessToken));
+
+    expect(res.status).toBe(200);
+    const trend = res.body.categoryTrends.find(
+      (t: { categoryId: string }) => t.categoryId === symptomRes.body.id,
     );
-    const yesterdayPoint = res.body.symptomSeverity.series.find(
-      (p: { date: string }) => p.date === yesterday,
-    );
+    expect(trend.average).toBeCloseTo((4 + 8 + 2) / 3);
+
+    const todayPoint = trend.series.find((p: { date: string }) => p.date === today);
+    const yesterdayPoint = trend.series.find((p: { date: string }) => p.date === yesterday);
     expect(todayPoint).toMatchObject({ average: 6, count: 2 });
     expect(yesterdayPoint).toMatchObject({ average: 2, count: 1 });
   });
 
-  it("marks a day active in the activity map for any of the four log types", async () => {
+  it("marks a day active in the activity map for any of the three log types", async () => {
     const { accessToken } = await registerAndLogin("activity");
     const today = todayInTimezone("UTC");
     const loggedAt = `${today}T09:00:00.000Z`;
@@ -310,8 +334,13 @@ describe("GET /api/trends", () => {
       .set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.categoryTrends).toHaveLength(1);
-    const trend = res.body.categoryTrends[0];
+    // Not a plain length assertion - the shared system category list (including every migrated
+    // symptom - see docs/log/17-unify-mood-symptom-habit.md) also contributes SCALE entries to
+    // every user's own categoryTrends, so this looks up this test's own category specifically
+    // rather than assuming it's the only one present.
+    const trend = res.body.categoryTrends.find(
+      (t: { categoryId: string }) => t.categoryId === scaleCategory.body.id,
+    );
     expect(trend).toMatchObject({
       categoryId: scaleCategory.body.id,
       name: "Energy level",

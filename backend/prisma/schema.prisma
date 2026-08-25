@@ -26,24 +26,23 @@ model User {
   resetTokenHash      String?   @map("reset_token_hash")
   resetTokenExpiresAt DateTime? @map("reset_token_expires_at")
 
-  // Lets a user hide a built-in category (Mood/Symptom/Medication) from Dashboard/Quick Add
-  // without touching any data already logged under it - the toggle-off direction explored
-  // alongside the custom-Category feature and shipped here as a follow-up. All default true so
-  // every existing account keeps today's behavior unchanged. Turning one off also disables (not
-  // deletes) any Reminder targeting that category - see routes/users.ts's PATCH /me.
+  // Lets a user hide a built-in category (Mood/Medication) from Dashboard/Quick Add without
+  // touching any data already logged under it - the toggle-off direction explored alongside the
+  // custom-Category feature and shipped here as a follow-up. All default true so every existing
+  // account keeps today's behavior unchanged. Turning one off also disables (not deletes) any
+  // Reminder targeting that category - see routes/users.ts's PATCH /me.
   //
-  // habitEnabled (Phase 16) was removed when Habit unified into Category (Phase 17) - a former
-  // habit is now an ordinary personal category, individually archivable like any other, so no
-  // whole-type toggle is needed for it anymore. See docs/log/17-unify-mood-symptom-habit.md.
+  // habitEnabled (Phase 16) and symptomEnabled (Phase 17) were both removed once Habit/Symptom
+  // unified into Category - a former habit is an ordinary personal category (individually
+  // archivable, no whole-type toggle needed); a former symptom is a system-or-personal category a
+  // user hides per-row via HiddenCategory instead of one blunt toggle for all of them. See
+  // docs/log/17-unify-mood-symptom-habit.md.
   moodEnabled       Boolean @default(true) @map("mood_enabled")
-  symptomEnabled    Boolean @default(true) @map("symptom_enabled")
   medicationEnabled Boolean @default(true) @map("medication_enabled")
 
   moodLogs          MoodLog[]
   medications       Medication[]
   medicationLogs    MedicationLog[]
-  symptoms          Symptom[]
-  symptomLogs       SymptomLog[]
   pushSubscriptions PushSubscription[]
   categories        Category[]
   categoryLogs      CategoryLog[]
@@ -134,63 +133,14 @@ model MedicationLog {
   @@map("medication_logs")
 }
 
-// A symptom a user can log against. `userId` is nullable specifically to represent two
-// different kinds of row in the same table: a system-default symptom (e.g. "Headache",
-// seeded once, available to every user, `userId` null) versus a user's own custom symptom
-// (e.g. "Joint pain," `userId` set to whoever created it). Every symptom-log write must
-// verify the symptom it references is one of these two cases for the calling user -
-// enforced in the symptom-logs routes, not here at the schema level.
-model Symptom {
-  id          String   @id @default(uuid())
-  userId      String?  @map("user_id")
-  name        String
-  description String?
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  // onDelete: Cascade here means deleting a user also deletes any custom symptoms they
-  // created - consistent with the account-deletion requirement (Phase 2) that removing a
-  // user removes everything they own. System symptoms (userId null) have no user row to
-  // cascade from, so they're unaffected by any user's deletion.
-  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  symptomLogs SymptomLog[]
-
-  // Every "list my symptoms" query (GET /api/symptoms) filters on userId (including the
-  // NULL case for system symptoms), so this index keeps that lookup fast as the symptom
-  // list grows across many users.
-  @@index([userId])
-  @@map("symptoms")
-}
-
-model SymptomLog {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  symptomId String   @map("symptom_id")
-  severity  Int
-  notes     String?
-  loggedAt  DateTime @default(now()) @map("logged_at") @db.Timestamptz(3)
-
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // No onDelete: Cascade from Symptom - a symptom (especially a user's own custom one)
-  // being deleted shouldn't silently destroy the user's historical severity logs against
-  // it. Restrict is Prisma's default for a relation with no onDelete specified, and it's
-  // the right choice here: deleting a symptom that still has logs against it fails at the
-  // database level rather than either cascading (losing history) or leaving orphaned rows.
-  symptom Symptom @relation(fields: [symptomId], references: [id])
-
-  // Same reasoning as MoodLog's composite index: every dashboard/history/trends query
-  // filters by user and orders/ranges by date together.
-  @@index([userId, loggedAt])
-  @@map("symptom_logs")
-}
-
 // A category's `valueType` decides which single column on CategoryLog is expected to be
 // populated - BOOLEAN/NUMERIC/DURATION (the same three the now-retired Habit model used to have,
 // before it unified into Category - see docs/log/17-unify-mood-symptom-habit.md), plus SCALE: a
-// bounded 1-N picker (see Category.scaleMin/scaleMax) generalizing what Mood/Symptom still do
-// with their own fixed scales, as of this writing. SCALE shares NUMERIC's storage column
-// (valueNumeric) - the two differ only in whether a min/max bound is enforced at write time, not
-// in how the value itself is stored.
+// bounded 1-N picker (see Category.scaleMin/scaleMax) generalizing what Mood still does, and what
+// the now-retired Symptom model used to do with its own fixed 1-10 severity scale before it too
+// unified into Category. SCALE shares NUMERIC's storage column (valueNumeric) - the two differ
+// only in whether a min/max bound is enforced at write time, not in how the value itself is
+// stored.
 enum CategoryValueType {
   BOOLEAN
   NUMERIC
@@ -215,8 +165,7 @@ model Category {
   description String?
   valueType   CategoryValueType @map("value_type")
   // Only meaningful when valueType is SCALE - enforced in application code (see
-  // routes/categories.ts and categoryLogs.ts), the same choice Symptom already makes for its own
-  // type-conditional fields rather than a DB CHECK constraint.
+  // routes/categories.ts and categoryLogs.ts) rather than a DB CHECK constraint.
   scaleMin    Int?              @map("scale_min")
   scaleMax    Int?              @map("scale_max")
   // Archiving (not deleting) is this model's primary "remove" action - a system category used by
@@ -233,7 +182,8 @@ model Category {
   hiddenBy  HiddenCategory[]
 
   // Every "list my categories" query (GET /api/categories) filters on userId (including the
-  // NULL case for system categories), the same reasoning as Symptom's own index.
+  // NULL case for system categories), so this index keeps that lookup fast as the category
+  // list grows across many users.
   @@index([userId])
   @@map("categories")
 }
@@ -276,9 +226,10 @@ model CategoryLog {
   loggedAt DateTime @default(now()) @map("logged_at") @db.Timestamptz(3)
 
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // No onDelete: Cascade from Category - same reasoning as SymptomLog -> Symptom: deleting a
-  // category (rather than archiving it) shouldn't silently destroy a user's historical logs
-  // against it. Restrict is the safety net for the genuine zero-logs accidental-delete case;
+  // No onDelete: Cascade from Category - deleting a category (rather than archiving it) shouldn't
+  // silently destroy a user's historical logs against it. Restrict (Prisma's default for a
+  // relation with no onDelete specified) is the safety net for the genuine zero-logs
+  // accidental-delete case;
   // Category.archivedAt above is the actual day-to-day "remove" action, for both personal and
   // system categories.
   category Category @relation(fields: [categoryId], references: [id])
@@ -292,20 +243,20 @@ model CategoryLog {
 }
 
 // What a Reminder is "about." GENERAL is the original whole-app "you haven't logged anything
-// today" nudge; MOOD/SYMPTOM are category-level (no per-instance granularity - there's only ever
-// at most one reminder per user for each of these); MEDICATION and CATEGORY are always paired
-// with a specific Medication/Category row (see Reminder.medicationId/categoryId below) - a user
-// can have one reminder for "Diazepam" and a completely independent one for "Sertraline," which a
+// today" nudge; MOOD is category-level (no per-instance granularity - there's only ever at most
+// one reminder per user for it); MEDICATION and CATEGORY are always paired with a specific
+// Medication/Category row (see Reminder.medicationId/categoryId below) - a user can have one
+// reminder for "Diazepam" and a completely independent one for "Sertraline," which a
 // category-level MEDICATION reminder couldn't express.
 //
-// HABIT (Phase 16) was removed when Habit unified into Category (Phase 17) - any existing
-// HABIT-target reminder was deleted by that migration (confirmed directly: drop and let the user
-// reconfigure, rather than attempt a lossy auto-remap to one specific former habit). A former
-// habit's own reminder is now just a CATEGORY-target reminder like any other category's.
+// HABIT (Phase 16) and SYMPTOM (Phase 17) were both removed once Habit/Symptom unified into
+// Category - any existing HABIT- or SYMPTOM-target reminder was deleted by its own migration
+// (confirmed directly both times: drop and let the user reconfigure, rather than attempt a lossy
+// auto-remap to one specific former habit/symptom). A former habit or symptom's own reminder is
+// now just a CATEGORY-target reminder like any other category's.
 enum ReminderTarget {
   GENERAL
   MOOD
-  SYMPTOM
   MEDICATION
   CATEGORY
 

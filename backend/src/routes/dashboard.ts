@@ -23,14 +23,14 @@ const querySchema = z
   })
   .merge(paginationQuerySchema);
 
-type RecentEntryType = "mood" | "symptom" | "medication" | "category";
+type RecentEntryType = "mood" | "medication" | "category";
 
 interface RecentEntry {
   type: RecentEntryType;
   label: string;
   value: string;
   loggedAt: string;
-  // Only present for type "category" - unlike the three fixed types, "category" isn't
+  // Only present for type "category" - unlike the two fixed types, "category" isn't
   // self-describing on its own; the frontend needs to know *which* category (for its icon) and
   // it's a categoryId a log's own edit/delete actions target.
   categoryId?: string;
@@ -39,8 +39,9 @@ interface RecentEntry {
 
 // Exactly one of valueBoolean/valueNumeric/valueDurationMinutes is populated, matching the
 // parent Category's own valueType - SCALE shares NUMERIC's storage column, formatted as
-// "value/max" when the category's own scaleMax is known, mirroring how Mood/Symptom's own fixed
-// scales already render (e.g. "4/5", "7/10").
+// "value/max" when the category's own scaleMax is known, mirroring how Mood's own fixed scale
+// (and, before it unified into Category, Symptom's own fixed severity scale) already render
+// (e.g. "4/5", "7/10").
 function formatCategoryLogValue(log: {
   valueBoolean: boolean | null;
   valueNumeric: number | null;
@@ -96,16 +97,13 @@ dashboardRouter.get("/", async (req, res) => {
   const { limit: recentEntriesLimit = DEFAULT_LOG_LIST_LIMIT, offset: recentEntriesOffset = 0 } =
     parsedQuery.data;
 
-  const [latestMood, symptomCount, medicationLogsToday] = await Promise.all([
+  const [latestMood, medicationLogsToday] = await Promise.all([
     prisma.moodLog.findFirst({
       where: { userId: req.userId, loggedAt: { gte: start, lt: end } },
       // `id` as a secondary sort key - see moodLogs.ts's identical `orderBy` for why this
       // matters: without it, which of two same-`loggedAt` mood entries counts as "the latest"
       // isn't guaranteed to stay consistent across requests.
       orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
-    }),
-    prisma.symptomLog.count({
-      where: { userId: req.userId, loggedAt: { gte: start, lt: end } },
     }),
     prisma.medicationLog.findMany({
       where: { userId: req.userId, loggedAt: { gte: start, lt: end } },
@@ -130,17 +128,11 @@ dashboardRouter.get("/", async (req, res) => {
   // `orderBy` for why: without it, two logs sharing the exact same `loggedAt` have no guaranteed
   // relative order across separate requests, which the merge-then-slice logic just below relies
   // on being stable.
-  const [recentMood, recentSymptoms, recentMedications, recentCategories] = await Promise.all([
+  const [recentMood, recentMedications, recentCategories] = await Promise.all([
     prisma.moodLog.findMany({
       where: { userId: req.userId },
       orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
       take: perTypeFetch,
-    }),
-    prisma.symptomLog.findMany({
-      where: { userId: req.userId },
-      orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
-      take: perTypeFetch,
-      include: { symptom: { select: { name: true } } },
     }),
     prisma.medicationLog.findMany({
       where: { userId: req.userId },
@@ -163,12 +155,6 @@ dashboardRouter.get("/", async (req, res) => {
       type: "mood",
       label: "Mood",
       value: `${log.mood}/5`,
-      loggedAt: log.loggedAt.toISOString(),
-    })),
-    ...recentSymptoms.map((log): RecentEntry => ({
-      type: "symptom",
-      label: log.symptom.name,
-      value: `${log.severity}/10`,
       loggedAt: log.loggedAt.toISOString(),
     })),
     ...recentMedications.map((log): RecentEntry => ({
@@ -197,21 +183,20 @@ dashboardRouter.get("/", async (req, res) => {
     hasMore: mergedRecentEntries.length > recentEntriesOffset + recentEntriesLimit,
   };
 
-  // Every entry (of any of the four types) in the lookback window, reduced to just the set of
+  // Every entry (of any of the three types) in the lookback window, reduced to just the set of
   // distinct calendar days (in the user's timezone) it falls on - exactly what the pure
   // `calculateStreak` function needs, and nothing more. Only `loggedAt` is selected from each
   // table since that's all this calculation uses.
   const lookbackStart = new Date(start.getTime() - STREAK_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
   const lookbackWhere = { userId: req.userId, loggedAt: { gte: lookbackStart, lt: end } };
-  const [moodDates, symptomDates, medicationDates, categoryDates] = await Promise.all([
+  const [moodDates, medicationDates, categoryDates] = await Promise.all([
     prisma.moodLog.findMany({ where: lookbackWhere, select: { loggedAt: true } }),
-    prisma.symptomLog.findMany({ where: lookbackWhere, select: { loggedAt: true } }),
     prisma.medicationLog.findMany({ where: lookbackWhere, select: { loggedAt: true } }),
     prisma.categoryLog.findMany({ where: lookbackWhere, select: { loggedAt: true } }),
   ]);
 
   const loggedDates = new Set<string>();
-  for (const log of [...moodDates, ...symptomDates, ...medicationDates, ...categoryDates]) {
+  for (const log of [...moodDates, ...medicationDates, ...categoryDates]) {
     loggedDates.add(formatDateInTimezone(log.loggedAt, user.timezone));
   }
 
@@ -220,7 +205,6 @@ dashboardRouter.get("/", async (req, res) => {
   res.json({
     date,
     mood: latestMood,
-    symptomCount,
     medicationSummary,
     recentEntries,
     streak,

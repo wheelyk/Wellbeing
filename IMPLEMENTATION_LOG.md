@@ -295,3 +295,4 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-25 — Task 1: per-user system-category hiding
 - 2026-08-25 — Task 2: Backend — Habit → Category
 - 2026-08-25 — Task 3: frontend Habit retirement
+- 2026-08-25 — Task 4: Backend — Symptom → Category

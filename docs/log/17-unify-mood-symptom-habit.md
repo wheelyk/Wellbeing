@@ -349,4 +349,130 @@ wasn't "harmless dead code," it was a guaranteed runtime crash the moment Task 2
 
 ---
 
+## 2026-08-25 — Task 4: Backend — Symptom → Category
+
+**Task:** [Phase 17, Task 4](../../Tasks.md#task-4--backend-symptom--category) - migrate every
+`Symptom`/`SymptomLog` row into `Category`/`CategoryLog` as SCALE (1-10) categories, then delete
+the dedicated Symptom routes/model entirely, mirroring Task 2's own Habit migration.
+
+### Background / concepts
+
+#### Why SCALE, and why 1-10 specifically
+
+Symptom's own `severity` field was always an `Int` validated to the 1-10 range
+(`symptomLogs.ts`'s `createSchema`) - the exact shape `Category`'s `SCALE` value type already
+exists to express (a bounded 1-N picker, sharing `NUMERIC`'s `valueNumeric` storage column). Every
+migrated symptom becomes a `SCALE` category with `scaleMin: 1, scaleMax: 10` fixed - not a
+per-symptom choice, since every symptom used the identical hardcoded range before this migration
+too.
+
+#### A genuine, deliberate behavior change: one combined chart becomes N independent ones
+
+Before this task, `trends.ts` computed a single `symptomSeverity` series/average across *every*
+symptom log a user had, regardless of which symptom it was logged against - one combined "Symptom
+Severity" chart. After migration, each symptom (system or personal) is its own independent SCALE
+category, so it gets its own independent chart through the already-generic `categoryTrends` array,
+the same way any other numeric/scale category does. A user tracking both "Headache" and "Joint
+pain" now sees two separate lines instead of one blended average - a real, visible change to
+Trends, accepted as the natural consequence of symptoms becoming genuinely independent categories
+rather than instances of one fixed "Symptom" type. (Mirrors the same kind of accepted UX change
+flagged for Task 6's planned Mood split.)
+
+#### Closing the "no admin route for Symptom" gap for free
+
+Symptom never had an admin-only management route - system symptoms only ever came from
+`prisma/seed.ts`, with no way to add, rename, or retire one without a direct database edit. Once
+migrated, every former system symptom is an ordinary system category (`userId: null`), immediately
+manageable through the already-existing `adminCategories.ts` (`GET`/`POST /api/admin/categories`,
+`PATCH`/`DELETE /api/admin/categories/:id`) with zero new admin code - the same "closes a
+pre-existing gap for free" pattern Task 2 hit for Habit's own missing admin support (there Habit
+never needed one, since every habit was already personal; here Symptom did need one, and now has
+it).
+
+### What was done
+
+- **`backend/prisma/schema.prisma`**: deleted `Symptom`, `SymptomLog` entirely; removed
+  `symptomEnabled`/`symptoms`/`symptomLogs` from `User`; removed `SYMPTOM` from `ReminderTarget`;
+  updated cross-referencing comments (`CategoryValueType`, `Category`, `CategoryLog`,
+  `ReminderTarget`) that pointed at Symptom as if it were still a live sibling model.
+- **Migration** (`symptom_to_category`, hand-written like `habit_to_category`): copies every
+  `symptoms` row into `categories` (reusing the same `id`, `description` carried across verbatim,
+  `value_type` fixed to `SCALE`, `scale_min`/`scale_max` fixed to `1`/`10`), copies every
+  `symptom_logs` row into `category_logs` (same `id`, `symptom_id` landing directly as
+  `category_id`, `severity` cast to `value_numeric` via `::float`), deletes any existing
+  `SYMPTOM`-target reminder, rebuilds the `reminder_target` enum without `SYMPTOM`, then drops
+  `symptom_logs`, `symptoms`, and `users.symptom_enabled`.
+- **Deleted**: `backend/src/routes/symptoms.ts`, `symptomLogs.ts`, and their test files; unmounted
+  both routers from `app.ts`.
+- **`lib/reminderTarget.ts`**/**`lib/reminderScheduler.ts`**: removed `"symptom"` from the API
+  target list, `CATEGORY_LEVEL_TARGETS`, and both switch statements (`reminderCopy`,
+  `hasLoggedTarget` - `GENERAL`'s own check is now a 3-way, not 4-way, `Promise.all`).
+- **`routes/users.ts`**/**`routes/auth.ts`**: removed `symptomEnabled` from the update schema,
+  profile selection, toggle-target map, and `serializeUser`.
+- **`routes/dashboard.ts`**: removed `symptomCount` and its dedicated query/streak-lookback
+  slot/recent-entries branch entirely - a former symptom's today-status now surfaces exactly the
+  way any other category's does.
+- **`routes/history.ts`**: removed the dedicated `"symptom"` `HISTORY_TYPE` and its inline label
+  builder - the already-generic `formatCategoryLogValue` branch covers it.
+- **`routes/export.ts`**: removed the dedicated `symptoms`/`symptomLogs` fields - former-symptom
+  data (personal ones; system ones are still deliberately excluded, same as before) now flows
+  through the existing generic `categories`/`categoryLogs` fields Task 2 already added.
+- **`routes/trends.ts`**: removed the dedicated `symptomSeverity` series/average computation and
+  its own `symptomLogs` query/bucket entirely (see Decisions below for the resulting behavior
+  change) - every migrated symptom category flows through the existing generic `categoryTrends`
+  array, which already handles `SCALE` types.
+- **Tests**: `dashboard.test.ts`, `export.test.ts`, `history.test.ts`, `reminders.test.ts`,
+  `trends.test.ts`, `users.test.ts` updated wherever they exercised symptom-specific code paths or
+  asserted on a "four" count that's now three; `symptoms.test.ts`/`symptomLogs.test.ts` deleted
+  outright (superseded by `categories.test.ts`/`categoryLogs.test.ts`'s own coverage plus
+  `adminCategories.test.ts`'s coverage of what used to be seed-only). `trends.test.ts`'s old
+  combined-symptom-averaging test was ported onto `categoryTrends` (a new
+  "computes per-day averages... for a scale category" test) rather than being lost, and its old
+  per-category-series test was changed from a bare `toHaveLength(1)` assertion to a `.find()` by
+  `categoryId`, since every migrated system symptom (14 of them, in the shared local dev database)
+  now legitimately shows up in every user's own `categoryTrends` alongside their own category.
+
+### Why it's needed
+
+Symptom was already structurally close to Category (nullable `userId` for system-vs-personal,
+`Restrict` on delete - Category literally copied this pattern originally) but duplicated
+Category's own machinery for no behavioral benefit, while genuinely lacking things Category already
+had for free (an admin route, a description field, per-user hiding).
+
+### Decisions
+
+- **The combined "Symptom Severity" chart splits into N independent per-symptom charts** - stated
+  plainly above since it's the one place behavior visibly changes for an existing user with several
+  symptoms tracked. Accepted as the correct consequence of "a symptom is now a category, and every
+  other category already gets its own independent chart," not something to special-case around.
+- **`symptomEnabled` is retired, not preserved** - matching Habit's own precedent from Task 2, and
+  confirmed directly in this plan's own Task 1 context: a former symptom is a system-or-personal
+  category now, hidden per-row via the `HiddenCategory` mechanism (Task 1) rather than gated by one
+  blunt whole-type toggle. The frontend side of this (removing the toggle, adding the per-row
+  Hide/Unhide UI) is Task 5, merged into this same branch before this PR was opened - see that
+  task's own entry below for why, and Task 2/3's own entries for the precedent this follows.
+- **`SYMPTOM`-target reminders are dropped, not remapped** - identical reasoning to Task 2's
+  `HABIT` target: a user with several symptoms has no single unambiguous destination category for
+  an old symptom-level reminder.
+
+### Verification
+
+- Migration verified against real before/after data: 14 symptoms / 41 symptom logs before;
+  categories grew by exactly 14 (28 -> 42) and category_logs grew by exactly 41 (22 -> 63) after;
+  spot-checked several migrated rows across both system (`userId: null`, e.g. "Anxiety", "Brain
+  fog" - description correctly carried over) and personal symptoms (three separate users' own
+  "Headache" symptoms, each becoming its own independent category with the correct owner
+  preserved); confirmed every migrated category is `SCALE` with `scaleMin: 1, scaleMax: 10`;
+  confirmed a sample of migrated logs carried `severity` into `valueNumeric` correctly (e.g. `8`,
+  `6`, `6`) with `valueBoolean`/`valueDurationMinutes` both `null`; confirmed the `reminder_target`
+  enum no longer contains `SYMPTOM`; confirmed `users.symptom_enabled` no longer exists.
+- `npm test` (backend): full suite green - 240 tests across 22 files (down from 265/24 pre-task,
+  net of the two deleted Symptom-specific test files and the tests converted/added in their
+  place).
+- `npx tsc --noEmit`, `npm run build`, `npx eslint .`, `npx prettier --check .`: all clean.
+- See Task 5's own entry below for the combined manual/real-browser verification pass, done once
+  the frontend fix was merged into this same branch (same reasoning as Task 2/3: this migration
+  alone, without Task 5, would crash the live Dashboard the same way Task 2 alone did before Task 3
+  merged in - see that task's own entry for the exact failure mode).
+
 ---
