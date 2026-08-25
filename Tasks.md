@@ -367,7 +367,7 @@ fixed times, not real recurring-interval logic, is the whole point of "multiple 
   all, only an inline "add a medication" affordance buried inside logging a dose.
 
 ### Task 5 — Frontend: reminders management rewrite
-- [ ] Replaces the single-checkbox-plus-time `RemindersSection` with a management list (create/
+- [x] Replaces the single-checkbox-plus-time `RemindersSection` with a management list (create/
   edit/delete, a target-type picker with a Medication/Category sub-picker, a repeatable "add
   another time" input list) - the existing push-subscription gesture-preservation logic in
   `pushNotifications.ts` is reused unchanged, just re-triggered by "first enabled reminder
