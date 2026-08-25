@@ -815,3 +815,145 @@ split) rather than needing a permanent special case.
   own changes land).
 
 ---
+
+## 2026-08-25 — Task 7: Frontend — Mood retirement
+
+**Task:** [Phase 17, Task 7](../../Tasks.md#task-7--frontend-mood-retirement) - the last task in
+this phase: delete the dedicated Mood UI, fold what's left of the built-in-category toggles down to
+just Medication, and confirm the whole three-model unification (Habit, Symptom, Mood, all into
+Category) actually works end to end.
+
+### Background / concepts
+
+#### Why the summary line shrinks to one clause, not zero
+
+Once Mood is gone, `DashboardSummary`'s top line has exactly one built-in left to summarize
+(Medications) - Habit and Symptom never had a clause of their own to begin with (see Tasks 3/5),
+so this is the last of three clauses to disappear, not a new reduction of its own. The line still
+has a real job left to do (Medications' "N/M taken" count is still meaningful and still gates the
+friendly empty state), so it stays - it just never had a second clause to keep it company again
+once Mood's was removed.
+
+#### `BuiltInCategoriesSection` had nothing left to be its own section for
+
+Once Habit, Symptom, and Mood are all ordinary categories, `BuiltInCategoriesSection` - a whole
+`CollapsibleSection`, its own fetch, its own save button - existed only to hold one checkbox
+(Medication). Rather than keep a dedicated section around for one control, it moved directly into
+`MedicationsSection` as an inline, auto-saving checkbox (no separate "Save" button - see Decisions
+below) - the same shape Hide/Unhide already established for a single-action, no-ceremony toggle in
+this same phase.
+
+### What was done
+
+- **Deleted**: `frontend/src/components/MoodEntryForm.tsx`/`.test.tsx`,
+  `frontend/src/components/dashboard/MoodSection.tsx`/`.test.tsx` - logging Mood/Energy/Stress now
+  happens through `CategorySection`/`CategoryEntryForm` like any other category, each showing up as
+  its own card since they're independent categories now.
+- **`lib/dashboardQuickAddEvent.ts`**/**`lib/dashboardEntryChangedEvent.ts`**: removed `"mood"` from
+  both type unions (now just `"medication" | "category"`).
+- **`components/dashboard/QuickAddFab.tsx`**: removed the `"mood"` entry from `QUICK_ADD_ITEMS` and
+  the `moodEnabled` prop/filter - logging a former mood check-in now goes through the "More…" entry
+  like any other category, exactly as Habit's own quick-add entry already did after Task 3.
+- **`components/dashboard/DashboardSummary.tsx`**: removed `mood` from `DashboardSummaryData`,
+  `"mood"` from `RecentEntry["type"]`/`ENTRY_TYPE_ICON`, and the `moodEnabled`-gated summary clause;
+  `hasLoggedAnything` is now just `data.medicationSummary.total > 0`.
+- **`pages/DashboardPage.tsx`**: removed the `MoodSection` import/render and every `moodEnabled`
+  prop pass-through.
+- **`pages/HistoryPage.tsx`**/**`pages/history/historyLogApi.ts`**/**`pages/history/
+HistoryEditModal.tsx`**: removed `"mood"` from `HistoryEntryType`/`TYPE_LABELS`/`DELETE_PATH`,
+  `fetchMoodLog`/`moodLabel`, and the entire `MoodEntryForm` edit branch - a former mood check-in's
+  history entry now resolves through the same generic `CategoryEntryForm` edit path as any other
+  category.
+- **`pages/TrendsPage.tsx`**: removed the dedicated Mood `CollapsibleSection`/`TrendLineChart` block,
+  the `mood` field from `TrendsData`, and `MOOD_CHART_COLOR` - Mood (like Energy and Stress) now
+  gets its own independent chart via the same generic `categoryTrends` array every other scale
+  category already uses, the identical fold-in Symptom went through in Task 5.
+- **`components/ReminderCreateForm.tsx`**: removed `"mood"` from the `ReminderTarget` type and
+  `TARGET_OPTIONS` - a former mood reminder is a `"category"`-target reminder now, matching the
+  backend's own Task 6 migration.
+- **`auth/AuthContext.tsx`**: removed `moodEnabled` from `AuthUser`.
+- **`pages/SettingsPage.tsx`**: removed `moodEnabled` from `UserProfile`, `CategoryToggles`,
+  `TOGGLE_FIELD_BY_TARGET`/`TOGGLE_FIELD_LABEL`, `reminderTargetLabel`, and every toggle-related
+  call site. Deleted `BuiltInCategoriesSection` entirely; its one remaining checkbox
+  (`medicationEnabled`) moved into `MedicationsSection` as an instant-save toggle reading/writing
+  `AuthContext` directly (see Decisions below), removed from `SettingsPage`'s own render.
+- Copy text updated across `HistoryPage.tsx`, `CategorySection.tsx`, `SettingsPage.tsx`,
+  `AdminCategoriesPage.tsx`, `ActivityCalendar.tsx`, `TrendsPage.tsx` wherever it named "mood" as a
+  still-separate concept, replaced with historically-accurate "now a category too" framing where
+  relevant.
+- Several component comments still pointed at the now-deleted `MoodEntryForm.tsx`/`MoodSection.tsx`
+  as if they were live siblings (`RatingScale.tsx`, `PeriodSelector.tsx`, `DateTimeField.tsx`,
+  `MedicationEntryForm.tsx`, `SectionPanel.tsx`, `useTimedMessage.ts`, `MedicationSection.tsx`) -
+  updated to point at `CategoryEntryForm`/`CategorySection` instead, the components that actually
+  carry this logic now.
+- **Tests**: `DashboardSummary.test.tsx`, `QuickAddFab.test.tsx`, `DashboardPage.test.tsx`,
+  `HistoryPage.test.tsx`, `historyLogApi.test.ts`, `TrendsPage.test.tsx`, `SettingsPage.test.tsx`,
+  `ActivityCalendar.test.tsx` all updated wherever they exercised the retired Mood UI/fields, or
+  used `"mood"` as a stand-in type value no longer valid. Two tests in `HistoryPage.test.tsx` that
+  specifically exercised editing a multi-field Mood entry (mood/energy/stress in one form) were
+  deleted outright, not converted - that scenario doesn't exist anywhere in the app anymore, since
+  editing a former mood check-in now goes through the same single-value `CategoryEntryForm` an
+  already-existing category-edit test already covers. `SettingsPage.test.tsx`'s "built-in
+  categories" describe block was rewritten into a new "medication toggle" block testing the
+  relocated inline checkbox instead.
+
+### Why it's needed
+
+Completes the phase: Mood was the last of the three built-ins folded into Category, and this is the
+step that actually removes the frontend code paths a user would otherwise still be using instead of
+the generic ones - without it, Task 6's backend migration alone would break the live app the moment
+it merged (the frontend would still call the now-deleted `/api/mood-logs` and read a `mood` field
+the API no longer returns).
+
+### Decisions
+
+- **The Medication toggle saves instantly on click, with no separate "Save" button** - a deliberate
+  change from the old `BuiltInCategoriesSection` form (which needed an explicit "Save category
+  settings" click for possibly-multiple pending toggle changes). With only one checkbox left,
+  batching a save no longer serves a purpose; matches the already-established Hide/Unhide
+  interaction pattern (Task 5) for a single, self-contained action.
+- **`BuiltInCategoriesSection` is deleted, not just emptied** - a `CollapsibleSection` wrapping a
+  single checkbox would be pure ceremony; folding it into `MedicationsSection` (which already
+  exists and already needs its own initial data) is the more honest home for it now.
+
+### Verification
+
+- `npx tsc -b`, `npm run build` (frontend): clean. `npx tsc --noEmit`, `npm run build` (backend,
+  re-run after the merge below): clean.
+- `npx vitest run` (frontend): full suite green - 232 tests across 32 files (down from 260/34
+  pre-Task-7, net of `MoodEntryForm.test.tsx`/`MoodSection.test.tsx`'s deletion, the two redundant
+  multi-field mood-edit tests' deletion, and every other file's mood-specific cases converted to
+  the generic category equivalent).
+- `npm run lint` (oxlint), `npx prettier --check .`: clean (same two pre-existing, unrelated
+  warnings noted in earlier tasks' entries - a `vite.config.ts` triple-slash-reference note and a
+  `BottomNav.tsx` formatting nit - predate this task and were left alone, out of scope).
+- Merged `feature/mood-frontend-retirement` into `feature/mood-to-category-backend` (clean merge,
+  no conflicts) before any manual verification or PR, applying the lesson from every earlier
+  task-pair in this phase directly instead of discovering the break after the fact. Full backend
+  (226/21) and frontend (232/32) suites re-run green on the merged branch; both builds clean.
+- **Manual, real-browser verification** (Playwright driving a real Chromium instance, mobile
+  viewport 412×915 to match `playwright.config.ts`'s own default - `QuickAddFab` only renders inside
+  `BottomNav`, which is deliberately `md:hidden`) against the merged branch's real running
+  backend + frontend (`NODE_ENV=test` backend on port 4000, `vite preview` frontend on port 5173):
+  registered a fresh account; confirmed no "Add mood entry" button anywhere and Quick Add's menu
+  showing only "Medication"/"More…"; clicking "More…" opened straight into "Log an entry" (not the
+  empty "Create your first category" state) with the system category picker already listing all 11
+  system categories including "Mood" (scale 1-5) - confirming a brand-new account sees these from
+  registration onward; logged a Mood entry (4/5) via that picker, confirmed it appeared in Recent
+  entries as "Mood — 4/5" and in the Categories card as "Mood: 4/5", with the streak correctly
+  advancing to 1 day while the top summary line correctly stayed on its "Nothing logged yet today"
+  empty-state message (Medications alone gates that line now, and none were logged - an accepted,
+  visible consequence of Mood having no clause of its own, not a bug); Settings showed no "Built-in
+  categories" section at all, a "Track medications" checkbox (checked) directly inside Medications,
+  and the Categories list showing all 11 system categories (Anxiety, Brain fog, Depression, Energy,
+  Fatigue, Headache, Insomnia, Joint pain, Mood, Nausea, Stress) each tagged "Built-in" with the
+  correct scale range and a "Hide" action; Trends rendered one independent chart per system
+  category, with Mood's own chart correctly showing "Avg: 4.0" and a real data point while
+  Energy/Stress and every symptom correctly showed "No data yet" - not one combined fixed Mood
+  chart; History showed the same entry as "Category / Mood: 4/5" with working Edit/Delete. One
+  benign `401` console message (the app's own silent pre-registration session-rehydration attempt,
+  the same documented pattern noted in this project's PR-preview screenshot script) was the only
+  console output, confirming no real runtime error anywhere in the flow. Screenshots captured at
+  each step. Both temporary servers were torn down afterward.
+
+---

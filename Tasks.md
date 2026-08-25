@@ -427,7 +427,7 @@ Medication is explicitly out of scope - it stays its own model.
   unambiguous destination.
 
 ### Task 7 — Frontend: Mood retirement
-- [ ] Deletes `MoodEntryForm.tsx`/`MoodSection.tsx`. Reduces `DashboardSummary`'s top line to just
+- [x] Deletes `MoodEntryForm.tsx`/`MoodSection.tsx`. Reduces `DashboardSummary`'s top line to just
   the Medications clause (the only one left once Mood/Symptom/Habit are gone). Folds
   `BuiltInCategoriesSection` into a single Medication checkbox inside `MedicationsSection`, since
   it no longer has anything else to toggle.
