@@ -61,9 +61,14 @@ jobs:
         working-directory: backend
         run: npx prisma generate
 
-      # Seeds the system-default symptoms (Headache, Fatigue, etc.) - trends-after-seeding.spec.ts
-      # reads the first one back via GET /api/symptoms rather than creating its own, and that list
-      # is empty on a completely fresh CI database without this.
+      # Seeds the system-default categories (Headache, Fatigue, etc. - migrated from the old
+      # Symptom model in Phase 17, see docs/log/17-unify-mood-symptom-habit.md and
+      # backend/prisma/seed.ts) - nothing in this suite reads them back directly anymore
+      # (quick-add-and-dashboard.spec.ts and trends-after-seeding.spec.ts each create their own
+      # personal category via /api/categories instead, for a name they can assert on precisely),
+      # but this step still proves a completely fresh database seeds cleanly, which is exactly the
+      # gap that let a stale prisma/seed.ts (calling the since-deleted prisma.symptom.create) go
+      # undetected by every other check in this repo until this job caught it.
       - name: Seed the database
         working-directory: backend
         run: npx prisma db seed

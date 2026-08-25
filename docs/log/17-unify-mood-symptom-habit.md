@@ -3,7 +3,7 @@
 ## 2026-08-25 — Task 1: per-user system-category hiding
 
 **Task:** [Phase 17, Task 1](../../Tasks.md#task-1--backend-per-user-system-category-hiding) - the
-foundation this whole phase's later data migrations depend on: a per-user way to hide a *system*
+foundation this whole phase's later data migrations depend on: a per-user way to hide a _system_
 category (one a user didn't create and can't archive themselves). Built first, ahead of any actual
 Mood/Symptom/Habit migration, because Symptom's system symptoms and Mood's new Mood/Energy/Stress
 categories (Tasks 4 and 6) both need somewhere for a user to say "I don't personally use this one"
@@ -20,7 +20,7 @@ nullable: every habit is already a user's own personal category-to-be, so once H
 (Task 2/3) a user who wants to stop tracking all their habits can just archive each one
 individually through the archive action every personal category already has - no toggle needed at
 all. `medicationEnabled` stays exactly as it is (Medication isn't part of this unification). The
-only genuine remaining gap is a category a user *can't* archive because they don't own it - a
+only genuine remaining gap is a category a user _can't_ archive because they don't own it - a
 system category (`userId: null`) - which is exactly Symptom's 8 seeded system symptoms and Mood's
 new Mood/Energy/Stress categories once they exist. So this task builds the smaller, more precisely
 targeted thing: hide/unhide for system categories only, not a universal replacement mechanism.
@@ -29,7 +29,7 @@ targeted thing: hide/unhide for system categories only, not a universal replacem
 
 Dashboard/Quick Add want a hidden category to genuinely disappear - that's the whole point of
 hiding it. But Settings' own category-management list (`CategoriesSection`, wired up in Task 3/5)
-needs to show a hidden category *with an Unhide action*, or hiding would be a one-way trip with no
+needs to show a hidden category _with an Unhide action_, or hiding would be a one-way trip with no
 way back once a category drops out of the only list that renders it. Rather than a separate
 endpoint, `GET /api/categories?includeHidden=true` serves the management view, with each category
 serialized with an explicit `hidden: boolean` field the frontend can key an Unhide-vs-Hide button
@@ -40,7 +40,7 @@ off of - the default (no query param) stays exactly as strict as before for Dash
 - **`backend/prisma/schema.prisma`**: `Category` gains `description: String?` - a small, generically
   useful field on its own, and also the only place `Symptom.description` will have to live once
   Task 4 migrates it (Category had nothing equivalent before this). New `HiddenCategory(id,
-  userId, categoryId, createdAt)`, `@@unique([userId, categoryId])`, both FKs `onDelete: Cascade` -
+userId, categoryId, createdAt)`, `@@unique([userId, categoryId])`, both FKs `onDelete: Cascade` -
   a hidden-category preference has no historical value of its own to protect (unlike
   `CategoryLog`), so cascading it away when either the user or the category itself goes is exactly
   right.
@@ -117,7 +117,7 @@ category already uses.
 
 #### Why this migration is hand-written, not `prisma migrate dev`-generated
 
-`prisma migrate dev` diffs the schema and generates SQL for the *shape* change (new/dropped
+`prisma migrate dev` diffs the schema and generates SQL for the _shape_ change (new/dropped
 columns, tables, enum values) - it has no way to know that every row in a table being dropped
 needs to land, transformed, in a table that already exists. Exactly the same reason
 `16-reminders-and-category-toggles.md`'s `generalize_reminders` migration was hand-written: the
@@ -130,7 +130,7 @@ the tool can't infer from a schema diff alone.
 `Habit`/`HabitLog`'s column shapes already match `Category`/`CategoryLog`'s almost exactly
 (`valueBoolean`/`valueNumeric`/`valueDurationMinutes`/`notes`/`loggedAt`, and `Habit.type` maps
 directly onto three of `Category`'s four `valueType`s). The one wrinkle is that
-`HabitLog.habitId` needs to become `CategoryLog.categoryId`, pointing at the *new* row, not the
+`HabitLog.habitId` needs to become `CategoryLog.categoryId`, pointing at the _new_ row, not the
 old one. Copying each habit's `id` verbatim into the new `categories` row (rather than letting
 Postgres generate a fresh uuid) means `habit_logs.habit_id` already equals the right
 `categories.id` with zero transformation - no lookup/join table needed at all, just a straight
@@ -168,7 +168,7 @@ type under the original name without the unwanted value, repoint the column at t
   already-generic `formatCategoryLogValue` branch covers it.
 - **`routes/export.ts`**: removed the dedicated `habits`/`habitLogs` fields and replaced them with
   `categories`/`categoryLogs` - this also closes a pre-existing gap noted in the plan: `export.ts`
-  never included Category/CategoryLog data of any kind before this task, for *any* category, not
+  never included Category/CategoryLog data of any kind before this task, for _any_ category, not
   just former habits.
 - **`routes/trends.ts`**: removed habit's own slot in the activity-map `Promise.all` (a former
   habit's logs now count toward `activeDays` via the generic `categoryLogs` bucket, which already
@@ -236,20 +236,21 @@ behavioral benefit to the user.
 
 **Task:** [Phase 17, Task 3](../../Tasks.md#task-3--frontend-habit-retirement) - remove every
 frontend trace of the dedicated Habit UI now that its backend is gone (Task 2, on its own branch
+
 - see that task's own entry above for the migration this depends on), so a former habit's data
-renders and is logged through the exact same generic Category components every other category
-already uses.
+  renders and is logged through the exact same generic Category components every other category
+  already uses.
 
 ### Background / concepts
 
 #### Why this task had to land carefully relative to Task 2
 
 Task 2 (backend) and Task 3 (frontend) are genuinely coupled in a way Phase 16's own
-backend/frontend split wasn't: Phase 16 generalized reminders *additively* (old and new endpoints
+backend/frontend split wasn't: Phase 16 generalized reminders _additively_ (old and new endpoints
 coexisted for a transition window), so either half could merge first without breaking the other.
 Task 2 is destructive instead - it deletes `/api/habits`, `/api/habit-logs`, and
 `habitSummary`/`habitEnabled` outright. Verifying Task 2 in isolation (its own PR's CI) surfaced
-this directly: with Task 2's backend running and the *old* (pre-Task-3) frontend still pointed at
+this directly: with Task 2's backend running and the _old_ (pre-Task-3) frontend still pointed at
 it, `DashboardSummary.tsx`'s `data.habitSummary.loggedCount` throws on every render (`habitSummary`
 no longer exists in the response), crashing the dashboard - confirmed via three real e2e failures
 in that PR's CI run, not a hypothetical. That means, unlike Task 2/3's own numbering, **Task 3 is
@@ -310,9 +311,9 @@ wasn't "harmless dead code," it was a guaranteed runtime crash the moment Task 2
   `habitSummary.loggedCount > 0`, a genuinely today-scoped count the backend computed specially for
   Habit. No equivalent "categories logged today" count exists in the generic `/api/dashboard`
   response (categories were never summarized this way, and Task 2's plan didn't add one) -
-  `recentEntries` alone can't safely substitute, since it's the N most recent entries *overall*,
+  `recentEntries` alone can't safely substitute, since it's the N most recent entries _overall_,
   not bounded to today, so treating "a category appears in recentEntries" as "logged today" would
-  wrongly count something logged days ago. Accepted consequence: a user who logs *only* a category
+  wrongly count something logged days ago. Accepted consequence: a user who logs _only_ a category
   today and nothing else sees the "Nothing logged yet today" empty state instead of a technically-
   more-accurate summary line - a narrow, deliberately-chosen gap rather than a wrong finding, and
   one to revisit if/when a real "any category logged today" signal is added to the dashboard
@@ -340,7 +341,7 @@ wasn't "harmless dead code," it was a guaranteed runtime crash the moment Task 2
   from their own not-yet-merged branches. Confirmed end-to-end: registered a fresh account; logged
   a mood entry and a boolean category entry ("Exercise") via `CategorySection`'s own "Add category
   entry" button; Dashboard's summary line rendered three clauses with no crash (`Mood: 5/5 ·
-  Symptoms: 0 logged · Medications: 0/0 taken`) and Recent entries showed both; History showed
+Symptoms: 0 logged · Medications: 0/0 taken`) and Recent entries showed both; History showed
   "Exercise: Done" under a `CATEGORY` label; Settings' Built-in categories list showed exactly
   three toggles (no Habits row); on a mobile viewport (412×915, matching `BottomNav`'s `md:hidden`
   breakpoint), Quick Add's menu showed Mood/Symptom/Medication/More… (no Habit item), and tapping
@@ -368,7 +369,7 @@ too.
 
 #### A genuine, deliberate behavior change: one combined chart becomes N independent ones
 
-Before this task, `trends.ts` computed a single `symptomSeverity` series/average across *every*
+Before this task, `trends.ts` computed a single `symptomSeverity` series/average across _every_
 symptom log a user had, regardless of which symptom it was logged against - one combined "Symptom
 Severity" chart. After migration, each symptom (system or personal) is its own independent SCALE
 category, so it gets its own independent chart through the already-generic `categoryTrends` array,
@@ -478,7 +479,7 @@ had for free (an admin route, a description field, per-user hiding).
   verification ran against had already been migrated mid-development, so `npx prisma db seed`
   never got exercised against it in a way that would have surfaced this. CI's own fresh-database
   e2e job did exercise it, and failed immediately with `TSError: Property 'symptom' does not exist
-  on type 'PrismaClient'` - a real, useful catch. Fixed by seeding the same 8 rows as `SCALE`
+on type 'PrismaClient'` - a real, useful catch. Fixed by seeding the same 8 rows as `SCALE`
   (1-10) categories instead (`prisma.category.create`, `userId: null`), matching exactly how the
   migration itself maps a `Symptom` onto `Category`; re-verified by running `npx prisma db seed`
   directly against the local dev database (idempotent no-op there, since it already has all 8 from
@@ -586,9 +587,41 @@ shipped, the same class of problem Task 2 caused for Habit before Task 3 landed.
 - `npx vitest run` (frontend): full suite green - 260 tests across 34 files (up from 240/24
   post-Task-4-equivalent-frontend-state, net of 2 deleted Symptom-specific test files, several
   tests converted, and 3 new Hide/Unhide tests added).
-- `npm run lint` (oxlint), `npx prettier --check .`: clean (the same two pre-existing, unrelated
-  formatting warnings noted in Task 3's entry - `e2e/trends-after-seeding.spec.ts`/`BottomNav.tsx` -
-  predate this task and were left alone, out of scope).
+- `npm run lint` (oxlint), `npx prettier --check .`: clean (two small pre-existing, unrelated
+  warnings - a `vite.config.ts` triple-slash-reference lint note and a `BottomNav.tsx` formatting
+  nit - predate this task and were left alone, out of scope).
+- **A second real gap, found only once PR #130's own CI ran the e2e suite against a genuinely
+  fresh database** (the same class of blind spot as `prisma/seed.ts` above, but this time in
+  `frontend/e2e/`): `quick-add-and-dashboard.spec.ts` still drove a "Symptom" Quick Add menu item
+  that Task 5 deleted (`QuickAddFab.tsx` no longer has one - former symptoms are logged through
+  the generic "More…" entry now, like any other category), and asserted a "Symptoms: N logged"
+  Dashboard summary clause that no longer exists. `trends-after-seeding.spec.ts` seeded data
+  through the since-deleted `/api/symptoms`/`/api/symptom-logs` endpoints and asserted a fixed
+  "Symptom Severity" chart title that Task 4 already replaced with one generic chart per category.
+  Neither is caught by `tsc`/`vitest` - both are plain Playwright specs the frontend's own
+  component-test run never executes, so nothing short of actually running the e2e suite (or CI's
+  own `e2e` job) would have surfaced this. Fixed by rewriting both specs against the generic
+  category API/UI: `quick-add-and-dashboard.spec.ts` now creates two personal categories via
+  "More…" → "+ Add a new category" (a scale-typed one standing in for a former symptom, a
+  boolean-typed one standing in for a former habit) rather than assuming either has a dedicated
+  menu item, and its summary-line assertion now expects just the two remaining clauses (Mood,
+  Medications); `trends-after-seeding.spec.ts` now creates its own named scale category via
+  `POST /api/categories` and seeds `/api/category-logs` against it, asserting that category's own
+  chart title rather than a fixed "Symptom Severity" one. Also worth noting as a real discovery
+  along the way: a brand-new account is never actually at 0 categories in this app - the 8 seeded
+  system categories (former system symptoms) are visible to every user from registration onward,
+  so "More…" always opens straight into "Log an entry," never "Create your first category"; the
+  original pre-Task-4 test's assumption of an empty-categories first run no longer holds and the
+  rewritten spec accounts for this. Verified by actually running the full e2e suite locally
+  (`backend` built and started with `NODE_ENV=test`, `frontend` built and served via `vite
+preview`, `npx playwright test` from `frontend/`) - all 4 specs green. One environmental false
+  positive was diagnosed and ruled out along the way: an initial local run hit the real
+  `authRateLimiter` (register got `429`s) despite `NODE_ENV=test` being intended to skip it in this
+  app's own middleware - traced to the backend process itself not actually inheriting that env var
+  the way it was first started (a shell-backgrounding quirk, confirmed by probing `/api/register`
+  directly with `curl` and seeing `429`s even though the intent was to skip the limiter);
+  restarting the backend with the env var properly applied made the rate limiter correctly skip
+  as designed, and the full suite passed cleanly, including the two rewritten specs.
 - Manual, real-browser verification (Playwright driving a real Chromium instance against a real
   running backend + frontend dev server): Task 4's branch was checked out into a separate git
   worktree and run there on port 4000 (this branch's own backend still has pre-Task-4 code, since
@@ -596,7 +629,7 @@ shipped, the same class of problem Task 2 caused for Habit before Task 3 landed.
   the same pairing approach Task 3's own verification used. Confirmed end-to-end: registered a
   fresh account; logged a mood entry and a category entry against "Headache" (a migrated system
   symptom, scale 1-10) via `CategorySection`; Dashboard's summary line rendered `Mood: 5/5 ·
-  Medications: 0/0 taken` with no crash, and Recent entries showed both; Trends rendered one
+Medications: 0/0 taken` with no crash, and Recent entries showed both; Trends rendered one
   independent chart per former system symptom (Anxiety, Brain fog, Depression, Fatigue, Headache,
   Insomnia, Joint pain, Nausea), with Headache's own chart correctly showing `Avg: 6.0` from the
   just-logged entry - not one combined "Symptom Severity" chart; Settings' Built-in categories
@@ -608,7 +641,5 @@ shipped, the same class of problem Task 2 caused for Habit before Task 3 landed.
   `docs/log/01-auth-backend.md`) after several repeated verification registrations in quick
   succession; the already-captured Dashboard/Trends/Settings evidence above was judged sufficient
   without re-running it. Both temporary processes and the worktree were torn down afterward.
-
----
 
 ---
