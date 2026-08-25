@@ -6,14 +6,15 @@ const API_URL = process.env.E2E_API_URL ?? "http://localhost:4000";
 // Phase 13's third End-to-end checklist item: view Trends after seeding a few days of data.
 // Quick Add only ever creates "now" entries, so a real multi-day trend can't be produced by
 // driving the UI alone in a test that has to run in seconds, not days. Instead this seeds
-// directly through the same real backend API the app itself calls, using each log endpoint's
-// own explicit `loggedAt` backfill support (see moodLogs.ts/categoryLogs.ts) - still the real
-// server and real database, just skipping the UI for the setup step, the way a fixture is
-// supposed to. The second series used to be seeded against a dedicated Symptom (via
-// /api/symptoms + /api/symptom-logs, with its own "Symptom Severity" chart); Symptom folded into
-// Category in Phase 17 (see docs/log/17-unify-mood-symptom-habit.md), so this now creates its own
-// scale-typed category via /api/categories and seeds against /api/category-logs instead - the
-// resulting chart is titled with that category's own name, not a fixed "Symptom Severity" label.
+// directly through the same real backend API the app itself calls, using /api/category-logs' own
+// explicit `loggedAt` backfill support - still the real server and real database, just skipping
+// the UI for the setup step, the way a fixture is supposed to. Both series used to be seeded
+// against dedicated models of their own (Mood via /api/mood-logs; Symptom via /api/symptoms +
+// /api/symptom-logs), each with its own fixed chart title ("Mood", "Symptom Severity"); both
+// unified into Category in Phase 17 (see docs/log/17-unify-mood-symptom-habit.md), so the mood
+// series now logs against the seeded system Mood category and the second series creates its own
+// scale-typed category via /api/categories - both charts are titled with their own category's
+// name now, not a fixed label.
 test("Trends reflects mood and category entries seeded across several days", async ({ page }) => {
   const email = uniqueTestEmail("trends");
   await registerAndLandOnDashboard(page, email);
@@ -26,6 +27,16 @@ test("Trends reflects mood and category entries seeded across several days", asy
   expect(refreshRes.ok()).toBe(true);
   const { accessToken } = (await refreshRes.json()) as { accessToken: string };
   const authHeaders = { Authorization: `Bearer ${accessToken}` };
+
+  // The system Mood category (seeded for every account - see backend/prisma/seed.ts) rather than
+  // one this test creates itself.
+  const categoriesRes = await page.request.get(`${API_URL}/api/categories`, {
+    headers: authHeaders,
+  });
+  expect(categoriesRes.ok()).toBe(true);
+  const categories = (await categoriesRes.json()) as Array<{ id: string; name: string }>;
+  const moodCategoryId = categories.find((c) => c.name === "Mood")?.id;
+  if (!moodCategoryId) throw new Error("Expected a seeded system 'Mood' category");
 
   const categoryName = "E2E Trends Category";
   const categoryRes = await page.request.post(`${API_URL}/api/categories`, {
@@ -44,11 +55,11 @@ test("Trends reflects mood and category entries seeded across several days", asy
   for (let i = 0; i < daysAgo.length; i++) {
     const loggedAt = new Date(Date.now() - daysAgo[i] * 24 * 60 * 60 * 1000).toISOString();
 
-    const moodRes = await page.request.post(`${API_URL}/api/mood-logs`, {
+    const moodLogRes = await page.request.post(`${API_URL}/api/category-logs`, {
       headers: authHeaders,
-      data: { mood: moodValues[i], loggedAt },
+      data: { categoryId: moodCategoryId, valueNumeric: moodValues[i], loggedAt },
     });
-    expect(moodRes.ok()).toBe(true);
+    expect(moodLogRes.ok()).toBe(true);
 
     const categoryLogRes = await page.request.post(`${API_URL}/api/category-logs`, {
       headers: authHeaders,

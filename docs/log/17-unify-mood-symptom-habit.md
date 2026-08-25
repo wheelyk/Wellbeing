@@ -955,5 +955,26 @@ the API no longer returns).
   the same documented pattern noted in this project's PR-preview screenshot script) was the only
   console output, confirming no real runtime error anywhere in the flow. Screenshots captured at
   each step. Both temporary servers were torn down afterward.
+- **A fourth instance of the same class of gap this phase keeps finding**, again in
+  `frontend/e2e/` and `capture-pr-screenshots.mjs`: all four of this repo's e2e specs (not just the
+  two already fixed for Symptom in Task 4/5) and the PR-preview screenshot script still drove the
+  now-deleted "Mood" Quick Add menu item and `MoodEntryForm`/`/api/mood-logs` directly -
+  `account-deletion.spec.ts` and `edit-and-delete.spec.ts` had never needed fixing before now, since
+  neither exercises Symptom at all, so they were invisible to every earlier check in this phase.
+  Found only by actually running the full local e2e suite before pushing (not by CI, this time) -
+  `account-deletion.spec.ts`'s own mood-logging step was swapped for a medication one (the test
+  itself never cared which type was logged, just that something real existed before deletion);
+  `edit-and-delete.spec.ts` - which does genuinely exercise edit/delete, not just setup - was
+  converted to log/edit/delete the seeded system Mood category through `CategoryEntryForm`/
+  `/api/category-logs` instead of the deleted `MoodEntryForm`/`/api/mood-logs`, asserting on
+  `Edit entry`/`Delete this category entry` (the generic modal titles) rather than the
+  now-nonexistent `Edit mood entry`/`Delete this mood entry` copy. `quick-add-and-dashboard.spec.ts`
+  and `trends-after-seeding.spec.ts` similarly had their own dedicated mood-logging steps converted
+  to select the seeded system Mood category from the picker (`trends-after-seeding.spec.ts`
+  specifically now resolves that category's id via a real `GET /api/categories` call rather than
+  assuming one). Verified by running the full local e2e suite (all 4 specs green) and the
+  screenshot script directly (clean run, screenshot inspected directly showing "Mood — 5/5" and
+  "Medications: 1/1 taken" with no Mood summary clause) against the merged branch's real backend +
+  frontend, the same way the earlier three gaps in this phase were each finally confirmed fixed.
 
 ---
