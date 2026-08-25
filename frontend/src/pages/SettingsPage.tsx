@@ -55,7 +55,6 @@ interface UserProfile {
   displayName: string;
   timezone: string;
   createdAt: string;
-  moodEnabled: boolean;
   medicationEnabled: boolean;
 }
 
@@ -289,17 +288,16 @@ function AppearanceSection() {
   );
 }
 
-// Maps a reminder's target to the built-in-category toggle (Settings > Built-in categories,
-// itself mirrored on AuthUser - see AuthContext.tsx) that can explain why it's currently
-// disabled - GENERAL has no matching toggle (it's the whole-app nudge, not tied to any one
-// category), and CATEGORY is handled separately below (an archived, not toggled-off, category).
+// Maps a reminder's target to the built-in-category toggle (Settings > Medications, itself
+// mirrored on AuthUser - see AuthContext.tsx) that can explain why it's currently disabled -
+// GENERAL has no matching toggle (it's the whole-app nudge, not tied to any one category), and
+// CATEGORY is handled separately below (an archived, not toggled-off, category - Mood included,
+// now that it's a category like any other).
 const TOGGLE_FIELD_BY_TARGET: Partial<Record<ReminderTarget, keyof CategoryToggles>> = {
-  mood: "moodEnabled",
   medication: "medicationEnabled",
 };
 
 const TOGGLE_FIELD_LABEL: Record<keyof CategoryToggles, string> = {
-  moodEnabled: "Mood",
   medicationEnabled: "Medications",
 };
 
@@ -307,8 +305,6 @@ function reminderTargetLabel(reminder: Reminder): string {
   switch (reminder.target) {
     case "general":
       return "General";
-    case "mood":
-      return "Mood";
     case "medication":
       return reminder.medication
         ? reminder.medication.dosage
@@ -408,7 +404,6 @@ function RemindersSection() {
   }, []);
 
   const toggles: CategoryToggles = {
-    moodEnabled: user?.moodEnabled ?? true,
     medicationEnabled: user?.medicationEnabled ?? true,
   };
   const visibleCategoryIds = new Set(categories.map((c) => c.id));
@@ -574,8 +569,8 @@ function RemindersSection() {
           <>
             <p className="mb-4 text-sm text-text-muted">
               Get a notification if you haven't logged something yet by a time (or times) you choose
-              - one reminder for General or Mood, plus as many as you like for specific medications
-              or categories.
+              - one reminder for General, plus as many as you like for specific medications or
+              categories (Mood included, since it's a category too).
             </p>
             {rowError && (
               <p role="alert" className="mb-3 text-sm text-danger">
@@ -716,155 +711,7 @@ function RemindersSection() {
 }
 
 interface CategoryToggles {
-  moodEnabled: boolean;
   medicationEnabled: boolean;
-}
-
-const DEFAULT_TOGGLES: CategoryToggles = {
-  moodEnabled: true,
-  medicationEnabled: true,
-};
-
-const TOGGLE_ITEMS: Array<{ key: keyof CategoryToggles; label: string; description: string }> = [
-  { key: "moodEnabled", label: "Mood", description: "Daily mood check-ins." },
-  { key: "medicationEnabled", label: "Medications", description: "Log doses taken or missed." },
-];
-
-// Lets a user hide one of the two remaining built-in categories from Dashboard/Quick Add without
-// touching anything already logged under it - placed above CategoriesSection (custom
-// categories), since both are ultimately about "what shows up to log," just for these fixed
-// built-ins versus a user's own extensible ones. Habit and Symptom each had a toggle here too
-// until Phase 17 folded them into Category - a former habit is now an ordinary personal category,
-// hidden (via archive) individually through CategoriesSection below; a former symptom is a
-// system-or-personal category, hidden per-row (via the Hide/Unhide action, for system ones -
-// Task 1's HiddenCategory mechanism) or archived (for personal ones) through that same section,
-// not a toggle of its own here.
-function BuiltInCategoriesSection() {
-  const { updateUser } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-  const [toggles, setToggles] = useState<CategoryToggles>(DEFAULT_TOGGLES);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    apiFetch<UserProfile>("/api/users/me")
-      .then((profile) => {
-        if (cancelled) return;
-        setToggles({
-          moodEnabled: profile.moodEnabled ?? true,
-          medicationEnabled: profile.medicationEnabled ?? true,
-        });
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError(true);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    setSaveError(null);
-    setSaved(false);
-    setSaving(true);
-    try {
-      const profile = await apiFetch<UserProfile>("/api/users/me", {
-        method: "PATCH",
-        body: JSON.stringify(toggles),
-      });
-      const updated: CategoryToggles = {
-        moodEnabled: profile.moodEnabled ?? true,
-        medicationEnabled: profile.medicationEnabled ?? true,
-      };
-      setToggles(updated);
-      // Keeps Dashboard/Quick Add/the summary line in sync immediately in this same session,
-      // rather than only after a reload re-runs rehydrateSession - the same lesson isAdmin
-      // already established for AuthContext-derived state (see AuthContext.tsx's own comment on
-      // updateUser).
-      updateUser(updated);
-      setSaved(true);
-    } catch {
-      setSaveError("Something went wrong. Please try again.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (loading) {
-    return (
-      <SectionCard>
-        <CollapsibleSection title="Built-in categories" storageKey="settings.builtInCategories">
-          <p className="text-sm text-text-muted">Loading…</p>
-        </CollapsibleSection>
-      </SectionCard>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <SectionCard>
-        <CollapsibleSection title="Built-in categories" storageKey="settings.builtInCategories">
-          <p role="alert" className="text-sm text-danger">
-            Couldn't load your category settings. Please refresh the page.
-          </p>
-        </CollapsibleSection>
-      </SectionCard>
-    );
-  }
-
-  return (
-    <SectionCard>
-      <CollapsibleSection title="Built-in categories" storageKey="settings.builtInCategories">
-        <p className="mb-4 text-sm text-text-muted">
-          Turn off any of these you don't want to track - they'll disappear from Dashboard and Quick
-          Add, but anything already logged stays exactly as it is.
-        </p>
-        <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
-          <div className="flex flex-col gap-3">
-            {/* The description sits outside <label> (a sibling <p>, not nested text) so it
-                doesn't get folded into the checkbox's own accessible name alongside item.label -
-                getByLabelText(/^mood$/i) needs "Mood" alone, not "Mood Daily mood check-ins." */}
-            {TOGGLE_ITEMS.map((item) => (
-              <div key={item.key}>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={toggles[item.key]}
-                    onChange={(e) =>
-                      setToggles((prev) => ({ ...prev, [item.key]: e.target.checked }))
-                    }
-                    className="h-4 w-4 rounded border-border text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                  />
-                  <span className="text-sm font-medium text-text">{item.label}</span>
-                </label>
-                <p className="ml-6 text-xs text-text-muted">{item.description}</p>
-              </div>
-            ))}
-          </div>
-          {saveError && (
-            <p role="alert" className="text-sm text-danger">
-              {saveError}
-            </p>
-          )}
-          {saved && !saveError && (
-            <p role="status" className="text-sm text-success">
-              Category settings saved.
-            </p>
-          )}
-          <Button type="submit" disabled={saving} className="self-start">
-            {saving ? "Saving…" : "Save category settings"}
-          </Button>
-        </form>
-      </CollapsibleSection>
-    </SectionCard>
-  );
 }
 
 // Lists and manages a user's own medications - previously the only way to create one at all
@@ -874,7 +721,17 @@ function BuiltInCategoriesSection() {
 // shape, minus the built-in-vs-custom distinction Category has (every Medication is a user's own,
 // there's no system-wide medication concept) and minus a valueType picker (Medication only ever
 // has a name and an optional dosage).
+//
+// Also carries the one remaining built-in-category toggle (previously its own "Built-in
+// categories" section, alongside a matching Mood toggle) - Mood, Habit, and Symptom each had a
+// toggle there too until Phase 17 folded all three into Category, leaving Medication as the only
+// fixed built-in left to toggle at all; a standalone section for a single checkbox read as more
+// ceremony than the setting needed, so it moved here instead. A former habit or mood check-in is
+// now an ordinary category, archived individually (if personal) through CategoriesSection below; a
+// former symptom or system Mood/Energy/Stress category is hidden per-row there instead (via the
+// Hide/Unhide action - Task 1's HiddenCategory mechanism), not a toggle of its own.
 function MedicationsSection() {
+  const { user, updateUser } = useAuth();
   const [medications, setMedications] = useState<Medication[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -885,6 +742,7 @@ function MedicationsSection() {
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [toggleSaving, setToggleSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -907,6 +765,29 @@ function MedicationsSection() {
     setMedications((prev) => [...prev, medication].sort((a, b) => a.name.localeCompare(b.name)));
     setShowCreateForm(false);
     setActionMessage("Medication added.");
+  }
+
+  // Turning this off also disables (not deletes) any Reminder targeting Medication - see
+  // routes/users.ts's PATCH /me. Saves immediately on change (no separate "Save" button) - a
+  // single checkbox reads better as an instant toggle than a form needing its own submit step,
+  // now that it's the only one left here.
+  async function handleToggleMedicationEnabled(nextEnabled: boolean) {
+    setToggleSaving(true);
+    try {
+      const profile = await apiFetch<{ medicationEnabled: boolean }>("/api/users/me", {
+        method: "PATCH",
+        body: JSON.stringify({ medicationEnabled: nextEnabled }),
+      });
+      // Keeps Dashboard/Quick Add in sync immediately in this same session, rather than only
+      // after a reload re-runs rehydrateSession - the same lesson isAdmin already established for
+      // AuthContext-derived state (see AuthContext.tsx's own comment on updateUser).
+      updateUser({ medicationEnabled: profile.medicationEnabled });
+      setActionMessage(`Medications ${profile.medicationEnabled ? "enabled" : "disabled"}.`);
+    } catch {
+      setActionMessage(null);
+    } finally {
+      setToggleSaving(false);
+    }
   }
 
   function startEdit(medication: Medication) {
@@ -962,6 +843,22 @@ function MedicationsSection() {
   return (
     <SectionCard>
       <CollapsibleSection title="Medications" storageKey="settings.medications">
+        <div className="mb-4">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={user?.medicationEnabled ?? true}
+              disabled={toggleSaving}
+              onChange={(e) => handleToggleMedicationEnabled(e.target.checked)}
+              className="h-4 w-4 rounded border-border text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            />
+            <span className="text-sm font-medium text-text">Track medications</span>
+          </label>
+          <p className="ml-6 text-xs text-text-muted">
+            Turn this off to hide medications from Dashboard and Quick Add - anything already logged
+            stays exactly as it is.
+          </p>
+        </div>
         <p className="mb-4 text-sm text-text-muted">
           Manage the medications you log doses for - add a new one, rename one, or remove one you no
           longer take.
@@ -1218,10 +1115,10 @@ function CategoriesSection() {
     <SectionCard>
       <CollapsibleSection title="Categories" storageKey="settings.categories">
         <p className="mb-4 text-sm text-text-muted">
-          Beyond mood and medications, create your own trackable categories - alongside any an admin
-          has added for everyone (including every default symptom, like Headache or Fatigue). Hide a
-          built-in one you don&apos;t use instead of deleting it - your own categories are archived
-          instead, from the same list.
+          Beyond medications, create your own trackable categories - alongside any an admin has
+          added for everyone (including Mood, Energy, Stress, and every default symptom, like
+          Headache or Fatigue). Hide a built-in one you don&apos;t use instead of deleting it - your
+          own categories are archived instead, from the same list.
         </p>
         {user?.isAdmin && (
           <Link
@@ -1404,8 +1301,8 @@ function ExportDataSection() {
     <SectionCard>
       <CollapsibleSection title="Export your data" storageKey="settings.export">
         <p className="mb-4 text-sm text-text-muted">
-          Download every mood, medication, and category entry you've logged - along with your own
-          medication and category definitions - as a single JSON file.
+          Download every medication and category entry you've logged (Mood check-ins included) -
+          along with your own medication and category definitions - as a single JSON file.
         </p>
         <div className="flex flex-col gap-4">
           {exportError && (
@@ -1455,8 +1352,8 @@ function AccountDeletionSection() {
     <SectionCard>
       <CollapsibleSection title="Delete account" storageKey="settings.deleteAccount">
         <p className="mb-4 text-sm text-text-muted">
-          This permanently deletes your account and every mood, medication, and category entry
-          you've logged. This can't be undone.
+          This permanently deletes your account and every medication and category entry (Mood
+          check-ins included) you've logged. This can't be undone.
         </p>
         <div className="flex flex-col gap-4">
           <TextField
@@ -1566,10 +1463,6 @@ export function SettingsPage() {
 
         <section className="mt-6">
           <RemindersSection />
-        </section>
-
-        <section className="mt-6">
-          <BuiltInCategoriesSection />
         </section>
 
         <section className="mt-6">

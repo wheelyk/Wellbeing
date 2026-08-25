@@ -4,30 +4,28 @@ import {
   type DashboardQuickAddType,
 } from "../../lib/dashboardQuickAddEvent";
 
-// The first two match ENTRY_TYPE_ICON in DashboardSummary.tsx - same types, same icons, so a
-// user recognizes "🙂 Mood" here as the same thing they've already seen in the unified Recent
-// entries list above. Hardcoded, not derived from a shared constant, for the same reason the
-// Section components are each their own file rather than one generic loop over a config array -
-// see this project's established "adding a log type means adding a file" convention.
+// The first item matches ENTRY_TYPE_ICON in DashboardSummary.tsx - same type, same icon, so a
+// user recognizes "💊 Medication" here as the same thing they've already seen in the unified
+// Recent entries list above. Hardcoded, not derived from a shared constant, for the same reason
+// the Section components are each their own file rather than one generic loop over a config
+// array - see this project's established "adding a log type means adding a file" convention.
 // "category" is the one deliberate exception - it doesn't get its own array entry per category
 // (an unbounded, user/admin-created list can't live in this hardcoded array without breaking
 // that same convention); instead one "More…" entry dispatches the single "category" quick-add
 // type, which CategorySection's own data-driven picker handles - see its own comment.
 const QUICK_ADD_ITEMS: Array<{ key: DashboardQuickAddType; label: string; icon: string }> = [
-  { key: "mood", label: "Mood", icon: "🙂" },
   { key: "medication", label: "Medication", icon: "💊" },
   { key: "category", label: "More…", icon: "➕" },
 ];
 
 interface QuickAddFabProps {
-  // Whether each built-in category is currently on (Settings > Built-in categories) - all
-  // default true so every existing call site (and every test rendering this component on its
-  // own, with no props at all) keeps today's "show both" behavior unchanged. "category" (the
-  // "More…" entry, for custom categories) is never gated by these - it isn't one of the two
-  // built-ins this toggle feature covers. Habit and Symptom each had their own entry/toggle here
-  // too until Phase 17 folded them into Category - logging a former habit or symptom now goes
-  // through the "More…" entry like any other custom category.
-  moodEnabled?: boolean;
+  // Whether the one remaining built-in category is currently on (Settings > Built-in categories)
+  // - defaults true so every existing call site (and every test rendering this component on its
+  // own, with no props at all) keeps today's "show it" behavior unchanged. "category" (the
+  // "More…" entry, for custom categories) is never gated by this - it isn't a built-in. Mood,
+  // Habit, and Symptom each had their own entry/toggle here too until Phase 17 folded all three
+  // into Category - logging a former habit, symptom, or mood check-in now goes through the
+  // "More…" entry like any other custom category.
   medicationEnabled?: boolean;
 }
 
@@ -49,15 +47,11 @@ interface QuickAddFabProps {
 // Trends/Settings never do. This is deliberately mobile-only now (BottomNav itself is
 // `md:hidden`): desktop's two-column grid was never the site of this problem, and each section's
 // own always-visible "+ Add" button is already reachable there without a floating extra.
-export function QuickAddFab({
-  moodEnabled = true,
-  medicationEnabled = true,
-}: QuickAddFabProps = {}) {
+export function QuickAddFab({ medicationEnabled = true }: QuickAddFabProps = {}) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const items = QUICK_ADD_ITEMS.filter((item) => {
-    if (item.key === "mood") return moodEnabled;
     if (item.key === "medication") return medicationEnabled;
     return true;
   });

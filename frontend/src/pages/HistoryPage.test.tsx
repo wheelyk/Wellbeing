@@ -34,8 +34,8 @@ describe("HistoryPage", () => {
           entries: [
             {
               id: "mood-1",
-              type: "mood",
-              label: "Mood 4/5",
+              type: "category",
+              label: "Mood: 4/5",
               notes: null,
               loggedAt: "2026-08-17T14:00:00.000Z",
             },
@@ -64,7 +64,7 @@ describe("HistoryPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Mood 4/5")).toBeInTheDocument();
+    expect(await screen.findByText(/mood: 4\/5/i)).toBeInTheDocument();
     expect(screen.getByText(/headache: 6\/10/i)).toBeInTheDocument();
     expect(screen.getByText("Started after lunch")).toBeInTheDocument();
     expect(screen.getByText(/exercise: done/i)).toBeInTheDocument();
@@ -110,11 +110,11 @@ describe("HistoryPage", () => {
     renderPage();
     await screen.findByText(/nothing to show yet/i);
 
-    await user.selectOptions(screen.getByLabelText(/type/i), "mood");
+    await user.selectOptions(screen.getByLabelText(/type/i), "medication");
 
     await waitFor(() => {
       const lastCall = fetchMock.mock.calls.at(-1);
-      expect(lastCall?.[0]).toContain("type=mood");
+      expect(lastCall?.[0]).toContain("type=medication");
       expect(lastCall?.[0]).toContain("offset=0");
     });
   });
@@ -239,8 +239,8 @@ describe("HistoryPage", () => {
   it("deletes an entry and keeps it removed when the DELETE call succeeds", async () => {
     const entry = {
       id: "mood-1",
-      type: "mood",
-      label: "Mood 4/5",
+      type: "category",
+      label: "Mood: 4/5",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
@@ -256,13 +256,13 @@ describe("HistoryPage", () => {
     const user = userEvent.setup();
 
     renderPage();
-    await screen.findByText("Mood 4/5");
+    await screen.findByText(/mood: 4\/5/i);
 
-    await user.click(screen.getByRole("button", { name: /delete mood entry/i }));
+    await user.click(screen.getByRole("button", { name: /delete category entry/i }));
     await user.click(await screen.findByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
-      expect(screen.queryByText("Mood 4/5")).not.toBeInTheDocument();
+      expect(screen.queryByText(/mood: 4\/5/i)).not.toBeInTheDocument();
     });
     expect(screen.getByText(/nothing to show yet/i)).toBeInTheDocument();
   });
@@ -270,8 +270,8 @@ describe("HistoryPage", () => {
   it("does not delete when the confirmation dialog is cancelled", async () => {
     const entry = {
       id: "mood-1",
-      type: "mood",
-      label: "Mood 4/5",
+      type: "category",
+      label: "Mood: 4/5",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
@@ -286,12 +286,12 @@ describe("HistoryPage", () => {
     const user = userEvent.setup();
 
     renderPage();
-    await screen.findByText("Mood 4/5");
+    await screen.findByText(/mood: 4\/5/i);
 
-    await user.click(screen.getByRole("button", { name: /delete mood entry/i }));
+    await user.click(screen.getByRole("button", { name: /delete category entry/i }));
     await user.click(await screen.findByRole("button", { name: "Cancel" }));
 
-    expect(screen.getByText("Mood 4/5")).toBeInTheDocument();
+    expect(screen.getByText(/mood: 4\/5/i)).toBeInTheDocument();
     // The dialog itself closed, and no DELETE request against this entry was ever made -
     // AuthProvider's own mount-time rehydration attempt calls fetch once on its own, regardless
     // of this page, so only "was a delete request made" matters here.
@@ -306,15 +306,15 @@ describe("HistoryPage", () => {
   it("loads more entries and appends them when Load more is clicked", async () => {
     const first = {
       id: "mood-1",
-      type: "mood",
-      label: "Mood 4/5",
+      type: "category",
+      label: "Mood: 4/5",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
     const second = {
       id: "mood-2",
-      type: "mood",
-      label: "Mood 2/5",
+      type: "category",
+      label: "Mood: 2/5",
       notes: null,
       loggedAt: "2026-08-16T09:00:00.000Z",
     };
@@ -332,28 +332,28 @@ describe("HistoryPage", () => {
     const user = userEvent.setup();
 
     renderPage();
-    await screen.findByText("Mood 4/5");
+    await screen.findByText(/mood: 4\/5/i);
     expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /load more/i }));
 
-    expect(await screen.findByText("Mood 2/5")).toBeInTheDocument();
-    expect(screen.getByText("Mood 4/5")).toBeInTheDocument();
+    expect(await screen.findByText(/mood: 2\/5/i)).toBeInTheDocument();
+    expect(screen.getByText(/mood: 4\/5/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
   });
 
   it("shows Load less once more than a page is loaded, and it collapses back without a new fetch", async () => {
     const firstPage = Array.from({ length: 20 }, (_, i) => ({
       id: `mood-${i}`,
-      type: "mood",
-      label: "Mood 3/5",
+      type: "category",
+      label: "Mood: 3/5",
       notes: null,
       loggedAt: `2026-08-17T${String(9 + (i % 12)).padStart(2, "0")}:00:00.000Z`,
     }));
     const twentyFirst = {
       id: "mood-20",
-      type: "mood",
-      label: "Mood 5/5",
+      type: "category",
+      label: "Mood: 5/5",
       notes: null,
       loggedAt: "2026-08-16T09:00:00.000Z",
     };
@@ -371,11 +371,11 @@ describe("HistoryPage", () => {
     const user = userEvent.setup();
 
     renderPage();
-    await screen.findAllByText("Mood 3/5");
+    await screen.findAllByText(/mood: 3\/5/i);
     expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /load more/i }));
-    await screen.findByText("Mood 5/5");
+    await screen.findByText(/mood: 5\/5/i);
     expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /load less/i })).toBeInTheDocument();
 
@@ -383,8 +383,8 @@ describe("HistoryPage", () => {
     await user.click(screen.getByRole("button", { name: /load less/i }));
 
     expect(fetchMock.mock.calls.length).toBe(callsBeforeLoadLess);
-    expect(screen.queryByText("Mood 5/5")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Mood 3/5")).toHaveLength(20);
+    expect(screen.queryByText(/mood: 5\/5/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/mood: 3\/5/i)).toHaveLength(20);
     expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
   });
@@ -396,8 +396,8 @@ describe("HistoryPage", () => {
           entries: [
             {
               id: "mood-1",
-              type: "mood",
-              label: "Mood 4/5",
+              type: "category",
+              label: "Mood: 4/5",
               notes: null,
               loggedAt: "2026-08-17T14:00:00.000Z",
             },
@@ -419,7 +419,7 @@ describe("HistoryPage", () => {
     const user = userEvent.setup();
 
     renderPage();
-    await screen.findByText("Mood 4/5");
+    await screen.findByText(/mood: 4\/5/i);
     expect(screen.getByText(/exercise: done/i)).toBeInTheDocument();
 
     // dateHeading always starts with a weekday name followed by a comma (e.g. "Monday, August
@@ -429,7 +429,7 @@ describe("HistoryPage", () => {
     expect(groupHeadings).toHaveLength(2);
     await user.click(groupHeadings[0]);
 
-    expect(screen.queryByText("Mood 4/5")).not.toBeInTheDocument();
+    expect(screen.queryByText(/mood: 4\/5/i)).not.toBeInTheDocument();
     // The other day's group is untouched.
     expect(screen.getByText(/exercise: done/i)).toBeInTheDocument();
   });
@@ -454,128 +454,6 @@ describe("HistoryPage", () => {
     expect(screen.queryByLabelText(/^to$/i)).not.toBeInTheDocument();
     // Collapsing the filter fields doesn't touch the rest of the page.
     expect(screen.getByText(/nothing to show yet/i)).toBeInTheDocument();
-  });
-
-  it("opens the edit dialog pre-filled with the entry's real values", async () => {
-    // The unified /api/history endpoint only returns a display label, not the underlying
-    // structured fields (mood/energy/stress) - HistoryEditModal fetches those separately from
-    // the per-type list endpoint (see historyLogApi.ts's findLogById), so the mock has to serve
-    // that request too, not just the initial /api/history load.
-    const entry = {
-      id: "mood-1",
-      type: "mood",
-      label: "Mood 4/5 · Energy 6/7 · Stress 2/7",
-      notes: "Feeling okay",
-      loggedAt: "2026-08-17T09:00:00.000Z",
-    };
-    const fullMoodLog = {
-      id: "mood-1",
-      userId: "user-1",
-      mood: 4,
-      energy: 6,
-      stress: 2,
-      notes: "Feeling okay",
-      loggedAt: entry.loggedAt,
-    };
-    const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (url.includes("/api/history")) {
-        return Promise.resolve(
-          jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
-        );
-      }
-      if (url.includes("/api/mood-logs")) {
-        return Promise.resolve(
-          jsonResponse(200, { entries: [fullMoodLog], limit: 100, offset: 0, hasMore: false }),
-        );
-      }
-      return Promise.resolve(jsonResponse(401, { error: { message: "No session" } }));
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-
-    renderPage();
-    await screen.findByText(/mood 4\/5/i);
-
-    await user.click(screen.getByRole("button", { name: /edit mood entry/i }));
-
-    await screen.findByRole("heading", { name: "Edit mood entry" });
-    expect(screen.getByRole("radio", { name: "Good" })).toHaveAttribute("aria-checked", "true");
-    const energyGroup = screen.getByRole("radiogroup", { name: "Energy (optional)" });
-    expect(within(energyGroup).getByRole("radio", { name: "6" })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
-    const stressGroup = screen.getByRole("radiogroup", { name: "Stress (optional)" });
-    expect(within(stressGroup).getByRole("radio", { name: "2" })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
-    expect(screen.getByLabelText("Notes (optional)")).toHaveValue("Feeling okay");
-  });
-
-  it("PATCHes the correct endpoint with the right body and updates the visible list on save", async () => {
-    const entry = {
-      id: "mood-1",
-      type: "mood",
-      label: "Mood 4/5",
-      notes: null,
-      loggedAt: "2026-08-17T09:00:00.000Z",
-    };
-    const fullMoodLog = {
-      id: "mood-1",
-      userId: "user-1",
-      mood: 4,
-      energy: null,
-      stress: null,
-      notes: null,
-      loggedAt: entry.loggedAt,
-    };
-    const updatedMoodLog = { ...fullMoodLog, mood: 5 };
-    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-      if (init?.method === "PATCH" && url.includes("/api/mood-logs/mood-1")) {
-        return Promise.resolve(jsonResponse(200, updatedMoodLog));
-      }
-      if (url.includes("/api/history")) {
-        return Promise.resolve(
-          jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
-        );
-      }
-      if (url.includes("/api/mood-logs")) {
-        return Promise.resolve(
-          jsonResponse(200, { entries: [fullMoodLog], limit: 100, offset: 0, hasMore: false }),
-        );
-      }
-      return Promise.resolve(jsonResponse(401, { error: { message: "No session" } }));
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-
-    renderPage();
-    await screen.findByText("Mood 4/5");
-
-    await user.click(screen.getByRole("button", { name: /edit mood entry/i }));
-    await screen.findByRole("heading", { name: "Edit mood entry" });
-
-    await user.click(screen.getByRole("radio", { name: "Great" }));
-    await user.click(screen.getByRole("button", { name: "Save Changes" }));
-
-    await waitFor(() => {
-      const patchCall = fetchMock.mock.calls.find(
-        ([callUrl, callInit]) =>
-          String(callUrl).includes("/api/mood-logs/mood-1") && callInit?.method === "PATCH",
-      );
-      expect(patchCall).toBeDefined();
-      const body = JSON.parse(String(patchCall?.[1]?.body));
-      expect(body.mood).toBe(5);
-      expect(body.energy).toBeNull();
-      expect(body.stress).toBeNull();
-      expect(body.notes).toBeNull();
-    });
-
-    // The list reflects the change immediately (recomputed from the PATCH response), and the
-    // dialog closed - no separate /api/history refetch was needed.
-    expect(await screen.findByText("Mood 5/5")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Edit mood entry" })).not.toBeInTheDocument();
   });
 
   it("resolves a category entry's name via /api/categories and PATCHes the category-logs endpoint on save", async () => {

@@ -30,7 +30,7 @@ describe("ActivityCalendar", () => {
     render(<ActivityCalendar days={[{ date: "2026-08-17", hasActivity: true }]} />);
 
     expect(
-      screen.getByText(/day with logged activity \(mood, medications, or categories\)/i),
+      screen.getByText(/day with logged activity \(medications or categories\)/i),
     ).toBeInTheDocument();
   });
 });

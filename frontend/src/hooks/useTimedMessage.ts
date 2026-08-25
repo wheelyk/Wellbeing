@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
-// How long a transient confirmation (e.g. "Mood entry saved.") stays visible before clearing
-// itself. Long enough to read comfortably, short enough that it doesn't linger as clutter once
-// the user has moved on - this app has no toast/notification system, so a self-clearing inline
-// message is the whole mechanism (see the Dashboard sections' handle*Saved functions).
+// How long a transient confirmation (e.g. "Entry saved.") stays visible before clearing itself.
+// Long enough to read comfortably, short enough that it doesn't linger as clutter once the user
+// has moved on - this app has no toast/notification system, so a self-clearing inline message is
+// the whole mechanism (see the Dashboard sections' handle*Saved functions).
 const DEFAULT_DURATION_MS = 4000;
 
 interface TimedMessageControls {
@@ -15,7 +15,7 @@ interface TimedMessageControls {
 }
 
 // A small piece of state that shows a message and clears itself after `durationMs` - factored
-// out of the Dashboard sections (Mood/Medication/Category) since each needs the exact same "say
+// out of the Dashboard sections (Medication/Category) since each needs the exact same "say
 // 'Saved.' then quietly go away" behavior for their post-save confirmation.
 export function useTimedMessage(durationMs = DEFAULT_DURATION_MS): TimedMessageControls {
   const [message, setMessage] = useState<string | null>(null);
