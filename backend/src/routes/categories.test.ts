@@ -228,6 +228,153 @@ describe("categories routes", () => {
     const listRes = await request(app).get("/api/categories").set(authed(accessToken));
     expect(listRes.body.map((c: { id: string }) => c.id)).not.toContain(created.body.id);
   });
+
+  it("creates and updates a category's description", async () => {
+    const { accessToken } = await registerAndLogin("description");
+    const created = await request(app).post("/api/categories").set(authed(accessToken)).send({
+      name: "Joint pain",
+      valueType: "scale",
+      scaleMin: 1,
+      scaleMax: 10,
+      description: "Left knee, mostly",
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.description).toBe("Left knee, mostly");
+
+    const updated = await request(app)
+      .patch(`/api/categories/${created.body.id}`)
+      .set(authed(accessToken))
+      .send({ description: "Left knee and lower back" });
+    expect(updated.status).toBe(200);
+    expect(updated.body.description).toBe("Left knee and lower back");
+
+    const cleared = await request(app)
+      .patch(`/api/categories/${created.body.id}`)
+      .set(authed(accessToken))
+      .send({ description: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.description).toBeNull();
+  });
+});
+
+describe("categories routes — hide/unhide", () => {
+  it("hides a system category from this caller's own list, but not another user's", async () => {
+    const caller = await registerAndLogin("hide-caller");
+    const other = await registerAndLogin("hide-other");
+    const systemCategory = await prisma.category.create({
+      data: { userId: null, name: "Vitest hideable system category", valueType: "BOOLEAN" },
+    });
+
+    const hideRes = await request(app)
+      .post(`/api/categories/${systemCategory.id}/hide`)
+      .set(authed(caller.accessToken));
+    expect(hideRes.status).toBe(200);
+
+    const callerList = await request(app).get("/api/categories").set(authed(caller.accessToken));
+    expect(callerList.body.map((c: { id: string }) => c.id)).not.toContain(systemCategory.id);
+
+    const otherList = await request(app).get("/api/categories").set(authed(other.accessToken));
+    expect(otherList.body.map((c: { id: string }) => c.id)).toContain(systemCategory.id);
+
+    await prisma.category.delete({ where: { id: systemCategory.id } });
+  });
+
+  it("?includeHidden=true still returns a hidden category, flagged hidden: true", async () => {
+    const { accessToken } = await registerAndLogin("hide-include");
+    const systemCategory = await prisma.category.create({
+      data: { userId: null, name: "Vitest includeHidden system category", valueType: "BOOLEAN" },
+    });
+    await request(app).post(`/api/categories/${systemCategory.id}/hide`).set(authed(accessToken));
+
+    const res = await request(app)
+      .get("/api/categories?includeHidden=true")
+      .set(authed(accessToken));
+    const found = res.body.find((c: { id: string }) => c.id === systemCategory.id);
+    expect(found).toBeDefined();
+    expect(found.hidden).toBe(true);
+
+    // Every other (non-hidden) category in the same response is flagged hidden: false, not just
+    // omitted - the frontend needs a reliable field to key its Hide/Unhide button off of.
+    const somethingElse = res.body.find((c: { id: string }) => c.id !== systemCategory.id);
+    if (somethingElse) expect(somethingElse.hidden).toBe(false);
+
+    await prisma.category.delete({ where: { id: systemCategory.id } });
+  });
+
+  it("unhides a category, returning it to the default list", async () => {
+    const { accessToken } = await registerAndLogin("unhide");
+    const systemCategory = await prisma.category.create({
+      data: { userId: null, name: "Vitest unhide system category", valueType: "BOOLEAN" },
+    });
+    await request(app).post(`/api/categories/${systemCategory.id}/hide`).set(authed(accessToken));
+
+    const unhideRes = await request(app)
+      .delete(`/api/categories/${systemCategory.id}/hide`)
+      .set(authed(accessToken));
+    expect(unhideRes.status).toBe(200);
+
+    const listRes = await request(app).get("/api/categories").set(authed(accessToken));
+    expect(listRes.body.map((c: { id: string }) => c.id)).toContain(systemCategory.id);
+
+    await prisma.category.delete({ where: { id: systemCategory.id } });
+  });
+
+  it("re-hiding an already-hidden category, or unhiding one that was never hidden, is a harmless no-op", async () => {
+    const { accessToken } = await registerAndLogin("hide-idempotent");
+    const systemCategory = await prisma.category.create({
+      data: { userId: null, name: "Vitest idempotent-hide system category", valueType: "BOOLEAN" },
+    });
+
+    const firstHide = await request(app)
+      .post(`/api/categories/${systemCategory.id}/hide`)
+      .set(authed(accessToken));
+    expect(firstHide.status).toBe(200);
+    const secondHide = await request(app)
+      .post(`/api/categories/${systemCategory.id}/hide`)
+      .set(authed(accessToken));
+    expect(secondHide.status).toBe(200);
+
+    const neverHidden = await registerAndLogin("hide-idempotent-unhide");
+    const unhideRes = await request(app)
+      .delete(`/api/categories/${systemCategory.id}/hide`)
+      .set(authed(neverHidden.accessToken));
+    expect(unhideRes.status).toBe(200);
+
+    await prisma.category.delete({ where: { id: systemCategory.id } });
+  });
+
+  it("rejects hiding a personal category (own archive action already covers that)", async () => {
+    const { accessToken } = await registerAndLogin("hide-personal");
+    const created = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "My own category", valueType: "boolean" });
+
+    const res = await request(app)
+      .post(`/api/categories/${created.body.id}/hide`)
+      .set(authed(accessToken));
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe("CATEGORY_NOT_FOUND");
+  });
+
+  it("rejects hiding an already-archived system category", async () => {
+    const { accessToken } = await registerAndLogin("hide-archived");
+    const systemCategory = await prisma.category.create({
+      data: {
+        userId: null,
+        name: "Vitest archived system category",
+        valueType: "BOOLEAN",
+        archivedAt: new Date(),
+      },
+    });
+
+    const res = await request(app)
+      .post(`/api/categories/${systemCategory.id}/hide`)
+      .set(authed(accessToken));
+    expect(res.status).toBe(404);
+
+    await prisma.category.delete({ where: { id: systemCategory.id } });
+  });
 });
 
 afterAll(async () => {

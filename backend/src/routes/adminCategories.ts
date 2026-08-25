@@ -11,6 +11,7 @@ const createSchema = z
   .object({
     name: z.string().trim().min(1),
     icon: z.string().trim().min(1).max(8).optional(),
+    description: z.string().trim().min(1).max(2000).optional(),
     valueType: z.enum(API_CATEGORY_VALUE_TYPES),
     scaleMin: z.number().int().optional(),
     scaleMax: z.number().int().optional(),
@@ -29,6 +30,7 @@ const createSchema = z
 const updateSchema = z.object({
   name: z.string().trim().min(1).optional(),
   icon: z.string().trim().min(1).max(8).optional().nullable(),
+  description: z.string().trim().min(1).max(2000).optional().nullable(),
 });
 
 // Every route here is already gated by requireAuth + requireAdmin at the app.ts mount point -
@@ -56,13 +58,14 @@ adminCategoriesRouter.post("/", async (req, res) => {
     });
   }
 
-  const { name, icon, valueType, scaleMin, scaleMax } = parsed.data;
+  const { name, icon, description, valueType, scaleMin, scaleMax } = parsed.data;
   // userId left unset (null) - this is precisely what makes a category system-wide/built-in for
   // every user, mirroring Symptom's own system-symptom convention.
   const category = await prisma.category.create({
     data: {
       name,
       icon,
+      description,
       valueType: toPrismaCategoryValueType(valueType),
       scaleMin: valueType === "scale" ? scaleMin : null,
       scaleMax: valueType === "scale" ? scaleMax : null,
