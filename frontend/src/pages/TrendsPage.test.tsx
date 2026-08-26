@@ -23,12 +23,24 @@ function emptyTrendsData(period: "7d" | "30d" | "90d" = "7d") {
     startDate: days[0],
     endDate: days[days.length - 1],
     days,
-    mood: {
-      series: days.map((date) => ({ date, average: null, count: 0 })),
-      average: null,
-    },
     categoryTrends: [],
     activity: { days: days.map((date) => ({ date, hasActivity: false })) },
+  };
+}
+
+// A SCALE categoryTrends entry standing in for what Mood now is (Phase 17 - see
+// docs/log/17-unify-mood-symptom-habit.md) - there's no dedicated Mood chart section anymore,
+// this route folds it into the same generic categoryTrends array every other scale category uses.
+function moodTrend(days: string[], average: number | null = null) {
+  return {
+    categoryId: "cat-mood",
+    name: "Mood",
+    icon: null,
+    valueType: "scale" as const,
+    scaleMin: 1,
+    scaleMax: 5,
+    series: days.map((date) => ({ date, average: null, count: 0 })),
+    average,
   };
 }
 
@@ -79,9 +91,14 @@ describe("TrendsPage", () => {
   });
 
   it("requests the 7-day period by default and shows empty states for a brand-new user", async () => {
+    const days = emptyTrendsData("7d").days;
     const fetchMock = vi
       .fn()
-      .mockImplementation(() => Promise.resolve(jsonResponse(200, emptyTrendsData("7d"))));
+      .mockImplementation(() =>
+        Promise.resolve(
+          jsonResponse(200, { ...emptyTrendsData("7d"), categoryTrends: [moodTrend(days)] }),
+        ),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     renderTrendsPage();
@@ -92,9 +109,10 @@ describe("TrendsPage", () => {
   });
 
   it("renders the computed averages when data is present", async () => {
+    const days = emptyTrendsData("7d").days;
     mockTrendsFetch(() => ({
       ...emptyTrendsData("7d"),
-      mood: { series: emptyTrendsData("7d").mood.series, average: 3.4 },
+      categoryTrends: [moodTrend(days, 3.4)],
     }));
 
     renderTrendsPage();
@@ -106,7 +124,8 @@ describe("TrendsPage", () => {
     const user = userEvent.setup();
     mockTrendsFetch((url) => {
       const period = url.includes("period=30d") ? "30d" : "7d";
-      return emptyTrendsData(period);
+      const data = emptyTrendsData(period);
+      return { ...data, categoryTrends: [moodTrend(data.days)] };
     });
 
     renderTrendsPage();
@@ -123,7 +142,7 @@ describe("TrendsPage", () => {
     mockTrendsFetch(() => emptyTrendsData("7d"));
     renderTrendsPage();
 
-    await screen.findByText(/mood — no data yet/i);
+    await screen.findByText(/not a diagnosis, and not a claim about what's causing what/i);
     expect(
       screen.getByText(/not a diagnosis, and not a claim about what's causing what/i),
     ).toBeInTheDocument();
@@ -131,13 +150,15 @@ describe("TrendsPage", () => {
 
   // Regression test: a migrated symptom (Phase 17 - see docs/log/17-unify-mood-symptom-habit.md)
   // no longer gets a dedicated chart section of its own - a SCALE categoryTrends entry stands in
-  // here for "some second chart section alongside Mood," to keep exercising "collapsing one
-  // section doesn't touch another" now that Symptom Severity itself is gone.
+  // here for "some second chart section alongside Mood" (itself now just another categoryTrends
+  // entry, not a fixed chart of its own either), to keep exercising "collapsing one section
+  // doesn't touch another" now that neither Symptom Severity nor a dedicated Mood chart exist.
   it("collapses each chart section independently via its own toggle", async () => {
     const days = emptyTrendsData("7d").days;
     mockTrendsFetch(() => ({
       ...emptyTrendsData("7d"),
       categoryTrends: [
+        moodTrend(days),
         {
           categoryId: "cat-energy",
           name: "Energy level",
@@ -154,7 +175,7 @@ describe("TrendsPage", () => {
 
     renderTrendsPage();
     await screen.findByText(/mood — no data yet/i);
-    // Both TrendLineChart instances (Energy level and Mood) render this same empty-state copy
+    // Both TrendLineChart instances (Mood and Energy level) render this same empty-state copy
     // when every point's average is null, as it is here - ActivityCalendar renders an actual
     // (mostly-inactive) grid instead, not this text, since `emptyTrendsData` gives it real day
     // entries rather than an empty array.
@@ -169,9 +190,9 @@ describe("TrendsPage", () => {
 
     await user.click(screen.getByRole("button", { name: /energy level/i }));
 
-    expect(screen.queryByText(/logged 1–5 over/i)).not.toBeInTheDocument();
-    // Mood's own description is still showing - collapsing Energy level didn't touch it.
-    expect(screen.getByText(/logged mood \(1–5\) over/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/not enough data yet for this period/i)).toHaveLength(1);
+    // Mood's own chart is still showing - collapsing Energy level didn't touch it.
+    expect(screen.getByText(/mood — no data yet/i)).toBeInTheDocument();
   });
 
   it("renders a chart per numeric/scale custom category, using the category's own scale bounds", async () => {
@@ -218,7 +239,7 @@ describe("TrendsPage", () => {
     mockTrendsFetch(() => emptyTrendsData("7d"));
     renderTrendsPage();
 
-    await screen.findByText(/mood — no data yet/i);
+    await screen.findByText(/not a diagnosis, and not a claim about what's causing what/i);
     expect(screen.queryByText(/avg: /i)).not.toBeInTheDocument();
   });
 });

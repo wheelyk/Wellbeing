@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { moodLabel, medicationLabel, categoryValueLabel, categoryLabel } from "./historyLogApi";
+import { medicationLabel, categoryValueLabel, categoryLabel } from "./historyLogApi";
 
 // This file's label-formatting functions mirror backend/src/routes/history.ts's own copies of
 // the same logic exactly (see historyLogApi.ts's own top-of-file comment on why) - previously
@@ -8,22 +8,10 @@ import { moodLabel, medicationLabel, categoryValueLabel, categoryLabel } from ".
 // codebase, across all three independent copies of this formatting logic (two backend, one
 // frontend). These used to test the near-identical habitValueLabel/habitLabel (Habit) and
 // symptomLabel (Symptom), which covered the same shapes before both unified into Category (Phase
-// 17) - see docs/log/17-unify-mood-symptom-habit.md.
+// 17) - see docs/log/17-unify-mood-symptom-habit.md. moodLabel (and Mood itself) was retired the
+// same way in that same phase - a former mood check-in's label now goes through
+// categoryValueLabel/categoryLabel below like any other category.
 describe("historyLogApi label formatting", () => {
-  describe("moodLabel", () => {
-    it("shows just the mood when energy/stress are null", () => {
-      expect(moodLabel({ mood: 4, energy: null, stress: null })).toBe("Mood 4/5");
-    });
-
-    it("appends energy and/or stress when present", () => {
-      expect(moodLabel({ mood: 3, energy: 5, stress: null })).toBe("Mood 3/5 · Energy 5/7");
-      expect(moodLabel({ mood: 3, energy: null, stress: 2 })).toBe("Mood 3/5 · Stress 2/7");
-      expect(moodLabel({ mood: 3, energy: 5, stress: 2 })).toBe(
-        "Mood 3/5 · Energy 5/7 · Stress 2/7",
-      );
-    });
-  });
-
   describe("medicationLabel", () => {
     it("includes dosage when present, omits it when null", () => {
       expect(medicationLabel("Ibuprofen", "200mg", true)).toBe("Ibuprofen — 200mg — Taken");

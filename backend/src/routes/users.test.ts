@@ -53,14 +53,13 @@ describe("GET /api/users/me", () => {
     expect(res.body.passwordHash).toBeUndefined();
   });
 
-  it("defaults both category toggles to true for a brand-new account", async () => {
+  it("defaults the medication toggle to true for a brand-new account", async () => {
     const { accessToken } = await registerAndLogin("toggle-defaults");
 
     const res = await request(app).get("/api/users/me").set(authed(accessToken));
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      moodEnabled: true,
       medicationEnabled: true,
     });
   });
@@ -184,7 +183,7 @@ describe("PATCH /api/users/me", () => {
     expect(ownerRes.body.displayName).toBe("Owner");
   });
 
-  it("updates both category toggles independently of each other", async () => {
+  it("updates the medication toggle", async () => {
     const { accessToken } = await registerAndLogin("toggle-update");
 
     const res = await request(app)
@@ -194,12 +193,11 @@ describe("PATCH /api/users/me", () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      moodEnabled: true,
       medicationEnabled: false,
     });
   });
 
-  it("includes both category toggles on login and refresh, not just GET /me", async () => {
+  it("includes the medication toggle on login and refresh, not just GET /me", async () => {
     const email = uniqueEmail("toggle-session");
     createdEmails.push(email);
     await request(app).post("/api/auth/register").send({ email, password: "Sup3rSecret" });
@@ -208,7 +206,6 @@ describe("PATCH /api/users/me", () => {
       .send({ email, password: "Sup3rSecret" });
 
     expect(loginRes.body.user).toMatchObject({
-      moodEnabled: true,
       medicationEnabled: true,
     });
 
@@ -218,7 +215,6 @@ describe("PATCH /api/users/me", () => {
       .set("Cookie", Array.isArray(cookies) ? cookies : [cookies]);
 
     expect(refreshRes.body.user).toMatchObject({
-      moodEnabled: true,
       medicationEnabled: true,
     });
   });
@@ -283,13 +279,13 @@ describe("DELETE /api/users/me", () => {
     expect(refreshCookie).toMatch(/Expires=Thu, 01 Jan 1970/);
   });
 
-  it("deletes the user and cascades to every one of their logs, medications, and categories (including former custom symptoms)", async () => {
+  it("deletes the user and cascades to every one of their medications and categories (including former custom symptoms and mood check-ins)", async () => {
     const { accessToken, userId, email } = await registerAndLogin("cascade");
 
-    // One of each of the three log types, plus a second personal category (what a user-owned
-    // custom symptom is now, since Symptom unified into Category - see
-    // docs/log/17-unify-mood-symptom-habit.md), so the delete's cascade can be checked against
-    // every table Tasks.md calls out by name.
+    // Two personal categories (what a user-owned custom symptom and a Mood check-in both are
+    // now, since Symptom and Mood both unified into Category - see
+    // docs/log/17-unify-mood-symptom-habit.md), plus one medication log, so the delete's cascade
+    // can be checked against every table Tasks.md calls out by name.
     const symptomRes = await request(app)
       .post("/api/categories")
       .set(authed(accessToken))
@@ -298,8 +294,6 @@ describe("DELETE /api/users/me", () => {
       .post("/api/category-logs")
       .set(authed(accessToken))
       .send({ categoryId: symptomRes.body.id, valueNumeric: 5 });
-
-    await request(app).post("/api/mood-logs").set(authed(accessToken)).send({ mood: 3 });
 
     const medicationRes = await request(app)
       .post("/api/medications")
@@ -321,7 +315,6 @@ describe("DELETE /api/users/me", () => {
 
     // Sanity-check the rows genuinely exist before deletion, so the "gone after" assertions
     // below actually prove something.
-    expect(await prisma.moodLog.count({ where: { userId } })).toBe(1);
     expect(await prisma.medication.count({ where: { userId } })).toBe(1);
     expect(await prisma.medicationLog.count({ where: { userId } })).toBe(1);
     expect(await prisma.category.count({ where: { userId } })).toBe(2);
@@ -332,7 +325,6 @@ describe("DELETE /api/users/me", () => {
 
     // Direct DB queries, not just trusting the 200 - every related row must genuinely be gone.
     expect(await prisma.user.findUnique({ where: { id: userId } })).toBeNull();
-    expect(await prisma.moodLog.count({ where: { userId } })).toBe(0);
     expect(await prisma.medication.count({ where: { userId } })).toBe(0);
     expect(await prisma.medicationLog.count({ where: { userId } })).toBe(0);
     expect(await prisma.category.count({ where: { userId } })).toBe(0);

@@ -50,7 +50,7 @@ async function addSubscription(userId: string, endpointSuffix: string) {
 async function createReminder(
   userId: string,
   overrides: {
-    target?: "GENERAL" | "MOOD" | "SYMPTOM" | "HABIT" | "MEDICATION" | "CATEGORY";
+    target?: "GENERAL" | "MEDICATION" | "CATEGORY";
     medicationId?: string;
     categoryId?: string;
     times?: string[];

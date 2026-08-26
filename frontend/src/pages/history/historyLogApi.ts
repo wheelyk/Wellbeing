@@ -1,6 +1,5 @@
 import { apiFetch } from "../../api/client";
 import type { HistoryEntryType } from "../HistoryPage";
-import type { MoodLog } from "../../components/MoodEntryForm";
 import type { MedicationLog } from "../../components/MedicationEntryForm";
 import type { CategoryLog } from "../../components/CategoryEntryForm";
 import type { Category } from "../../components/CategoryCreateForm";
@@ -8,15 +7,14 @@ import type { Category } from "../../components/CategoryCreateForm";
 // The unified GET /api/history endpoint (see backend/src/routes/history.ts) only returns a
 // display-ready {label, notes, loggedAt} shape - enough to render the list, but not enough to
 // pre-fill a real edit form (e.g. a category entry's label is "Headache: 6/10", which has no
-// machine-readable categoryId in it anywhere). The actual structured fields (mood/energy/stress,
-// categoryId/valueX) only live on the per-type endpoints, so editing has to go back to those -
-// see findLogById below for how, given the backend can't be touched for this task and none of
-// those endpoints support a "fetch by id" lookup. Reuses the exact same MoodLog/CategoryLog types
-// the Dashboard's own MoodEntryForm/CategoryEntryForm already export, rather than maintaining a
-// second, parallel set of near-identical interfaces - this is what actually lets
-// HistoryEditModal render those same form components directly instead of rebuilding its own.
+// machine-readable categoryId in it anywhere). The actual structured fields (categoryId/valueX)
+// only live on the per-type endpoints, so editing has to go back to those - see findLogById below
+// for how, given the backend can't be touched for this task and none of those endpoints support a
+// "fetch by id" lookup. Reuses the exact same MedicationLog/CategoryLog types the Dashboard's own
+// MedicationEntryForm/CategoryEntryForm already export, rather than maintaining a second, parallel
+// set of near-identical interfaces - this is what actually lets HistoryEditModal render those same
+// form components directly instead of rebuilding its own.
 const LIST_PATH: Record<HistoryEntryType, string> = {
-  mood: "/api/mood-logs",
   medication: "/api/medication-logs",
   category: "/api/category-logs",
 };
@@ -26,7 +24,7 @@ interface LogPage<T> {
   hasMore: boolean;
 }
 
-// The three per-type log-list endpoints only support limit/offset pagination - there's no "give
+// The two per-type log-list endpoints only support limit/offset pagination - there's no "give
 // me the one with this id" lookup (adding one would mean touching backend/, out of scope for
 // this task). Entries within a type are always returned newest-first, the same order the
 // History list itself already sorts by, so this pages through that same order and stops as soon
@@ -57,9 +55,6 @@ async function findLogById<T extends { id: string; loggedAt: string }>(
   return null;
 }
 
-export function fetchMoodLog(id: string, loggedAtHint: string): Promise<MoodLog | null> {
-  return findLogById<MoodLog>("mood", id, loggedAtHint);
-}
 export function fetchMedicationLog(
   id: string,
   loggedAtHint: string,
@@ -79,17 +74,6 @@ export function fetchCategories(): Promise<Category[]> {
 // through this page's own edit flow can be reflected in HistoryPage's local `entries` list
 // immediately - producing the same string the unified endpoint would produce on its next real
 // fetch - without needing a full refetch just to pick up a display label.
-export function moodLabel(log: {
-  mood: number;
-  energy: number | null;
-  stress: number | null;
-}): string {
-  const parts = [`Mood ${log.mood}/5`];
-  if (log.energy !== null) parts.push(`Energy ${log.energy}/7`);
-  if (log.stress !== null) parts.push(`Stress ${log.stress}/7`);
-  return parts.join(" · ");
-}
-
 export function medicationLabel(name: string, dosage: string | null, taken: boolean): string {
   const base = dosage ? `${name} — ${dosage}` : name;
   return `${base} — ${taken ? "Taken" : "Not taken"}`;

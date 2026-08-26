@@ -419,7 +419,7 @@ Medication is explicitly out of scope - it stays its own model.
   for the 8 former-system-symptoms.
 
 ### Task 6 — Backend: Mood → Category (Mood/Energy/Stress)
-- [ ] Creates three new system categories (Mood 1-5, Energy 1-7, Stress 1-7). Migration splits
+- [x] Creates three new system categories (Mood 1-5, Energy 1-7, Stress 1-7). Migration splits
   each `MoodLog` row into up to 3 `CategoryLog` rows sharing one `loggedAt` - `notes` carried only
   on the Mood-value row (not duplicated 3x). Deletes `moodLogs.ts`. Migrates (not drops) any
   existing `MOOD`-target reminder to a `CATEGORY`-target reminder pointing at the new Mood
@@ -427,7 +427,7 @@ Medication is explicitly out of scope - it stays its own model.
   unambiguous destination.
 
 ### Task 7 — Frontend: Mood retirement
-- [ ] Deletes `MoodEntryForm.tsx`/`MoodSection.tsx`. Reduces `DashboardSummary`'s top line to just
+- [x] Deletes `MoodEntryForm.tsx`/`MoodSection.tsx`. Reduces `DashboardSummary`'s top line to just
   the Medications clause (the only one left once Mood/Symptom/Habit are gone). Folds
   `BuiltInCategoriesSection` into a single Medication checkbox inside `MedicationsSection`, since
   it no longer has anything else to toggle.

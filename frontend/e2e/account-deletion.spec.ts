@@ -11,11 +11,21 @@ test("deleting an account ends the session and really removes the data", async (
   const email = uniqueTestEmail("delete");
   await registerAndLandOnDashboard(page, email);
 
+  // Logs a medication dose, just to have some real data on the account before deleting it - the
+  // point of this test is "does deleting really remove whatever was logged," not which type of
+  // entry that happens to be.
   await page.getByRole("button", { name: "Quick add" }).click();
-  await page.getByRole("menuitem", { name: /mood/i }).click();
-  await page.getByRole("radio", { name: "Great", exact: true }).click();
+  await page.getByRole("menuitem", { name: /medication/i }).click();
+  await page.waitForSelector("text=Log a medication");
+  await page.getByLabel(/medication name/i).fill("E2E Test Medication");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.waitForTimeout(300);
+  await page
+    .getByRole("radiogroup", { name: /was it taken/i })
+    .getByRole("radio", { name: "Taken", exact: true })
+    .click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector("text=Mood 5/5");
+  await page.waitForSelector("text=E2E Test Medication — Taken");
 
   // The "Delete account" CollapsibleSection starts expanded by default (no localStorage entry
   // yet in this fresh browser context), so - unlike a section a user has previously collapsed -

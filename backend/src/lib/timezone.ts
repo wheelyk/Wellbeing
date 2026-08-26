@@ -78,8 +78,8 @@ function zonedWallClockToUtc(
 
 // The one thing the dashboard route actually needs from this module: the half-open UTC instant
 // range `[start, end)` covering a given calendar day ("YYYY-MM-DD") in the user's timezone -
-// e.g. every SymptomLog/MoodLog/etc. with `loggedAt` in that range is "logged that day" for that
-// user, regardless of what calendar day it happens to fall on in UTC or on the server.
+// e.g. every MedicationLog/CategoryLog/etc. with `loggedAt` in that range is "logged that day"
+// for that user, regardless of what calendar day it happens to fall on in UTC or on the server.
 export function getDayRangeUtc(dateStr: string, timeZone: string): { start: Date; end: Date } {
   const { year, month, day } = parseDateStr(dateStr);
   const start = zonedWallClockToUtc(year, month, day, 0, 0, 0, timeZone);

@@ -15,11 +15,10 @@ interface PeriodSelectorProps {
   onChange: (period: TrendsPeriod) => void;
 }
 
-// A `radiogroup` of plain buttons, the same accessible pattern already used for the mood-choice
-// control in MoodEntryForm.tsx (`role="radiogroup"` + `role="radio"` + `aria-checked`) - "select
-// exactly one of a small fixed set" is the same interaction shape in both places, so it gets the
-// same markup rather than a native `<select>`, which would be harder to make large/tap-friendly
-// per requirements §15.
+// A `radiogroup` of plain buttons, the same accessible pattern RatingScale.tsx already uses
+// (`role="radiogroup"` + `role="radio"` + `aria-checked`) - "select exactly one of a small fixed
+// set" is the same interaction shape in both places, so it gets the same markup rather than a
+// native `<select>`, which would be harder to make large/tap-friendly per requirements §15.
 export function PeriodSelector({ value, onChange }: PeriodSelectorProps) {
   return (
     <div className="flex gap-2" role="radiogroup" aria-label="Trend period">

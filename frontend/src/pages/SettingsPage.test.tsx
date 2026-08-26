@@ -704,65 +704,71 @@ describe("SettingsPage — reminders", () => {
   });
 });
 
-describe("SettingsPage — built-in categories", () => {
+// Mood, Habit, and Symptom each had a toggle here too until Phase 17 folded all three into
+// Category (see docs/log/17-unify-mood-symptom-habit.md) - Medication is the only one left, now
+// folded into MedicationsSection itself rather than a standalone "Built-in categories" section
+// (see that section's own comment on why). Unlike ProfileSection's own GET /api/users/me, this
+// checkbox reads its initial value from AuthContext (populated via /api/auth/refresh), matching
+// every other place in this app that already reads user.medicationEnabled that way (e.g.
+// DashboardPage.tsx) - so these tests provide a "/api/auth/refresh" override, not a
+// "GET /api/users/me" one.
+describe("SettingsPage — medication toggle", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("loads both toggles, all on by default", async () => {
-    const fetchMock = routedFetchMock({
-      "GET /api/users/me": () =>
+  function withAuthedUser(medicationEnabled: boolean) {
+    return {
+      "/api/auth/refresh": () =>
         jsonResponse(200, {
-          ...DEFAULT_PROFILE,
-          moodEnabled: true,
-          medicationEnabled: true,
+          user: { ...DEFAULT_PROFILE, isAdmin: false, medicationEnabled },
+          accessToken: "test-token",
         }),
-    });
+    };
+  }
+
+  it("shows the toggle checked by default", async () => {
+    const fetchMock = routedFetchMock(withAuthedUser(true));
     vi.stubGlobal("fetch", fetchMock);
     renderSettingsPage();
 
-    expect(await screen.findByLabelText(/^mood$/i)).toBeChecked();
-    expect(screen.getByLabelText(/^medications$/i)).toBeChecked();
+    expect(await screen.findByLabelText(/track medications/i)).toBeChecked();
   });
 
-  it("reflects a category that's already off", async () => {
-    const fetchMock = routedFetchMock({
-      "GET /api/users/me": () =>
-        jsonResponse(200, {
-          ...DEFAULT_PROFILE,
-          moodEnabled: true,
-          medicationEnabled: false,
-        }),
-    });
+  it("reflects the toggle already off", async () => {
+    const fetchMock = routedFetchMock(withAuthedUser(false));
     vi.stubGlobal("fetch", fetchMock);
     renderSettingsPage();
 
-    await screen.findByLabelText(/^mood$/i);
-    expect(screen.getByLabelText(/^medications$/i)).not.toBeChecked();
+    expect(await screen.findByLabelText(/track medications/i)).not.toBeChecked();
   });
 
-  it("saves a toggle change and shows a confirmation", async () => {
+  it("saves a change immediately on click and shows a confirmation", async () => {
     const fetchMock = routedFetchMock({
-      "GET /api/users/me": () =>
-        jsonResponse(200, {
-          ...DEFAULT_PROFILE,
-          moodEnabled: true,
-          medicationEnabled: true,
-        }),
+      ...withAuthedUser(true),
       "PATCH /api/users/me": (init) => {
         const body = JSON.parse(init?.body as string);
         return jsonResponse(200, { ...DEFAULT_PROFILE, ...body });
       },
+      // MedicationsSection's own confirmation message only renders once its own medications
+      // list has loaded without error - unmocked here, its own fetch would throw (see
+      // routedFetchMock's own "Unhandled fetch" guard) and the section would show its load-error
+      // state instead, hiding the confirmation this test actually asserts on.
+      "/api/medications": () => jsonResponse(200, []),
+      "/api/reminders": () => jsonResponse(200, []),
+      "/api/categories": () => jsonResponse(200, []),
+      "/api/push/vapid-public-key": () => jsonResponse(200, { publicKey: "test-key" }),
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderSettingsPage();
 
-    await screen.findByLabelText(/^mood$/i);
-    await user.click(screen.getByLabelText(/^medications$/i));
-    await user.click(screen.getByRole("button", { name: /save category settings/i }));
+    const toggle = await screen.findByLabelText(/track medications/i);
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
 
-    expect(await screen.findByText(/category settings saved/i)).toBeInTheDocument();
+    expect(await screen.findByText(/medications disabled/i)).toBeInTheDocument();
+    expect(toggle).not.toBeChecked();
 
     const patchCall = fetchMock.mock.calls.find(
       ([url, init]) =>
@@ -772,11 +778,7 @@ describe("SettingsPage — built-in categories", () => {
     );
     expect(patchCall).toBeDefined();
     const [, requestInit] = patchCall as [string, RequestInit];
-    const body = JSON.parse(requestInit.body as string);
-    expect(body).toEqual({
-      moodEnabled: true,
-      medicationEnabled: false,
-    });
+    expect(JSON.parse(requestInit.body as string)).toEqual({ medicationEnabled: false });
   });
 });
 
@@ -1143,7 +1145,7 @@ describe("SettingsPage — export data", () => {
   });
 
   it("downloads the export as a file using the server-suggested filename", async () => {
-    const exportBody = JSON.stringify({ user: DEFAULT_PROFILE, moodLogs: [] });
+    const exportBody = JSON.stringify({ user: DEFAULT_PROFILE, categoryLogs: [] });
     const fetchMock = routedFetchMock({
       "/api/export": () =>
         new Response(exportBody, {

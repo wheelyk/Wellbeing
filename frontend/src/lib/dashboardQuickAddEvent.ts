@@ -9,10 +9,10 @@ export const DASHBOARD_QUICK_ADD_EVENT = "welltrack:dashboard-quick-add";
 
 // "category" is the one type not backed by its own fixed Dashboard section file - it's handled
 // by the single, data-driven CategorySection instead (see its own comment for why), covering
-// every custom category (including every former habit and symptom, now that both unified into
-// Category - see docs/log/17-unify-mood-symptom-habit.md) rather than one type per file the way
-// the other two are.
-export type DashboardQuickAddType = "mood" | "medication" | "category";
+// every custom category (including every former habit, symptom, and mood check-in, now that all
+// three unified into Category - see docs/log/17-unify-mood-symptom-habit.md) rather than one type
+// per file the way medication still is.
+export type DashboardQuickAddType = "medication" | "category";
 
 export function dispatchDashboardQuickAdd(type: DashboardQuickAddType): void {
   window.dispatchEvent(

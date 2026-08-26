@@ -58,7 +58,6 @@ describe("GET /api/export", () => {
     expect(res.body.user).toMatchObject({ email: expect.stringContaining("vitest-export-empty") });
     // Never leak the password hash, even though it lives on the same underlying User row.
     expect(res.body.user.passwordHash).toBeUndefined();
-    expect(res.body.moodLogs).toEqual([]);
     expect(res.body.medications).toEqual([]);
     expect(res.body.medicationLogs).toEqual([]);
     expect(res.body.categories).toEqual([]);
@@ -79,7 +78,16 @@ describe("GET /api/export", () => {
       .set(authed(accessToken))
       .send({ categoryId: symptomRes.body.id, valueNumeric: 6, loggedAt });
 
-    await request(app).post("/api/mood-logs").set(authed(accessToken)).send({ mood: 4, loggedAt });
+    // A personal category standing in for what a Mood check-in now looks like (Mood unified into
+    // Category in Phase 17 - see docs/log/17-unify-mood-symptom-habit.md).
+    const moodRes = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Mood", valueType: "scale", scaleMin: 1, scaleMax: 5 });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId: moodRes.body.id, valueNumeric: 4, loggedAt });
 
     const medicationRes = await request(app)
       .post("/api/medications")
@@ -102,18 +110,19 @@ describe("GET /api/export", () => {
     const res = await request(app).get("/api/export").set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.moodLogs).toMatchObject([{ mood: 4 }]);
     expect(res.body.medications).toMatchObject([{ name: "Lisinopril", dosage: "10mg" }]);
     expect(res.body.medicationLogs).toMatchObject([{ taken: true, medicationName: "Lisinopril" }]);
     expect(res.body.categories).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "Headache", valueType: "scale" }),
+        expect.objectContaining({ name: "Mood", valueType: "scale" }),
         expect.objectContaining({ name: "Walk", valueType: "boolean" }),
       ]),
     );
     expect(res.body.categoryLogs).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ valueNumeric: 6, categoryName: "Headache" }),
+        expect.objectContaining({ valueNumeric: 4, categoryName: "Mood" }),
         expect.objectContaining({ valueBoolean: true, categoryName: "Walk" }),
       ]),
     );
@@ -124,10 +133,6 @@ describe("GET /api/export", () => {
     const userB = await registerAndLogin("iso-b");
     const loggedAt = "2026-08-17T09:00:00.000Z";
 
-    await request(app)
-      .post("/api/mood-logs")
-      .set(authed(userB.accessToken))
-      .send({ mood: 1, loggedAt });
     const categoryRes = await request(app)
       .post("/api/categories")
       .set(authed(userB.accessToken))
@@ -141,7 +146,6 @@ describe("GET /api/export", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.user.id).toBe(userA.userId);
-    expect(res.body.moodLogs).toEqual([]);
     expect(res.body.categories).toEqual([]);
     expect(res.body.categoryLogs).toEqual([]);
   });

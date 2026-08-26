@@ -30,7 +30,6 @@ const updateSchema = z
   .object({
     displayName: z.string().trim().min(1, "Display name can't be empty"),
     timezone: z.string().refine(isValidTimeZone, "Not a recognized timezone"),
-    moodEnabled: z.boolean(),
     medicationEnabled: z.boolean(),
   })
   .partial()
@@ -44,18 +43,17 @@ const PROFILE_SELECT = {
   displayName: true,
   timezone: true,
   createdAt: true,
-  moodEnabled: true,
   medicationEnabled: true,
 } as const;
 
 // Maps each toggle field to the Reminder target it gates - used only on the false-going-false
 // transition below, to decide which Reminder rows to disable alongside the category itself.
-// habitEnabled (Phase 16) and symptomEnabled (Phase 17) were both removed once Habit/Symptom
-// unified into Category - a former habit/symptom is now an ordinary system-or-personal category
-// with no whole-type toggle of its own anymore (a former symptom is hidden per-row via
-// HiddenCategory instead).
-const TOGGLE_TARGETS: Record<"moodEnabled" | "medicationEnabled", ReminderTarget> = {
-  moodEnabled: ReminderTarget.MOOD,
+// habitEnabled (Phase 16), symptomEnabled and moodEnabled (both Phase 17) were all removed once
+// Habit/Symptom/Mood unified into Category - a former habit/symptom/mood check-in is now an
+// ordinary system-or-personal category with no whole-type toggle of its own anymore (a system one
+// is hidden per-row via HiddenCategory instead). Medication is the one built-in this phase leaves
+// untouched, so it's the only toggle target left here.
+const TOGGLE_TARGETS: Record<"medicationEnabled", ReminderTarget> = {
   medicationEnabled: ReminderTarget.MEDICATION,
 };
 
@@ -121,8 +119,8 @@ usersRouter.patch("/me", async (req, res) => {
 });
 
 usersRouter.delete("/me", async (req, res) => {
-  // Every relation from User (MoodLog, Medication, MedicationLog, Category, CategoryLog) is
-  // declared `onDelete: Cascade` in schema.prisma, so a single delete of the User row is enough -
+  // Every relation from User (Medication, MedicationLog, Category, CategoryLog) is declared
+  // `onDelete: Cascade` in schema.prisma, so a single delete of the User row is enough -
   // Postgres itself removes every row across every one of those tables that references this user,
   // in the same statement, with no separate application-level transaction needed. (Confirmed
   // directly: see users.test.ts's "removes every related row" test, which queries each table

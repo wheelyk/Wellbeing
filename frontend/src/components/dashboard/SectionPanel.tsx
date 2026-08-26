@@ -4,9 +4,9 @@ import { useCollapsedState } from "../../hooks/useCollapsedState";
 interface SectionPanelProps {
   title: string;
   // Suffixed onto a shared localStorage key prefix (see useCollapsedState) - must be unique per
-  // section (e.g. "mood") so each of the four Dashboard sections remembers its own collapsed
-  // state independently, and doubles as this panel's scroll-target id (see QuickAddFab, which
-  // jumps to `#dashboard-section-${storageKey}`).
+  // section (e.g. "medication") so each Dashboard section remembers its own collapsed state
+  // independently, and doubles as this panel's scroll-target id (see QuickAddFab, which jumps to
+  // `#dashboard-section-${storageKey}`).
   storageKey: string;
   addLabel: string;
   onAddClick: () => void;

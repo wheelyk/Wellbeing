@@ -297,3 +297,5 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-25 — Task 3: frontend Habit retirement
 - 2026-08-25 — Task 4: Backend — Symptom → Category
 - 2026-08-25 — Task 5: frontend Symptom retirement
+- 2026-08-25 — Task 6: Backend — Mood → Category (Mood/Energy/Stress)
+- 2026-08-25 — Task 7: frontend Mood retirement

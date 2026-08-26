@@ -57,6 +57,10 @@ describe("GET /api/trends", () => {
     "resolves a well-formed date range for period=%s",
     async (period) => {
       const { accessToken } = await registerAndLogin(`range-${period}`);
+      const category = await request(app)
+        .post("/api/categories")
+        .set(authed(accessToken))
+        .send({ name: "Mood", valueType: "scale", scaleMin: 1, scaleMax: 5 });
       const res = await request(app).get("/api/trends").query({ period }).set(authed(accessToken));
 
       expect(res.status).toBe(200);
@@ -64,7 +68,10 @@ describe("GET /api/trends", () => {
       expect(res.body.days).toHaveLength(expectedDays);
       expect(res.body.endDate).toBe(todayInTimezone("UTC"));
       expect(res.body.startDate).toBe(addDaysToDateStr(res.body.endDate, -(expectedDays - 1)));
-      expect(res.body.mood.series).toHaveLength(expectedDays);
+      const trend = res.body.categoryTrends.find(
+        (t: { categoryId: string }) => t.categoryId === category.body.id,
+      );
+      expect(trend.series).toHaveLength(expectedDays);
       expect(res.body.activity.days).toHaveLength(expectedDays);
     },
   );
@@ -74,34 +81,19 @@ describe("GET /api/trends", () => {
     const res = await request(app).get("/api/trends").set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.mood.average).toBeNull();
-    expect(res.body.mood.series.every((p: { average: null }) => p.average === null)).toBe(true);
+    // Every numeric/scale category this brand-new user can see - their own (none yet) plus every
+    // system one (including Mood/Energy/Stress and every migrated system symptom - see
+    // docs/log/17-unify-mood-symptom-habit.md) - must show up with an honest "no data yet" chart,
+    // not just a single fixed mood series the way this route used to have before Mood itself
+    // unified into Category.
+    expect(res.body.categoryTrends.length).toBeGreaterThan(0);
+    for (const trend of res.body.categoryTrends) {
+      expect(trend.average).toBeNull();
+      expect(trend.series.every((p: { average: null }) => p.average === null)).toBe(true);
+    }
     expect(
       res.body.activity.days.every((d: { hasActivity: boolean }) => d.hasActivity === false),
     ).toBe(true);
-  });
-
-  it("computes per-day averages and an overall period average for mood", async () => {
-    const { accessToken } = await registerAndLogin("averages");
-    const today = todayInTimezone("UTC");
-    const yesterday = addDaysToDateStr(today, -1);
-
-    await request(app)
-      .post("/api/mood-logs")
-      .set(authed(accessToken))
-      .send({ mood: 3, loggedAt: `${today}T09:00:00.000Z` });
-    await request(app)
-      .post("/api/mood-logs")
-      .set(authed(accessToken))
-      .send({ mood: 5, loggedAt: `${yesterday}T09:00:00.000Z` });
-
-    const res = await request(app)
-      .get("/api/trends")
-      .query({ period: "7d" })
-      .set(authed(accessToken));
-
-    expect(res.status).toBe(200);
-    expect(res.body.mood.average).toBeCloseTo((3 + 5) / 2);
   });
 
   // Regression test: a migrated symptom (Phase 17 - see docs/log/17-unify-mood-symptom-habit.md)
@@ -164,7 +156,7 @@ describe("GET /api/trends", () => {
     expect(yesterdayPoint).toMatchObject({ average: 2, count: 1 });
   });
 
-  it("marks a day active in the activity map for any of the three log types", async () => {
+  it("marks a day active in the activity map for any log type", async () => {
     const { accessToken } = await registerAndLogin("activity");
     const today = todayInTimezone("UTC");
     const loggedAt = `${today}T09:00:00.000Z`;
@@ -220,10 +212,18 @@ describe("GET /api/trends", () => {
     const today = todayInTimezone("UTC");
     const longAgo = addDaysToDateStr(today, -30);
 
-    await request(app)
-      .post("/api/mood-logs")
+    const category = await request(app)
+      .post("/api/categories")
       .set(authed(accessToken))
-      .send({ mood: 1, loggedAt: `${longAgo}T09:00:00.000Z` });
+      .send({ name: "Mood", valueType: "scale", scaleMin: 1, scaleMax: 5 });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({
+        categoryId: category.body.id,
+        valueNumeric: 1,
+        loggedAt: `${longAgo}T09:00:00.000Z`,
+      });
 
     const res = await request(app)
       .get("/api/trends")
@@ -231,12 +231,19 @@ describe("GET /api/trends", () => {
       .set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.mood.average).toBeNull();
+    const trend = res.body.categoryTrends.find(
+      (t: { categoryId: string }) => t.categoryId === category.body.id,
+    );
+    expect(trend.average).toBeNull();
   });
 
   it("resolves calendar days using the user's timezone, not UTC", async () => {
     const { accessToken, userId } = await registerAndLogin("timezone");
     await prisma.user.update({ where: { id: userId }, data: { timezone: "America/Los_Angeles" } });
+    const category = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Mood", valueType: "scale", scaleMin: 1, scaleMax: 5 });
 
     // 11pm yesterday in Los Angeles (PST-adjacent, UTC-7 in August) is already "today" in UTC -
     // this must bucket to *yesterday* for this user, matching dashboard.ts's own timezone test.
@@ -247,9 +254,13 @@ describe("GET /api/trends", () => {
     // regardless of when this test happens to run.
     const laToday = todayInTimezone("America/Los_Angeles");
     const res1 = await request(app)
-      .post("/api/mood-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ mood: 4, loggedAt: `${laToday}T06:00:00.000Z` });
+      .send({
+        categoryId: category.body.id,
+        valueNumeric: 4,
+        loggedAt: `${laToday}T06:00:00.000Z`,
+      });
     expect(res1.status).toBe(201);
 
     const res = await request(app)
@@ -258,7 +269,10 @@ describe("GET /api/trends", () => {
       .set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.mood.average).toBe(4);
+    const trend = res.body.categoryTrends.find(
+      (t: { categoryId: string }) => t.categoryId === category.body.id,
+    );
+    expect(trend.average).toBe(4);
   });
 
   it("never includes another user's entries", async () => {
@@ -266,15 +280,27 @@ describe("GET /api/trends", () => {
     const userB = await registerAndLogin("iso-b");
     const today = todayInTimezone("UTC");
 
-    await request(app)
-      .post("/api/mood-logs")
+    const userBCategory = await request(app)
+      .post("/api/categories")
       .set(authed(userB.accessToken))
-      .send({ mood: 1, loggedAt: `${today}T09:00:00.000Z` });
+      .send({ name: "Mood", valueType: "scale", scaleMin: 1, scaleMax: 5 });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(userB.accessToken))
+      .send({
+        categoryId: userBCategory.body.id,
+        valueNumeric: 1,
+        loggedAt: `${today}T09:00:00.000Z`,
+      });
 
     const res = await request(app).get("/api/trends").set(authed(userA.accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.mood.average).toBeNull();
+    expect(
+      res.body.categoryTrends.some(
+        (t: { categoryId: string }) => t.categoryId === userBCategory.body.id,
+      ),
+    ).toBe(false);
   });
 
   // Regression test for a documented-but-previously-unverified edge case (see this route's own

@@ -70,7 +70,7 @@ describe("reminders routes", () => {
     const res = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "mood", times: ["15:00", "09:00", "15:00"] });
+      .send({ target: "general", times: ["15:00", "09:00", "15:00"] });
 
     expect(res.status).toBe(201);
     expect(res.body.times).toEqual(["09:00", "15:00"]);
@@ -82,14 +82,14 @@ describe("reminders routes", () => {
     const badFormat = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "mood", times: ["8:00pm"] });
+      .send({ target: "general", times: ["8:00pm"] });
     expect(badFormat.status).toBe(400);
 
     const tooMany = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
       .send({
-        target: "mood",
+        target: "general",
         times: ["01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00"],
       });
     expect(tooMany.status).toBe(400);
@@ -147,11 +147,11 @@ describe("reminders routes", () => {
     const medicationId = await createMedication(accessToken);
     const categoryId = await createCategory(accessToken);
 
-    const moodWithMedication = await request(app)
+    const generalWithMedication = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "mood", medicationId, times: ["09:00"] });
-    expect(moodWithMedication.status).toBe(400);
+      .send({ target: "general", medicationId, times: ["09:00"] });
+    expect(generalWithMedication.status).toBe(400);
 
     const medicationWithCategory = await request(app)
       .post("/api/reminders")
@@ -166,13 +166,13 @@ describe("reminders routes", () => {
     const first = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "mood", times: ["09:00"] });
+      .send({ target: "general", times: ["09:00"] });
     expect(first.status).toBe(201);
 
     const second = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "mood", times: ["15:00"] });
+      .send({ target: "general", times: ["15:00"] });
     expect(second.status).toBe(409);
     expect(second.body.error.code).toBe("REMINDER_ALREADY_EXISTS");
   });
@@ -219,7 +219,7 @@ describe("reminders routes", () => {
     const created = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "mood", times: ["09:00"] });
+      .send({ target: "general", times: ["09:00"] });
 
     const res = await request(app)
       .patch(`/api/reminders/${created.body.id}`)
@@ -228,7 +228,7 @@ describe("reminders routes", () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      target: "mood",
+      target: "general",
       times: ["09:00", "15:00"],
       enabled: false,
     });

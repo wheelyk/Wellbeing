@@ -656,3 +656,325 @@ Medications: 0/0 taken` with no crash, and Recent entries showed both; Trends re
   without re-running it. Both temporary processes and the worktree were torn down afterward.
 
 ---
+
+## 2026-08-25 — Task 6: Backend — Mood → Category (Mood/Energy/Stress)
+
+**Task:** [Phase 17, Task 6](../../Tasks.md#task-6--backend-mood--category-moodenergystress) -
+the last and structurally hardest of the three migrations: unlike Habit and Symptom, Mood has no
+existing per-user "definition" row to copy, and one `MoodLog` row carries up to three values at
+once (`mood` required, `energy`/`stress` optional) - fundamentally incompatible with `CategoryLog`'s
+"exactly one populated value column per row" shape. Confirmed with the project owner before this
+plan was finalized: Mood splits into three independent system categories - Mood (1-5), Energy
+(1-7), Stress (1-7) - each logged separately, rather than adding a compound-value mechanism to
+`Category` for this one case.
+
+### Background / concepts
+
+#### Why three brand-new system categories, not three migrated ones
+
+Habit and Symptom each had an existing per-row "definition" (a `Habit`/`Symptom` row) whose `id`
+the migration could reuse directly for the destination `Category` row - a clean 1:1 copy. Mood has
+no such row: every `MoodLog` entry stands alone, with no parent `Mood` table to migrate from. So
+this migration's first step is different in kind, not just detail - it _creates_ three new system
+categories from nothing, with fixed ids chosen up front (three real, freshly generated UUIDs) so
+the rest of the migration can reference them directly without a lookup step.
+
+#### Splitting one row into up to three, and where `notes` goes
+
+A `MoodLog` row's `mood` is always populated; `energy`/`stress` are each independently optional.
+Migrating this onto three separate `CategoryLog` rows (one per new category) means each source row
+produces between one and three destination rows, sharing the same `loggedAt` but never the same
+`id` - unlike Habit/Symptom's clean 1:1 copies (which could safely reuse the source row's own
+`id`), a 1:many split needs a freshly generated id per destination row instead. The other genuine
+design decision: a source row's own `notes` attaches only to the Mood-value row, not duplicated
+across all three - three near-identical notes on three separate History lines would read stranger
+than a single note living wherever it obviously "belongs" (the primary value, which was always
+already required). This is a real, visible, and permanent behavior change for every already-logged
+mood check-in with notes: History used to show one combined line ("Mood 4/5 · Energy 6/7 · Stress
+2/7", the note attached to that one line); after this migration it's up to three independent lines
+at the same timestamp, and only the Mood one carries the note. Accepted directly as this plan's own
+stated consequence of choosing full genericity over today's single-check-in UX.
+
+#### The one deliberate exception to drop-and-reconfigure
+
+Every other retired target (`HABIT`, `SYMPTOM`) had its own existing reminders simply deleted by
+that migration - a user with several habits or symptoms has no single, unambiguous category a
+stray `HABIT`/`SYMPTOM`-target reminder could be remapped onto, so drop-and-reconfigure was the
+only honest option both times. `MOOD` is different in a way that matters: there was always at most
+one `MOOD`-target reminder per user (it was a category-level target, like `GENERAL`), and there is
+now exactly one obvious destination once Mood becomes a category - the new system Mood category
+this same migration creates. So this migration remaps an existing `MOOD`-target reminder to a
+`CATEGORY`-target reminder pointing at that category, rather than deleting it - the one place in
+this whole phase where "drop and let the user reconfigure" was deliberately not the right call.
+
+### What was done
+
+- **`backend/prisma/schema.prisma`**: deleted `MoodLog` entirely; removed `moodEnabled`/`moodLogs`
+  from `User`; removed `MOOD` from `ReminderTarget` (now just `GENERAL`/`MEDICATION`/`CATEGORY`);
+  updated cross-referencing comments that pointed at Mood as if it were still a fixed built-in with
+  its own dedicated pieces.
+- **Migration** (`mood_to_category`, hand-written like the two migrations before it, but the first
+  of the three to create brand-new category rows rather than copy existing ones): inserts three
+  system categories (`fa29404f-...` Mood 1-5, `16ed42bd-...` Energy 1-7, `e76ae50d-...` Stress
+  1-7 - fixed ids chosen up front so later statements can reference them directly); splits every
+  `mood_logs` row into up to three `category_logs` rows via three separate `INSERT ... SELECT`
+  statements (Mood unconditional, Energy/Stress each gated by `WHERE energy/stress IS NOT NULL`),
+  each destination row getting its own `gen_random_uuid()` rather than reusing the source row's id
+  (see Background above for why this is genuinely different from Habit/Symptom's own migrations),
+  `notes` carried only onto the Mood-value `INSERT`; remaps any existing `MOOD`-target reminder to
+  `CATEGORY` pointing at the new Mood category (must run before the enum is narrowed - no row may
+  still hold `'MOOD'` once the column is cast onto the replacement type); rebuilds the
+  `reminder_target` enum without `MOOD` (same rename-recreate-cast-drop workaround Postgres always
+  needs for removing an enum value); drops `mood_logs` and `users.mood_enabled`.
+- **Deleted**: `backend/src/routes/moodLogs.ts` and its test file; unmounted from `app.ts`.
+- **`lib/reminderTarget.ts`**/**`lib/reminderScheduler.ts`**: removed `"mood"` from the API target
+  list and `CATEGORY_LEVEL_TARGETS` (now just `["general"]`), and the `MOOD` case from both switch
+  statements (`reminderCopy`, `hasLoggedTarget` - `GENERAL`'s own check is now a 2-way, not 3-way,
+  `Promise.all`, since a logged Mood/Energy/Stress entry is just a `CategoryLog` row now).
+- **`routes/users.ts`**/**`routes/auth.ts`**: removed `moodEnabled` from the update schema, profile
+  selection, toggle-target map (now just `{ medicationEnabled: ReminderTarget.MEDICATION }`), and
+  `serializeUser`.
+- **`routes/dashboard.ts`**: removed the dedicated `latestMood` query and `mood` response field
+  entirely, and the `"mood"` `RecentEntryType`/merge branch - a logged Mood/Energy/Stress entry now
+  flows through the same generic category paths every other category already uses, exactly as
+  Habit and Symptom did before it.
+- **`routes/history.ts`**: removed the dedicated `"mood"` `HISTORY_TYPE` and its `moodLabel`
+  builder - the already-generic `formatCategoryLogValue` branch covers it (as three independent
+  lines per former check-in, per the Background section above).
+- **`routes/export.ts`**: removed the dedicated `moodLogs` field - former-mood data now flows
+  through the existing generic `categories`/`categoryLogs` fields.
+- **`routes/trends.ts`**: removed the dedicated `moodSeries`/`moodAverage` computation and its own
+  `moodLogs` query/bucket entirely - Mood, Energy, and Stress each flow through the existing
+  generic `categoryTrends` array as three independent SCALE-category charts, the same fold-in every
+  migrated symptom already went through in Task 4.
+- **Tests**: `dashboard.test.ts`, `export.test.ts`, `history.test.ts`, `reminders.test.ts`,
+  `trends.test.ts`, `users.test.ts` updated wherever they exercised mood-specific endpoints/fields,
+  or used `target: "mood"` as a stand-in category-level reminder target (switched to `"general"`,
+  the only category-level target left). `trends.test.ts`'s dedicated "for mood" averaging test was
+  deleted outright as fully redundant once mood became an ordinary scale category - the existing
+  "for a scale category, weighted by individual logs" test already covers the identical
+  computation. `moodLogs.test.ts` deleted outright (superseded by `categories.test.ts`/
+  `categoryLogs.test.ts`'s own coverage).
+
+### Why it's needed
+
+Closes the last of the three retirements this phase set out to do - Mood was the one genuine
+outlier (no definition row, a multi-value log shape), and this migration is the proof that even
+that shape fits into the generic model with a deliberate, disclosed reshape (the up-to-three-rows
+split) rather than needing a permanent special case.
+
+### Decisions
+
+- **Three brand-new system categories with fixed, pre-chosen ids**, not a lookup-by-name step in
+  the migration itself - matches the same "reference a known id directly" pattern Habit/Symptom's
+  migrations used, just starting from creation instead of a copy.
+- **`notes` lands only on the Mood-value row.** A three-way duplicate would read stranger in
+  History than a single note attached to the one value that was always required; this is a real,
+  disclosed change to how an old check-in's own note displays, not an oversight.
+- **Each destination row gets its own freshly generated id**, rather than reusing the source
+  `mood_logs` row's id the way Habit/Symptom's own migrations did - a real, unavoidable difference
+  forced by the 1:many split (up to three destination rows per source row), not an inconsistency.
+- **`MOOD` is remapped, not dropped**, as the sole deliberate exception to this phase's own
+  drop-and-reconfigure precedent - justified specifically because exactly one unambiguous
+  destination category exists, which was never true for `HABIT`/`SYMPTOM`.
+
+### Verification
+
+- **Real before/after row counts and spot-checked values** against the shared local dev database:
+  94 `mood_logs` rows before -> 49 categories became 52 (+3), 75 `category_logs` became 170 (+94
+  Mood +1 Energy +0 Stress, matching this dev database's own real `energy`/`stress` null counts
+  exactly). Hand-verified two specific rows end to end: a `mood: 4, energy: 5, stress: null` row
+  produced exactly two `category_logs` rows (Mood `valueNumeric: 4`, Energy `valueNumeric: 5`, both
+  `notes: null`, same `loggedAt`); a `mood: 1, notes: 'Refactor verification note'` row produced
+  exactly one `category_logs` row with the note correctly carried onto it.
+- **A dedicated, from-scratch test of the one case the shared dev database couldn't exercise**: the
+  dev database had zero `MOOD`-target reminders, so the remap step's actual behavior was otherwise
+  unverified. Built a throwaway Postgres database (`welltrack_migration_test`), applied every
+  migration up to (but not including) this one, hand-inserted a user with two `mood_logs` rows
+  (one with both `energy`/`stress` set, one with neither) and one `MOOD`-target reminder directly
+  via raw SQL matching the pre-migration schema, then applied this migration alone and inspected
+  the result directly (via `pg`, bypassing Prisma entirely so the check couldn't share any blind
+  spot with the code under test): the reminder now reads `target: 'CATEGORY', category_id:
+'<Mood's id>'`; the two-value row produced three `category_logs` rows (Mood, Energy, Stress) all
+  sharing one `logged_at`, with `notes: 'both set'` on the Mood row only and `null` on the other
+  two; the one-value row produced a single Mood-only row; `mood_logs` and `users.mood_enabled` were
+  both confirmed gone; the `reminder_target` enum was confirmed to contain exactly `GENERAL`,
+  `MEDICATION`, `CATEGORY`. The throwaway database was dropped afterward.
+- `npm test` (backend): full suite green - 226 tests across 21 files (down from 240/22 pre-Task-6,
+  net of `moodLogs.test.ts`'s deletion, the redundant "for mood" trends test's deletion, and every
+  other file's mood-specific cases converted to the generic category equivalent).
+- `npx tsc --noEmit`, `npm run build`, `npx eslint .`, `npx prettier --check .`: all clean. A
+  stale, overly-broad type annotation in `reminderScheduler.test.ts` (a local helper's `target`
+  parameter still listed `"MOOD" | "SYMPTOM" | "HABIT"` as valid options, left over uncorrected
+  since Tasks 2 and 4) was tightened to the real current enum while in the area, even though no
+  test actually constructed a reminder with any of those three stale values.
+- Manual, real-backend verification deferred to Task 7's own entry, once the frontend is merged in
+  alongside this branch - same reasoning as Tasks 2/3 and 4/5: this migration alone, without
+  Task 7, would break the live Dashboard/Trends/Quick-Add the same way Task 2 alone did before
+  Task 3 landed (the frontend still calls `/api/mood-logs` and reads `res.body.mood` until Task 7's
+  own changes land).
+
+---
+
+## 2026-08-25 — Task 7: Frontend — Mood retirement
+
+**Task:** [Phase 17, Task 7](../../Tasks.md#task-7--frontend-mood-retirement) - the last task in
+this phase: delete the dedicated Mood UI, fold what's left of the built-in-category toggles down to
+just Medication, and confirm the whole three-model unification (Habit, Symptom, Mood, all into
+Category) actually works end to end.
+
+### Background / concepts
+
+#### Why the summary line shrinks to one clause, not zero
+
+Once Mood is gone, `DashboardSummary`'s top line has exactly one built-in left to summarize
+(Medications) - Habit and Symptom never had a clause of their own to begin with (see Tasks 3/5),
+so this is the last of three clauses to disappear, not a new reduction of its own. The line still
+has a real job left to do (Medications' "N/M taken" count is still meaningful and still gates the
+friendly empty state), so it stays - it just never had a second clause to keep it company again
+once Mood's was removed.
+
+#### `BuiltInCategoriesSection` had nothing left to be its own section for
+
+Once Habit, Symptom, and Mood are all ordinary categories, `BuiltInCategoriesSection` - a whole
+`CollapsibleSection`, its own fetch, its own save button - existed only to hold one checkbox
+(Medication). Rather than keep a dedicated section around for one control, it moved directly into
+`MedicationsSection` as an inline, auto-saving checkbox (no separate "Save" button - see Decisions
+below) - the same shape Hide/Unhide already established for a single-action, no-ceremony toggle in
+this same phase.
+
+### What was done
+
+- **Deleted**: `frontend/src/components/MoodEntryForm.tsx`/`.test.tsx`,
+  `frontend/src/components/dashboard/MoodSection.tsx`/`.test.tsx` - logging Mood/Energy/Stress now
+  happens through `CategorySection`/`CategoryEntryForm` like any other category, each showing up as
+  its own card since they're independent categories now.
+- **`lib/dashboardQuickAddEvent.ts`**/**`lib/dashboardEntryChangedEvent.ts`**: removed `"mood"` from
+  both type unions (now just `"medication" | "category"`).
+- **`components/dashboard/QuickAddFab.tsx`**: removed the `"mood"` entry from `QUICK_ADD_ITEMS` and
+  the `moodEnabled` prop/filter - logging a former mood check-in now goes through the "More…" entry
+  like any other category, exactly as Habit's own quick-add entry already did after Task 3.
+- **`components/dashboard/DashboardSummary.tsx`**: removed `mood` from `DashboardSummaryData`,
+  `"mood"` from `RecentEntry["type"]`/`ENTRY_TYPE_ICON`, and the `moodEnabled`-gated summary clause;
+  `hasLoggedAnything` is now just `data.medicationSummary.total > 0`.
+- **`pages/DashboardPage.tsx`**: removed the `MoodSection` import/render and every `moodEnabled`
+  prop pass-through.
+- **`pages/HistoryPage.tsx`**/**`pages/history/historyLogApi.ts`**/**`pages/history/
+HistoryEditModal.tsx`**: removed `"mood"` from `HistoryEntryType`/`TYPE_LABELS`/`DELETE_PATH`,
+  `fetchMoodLog`/`moodLabel`, and the entire `MoodEntryForm` edit branch - a former mood check-in's
+  history entry now resolves through the same generic `CategoryEntryForm` edit path as any other
+  category.
+- **`pages/TrendsPage.tsx`**: removed the dedicated Mood `CollapsibleSection`/`TrendLineChart` block,
+  the `mood` field from `TrendsData`, and `MOOD_CHART_COLOR` - Mood (like Energy and Stress) now
+  gets its own independent chart via the same generic `categoryTrends` array every other scale
+  category already uses, the identical fold-in Symptom went through in Task 5.
+- **`components/ReminderCreateForm.tsx`**: removed `"mood"` from the `ReminderTarget` type and
+  `TARGET_OPTIONS` - a former mood reminder is a `"category"`-target reminder now, matching the
+  backend's own Task 6 migration.
+- **`auth/AuthContext.tsx`**: removed `moodEnabled` from `AuthUser`.
+- **`pages/SettingsPage.tsx`**: removed `moodEnabled` from `UserProfile`, `CategoryToggles`,
+  `TOGGLE_FIELD_BY_TARGET`/`TOGGLE_FIELD_LABEL`, `reminderTargetLabel`, and every toggle-related
+  call site. Deleted `BuiltInCategoriesSection` entirely; its one remaining checkbox
+  (`medicationEnabled`) moved into `MedicationsSection` as an instant-save toggle reading/writing
+  `AuthContext` directly (see Decisions below), removed from `SettingsPage`'s own render.
+- Copy text updated across `HistoryPage.tsx`, `CategorySection.tsx`, `SettingsPage.tsx`,
+  `AdminCategoriesPage.tsx`, `ActivityCalendar.tsx`, `TrendsPage.tsx` wherever it named "mood" as a
+  still-separate concept, replaced with historically-accurate "now a category too" framing where
+  relevant.
+- Several component comments still pointed at the now-deleted `MoodEntryForm.tsx`/`MoodSection.tsx`
+  as if they were live siblings (`RatingScale.tsx`, `PeriodSelector.tsx`, `DateTimeField.tsx`,
+  `MedicationEntryForm.tsx`, `SectionPanel.tsx`, `useTimedMessage.ts`, `MedicationSection.tsx`) -
+  updated to point at `CategoryEntryForm`/`CategorySection` instead, the components that actually
+  carry this logic now.
+- **Tests**: `DashboardSummary.test.tsx`, `QuickAddFab.test.tsx`, `DashboardPage.test.tsx`,
+  `HistoryPage.test.tsx`, `historyLogApi.test.ts`, `TrendsPage.test.tsx`, `SettingsPage.test.tsx`,
+  `ActivityCalendar.test.tsx` all updated wherever they exercised the retired Mood UI/fields, or
+  used `"mood"` as a stand-in type value no longer valid. Two tests in `HistoryPage.test.tsx` that
+  specifically exercised editing a multi-field Mood entry (mood/energy/stress in one form) were
+  deleted outright, not converted - that scenario doesn't exist anywhere in the app anymore, since
+  editing a former mood check-in now goes through the same single-value `CategoryEntryForm` an
+  already-existing category-edit test already covers. `SettingsPage.test.tsx`'s "built-in
+  categories" describe block was rewritten into a new "medication toggle" block testing the
+  relocated inline checkbox instead.
+
+### Why it's needed
+
+Completes the phase: Mood was the last of the three built-ins folded into Category, and this is the
+step that actually removes the frontend code paths a user would otherwise still be using instead of
+the generic ones - without it, Task 6's backend migration alone would break the live app the moment
+it merged (the frontend would still call the now-deleted `/api/mood-logs` and read a `mood` field
+the API no longer returns).
+
+### Decisions
+
+- **The Medication toggle saves instantly on click, with no separate "Save" button** - a deliberate
+  change from the old `BuiltInCategoriesSection` form (which needed an explicit "Save category
+  settings" click for possibly-multiple pending toggle changes). With only one checkbox left,
+  batching a save no longer serves a purpose; matches the already-established Hide/Unhide
+  interaction pattern (Task 5) for a single, self-contained action.
+- **`BuiltInCategoriesSection` is deleted, not just emptied** - a `CollapsibleSection` wrapping a
+  single checkbox would be pure ceremony; folding it into `MedicationsSection` (which already
+  exists and already needs its own initial data) is the more honest home for it now.
+
+### Verification
+
+- `npx tsc -b`, `npm run build` (frontend): clean. `npx tsc --noEmit`, `npm run build` (backend,
+  re-run after the merge below): clean.
+- `npx vitest run` (frontend): full suite green - 232 tests across 32 files (down from 260/34
+  pre-Task-7, net of `MoodEntryForm.test.tsx`/`MoodSection.test.tsx`'s deletion, the two redundant
+  multi-field mood-edit tests' deletion, and every other file's mood-specific cases converted to
+  the generic category equivalent).
+- `npm run lint` (oxlint), `npx prettier --check .`: clean (same two pre-existing, unrelated
+  warnings noted in earlier tasks' entries - a `vite.config.ts` triple-slash-reference note and a
+  `BottomNav.tsx` formatting nit - predate this task and were left alone, out of scope).
+- Merged `feature/mood-frontend-retirement` into `feature/mood-to-category-backend` (clean merge,
+  no conflicts) before any manual verification or PR, applying the lesson from every earlier
+  task-pair in this phase directly instead of discovering the break after the fact. Full backend
+  (226/21) and frontend (232/32) suites re-run green on the merged branch; both builds clean.
+- **Manual, real-browser verification** (Playwright driving a real Chromium instance, mobile
+  viewport 412×915 to match `playwright.config.ts`'s own default - `QuickAddFab` only renders inside
+  `BottomNav`, which is deliberately `md:hidden`) against the merged branch's real running
+  backend + frontend (`NODE_ENV=test` backend on port 4000, `vite preview` frontend on port 5173):
+  registered a fresh account; confirmed no "Add mood entry" button anywhere and Quick Add's menu
+  showing only "Medication"/"More…"; clicking "More…" opened straight into "Log an entry" (not the
+  empty "Create your first category" state) with the system category picker already listing all 11
+  system categories including "Mood" (scale 1-5) - confirming a brand-new account sees these from
+  registration onward; logged a Mood entry (4/5) via that picker, confirmed it appeared in Recent
+  entries as "Mood — 4/5" and in the Categories card as "Mood: 4/5", with the streak correctly
+  advancing to 1 day while the top summary line correctly stayed on its "Nothing logged yet today"
+  empty-state message (Medications alone gates that line now, and none were logged - an accepted,
+  visible consequence of Mood having no clause of its own, not a bug); Settings showed no "Built-in
+  categories" section at all, a "Track medications" checkbox (checked) directly inside Medications,
+  and the Categories list showing all 11 system categories (Anxiety, Brain fog, Depression, Energy,
+  Fatigue, Headache, Insomnia, Joint pain, Mood, Nausea, Stress) each tagged "Built-in" with the
+  correct scale range and a "Hide" action; Trends rendered one independent chart per system
+  category, with Mood's own chart correctly showing "Avg: 4.0" and a real data point while
+  Energy/Stress and every symptom correctly showed "No data yet" - not one combined fixed Mood
+  chart; History showed the same entry as "Category / Mood: 4/5" with working Edit/Delete. One
+  benign `401` console message (the app's own silent pre-registration session-rehydration attempt,
+  the same documented pattern noted in this project's PR-preview screenshot script) was the only
+  console output, confirming no real runtime error anywhere in the flow. Screenshots captured at
+  each step. Both temporary servers were torn down afterward.
+- **A fourth instance of the same class of gap this phase keeps finding**, again in
+  `frontend/e2e/` and `capture-pr-screenshots.mjs`: all four of this repo's e2e specs (not just the
+  two already fixed for Symptom in Task 4/5) and the PR-preview screenshot script still drove the
+  now-deleted "Mood" Quick Add menu item and `MoodEntryForm`/`/api/mood-logs` directly -
+  `account-deletion.spec.ts` and `edit-and-delete.spec.ts` had never needed fixing before now, since
+  neither exercises Symptom at all, so they were invisible to every earlier check in this phase.
+  Found only by actually running the full local e2e suite before pushing (not by CI, this time) -
+  `account-deletion.spec.ts`'s own mood-logging step was swapped for a medication one (the test
+  itself never cared which type was logged, just that something real existed before deletion);
+  `edit-and-delete.spec.ts` - which does genuinely exercise edit/delete, not just setup - was
+  converted to log/edit/delete the seeded system Mood category through `CategoryEntryForm`/
+  `/api/category-logs` instead of the deleted `MoodEntryForm`/`/api/mood-logs`, asserting on
+  `Edit entry`/`Delete this category entry` (the generic modal titles) rather than the
+  now-nonexistent `Edit mood entry`/`Delete this mood entry` copy. `quick-add-and-dashboard.spec.ts`
+  and `trends-after-seeding.spec.ts` similarly had their own dedicated mood-logging steps converted
+  to select the seeded system Mood category from the picker (`trends-after-seeding.spec.ts`
+  specifically now resolves that category's id via a real `GET /api/categories` call rather than
+  assuming one). Verified by running the full local e2e suite (all 4 specs green) and the
+  screenshot script directly (clean run, screenshot inspected directly showing "Mood — 5/5" and
+  "Medications: 1/1 taken" with no Mood summary clause) against the merged branch's real backend +
+  frontend, the same way the earlier three gaps in this phase were each finally confirmed fixed.
+
+---

@@ -9,13 +9,14 @@ const createSchema = z.object({
   notes: z.string().trim().min(1).optional(),
   // Accepts an explicit past (or future) timestamp for backfilling; omitted entirely means
   // "now", handled below rather than as a Zod default so "now" means the moment the request
-  // is actually processed, not schema-parse time. Same pattern as mood-logs.
+  // is actually processed, not schema-parse time. Same pattern as category-logs.
   loggedAt: z.string().datetime().optional(),
 });
 
-// See moodLogs.ts's identical comment: `notes` is widened to accept an explicit `null` on
-// update only, so clearing a previously-entered note during an edit actually clears it instead
-// of the "not provided" case (key absent) silently leaving the old value untouched.
+// `notes` is widened to accept an explicit `null` on update only, so clearing a previously-
+// entered note during an edit actually clears it instead of the "not provided" case (key absent)
+// silently leaving the old value untouched - the same pattern categoryLogs.ts's own updateSchema
+// uses.
 const updateSchema = createSchema.partial().extend({
   notes: z.string().trim().min(1).optional().nullable(),
 });
@@ -52,7 +53,7 @@ medicationLogsRouter.get("/", async (req, res) => {
     ({ take, skip }) =>
       prisma.medicationLog.findMany({
         where: { userId: req.userId },
-        // `id` as a secondary sort key - see moodLogs.ts's identical `orderBy` for why this
+        // `id` as a secondary sort key - see categoryLogs.ts's identical `orderBy` for why this
         // matters: without it, two logs sharing the exact same `loggedAt` have no guaranteed
         // relative order across separate paginated requests.
         orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
@@ -113,7 +114,7 @@ medicationLogsRouter.patch("/:id", async (req, res) => {
 
   // findFirst scoped to userId (not just findUnique by id) so a log belonging to another user
   // is treated as not found rather than confirming its existence via a 403 - same principle as
-  // mood-logs.
+  // category-logs.
   const existing = await prisma.medicationLog.findFirst({
     where: { id: req.params.id, userId: req.userId },
   });

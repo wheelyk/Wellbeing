@@ -5,9 +5,9 @@ import jwt from "jsonwebtoken";
 import { requireAuth } from "./requireAuth";
 import { signAccessToken } from "../lib/jwt";
 
-// requireAuth has no real protected route to attach to yet in this codebase (that arrives
-// with the mood-logs endpoint) - so it's tested here against a minimal throwaway route that
-// exists only for this test file, exactly as a real protected route would use it.
+// Tested here against a minimal throwaway route that exists only for this test file, exactly as
+// a real protected route (e.g. category-logs) would use it - keeps this middleware's own coverage
+// independent of whichever real routes happen to exist at any given point.
 function buildTestApp() {
   const app = express();
   app.get("/protected", requireAuth, (req, res) => {

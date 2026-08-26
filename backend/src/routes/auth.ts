@@ -46,7 +46,6 @@ function serializeUser(user: {
   displayName: string;
   timezone: string;
   createdAt: Date;
-  moodEnabled: boolean;
   medicationEnabled: boolean;
 }) {
   return {
@@ -55,7 +54,6 @@ function serializeUser(user: {
     displayName: user.displayName,
     timezone: user.timezone,
     createdAt: user.createdAt,
-    moodEnabled: user.moodEnabled,
     medicationEnabled: user.medicationEnabled,
     // Computed, not stored - see lib/isAdmin.ts. AuthContext is populated from /login and
     // /refresh (both call this function), never from GET /api/users/me directly, so isAdmin (and

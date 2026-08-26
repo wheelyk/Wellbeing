@@ -10,33 +10,40 @@ test("edit an entry from History, then delete it, with real persistence across a
 }) => {
   await registerAndLandOnDashboard(page, uniqueTestEmail("edit-delete"));
 
+  // Mood unified into Category in Phase 17 (see docs/log/17-unify-mood-symptom-habit.md) - logging
+  // it now goes through the generic "More…" entry and the system Mood category (seeded for every
+  // account, selectable directly from the picker), and editing/deleting both go through
+  // CategoryEntryForm/the category-logs endpoint like any other category, not a dedicated
+  // MoodEntryForm/mood-logs endpoint of its own anymore.
   await page.getByRole("button", { name: "Quick add" }).click();
-  await page.getByRole("menuitem", { name: /mood/i }).click();
-  await page.getByRole("radio", { name: "Neutral", exact: true }).click();
+  await page.getByRole("menuitem", { name: /more/i }).click();
+  await page.waitForSelector("text=Log an entry");
+  await page.locator("#category-picker").selectOption({ label: "Mood" });
+  await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "3" }).click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector("text=Mood 3/5");
+  await page.waitForSelector("text=Mood: 3/5");
 
   await page.goto("/history");
-  await page.waitForSelector("text=Mood 3/5");
+  await page.waitForSelector("text=Mood: 3/5");
 
-  // Edit: change the mood and add a note, using the real shared MoodEntryForm.
-  await page.getByRole("button", { name: /^edit mood entry/i }).click();
-  await page.waitForSelector("text=Edit mood entry");
-  await page.getByRole("radio", { name: "Great", exact: true }).click();
+  // Edit: change the value and add a note, using the real shared CategoryEntryForm.
+  await page.getByRole("button", { name: /^edit category entry/i }).click();
+  await page.waitForSelector("text=Edit entry");
+  await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "5" }).click();
   await page.getByLabel(/notes/i).fill("Edited via e2e suite");
   await page.getByRole("button", { name: /save changes/i }).click();
 
-  await expect(page.getByText("Mood 5/5")).toBeVisible();
+  await expect(page.getByText("Mood: 5/5")).toBeVisible();
   await expect(page.getByText("Edited via e2e suite")).toBeVisible();
 
   // Reload to prove this is real server-side persistence, not just local React state.
   await page.reload();
-  await expect(page.getByText("Mood 5/5")).toBeVisible();
+  await expect(page.getByText("Mood: 5/5")).toBeVisible();
   await expect(page.getByText("Edited via e2e suite")).toBeVisible();
 
   // Delete: the real Modal-based confirmation (see PR #99), not a native window.confirm.
-  await page.getByRole("button", { name: /^delete mood entry/i }).click();
-  await page.waitForSelector("text=/delete this mood entry/i");
+  await page.getByRole("button", { name: /^delete category entry/i }).click();
+  await page.waitForSelector("text=/delete this category entry/i");
   // HistoryPage's delete is optimistic - it removes the entry from local state immediately,
   // before the DELETE request has actually resolved (see handleConfirmDelete in
   // HistoryPage.tsx) - so the two expects just below can (and, under CI, sometimes did:
@@ -46,12 +53,12 @@ test("edit an entry from History, then delete it, with real persistence across a
   // page.reload() would otherwise abort mid-flight (confirmed directly: that abort is exactly
   // what showed up as an HAR status of -1 on the failed run above).
   const deleteResponse = page.waitForResponse(
-    (res) => res.request().method() === "DELETE" && res.url().includes("/api/mood-logs/"),
+    (res) => res.request().method() === "DELETE" && res.url().includes("/api/category-logs/"),
   );
   await page.getByRole("button", { name: /^delete$/i }).click();
   await deleteResponse;
 
-  await expect(page.getByText("Mood 5/5")).not.toBeVisible();
+  await expect(page.getByText("Mood: 5/5")).not.toBeVisible();
   await expect(page.getByText(/nothing to show yet/i)).toBeVisible();
 
   // Reload again to prove the delete really reached the server too.
