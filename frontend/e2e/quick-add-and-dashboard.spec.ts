@@ -18,14 +18,16 @@ test("register, Quick Add all four log types, and see them reflected on Dashboar
   // Mood: "More…" opens straight into "Log an entry", not "Create your first category" - every
   // account, even a brand new one, already sees the 11 seeded system categories (Mood/Energy/
   // Stress plus every system symptom - see backend/prisma/seed.ts) here, with Mood itself
-  // selectable directly from the picker rather than needing to be created.
+  // selectable directly from the picker rather than needing to be created. Since Phase 18, saving
+  // this first entry promotes Mood into its own "Recent Mood" Dashboard card (see
+  // docs/log/18-per-category-dashboard-cards.md) rather than an inline "Mood: 5/5" line.
   await page.getByRole("button", { name: "Quick add" }).click();
   await page.getByRole("menuitem", { name: /more/i }).click();
   await page.waitForSelector("text=Log an entry");
   await page.locator("#category-picker").selectOption({ label: "Mood" });
   await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "5" }).click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector("text=Mood: 5/5");
+  await page.waitForSelector("text=Recent Mood");
 
   // Category #1: a "scale" category (1-10), standing in for what a migrated Symptom now looks
   // like - reached via "+ Add a new category" since a category (Mood) already exists by this
@@ -46,7 +48,7 @@ test("register, Quick Add all four log types, and see them reflected on Dashboar
     .getByRole("radio", { name: "6" })
     .click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector("text=E2E Test Scale Category: 6/10");
+  await page.waitForSelector("text=Recent E2E Test Scale Category");
 
   // Medication
   await page.getByRole("button", { name: "Quick add" }).click();
@@ -75,7 +77,7 @@ test("register, Quick Add all four log types, and see them reflected on Dashboar
   await page.waitForSelector("text=Log an entry");
   await page.getByRole("radio", { name: "Yes" }).click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector("text=E2E Test Category: Done");
+  await page.waitForSelector("text=Recent E2E Test Category");
 
   // The unified "Recent entries" card at the top of Dashboard is the actual assertion this
   // scenario cares about: one card reflecting all four just-logged entries together, not just
