@@ -434,6 +434,37 @@ Medication is explicitly out of scope - it stays its own model.
 
 ---
 
+## Phase 18 — Per-Category Dashboard Cards (post-MVP)
+
+Reference: direct user feedback on the live app after Phase 17 landed - once Habit/Symptom/Mood all
+became ordinary categories, the single "Your categories" card mixed every category's entries
+together under one vague heading, unlike `MedicationSection`'s own dedicated "Recent medications"
+card, reading as repetitive/untidy and unclear what belonged where. Confirmed directly with the
+project owner: each category a user has actually logged at least once gets its own "Recent
+`<name>`" card (mirroring Medication's own card shape), each with its own "+" that logs directly to
+that one category (no picker) - not shown at all for a category with zero logs yet (so a brand-new
+account isn't greeted by 11 empty system-category cards), and not shown for a category hidden via
+Settings' existing Hide/Unhide action (Phase 17, Task 1) even if it has history. Discovering/logging
+a category for the very first time (or defining a brand-new one) still goes through one shared,
+always-present entry point, exactly as today.
+
+### Task 1 — Backend: category activity/filtering support
+- [x] `GET /api/categories` gains a `lastLoggedAt: string | null` field per category (the caller's
+  own most recent log against it, computed via one `groupBy` query) - what the frontend uses to
+  decide which categories get their own card, and in what order. `GET /api/category-logs` gains an
+  optional `?categoryId=` filter, so a per-category card can page through just its own history
+  instead of the user's entire combined log list.
+
+### Task 2 — Frontend: split "Your categories" into per-category cards
+- [x] Replaces the single `CategorySection` card with one dedicated card per category that has
+  `lastLoggedAt !== null`, sorted most-recently-logged first, each with its own paginated log list
+  and its own "+" (a `CategoryEntryForm` locked to that one category, no picker). One small,
+  always-present "add a category" entry point remains (the discovery/creation flow for a category
+  with no card yet, or a brand-new one), still reachable from `QuickAddFab`'s "More…" entry exactly
+  as today; saving through it promotes that category to its own card immediately.
+
+---
+
 ## Definition of Done Checklist (from requirements §20)
 
 Use this as the final go/no-go check before calling the MVP complete:

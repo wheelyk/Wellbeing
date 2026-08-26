@@ -14,14 +14,16 @@ test("edit an entry from History, then delete it, with real persistence across a
   // it now goes through the generic "More…" entry and the system Mood category (seeded for every
   // account, selectable directly from the picker), and editing/deleting both go through
   // CategoryEntryForm/the category-logs endpoint like any other category, not a dedicated
-  // MoodEntryForm/mood-logs endpoint of its own anymore.
+  // MoodEntryForm/mood-logs endpoint of its own anymore. Since Phase 18, saving this first entry
+  // also promotes Mood into its own "Recent Mood" Dashboard card (see
+  // docs/log/18-per-category-dashboard-cards.md) rather than an inline "Mood: 3/5" line.
   await page.getByRole("button", { name: "Quick add" }).click();
   await page.getByRole("menuitem", { name: /more/i }).click();
   await page.waitForSelector("text=Log an entry");
   await page.locator("#category-picker").selectOption({ label: "Mood" });
   await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "3" }).click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector("text=Mood: 3/5");
+  await page.waitForSelector("text=Recent Mood");
 
   await page.goto("/history");
   await page.waitForSelector("text=Mood: 3/5");

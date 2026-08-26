@@ -46,21 +46,41 @@ export const categoriesRouter = Router();
 // ?includeHidden=true keeps them in, each serialized with its own `hidden: boolean` - this is the
 // view Settings' management list uses instead, since a management screen needs to show a hidden
 // category (with an Unhide action) rather than making it vanish with no way back.
+//
+// `lastLoggedAt` (this caller's own most recent log against each category, or null) is what
+// Dashboard uses to decide which categories get their own "Recent <name>" card at all (Phase 18) -
+// a category with no logs yet from this specific caller gets no card, however many other users
+// (for a system category) or nobody at all may have logged it. Computed via one `groupBy` query
+// rather than a per-category subquery, so this stays a fixed two-query cost regardless of how
+// many categories exist.
 categoriesRouter.get("/", async (req, res) => {
   const includeHidden = req.query.includeHidden === "true";
-  const categories = await prisma.category.findMany({
-    where: {
-      archivedAt: null,
-      OR: [{ userId: null }, { userId: req.userId }],
-      ...(includeHidden ? {} : { hiddenBy: { none: { userId: req.userId } } }),
-    },
-    orderBy: { name: "asc" },
-    include: { hiddenBy: { where: { userId: req.userId }, select: { id: true } } },
-  });
+  const [categories, lastLoggedRows] = await Promise.all([
+    prisma.category.findMany({
+      where: {
+        archivedAt: null,
+        OR: [{ userId: null }, { userId: req.userId }],
+        ...(includeHidden ? {} : { hiddenBy: { none: { userId: req.userId } } }),
+      },
+      orderBy: { name: "asc" },
+      include: { hiddenBy: { where: { userId: req.userId }, select: { id: true } } },
+    }),
+    prisma.categoryLog.groupBy({
+      by: ["categoryId"],
+      where: { userId: req.userId },
+      _max: { loggedAt: true },
+    }),
+  ]);
+
+  const lastLoggedAtByCategoryId = new Map(
+    lastLoggedRows.map((row) => [row.categoryId, row._max.loggedAt]),
+  );
+
   res.json(
     categories.map(({ hiddenBy, ...category }) => ({
       ...serializeCategory(category),
       hidden: hiddenBy.length > 0,
+      lastLoggedAt: lastLoggedAtByCategoryId.get(category.id)?.toISOString() ?? null,
     })),
   );
 });

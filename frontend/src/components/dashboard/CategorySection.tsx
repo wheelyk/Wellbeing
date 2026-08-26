@@ -1,79 +1,49 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button } from "../Button";
 import { Modal } from "../Modal";
 import { CategoryCreateForm, type Category } from "../CategoryCreateForm";
 import { CategoryEntryForm, type CategoryLog } from "../CategoryEntryForm";
+import { CategoryLogCard } from "./CategoryLogCard";
 import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
-import { formatEntryDateTime } from "../../lib/entryDateLabel";
 import { useTimedMessage } from "../../hooks/useTimedMessage";
 import { listenForDashboardQuickAdd } from "../../lib/dashboardQuickAddEvent";
 import { dispatchDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
 
-// The fourth "scale" type renders as "value/max" - the same rendering Mood/Energy/Stress and
-// Symptom each used their own fixed scale for before both unified into Category; boolean/numeric/
-// duration cover what a former habit's own three types needed.
-function formatCategoryLogValue(log: CategoryLog, category: Category | undefined): string {
-  if (!category) return "—";
-  if (log.valueBoolean !== null) return log.valueBoolean ? "Done" : "Not done";
-  if (log.valueDurationMinutes !== null) return `${log.valueDurationMinutes} min`;
-  if (log.valueNumeric !== null) {
-    if (category.valueType === "scale" && category.scaleMax !== null) {
-      return `${log.valueNumeric}/${category.scaleMax}`;
-    }
-    return `${log.valueNumeric}`;
-  }
-  return "—";
-}
+// GET /api/categories always includes both fields now (see categories.ts) - modelled as a local
+// extension of the base Category type rather than added to it directly, matching the same
+// ManagedCategory pattern SettingsPage's own Settings list already uses, since a category handed
+// back from *creating* one (CategoryCreateForm's onCreated) has neither field of its own.
+type DashboardCategory = Category & { hidden: boolean; lastLoggedAt: string | null };
 
-// A third state for defining a category first when the user has none yet.
-type CategoryFormMode = "closed" | "log" | "create-category";
+type DiscoveryFormMode = "closed" | "log" | "create-category";
 
-// Mirrors every other Section's own PAGE_SIZE/offset-pagination shape.
-const PAGE_SIZE = 10;
-
-interface CategoryLogPage {
-  entries: CategoryLog[];
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
-
-// Unlike the one remaining fixed Dashboard section (MedicationSection - by this project's own
-// established "adding a log type means adding a file" convention, see QuickAddFab.tsx's comment),
-// custom categories are unbounded and created at any time by a user or the admin - this section
-// is deliberately the one exception, looping over whatever GET /api/categories returns instead of
-// needing a new file per category. Every former habit, symptom, and mood check-in (all three
-// unified into Category - see docs/log/17-unify-mood-symptom-habit.md) renders through this same
-// loop now too, not a dedicated fixed section of their own.
+// Orchestrates Phase 18's per-category Dashboard cards. Fetches every category visible to this
+// caller once, then renders one dedicated CategoryLogCard - its own "Recent <name>" panel, own
+// paginated history, own "+" - for every category this caller has actually logged at least once
+// (lastLoggedAt !== null), most-recently-logged first. A category with no logs from this caller
+// yet gets no card of its own, however many other users (for a system category) may have logged
+// it - see docs/log/18-per-category-dashboard-cards.md for the full reasoning, including the
+// "only once logged" and "each card gets its own +" decisions this design is built around.
+//
+// Logging a category for the very first time (or defining a brand-new one) still goes through
+// one small, always-present "Log a category" panel below, reachable from QuickAddFab's "More…"
+// exactly as before - saving through it promotes that category into its own card immediately, by
+// updating its lastLoggedAt locally rather than re-fetching.
 export function CategorySection() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [categoryLogs, setCategoryLogs] = useState<CategoryLog[]>([]);
+  const [categories, setCategories] = useState<DashboardCategory[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
   const [loadError, setLoadError] = useState(false);
-  const [formMode, setFormMode] = useState<CategoryFormMode>("closed");
-  // Set only right after CategoryCreateForm succeeds, so the log form that follows opens with
-  // the category the user just defined already selected instead of defaulting to categories[0].
+  const [discoveryFormMode, setDiscoveryFormMode] = useState<DiscoveryFormMode>("closed");
+  // Set only right after CategoryCreateForm succeeds, so the log form that follows opens with the
+  // category the user just defined already selected instead of defaulting to categories[0].
   const [categoryToPreselect, setCategoryToPreselect] = useState<string | null>(null);
-  const [editingLog, setEditingLog] = useState<CategoryLog | null>(null);
   const { message: savedMessage, showMessage: showSavedMessage } = useTimedMessage();
-
-  const categoriesById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      apiFetch<Category[]>("/api/categories"),
-      apiFetch<CategoryLogPage>(`/api/category-logs?limit=${PAGE_SIZE}&offset=0`),
-    ])
-      .then(([categoriesRes, logPage]) => {
-        if (!cancelled) {
-          setCategories(categoriesRes);
-          setCategoryLogs(logPage.entries);
-          setHasMore(logPage.hasMore);
-        }
+    apiFetch<DashboardCategory[]>("/api/categories")
+      .then((res) => {
+        if (!cancelled) setCategories(res);
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -86,94 +56,79 @@ export function CategorySection() {
     };
   }, []);
 
-  const handleAddButtonClick = useCallback(() => {
-    setEditingLog(null);
-    setFormMode(categories.length === 0 ? "create-category" : "log");
-  }, [categories.length]);
+  const categoriesWithLogs = useMemo(
+    () =>
+      categories
+        .filter((c) => c.lastLoggedAt !== null)
+        .sort((a, b) => (b.lastLoggedAt as string).localeCompare(a.lastLoggedAt as string)),
+    [categories],
+  );
 
-  // Lets QuickAddFab's "More…" entry open this section's add flow directly - see
+  // What the discovery panel's own picker offers - categories that don't already have their own
+  // card. Once every visible category has been logged at least once, there's nothing left to
+  // "discover" by logging, only by defining a brand-new one.
+  const undiscoveredCategories = useMemo(
+    () => categories.filter((c) => c.lastLoggedAt === null),
+    [categories],
+  );
+
+  const handleAddButtonClick = useCallback(() => {
+    setCategoryToPreselect(null);
+    setDiscoveryFormMode(undiscoveredCategories.length === 0 ? "create-category" : "log");
+  }, [undiscoveredCategories.length]);
+
+  // Lets QuickAddFab's "More…" entry open this discovery flow directly - see
   // dashboardQuickAddEvent.ts.
   useEffect(
     () => listenForDashboardQuickAdd("category", handleAddButtonClick),
     [handleAddButtonClick],
   );
 
-  async function handleLoadMore() {
-    setLoadingMore(true);
-    try {
-      const page = await apiFetch<CategoryLogPage>(
-        `/api/category-logs?limit=${PAGE_SIZE}&offset=${categoryLogs.length}`,
-      );
-      setCategoryLogs((prev) => [...prev, ...page.entries]);
-      setHasMore(page.hasMore);
-    } catch {
-      setLoadError(true);
-    } finally {
-      setLoadingMore(false);
-    }
-  }
-
-  function handleLoadLess() {
-    setCategoryLogs((prev) => prev.slice(0, PAGE_SIZE));
-    setHasMore(true);
-  }
-
   function handleCategoryCreated(category: Category) {
-    setCategories((prev) => [...prev, category]);
+    setCategories((prev) =>
+      [...prev, { ...category, hidden: false, lastLoggedAt: null }].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      ),
+    );
     setCategoryToPreselect(category.id);
-    setFormMode("log");
+    setDiscoveryFormMode("log");
   }
 
-  function handleLogSaved(log: CategoryLog) {
-    setCategoryLogs((prev) => {
-      const isEdit = prev.some((l) => l.id === log.id);
-      return isEdit ? prev.map((l) => (l.id === log.id ? log : l)) : [log, ...prev];
-    });
-    setFormMode("closed");
+  function handleDiscoveryLogSaved(log: CategoryLog) {
+    // Promotes this category into its own card immediately - driven purely by lastLoggedAt
+    // turning non-null, not a separate fetch.
+    setCategories((prev) =>
+      prev.map((c) => (c.id === log.categoryId ? { ...c, lastLoggedAt: log.loggedAt } : c)),
+    );
+    setDiscoveryFormMode("closed");
     setCategoryToPreselect(null);
-    setEditingLog(null);
     showSavedMessage("Entry saved.");
     dispatchDashboardEntryChanged("category");
   }
 
-  function handleLogEdit(log: CategoryLog) {
-    setEditingLog(log);
-    setFormMode("log");
+  function handleDiscoveryFormCancel() {
+    setDiscoveryFormMode("closed");
+    setCategoryToPreselect(null);
   }
 
-  function handleFormCancel() {
-    setFormMode("closed");
-    setEditingLog(null);
-  }
-
-  async function handleLogDelete(id: string) {
-    const confirmed = window.confirm("Delete this entry? This can't be undone.");
-    if (!confirmed) return;
-
-    const previous = categoryLogs;
-    setCategoryLogs((prev) => prev.filter((log) => log.id !== id));
-    try {
-      await apiFetch(`/api/category-logs/${id}`, { method: "DELETE" });
-      dispatchDashboardEntryChanged("category");
-    } catch {
-      setCategoryLogs(previous);
-    }
+  function handleCardEmptied(categoryId: string) {
+    setCategories((prev) =>
+      prev.map((c) => (c.id === categoryId ? { ...c, lastLoggedAt: null } : c)),
+    );
   }
 
   const modalTitle =
-    formMode === "create-category"
+    discoveryFormMode === "create-category"
       ? categories.length === 0
         ? "Create your first category"
         : "Create a new category"
-      : editingLog
-        ? "Edit entry"
-        : "Log an entry";
+      : "Log an entry";
 
   return (
     <>
       <SectionPanel
-        title="Your categories"
-        storageKey="category"
+        title="Log a category"
+        storageKey="category-discovery"
         addLabel="Add category entry"
         onAddClick={handleAddButtonClick}
       >
@@ -194,78 +149,44 @@ export function CategorySection() {
             (e.g. Water intake, Reading, Sleep) beyond medications.
           </p>
         )}
-        {!categoriesLoading && !loadError && categories.length > 0 && categoryLogs.length === 0 && (
+        {!categoriesLoading && !loadError && categories.length > 0 && (
           <p className="text-text-muted">
-            Nothing logged yet — use the button above to record an entry.
+            {undiscoveredCategories.length > 0
+              ? "Log a category you haven't tracked yet, or define a new one — once you log it, it gets its own card below."
+              : "Every category you can see already has its own card below — use the button above to define a new one."}
           </p>
         )}
-        <ul className="flex flex-col gap-2">
-          {categoryLogs.map((log) => {
-            const category = categoriesById.get(log.categoryId);
-            return (
-              <li
-                key={log.id}
-                className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface-muted p-4"
-              >
-                <div>
-                  <p className="text-text">
-                    {category?.icon ? `${category.icon} ` : ""}
-                    {category?.name ?? "Unknown category"}: {formatCategoryLogValue(log, category)}
-                  </p>
-                  {log.notes && <p className="text-sm text-text-muted">{log.notes}</p>}
-                  <p className="text-xs text-text-muted">{formatEntryDateTime(log.loggedAt)}</p>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    onClick={() => handleLogEdit(log)}
-                    aria-label={`Edit entry from ${formatEntryDateTime(log.loggedAt)}`}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => handleLogDelete(log.id)}
-                    aria-label={`Delete entry from ${formatEntryDateTime(log.loggedAt)}`}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-        {!categoriesLoading && !loadError && (hasMore || categoryLogs.length > PAGE_SIZE) && (
-          <div className="mt-4 flex justify-center gap-2">
-            {hasMore && (
-              <Button variant="secondary" onClick={handleLoadMore} disabled={loadingMore}>
-                {loadingMore ? "Loading…" : "Load more"}
-              </Button>
-            )}
-            {categoryLogs.length > PAGE_SIZE && (
-              <Button variant="secondary" onClick={handleLoadLess}>
-                Load less
-              </Button>
-            )}
-          </div>
-        )}
       </SectionPanel>
-      <Modal open={formMode !== "closed"} onClose={handleFormCancel} title={modalTitle}>
-        {formMode === "log" && (
+
+      {categoriesWithLogs.map((category) => (
+        <CategoryLogCard
+          key={category.id}
+          category={category}
+          onEmptied={() => handleCardEmptied(category.id)}
+        />
+      ))}
+
+      <Modal
+        open={discoveryFormMode !== "closed"}
+        onClose={handleDiscoveryFormCancel}
+        title={modalTitle}
+      >
+        {discoveryFormMode === "log" && (
           <CategoryEntryForm
-            key={editingLog?.id ?? categoryToPreselect ?? "create"}
-            categories={categories}
+            key={categoryToPreselect ?? "create"}
+            categories={undiscoveredCategories}
             initialCategoryId={categoryToPreselect}
-            editingLog={editingLog}
-            onSaved={handleLogSaved}
-            onCancel={handleFormCancel}
-            onAddCategory={() => setFormMode("create-category")}
+            onSaved={handleDiscoveryLogSaved}
+            onCancel={handleDiscoveryFormCancel}
+            onAddCategory={() => setDiscoveryFormMode("create-category")}
           />
         )}
-        {formMode === "create-category" && (
+        {discoveryFormMode === "create-category" && (
           <CategoryCreateForm
             onCreated={handleCategoryCreated}
-            onCancel={() => setFormMode(categories.length === 0 ? "closed" : "log")}
+            onCancel={() =>
+              setDiscoveryFormMode(undiscoveredCategories.length === 0 ? "closed" : "log")
+            }
           />
         )}
       </Modal>

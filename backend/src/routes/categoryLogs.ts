@@ -118,10 +118,17 @@ function hasAnyValueField(fields: ValueFields): boolean {
   );
 }
 
+// Optional `categoryId` filter (Phase 18) - lets a per-category Dashboard card page through just
+// its own history, independently of every other category's logs, rather than the combined list
+// the bare (unfiltered) query already serves.
+const listQuerySchema = paginationQuerySchema.extend({
+  categoryId: z.string().trim().min(1).optional(),
+});
+
 export const categoryLogsRouter = Router();
 
 categoryLogsRouter.get("/", async (req, res) => {
-  const parsedQuery = paginationQuerySchema.safeParse(req.query);
+  const parsedQuery = listQuerySchema.safeParse(req.query);
   if (!parsedQuery.success) {
     return res.status(400).json({
       error: {
@@ -131,12 +138,12 @@ categoryLogsRouter.get("/", async (req, res) => {
       },
     });
   }
-  const { limit = DEFAULT_LOG_LIST_LIMIT, offset = 0 } = parsedQuery.data;
+  const { limit = DEFAULT_LOG_LIST_LIMIT, offset = 0, categoryId } = parsedQuery.data;
 
   const page = await fetchPage(
     ({ take, skip }) =>
       prisma.categoryLog.findMany({
-        where: { userId: req.userId },
+        where: { userId: req.userId, ...(categoryId ? { categoryId } : {}) },
         orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
         take,
         skip,

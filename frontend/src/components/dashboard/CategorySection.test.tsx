@@ -10,12 +10,16 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
+function logPage(entries: unknown[]) {
+  return jsonResponse(200, { entries, limit: 10, offset: 0, hasMore: false });
+}
+
 describe("CategorySection", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("renders fetched category entries, formatting each value by the category's type", async () => {
+  it("gives an already-logged category its own 'Recent <name>' card showing just the value", async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/api/categories") && !url.includes("logs")) {
         return Promise.resolve(
@@ -30,35 +34,64 @@ describe("CategorySection", () => {
               scaleMax: null,
               archivedAt: null,
               createdAt: "2026-08-23T00:00:00.000Z",
+              hidden: false,
+              lastLoggedAt: "2026-08-23T09:00:00.000Z",
             },
           ]),
         );
       }
       return Promise.resolve(
-        jsonResponse(200, {
-          entries: [
-            {
-              id: "log-1",
-              userId: "user-1",
-              categoryId: "cat-1",
-              valueBoolean: null,
-              valueNumeric: 6,
-              valueDurationMinutes: null,
-              notes: null,
-              loggedAt: "2026-08-23T09:00:00.000Z",
-            },
-          ],
-          limit: 10,
-          offset: 0,
-          hasMore: false,
-        }),
+        logPage([
+          {
+            id: "log-1",
+            userId: "user-1",
+            categoryId: "cat-1",
+            valueBoolean: null,
+            valueNumeric: 6,
+            valueDurationMinutes: null,
+            notes: null,
+            loggedAt: "2026-08-23T09:00:00.000Z",
+          },
+        ]),
       );
     });
     vi.stubGlobal("fetch", fetchMock);
 
     render(<CategorySection />);
 
-    expect(await screen.findByText(/water intake: 6/i)).toBeInTheDocument();
+    expect(await screen.findByText("Recent 💧 Water intake")).toBeInTheDocument();
+    expect(await screen.findByText("6")).toBeInTheDocument();
+  });
+
+  it("gives a never-logged category no card of its own", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/categories") && !url.includes("logs")) {
+        return Promise.resolve(
+          jsonResponse(200, [
+            {
+              id: "cat-1",
+              userId: "user-1",
+              name: "Reading",
+              icon: null,
+              valueType: "boolean",
+              scaleMin: null,
+              scaleMax: null,
+              archivedAt: null,
+              createdAt: "2026-08-23T00:00:00.000Z",
+              hidden: false,
+              lastLoggedAt: null,
+            },
+          ]),
+        );
+      }
+      return Promise.resolve(logPage([]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<CategorySection />);
+
+    await screen.findByText("Log a category");
+    expect(screen.queryByText("Recent Reading")).not.toBeInTheDocument();
   });
 
   it("shows a 'create your first category' empty state when the user has none yet", async () => {
@@ -66,9 +99,7 @@ describe("CategorySection", () => {
       if (url.includes("/api/categories") && !url.includes("logs")) {
         return Promise.resolve(jsonResponse(200, []));
       }
-      return Promise.resolve(
-        jsonResponse(200, { entries: [], limit: 10, offset: 0, hasMore: false }),
-      );
+      return Promise.resolve(logPage([]));
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -82,9 +113,7 @@ describe("CategorySection", () => {
       if (url.includes("/api/categories") && !url.includes("logs")) {
         return Promise.resolve(jsonResponse(200, []));
       }
-      return Promise.resolve(
-        jsonResponse(200, { entries: [], limit: 10, offset: 0, hasMore: false }),
-      );
+      return Promise.resolve(logPage([]));
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -117,6 +146,8 @@ describe("CategorySection", () => {
       scaleMax: null,
       archivedAt: null,
       createdAt: "2026-08-23T00:00:00.000Z",
+      hidden: false,
+      lastLoggedAt: "2026-08-23T09:00:00.000Z",
     };
     const existingLog = {
       id: "log-1",
@@ -134,28 +165,28 @@ describe("CategorySection", () => {
       if (url.includes("/api/categories") && !url.includes("logs")) {
         return Promise.resolve(jsonResponse(200, [category]));
       }
-      return Promise.resolve(
-        jsonResponse(200, { entries: [existingLog], limit: 10, offset: 0, hasMore: false }),
-      );
+      return Promise.resolve(logPage([existingLog]));
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
     render(<CategorySection />);
-    await screen.findByText(/read today: not done/i);
+    await screen.findByText("Not done");
 
     await user.click(screen.getByRole("button", { name: /edit entry/i }));
 
     expect(screen.getByText("Edit entry")).toBeInTheDocument();
+    // The picker is hidden for a card's own edit form - only the Yes/No value is editable here.
+    expect(screen.queryByLabelText("Category")).not.toBeInTheDocument();
     await user.click(screen.getByRole("radio", { name: "Yes" }));
     await user.click(screen.getByRole("button", { name: /save changes/i }));
 
-    expect(await screen.findByText(/read today: done/i)).toBeInTheDocument();
-    expect(screen.queryByText(/read today: not done/i)).not.toBeInTheDocument();
+    expect(await screen.findByText("Done")).toBeInTheDocument();
+    expect(screen.queryByText("Not done")).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(/entry saved/i);
   });
 
-  it("deletes an entry only once the confirmation is accepted", async () => {
+  it("removes a category's card once its last entry is deleted", async () => {
     const category = {
       id: "cat-1",
       userId: "user-1",
@@ -166,6 +197,8 @@ describe("CategorySection", () => {
       scaleMax: null,
       archivedAt: null,
       createdAt: "2026-08-23T00:00:00.000Z",
+      hidden: false,
+      lastLoggedAt: "2026-08-23T09:00:00.000Z",
     };
     const existingLog = {
       id: "log-1",
@@ -183,25 +216,67 @@ describe("CategorySection", () => {
       if (url.includes("/api/categories") && !url.includes("logs")) {
         return Promise.resolve(jsonResponse(200, [category]));
       }
-      return Promise.resolve(
-        jsonResponse(200, { entries: [existingLog], limit: 10, offset: 0, hasMore: false }),
-      );
+      return Promise.resolve(logPage([existingLog]));
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<CategorySection />);
-    await screen.findByText(/read today: done/i);
+    await screen.findByText("Recent Read today");
+    await screen.findByText("Done");
 
     await user.click(screen.getByRole("button", { name: /delete entry/i }));
 
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/delete this entry/i));
-    expect(screen.getByText(/read today: done/i)).toBeInTheDocument();
+    await screen.findByText(/haven't tracked yet/i);
+    expect(screen.queryByText("Recent Read today")).not.toBeInTheDocument();
+  });
 
-    confirmSpy.mockReturnValueOnce(true);
-    await user.click(screen.getByRole("button", { name: /delete entry/i }));
+  it("promotes a category into its own card once logged for the first time via the discovery flow", async () => {
+    const category = {
+      id: "cat-1",
+      userId: "user-1",
+      name: "Meditation",
+      icon: null,
+      valueType: "duration",
+      scaleMin: null,
+      scaleMax: null,
+      archivedAt: null,
+      createdAt: "2026-08-23T00:00:00.000Z",
+      hidden: false,
+      lastLoggedAt: null,
+    };
+    const newLog = {
+      id: "log-1",
+      userId: "user-1",
+      categoryId: "cat-1",
+      valueBoolean: null,
+      valueNumeric: null,
+      valueDurationMinutes: 15,
+      notes: null,
+      loggedAt: "2026-08-23T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.includes("/api/category-logs")) {
+        return Promise.resolve(jsonResponse(201, newLog));
+      }
+      if (url.includes("/api/categories") && !url.includes("logs")) {
+        return Promise.resolve(jsonResponse(200, [category]));
+      }
+      return Promise.resolve(logPage([]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
 
-    expect(await screen.findByText(/nothing logged yet/i)).toBeInTheDocument();
+    render(<CategorySection />);
+    await screen.findByText("Log a category");
+    expect(screen.queryByText(/recent meditation/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add category entry" }));
+    expect(screen.getByText("Log an entry")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Duration (minutes)"), "15");
+    await user.click(screen.getByRole("button", { name: /save entry/i }));
+
+    expect(await screen.findByText("Recent Meditation")).toBeInTheDocument();
   });
 });

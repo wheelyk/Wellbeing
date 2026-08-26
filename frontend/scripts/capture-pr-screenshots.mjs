@@ -72,12 +72,17 @@ await screenshot("03-login-then-dashboard");
 // the 11 seeded system categories (Mood/Energy/Stress plus every system symptom) from
 // registration onward, so "Add category entry" opens straight into "Log an entry", never an
 // empty "Create your first category" state, with Mood itself selectable directly from the picker.
+//
+// Since Phase 18, logging a category for the first time (through this shared "Log a category"
+// panel) promotes it into its own dedicated "Recent <name>" card immediately - it no longer
+// appears inline as "Mood: 5/5" in one shared list, so the checks below wait for that card's own
+// title instead.
 await page.getByRole("button", { name: "Add category entry" }).click();
 await page.waitForSelector("text=Log an entry");
 await page.locator("#category-picker").selectOption({ label: "Mood" });
 await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "5" }).click();
 await page.getByRole("button", { name: /save entry/i }).click();
-await page.waitForSelector("text=Mood: 5/5");
+await page.waitForSelector("text=Recent Mood");
 
 await page.getByRole("button", { name: "Add medication entry" }).click();
 await page.waitForSelector("text=Log a medication");
@@ -101,7 +106,7 @@ await page.getByRole("button", { name: /create category/i }).click();
 await page.waitForSelector("text=Log an entry");
 await page.getByRole("radio", { name: "Yes" }).click();
 await page.getByRole("button", { name: /save entry/i }).click();
-await page.waitForSelector("text=Exercise: Done");
+await page.waitForSelector("text=Recent Exercise");
 
 await screenshot("04-dashboard-functioning-with-entries");
 

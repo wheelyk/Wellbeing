@@ -28,6 +28,13 @@ interface CategoryEntryFormProps {
   // categoryId is immutable once a log exists (see backend's categoryLogs.ts updateSchema), so
   // the picker is locked to editingLog's category while editing.
   editingLog?: CategoryLog | null;
+  // Hides the category `<select>` and "+ Add a new category" link entirely - used by each
+  // category's own dedicated Dashboard card (Phase 18), where there's only ever one possible
+  // category to log against (the card's own), so a picker would just be a confusing extra step.
+  // `categories`/`initialCategoryId` still resolve `selectedCategory` exactly as normal in this
+  // mode - the caller just passes a single-element `categories` array containing that one
+  // category, rather than this component needing a second, parallel way to receive it.
+  hideCategoryPicker?: boolean;
 }
 
 export function CategoryEntryForm({
@@ -37,6 +44,7 @@ export function CategoryEntryForm({
   onCancel,
   onAddCategory,
   editingLog,
+  hideCategoryPicker,
 }: CategoryEntryFormProps) {
   const [categoryId, setCategoryId] = useState(
     editingLog?.categoryId ?? initialCategoryId ?? categories[0]?.id ?? "",
@@ -148,41 +156,43 @@ export function CategoryEntryForm({
 
   return (
     <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
-      <div className="flex flex-col gap-1">
-        <label htmlFor="category-picker" className="text-sm font-medium text-text">
-          Category
-        </label>
-        <select
-          id="category-picker"
-          value={categoryId}
-          disabled={!!editingLog}
-          onChange={(e) => {
-            setCategoryId(e.target.value);
-            setBooleanValue(null);
-            setNumericValue("");
-            setScaleValue(null);
-            setDurationValue("");
-            setValueError(null);
-          }}
-          className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.icon ? `${category.icon} ` : ""}
-              {category.name}
-            </option>
-          ))}
-        </select>
-        {!editingLog && (
-          <button
-            type="button"
-            onClick={onAddCategory}
-            className="self-start text-sm font-medium text-brand underline-offset-2 hover:underline"
+      {!hideCategoryPicker && (
+        <div className="flex flex-col gap-1">
+          <label htmlFor="category-picker" className="text-sm font-medium text-text">
+            Category
+          </label>
+          <select
+            id="category-picker"
+            value={categoryId}
+            disabled={!!editingLog}
+            onChange={(e) => {
+              setCategoryId(e.target.value);
+              setBooleanValue(null);
+              setNumericValue("");
+              setScaleValue(null);
+              setDurationValue("");
+              setValueError(null);
+            }}
+            className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-60"
           >
-            + Add a new category
-          </button>
-        )}
-      </div>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.icon ? `${category.icon} ` : ""}
+                {category.name}
+              </option>
+            ))}
+          </select>
+          {!editingLog && (
+            <button
+              type="button"
+              onClick={onAddCategory}
+              className="self-start text-sm font-medium text-brand underline-offset-2 hover:underline"
+            >
+              + Add a new category
+            </button>
+          )}
+        </div>
+      )}
 
       {selectedCategory?.valueType === "boolean" && (
         <fieldset>

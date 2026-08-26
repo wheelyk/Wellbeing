@@ -299,3 +299,8 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-25 — Task 5: frontend Symptom retirement
 - 2026-08-25 — Task 6: Backend — Mood → Category (Mood/Energy/Stress)
 - 2026-08-25 — Task 7: frontend Mood retirement
+
+### [Per-Category Dashboard Cards](docs/log/18-per-category-dashboard-cards.md)
+
+- 2026-08-26 — Task 1: Backend — category activity/filtering support
+- 2026-08-26 — Task 2: Frontend — split "Your categories" into per-category cards

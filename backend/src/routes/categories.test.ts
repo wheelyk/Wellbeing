@@ -257,6 +257,70 @@ describe("categories routes", () => {
   });
 });
 
+describe("categories routes — lastLoggedAt", () => {
+  it("is null for a category with no logs yet from this caller", async () => {
+    const { accessToken } = await registerAndLogin("last-logged-none");
+    const created = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Never logged", valueType: "boolean" });
+
+    const res = await request(app).get("/api/categories").set(authed(accessToken));
+    const found = res.body.find((c: { id: string }) => c.id === created.body.id);
+    expect(found.lastLoggedAt).toBeNull();
+  });
+
+  it("reflects the most recent log, not just any log, once logged more than once", async () => {
+    const { accessToken } = await registerAndLogin("last-logged-latest");
+    const created = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Logged a few times", valueType: "boolean" });
+
+    await request(app).post("/api/category-logs").set(authed(accessToken)).send({
+      categoryId: created.body.id,
+      valueBoolean: true,
+      loggedAt: "2026-01-01T09:00:00.000Z",
+    });
+    const latest = await request(app).post("/api/category-logs").set(authed(accessToken)).send({
+      categoryId: created.body.id,
+      valueBoolean: false,
+      loggedAt: "2026-03-15T09:00:00.000Z",
+    });
+    await request(app).post("/api/category-logs").set(authed(accessToken)).send({
+      categoryId: created.body.id,
+      valueBoolean: true,
+      loggedAt: "2026-02-01T09:00:00.000Z",
+    });
+
+    const res = await request(app).get("/api/categories").set(authed(accessToken));
+    const found = res.body.find((c: { id: string }) => c.id === created.body.id);
+    expect(found.lastLoggedAt).toBe(latest.body.loggedAt);
+  });
+
+  it("is scoped per caller - another user's log against the same system category doesn't count", async () => {
+    const owner = await registerAndLogin("last-logged-owner");
+    const other = await registerAndLogin("last-logged-other");
+    const systemCategory = await prisma.category.create({
+      data: { userId: null, name: "Vitest lastLoggedAt system category", valueType: "BOOLEAN" },
+    });
+
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(other.accessToken))
+      .send({ categoryId: systemCategory.id, valueBoolean: true });
+
+    const res = await request(app).get("/api/categories").set(authed(owner.accessToken));
+    const found = res.body.find((c: { id: string }) => c.id === systemCategory.id);
+    expect(found.lastLoggedAt).toBeNull();
+
+    // The category_logs FK is Restrict, not Cascade (see schema.prisma) - the log created above
+    // against this system category has to go first, or deleting the category itself would fail.
+    await prisma.categoryLog.deleteMany({ where: { categoryId: systemCategory.id } });
+    await prisma.category.delete({ where: { id: systemCategory.id } });
+  });
+});
+
 describe("categories routes — hide/unhide", () => {
   it("hides a system category from this caller's own list, but not another user's", async () => {
     const caller = await registerAndLogin("hide-caller");
