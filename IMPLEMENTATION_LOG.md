@@ -303,3 +303,4 @@ useful for browsing what's gone wrong before, rather than looking something spec
 ### [Per-Category Dashboard Cards](docs/log/18-per-category-dashboard-cards.md)
 
 - 2026-08-26 — Task 1: Backend — category activity/filtering support
+- 2026-08-26 — Task 2: Frontend — split "Your categories" into per-category cards

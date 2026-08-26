@@ -456,7 +456,7 @@ always-present entry point, exactly as today.
   instead of the user's entire combined log list.
 
 ### Task 2 — Frontend: split "Your categories" into per-category cards
-- [ ] Replaces the single `CategorySection` card with one dedicated card per category that has
+- [x] Replaces the single `CategorySection` card with one dedicated card per category that has
   `lastLoggedAt !== null`, sorted most-recently-logged first, each with its own paginated log list
   and its own "+" (a `CategoryEntryForm` locked to that one category, no picker). One small,
   always-present "add a category" entry point remains (the discovery/creation flow for a category
