@@ -253,6 +253,67 @@ describe("category-logs routes", () => {
     expect(res.body.entries).toHaveLength(1);
     expect(res.body.entries[0].userId).toBe(userA.userId);
   });
+
+  // Phase 18: a per-category Dashboard card pages through just its own history via this filter,
+  // rather than the combined list every other list endpoint call in this file exercises.
+  it("filters by ?categoryId=, returning only that category's own logs for the caller", async () => {
+    const { accessToken } = await registerAndLogin("category-filter");
+    const categoryA = await createCategory(accessToken, "boolean");
+    const categoryB = await createCategory(accessToken, "boolean");
+
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId: categoryA, valueBoolean: true });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId: categoryB, valueBoolean: false });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId: categoryA, valueBoolean: false });
+
+    const res = await request(app)
+      .get(`/api/category-logs?categoryId=${categoryA}`)
+      .set(authed(accessToken));
+
+    expect(res.status).toBe(200);
+    expect(res.body.entries).toHaveLength(2);
+    expect(
+      res.body.entries.every((log: { categoryId: string }) => log.categoryId === categoryA),
+    ).toBe(true);
+  });
+
+  it("never returns another user's logs even when ?categoryId= names a shared system category", async () => {
+    const owner = await registerAndLogin("category-filter-owner");
+    const other = await registerAndLogin("category-filter-other");
+    const systemCategory = await prisma.category.create({
+      data: { userId: null, name: "Vitest filter system category", valueType: "BOOLEAN" },
+    });
+
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(owner.accessToken))
+      .send({ categoryId: systemCategory.id, valueBoolean: true });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(other.accessToken))
+      .send({ categoryId: systemCategory.id, valueBoolean: true });
+
+    const res = await request(app)
+      .get(`/api/category-logs?categoryId=${systemCategory.id}`)
+      .set(authed(owner.accessToken));
+
+    expect(res.status).toBe(200);
+    expect(res.body.entries).toHaveLength(1);
+    expect(res.body.entries[0].userId).toBe(owner.userId);
+
+    // The category_logs FK is Restrict, not Cascade (see schema.prisma) - both logs created
+    // above against this system category have to go first, or deleting it would fail.
+    await prisma.categoryLog.deleteMany({ where: { categoryId: systemCategory.id } });
+    await prisma.category.delete({ where: { id: systemCategory.id } });
+  });
 });
 
 afterAll(async () => {
