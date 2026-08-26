@@ -78,7 +78,7 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("button", { name: "Add medication entry" })).toBeInTheDocument();
 
     expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
-    expect(await screen.findByText("Your categories")).toBeInTheDocument();
+    expect(await screen.findByText("Log a category")).toBeInTheDocument();
     expect(await screen.findByText("Recent medications")).toBeInTheDocument();
   });
 
@@ -158,7 +158,7 @@ describe("DashboardPage", () => {
 
     renderDashboard();
 
-    expect(await screen.findByText("Your categories")).toBeInTheDocument();
+    expect(await screen.findByText("Log a category")).toBeInTheDocument();
     expect(screen.queryByText("Recent medications")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add medication entry" })).not.toBeInTheDocument();
 
