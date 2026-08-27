@@ -148,13 +148,13 @@ three different ranges that happened to share the same UI.
   ever touches pre-existing rows) and confirmed both Headache and Mood render exactly seven rating
   options (`1` through `7`), with Headache's own caption reading "1 = Low - 7 = High." Screenshot
   confirms Headache renders as a single, unwrapped row of seven, fully visible.
-- **This branch was built directly off `main`, independently of the previous entry's own
-  mobile-wrap fix (still an unmerged PR at the time of writing)** - it does not itself contain that
-  fix's `columns`/grid-wrap code. Headache still renders correctly here because 7 values already
-  fit comfortably on one plain row even without that fix (the same conclusion the original
-  Energy/Stress design discussion reached for its own 1-7 range) - not because the two-row-grid
-  mechanism is doing anything here. Once both branches merge, a user-defined custom scale category
-  wider than 7 will still get that separate fix's two-row wrap; this migration doesn't depend on it
-  and doesn't provide it on its own.
+- This branch was originally built directly off `main`, independently of the previous entry's own
+  mobile-wrap fix, and at that point didn't contain that fix's `columns`/grid-wrap code - Headache
+  rendered correctly even then, simply because 7 values already fit comfortably on one plain row
+  without it (the same conclusion the original Energy/Stress design discussion reached for its own
+  1-7 range). Both branches have since merged to `main` in the intended order (mobile-wrap fix
+  first), and this branch was updated to include it - a user-defined custom scale category wider
+  than 7 still gets that separate fix's two-row wrap; this migration doesn't depend on it and
+  doesn't provide it on its own, they simply coexist now.
 
 ---
