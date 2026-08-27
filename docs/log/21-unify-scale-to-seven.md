@@ -147,9 +147,14 @@ three different ranges that happened to share the same UI.
   brand-new account (proving `seed.ts`'s new default independently of the migration, which only
   ever touches pre-existing rows) and confirmed both Headache and Mood render exactly seven rating
   options (`1` through `7`), with Headache's own caption reading "1 = Low - 7 = High." Screenshot
-  confirms Headache renders as a single, unwrapped row of seven - the two-row grid from the
-  previous entry no longer triggers for it now that its own range is within the single-row
-  threshold, though that fix remains in place generically for any wider custom category a user
-  might still define.
+  confirms Headache renders as a single, unwrapped row of seven, fully visible.
+- **This branch was built directly off `main`, independently of the previous entry's own
+  mobile-wrap fix (still an unmerged PR at the time of writing)** - it does not itself contain that
+  fix's `columns`/grid-wrap code. Headache still renders correctly here because 7 values already
+  fit comfortably on one plain row even without that fix (the same conclusion the original
+  Energy/Stress design discussion reached for its own 1-7 range) - not because the two-row-grid
+  mechanism is doing anything here. Once both branches merge, a user-defined custom scale category
+  wider than 7 will still get that separate fix's two-row wrap; this migration doesn't depend on it
+  and doesn't provide it on its own.
 
 ---
