@@ -1,28 +1,28 @@
 import { test, expect } from "@playwright/test";
 import { registerAndLandOnDashboard, uniqueTestEmail } from "./helpers";
 
-// Phase 13's first End-to-end checklist item: register -> log in -> Quick Add Mood, two more
-// categories (one scale-typed, standing in for what used to be a dedicated Symptom entry; one
-// boolean-typed, standing in for what used to be a dedicated Habit entry), and a medication ->
-// verify Dashboard reflects them. Registration auto-logs the new user in (see
-// registerAndLandOnDashboard), matching how this app's own auth flow actually works - there's no
-// separate "log in" step to drive on top of that. Mood, Habit, and Symptom all folded into
-// Category in Phase 17 (see docs/log/17-unify-mood-symptom-habit.md), reached through the "More…"
-// entry instead of any dedicated menu item of their own - there's no "mood" or "symptom" menu item
-// to select anymore.
-test("register, Quick Add all four log types, and see them reflected on Dashboard", async ({
+// Phase 13's first End-to-end checklist item: register -> log in -> Quick Add Mood plus three
+// more categories (one scale-typed, standing in for what used to be a dedicated Symptom entry;
+// one boolean-typed, standing in for what used to be a dedicated Habit entry; one more
+// boolean-typed, standing in for what used to be a dedicated Medication dose) -> verify Dashboard
+// reflects them. Registration auto-logs the new user in (see registerAndLandOnDashboard),
+// matching how this app's own auth flow actually works - there's no separate "log in" step to
+// drive on top of that. Mood, Habit, Symptom, and Medication all folded into Category (see
+// docs/log/17-unify-mood-symptom-habit.md and docs/log/19-medication-to-category.md) - "Quick
+// add" now opens the single category discovery flow directly, with no menu to pick a type from
+// first.
+test("register, Quick Add four categories, and see them reflected on Dashboard", async ({
   page,
 }) => {
   await registerAndLandOnDashboard(page, uniqueTestEmail("quick-add"));
 
-  // Mood: "More…" opens straight into "Log an entry", not "Create your first category" - every
-  // account, even a brand new one, already sees the 11 seeded system categories (Mood/Energy/
-  // Stress plus every system symptom - see backend/prisma/seed.ts) here, with Mood itself
+  // Mood: "Quick add" opens straight into "Log an entry", not "Create your first category" -
+  // every account, even a brand new one, already sees the 11 seeded system categories (Mood/
+  // Energy/Stress plus every system symptom - see backend/prisma/seed.ts) here, with Mood itself
   // selectable directly from the picker rather than needing to be created. Since Phase 18, saving
   // this first entry promotes Mood into its own "Recent Mood" Dashboard card (see
   // docs/log/18-per-category-dashboard-cards.md) rather than an inline "Mood: 5/5" line.
   await page.getByRole("button", { name: "Quick add" }).click();
-  await page.getByRole("menuitem", { name: /more/i }).click();
   await page.waitForSelector("text=Log an entry");
   await page.locator("#category-picker").selectOption({ label: "Mood" });
   await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "5" }).click();
@@ -33,7 +33,6 @@ test("register, Quick Add all four log types, and see them reflected on Dashboar
   // like - reached via "+ Add a new category" since a category (Mood) already exists by this
   // point, same as every subsequent category below.
   await page.getByRole("button", { name: "Quick add" }).click();
-  await page.getByRole("menuitem", { name: /more/i }).click();
   await page.waitForSelector("text=Log an entry");
   await page.getByRole("button", { name: /add a new category/i }).click();
   await page.waitForSelector("text=Create a new category");
@@ -50,24 +49,23 @@ test("register, Quick Add all four log types, and see them reflected on Dashboar
   await page.getByRole("button", { name: /save entry/i }).click();
   await page.waitForSelector("text=Recent E2E Test Scale Category");
 
-  // Medication
+  // Category #2: a "boolean" category, standing in for what a migrated Medication dose now looks
+  // like - same "Log an entry" -> "+ Add a new category" path as Category #1 above.
   await page.getByRole("button", { name: "Quick add" }).click();
-  await page.getByRole("menuitem", { name: /medication/i }).click();
-  await page.waitForSelector("text=Log a medication");
-  await page.getByLabel(/medication name/i).fill("E2E Test Medication");
-  await page.getByRole("button", { name: "Add", exact: true }).click();
-  await page.waitForTimeout(300);
-  await page
-    .getByRole("radiogroup", { name: /was it taken/i })
-    .getByRole("radio", { name: "Taken", exact: true })
-    .click();
+  await page.waitForSelector("text=Log an entry");
+  await page.getByRole("button", { name: /add a new category/i }).click();
+  await page.waitForSelector("text=Create a new category");
+  await page.getByLabel(/category name/i).fill("E2E Test Medication");
+  await page.getByRole("radio", { name: /yes \/ no/i }).click();
+  await page.getByRole("button", { name: /create category/i }).click();
+  await page.waitForSelector("text=Log an entry");
+  await page.getByRole("radio", { name: "Yes" }).click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector("text=E2E Test Medication — Taken");
+  await page.waitForSelector("text=Recent E2E Test Medication");
 
-  // Category #2: a "boolean" category, standing in for what a migrated Habit now looks like -
-  // same "Log an entry" -> "+ Add a new category" path as Category #1 above.
+  // Category #3: a second "boolean" category, standing in for what a migrated Habit now looks
+  // like - same "Log an entry" -> "+ Add a new category" path as above.
   await page.getByRole("button", { name: "Quick add" }).click();
-  await page.getByRole("menuitem", { name: /more/i }).click();
   await page.waitForSelector("text=Log an entry");
   await page.getByRole("button", { name: /add a new category/i }).click();
   await page.waitForSelector("text=Create a new category");
@@ -81,19 +79,19 @@ test("register, Quick Add all four log types, and see them reflected on Dashboar
 
   // The unified "Recent entries" card at the top of Dashboard is the actual assertion this
   // scenario cares about: one card reflecting all four just-logged entries together, not just
-  // each type's own section (already implicitly checked by the waitForSelector calls above).
-  // Scoped to #recent-entries-content specifically: medication/category entries also render
-  // their own near-identical "<name> — <status>" line inside their own section further down the
-  // page, and an unscoped getByText would match both (Playwright's strict mode correctly rejects
-  // that as ambiguous).
+  // each category's own card (already implicitly checked by the waitForSelector calls above).
+  // Scoped to #recent-entries-content specifically: each category's own card further down the
+  // page renders a near-identical value line too, and an unscoped getByText would match both
+  // (Playwright's strict mode correctly rejects that as ambiguous).
   const recentEntries = page.locator("#recent-entries-content");
   await expect(recentEntries.getByText(/Mood — 5\/5/)).toBeVisible();
   await expect(recentEntries.getByText(/E2E Test Scale Category — 6\/10/)).toBeVisible();
-  await expect(recentEntries.getByText(/E2E Test Medication — Taken/)).toBeVisible();
+  await expect(recentEntries.getByText(/E2E Test Medication — Done/)).toBeVisible();
   await expect(recentEntries.getByText(/E2E Test Category — Done/)).toBeVisible();
 
-  // And the summary line at the very top of the same card - just one clause now: Category
-  // (including every former habit, symptom, and mood check-in) has no summary clause of its own,
-  // unlike the one remaining fixed built-in (see DashboardSummary.tsx's own comment on why).
-  await expect(page.getByText(/Medications: 1\/1 taken/)).toBeVisible();
+  // And the summary line at the very top of the same card - a plain count now, not a per-type
+  // breakdown: an unbounded, user-extensible category set has no fixed "how many were there to
+  // log today" denominator the way the original built-ins did (see DashboardSummary.tsx's own
+  // comment on why).
+  await expect(page.getByText(/Logged 4 entries today/)).toBeVisible();
 });

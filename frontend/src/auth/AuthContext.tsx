@@ -24,15 +24,6 @@ export interface AuthUser {
   // lib/isAdmin.ts) - there's exactly one admin account, confirmed with the project owner.
   // Gates RequireAdmin.tsx and the admin-only link in Settings.
   isAdmin: boolean;
-  // Lets a user hide the one remaining built-in category from Dashboard/Quick Add without
-  // touching data already logged under it (see backend's schema.prisma comment on this column).
-  // Defaults true, so treat a missing value the same as true rather than false - see
-  // DashboardPage.tsx's own `?? true` read of this. Mood, Habit, and Symptom each had their own
-  // toggle here too until Phase 17 folded all three into Category - a former habit or mood
-  // check-in is an ordinary category, archived individually (if personal) rather than gated by a
-  // whole-type toggle; a former symptom or system Mood/Energy/Stress category is hidden per-row
-  // (Settings > Categories) instead.
-  medicationEnabled: boolean;
 }
 
 interface AuthState {

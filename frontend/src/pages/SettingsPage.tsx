@@ -15,12 +15,9 @@ import {
   PushPermissionDeniedError,
 } from "../lib/pushNotifications";
 import { CategoryCreateForm, type Category } from "../components/CategoryCreateForm";
-import { MedicationCreateForm } from "../components/MedicationCreateForm";
-import type { Medication } from "../components/MedicationEntryForm";
 import {
   ReminderCreateForm,
   type Reminder,
-  type ReminderTarget,
   type ReminderCreateInput,
 } from "../components/ReminderCreateForm";
 
@@ -55,7 +52,6 @@ interface UserProfile {
   displayName: string;
   timezone: string;
   createdAt: string;
-  medicationEnabled: boolean;
 }
 
 // A deliberately short, curated list rather than the full ~400-zone IANA database
@@ -288,29 +284,10 @@ function AppearanceSection() {
   );
 }
 
-// Maps a reminder's target to the built-in-category toggle (Settings > Medications, itself
-// mirrored on AuthUser - see AuthContext.tsx) that can explain why it's currently disabled -
-// GENERAL has no matching toggle (it's the whole-app nudge, not tied to any one category), and
-// CATEGORY is handled separately below (an archived, not toggled-off, category - Mood included,
-// now that it's a category like any other).
-const TOGGLE_FIELD_BY_TARGET: Partial<Record<ReminderTarget, keyof CategoryToggles>> = {
-  medication: "medicationEnabled",
-};
-
-const TOGGLE_FIELD_LABEL: Record<keyof CategoryToggles, string> = {
-  medicationEnabled: "Medications",
-};
-
 function reminderTargetLabel(reminder: Reminder): string {
   switch (reminder.target) {
     case "general":
       return "General";
-    case "medication":
-      return reminder.medication
-        ? reminder.medication.dosage
-          ? `${reminder.medication.name} — ${reminder.medication.dosage}`
-          : reminder.medication.name
-        : "Medication";
     case "category":
       return reminder.category
         ? `${reminder.category.icon ? `${reminder.category.icon} ` : ""}${reminder.category.name}`
@@ -322,18 +299,13 @@ function reminderTargetLabel(reminder: Reminder): string {
 // user set elsewhere rather than this reminder's own toggle - so re-enabling it here wouldn't
 // actually do anything until the real cause is addressed. Returns null once the reminder is
 // enabled (the toggle switch on the row already communicates "off" plainly enough on its own) or
-// when there's no more specific reason than "the user turned this one off."
-function reminderInactiveNote(
-  reminder: Reminder,
-  toggles: CategoryToggles,
-  visibleCategoryIds: Set<string>,
-): string | null {
+// when there's no more specific reason than "the user turned this one off." Habit, Symptom, Mood,
+// and Medication each had their own whole-type toggle that could explain this too, until all four
+// unified into Category (see docs/log/17-unify-mood-symptom-habit.md and
+// docs/log/19-medication-to-category.md) - archiving is now the only reason left.
+function reminderInactiveNote(reminder: Reminder, visibleCategoryIds: Set<string>): string | null {
   if (reminder.enabled) return null;
 
-  const toggleField = TOGGLE_FIELD_BY_TARGET[reminder.target];
-  if (toggleField && !toggles[toggleField]) {
-    return `${TOGGLE_FIELD_LABEL[toggleField]} is currently turned off in Settings.`;
-  }
   if (
     reminder.target === "category" &&
     reminder.categoryId &&
@@ -352,11 +324,9 @@ function reminderInactiveNote(
 // about to become the account's first enabled reminder" / "this was the account's last enabled
 // reminder" instead of one checkbox's own on/off state.
 function RemindersSection() {
-  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [medications, setMedications] = useState<Medication[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [vapidPublicKey, setVapidPublicKey] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -368,15 +338,10 @@ function RemindersSection() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      apiFetch<Reminder[]>("/api/reminders"),
-      apiFetch<Medication[]>("/api/medications"),
-      apiFetch<Category[]>("/api/categories"),
-    ])
-      .then(([remindersRes, medicationsRes, categoriesRes]) => {
+    Promise.all([apiFetch<Reminder[]>("/api/reminders"), apiFetch<Category[]>("/api/categories")])
+      .then(([remindersRes, categoriesRes]) => {
         if (cancelled) return;
         setReminders(remindersRes);
-        setMedications(medicationsRes);
         setCategories(categoriesRes);
       })
       .catch(() => {
@@ -403,31 +368,23 @@ function RemindersSection() {
     };
   }, []);
 
-  const toggles: CategoryToggles = {
-    medicationEnabled: user?.medicationEnabled ?? true,
-  };
   const visibleCategoryIds = new Set(categories.map((c) => c.id));
   const hasEnabledReminder = reminders.some((r) => r.enabled);
 
-  // Medications/categories were only ever fetched once, on this section's own mount - stale the
-  // moment a user creates one in MedicationsSection/CategoriesSection further down the same page
-  // and then opens this form to attach a reminder to it, since those are separate, independently-
-  // mounted sections with no shared store (the same deliberate "each section owns its own fetch/
-  // state" convention DashboardSummary's own comment documents - see also this project's Explore-
-  // confirmed research for Task 5). Refetching right as the form opens, rather than continuously,
-  // keeps the sub-pickers correct for the interaction that actually needs them without adding
-  // cross-section reactivity this app doesn't otherwise have.
+  // Categories were only ever fetched once, on this section's own mount - stale the moment a user
+  // creates one in CategoriesSection further down the same page and then opens this form to
+  // attach a reminder to it, since those are separate, independently-mounted sections with no
+  // shared store (the same deliberate "each section owns its own fetch/state" convention
+  // DashboardSummary's own comment documents - see also this project's Explore-confirmed research
+  // for Task 5). Refetching right as the form opens, rather than continuously, keeps the picker
+  // correct for the interaction that actually needs it without adding cross-section reactivity
+  // this app doesn't otherwise have.
   async function handleOpenCreateForm() {
     try {
-      const [medicationsRes, categoriesRes] = await Promise.all([
-        apiFetch<Medication[]>("/api/medications"),
-        apiFetch<Category[]>("/api/categories"),
-      ]);
-      setMedications(medicationsRes);
-      setCategories(categoriesRes);
+      setCategories(await apiFetch<Category[]>("/api/categories"));
     } catch {
       // Falls back to whatever was already loaded - the create form still works, just possibly
-      // missing a very recently added medication/category until the next refresh.
+      // missing a very recently added category until the next refresh.
     }
     setShowCreateForm(true);
   }
@@ -569,8 +526,8 @@ function RemindersSection() {
           <>
             <p className="mb-4 text-sm text-text-muted">
               Get a notification if you haven't logged something yet by a time (or times) you choose
-              - one reminder for General, plus as many as you like for specific medications or
-              categories (Mood included, since it's a category too).
+              - one reminder for General, plus as many as you like for specific categories (Mood and
+              your medications included, since every one of them is a category now).
             </p>
             {rowError && (
               <p role="alert" className="mb-3 text-sm text-danger">
@@ -583,7 +540,7 @@ function RemindersSection() {
               <ul className="flex flex-col gap-2">
                 {reminders.map((reminder) => {
                   const isEditing = editingId === reminder.id;
-                  const inactiveNote = reminderInactiveNote(reminder, toggles, visibleCategoryIds);
+                  const inactiveNote = reminderInactiveNote(reminder, visibleCategoryIds);
                   return (
                     <li
                       key={reminder.id}
@@ -692,7 +649,6 @@ function RemindersSection() {
             {showCreateForm ? (
               <div className="mt-4 border-t border-border pt-4">
                 <ReminderCreateForm
-                  medications={medications}
                   categories={categories}
                   onSubmit={handleCreate}
                   onCancel={() => setShowCreateForm(false)}
@@ -701,266 +657,6 @@ function RemindersSection() {
             ) : (
               <Button type="button" onClick={handleOpenCreateForm} className="mt-4 self-start">
                 + Add reminder
-              </Button>
-            )}
-          </>
-        )}
-      </CollapsibleSection>
-    </SectionCard>
-  );
-}
-
-interface CategoryToggles {
-  medicationEnabled: boolean;
-}
-
-// Lists and manages a user's own medications - previously the only way to create one at all
-// was buried inside logging a dose (see MedicationEntryForm's own inline "+ Add another
-// medication" affordance); PATCH/DELETE /api/medications/:id already existed on the backend with
-// no frontend caller at all until this section. Mirrors CategoriesSection's own list/edit/create
-// shape, minus the built-in-vs-custom distinction Category has (every Medication is a user's own,
-// there's no system-wide medication concept) and minus a valueType picker (Medication only ever
-// has a name and an optional dosage).
-//
-// Also carries the one remaining built-in-category toggle (previously its own "Built-in
-// categories" section, alongside a matching Mood toggle) - Mood, Habit, and Symptom each had a
-// toggle there too until Phase 17 folded all three into Category, leaving Medication as the only
-// fixed built-in left to toggle at all; a standalone section for a single checkbox read as more
-// ceremony than the setting needed, so it moved here instead. A former habit or mood check-in is
-// now an ordinary category, archived individually (if personal) through CategoriesSection below; a
-// former symptom or system Mood/Energy/Stress category is hidden per-row there instead (via the
-// Hide/Unhide action - Task 1's HiddenCategory mechanism), not a toggle of its own.
-function MedicationsSection() {
-  const { user, updateUser } = useAuth();
-  const [medications, setMedications] = useState<Medication[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editDosage, setEditDosage] = useState("");
-  const [editError, setEditError] = useState<string | null>(null);
-  const [editSaving, setEditSaving] = useState(false);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
-  const [toggleSaving, setToggleSaving] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    apiFetch<Medication[]>("/api/medications")
-      .then((res) => {
-        if (!cancelled) setMedications(res);
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError(true);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  function handleCreated(medication: Medication) {
-    setMedications((prev) => [...prev, medication].sort((a, b) => a.name.localeCompare(b.name)));
-    setShowCreateForm(false);
-    setActionMessage("Medication added.");
-  }
-
-  // Turning this off also disables (not deletes) any Reminder targeting Medication - see
-  // routes/users.ts's PATCH /me. Saves immediately on change (no separate "Save" button) - a
-  // single checkbox reads better as an instant toggle than a form needing its own submit step,
-  // now that it's the only one left here.
-  async function handleToggleMedicationEnabled(nextEnabled: boolean) {
-    setToggleSaving(true);
-    try {
-      const profile = await apiFetch<{ medicationEnabled: boolean }>("/api/users/me", {
-        method: "PATCH",
-        body: JSON.stringify({ medicationEnabled: nextEnabled }),
-      });
-      // Keeps Dashboard/Quick Add in sync immediately in this same session, rather than only
-      // after a reload re-runs rehydrateSession - the same lesson isAdmin already established for
-      // AuthContext-derived state (see AuthContext.tsx's own comment on updateUser).
-      updateUser({ medicationEnabled: profile.medicationEnabled });
-      setActionMessage(`Medications ${profile.medicationEnabled ? "enabled" : "disabled"}.`);
-    } catch {
-      setActionMessage(null);
-    } finally {
-      setToggleSaving(false);
-    }
-  }
-
-  function startEdit(medication: Medication) {
-    setEditingId(medication.id);
-    setEditName(medication.name);
-    setEditDosage(medication.dosage ?? "");
-    setEditError(null);
-  }
-
-  async function handleEditSave(id: string) {
-    if (!editName.trim()) {
-      setEditError("Give this medication a name.");
-      return;
-    }
-    setEditSaving(true);
-    setEditError(null);
-    try {
-      const updated = await apiFetch<Medication>(`/api/medications/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name: editName.trim(), dosage: editDosage.trim() || undefined }),
-      });
-      setMedications((prev) => prev.map((m) => (m.id === id ? updated : m)));
-      setEditingId(null);
-    } catch {
-      setEditError("Something went wrong saving this medication. Please try again.");
-    } finally {
-      setEditSaving(false);
-    }
-  }
-
-  async function handleDelete(id: string) {
-    // A real hard delete, unlike Category's archive - schema.prisma's MedicationLog.medication
-    // relation is onDelete: Cascade, so this also permanently removes every logged dose against
-    // it, not just the medication definition. The confirmation is explicit about that, rather
-    // than reusing CategoriesSection's own "existing entries are kept" wording, which would be
-    // actively wrong here.
-    const confirmed = window.confirm(
-      "Delete this medication? This also permanently deletes every logged entry for it. This can't be undone.",
-    );
-    if (!confirmed) return;
-
-    const previous = medications;
-    setMedications((prev) => prev.filter((m) => m.id !== id));
-    try {
-      await apiFetch(`/api/medications/${id}`, { method: "DELETE" });
-      setActionMessage("Medication deleted.");
-    } catch {
-      setMedications(previous);
-      setActionMessage(null);
-    }
-  }
-
-  return (
-    <SectionCard>
-      <CollapsibleSection title="Medications" storageKey="settings.medications">
-        <div className="mb-4">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={user?.medicationEnabled ?? true}
-              disabled={toggleSaving}
-              onChange={(e) => handleToggleMedicationEnabled(e.target.checked)}
-              className="h-4 w-4 rounded border-border text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-            />
-            <span className="text-sm font-medium text-text">Track medications</span>
-          </label>
-          <p className="ml-6 text-xs text-text-muted">
-            Turn this off to hide medications from Dashboard and Quick Add - anything already logged
-            stays exactly as it is.
-          </p>
-        </div>
-        <p className="mb-4 text-sm text-text-muted">
-          Manage the medications you log doses for - add a new one, rename one, or remove one you no
-          longer take.
-        </p>
-        {loading && <p className="text-sm text-text-muted">Loading…</p>}
-        {loadError && (
-          <p role="alert" className="text-sm text-danger">
-            Couldn't load your medications. Please refresh the page.
-          </p>
-        )}
-        {!loading && !loadError && (
-          <>
-            {actionMessage && (
-              <p role="status" className="mb-3 text-sm text-success">
-                {actionMessage}
-              </p>
-            )}
-            {medications.length === 0 ? (
-              <p className="text-sm text-text-muted">No medications yet.</p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {medications.map((medication) => {
-                  const isEditing = editingId === medication.id;
-                  return (
-                    <li
-                      key={medication.id}
-                      className="rounded-xl border border-border bg-surface-muted p-3"
-                    >
-                      {isEditing ? (
-                        <div className="flex flex-col gap-2">
-                          <div className="flex gap-2">
-                            <TextField
-                              label="Name"
-                              value={editName}
-                              onChange={(e) => setEditName(e.target.value)}
-                            />
-                            <TextField
-                              label="Dosage"
-                              value={editDosage}
-                              onChange={(e) => setEditDosage(e.target.value)}
-                            />
-                          </div>
-                          {editError && (
-                            <p role="alert" className="text-sm text-danger">
-                              {editError}
-                            </p>
-                          )}
-                          <div className="flex gap-2">
-                            <Button
-                              type="button"
-                              onClick={() => handleEditSave(medication.id)}
-                              disabled={editSaving}
-                            >
-                              {editSaving ? "Saving…" : "Save"}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              onClick={() => setEditingId(null)}
-                              disabled={editSaving}
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-text">{medication.name}</p>
-                            {medication.dosage && (
-                              <p className="text-xs text-text-muted">{medication.dosage}</p>
-                            )}
-                          </div>
-                          <div className="flex shrink-0 gap-2">
-                            <Button variant="secondary" onClick={() => startEdit(medication)}>
-                              Edit
-                            </Button>
-                            <Button variant="secondary" onClick={() => handleDelete(medication.id)}>
-                              Delete
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {showCreateForm ? (
-              <div className="mt-4 border-t border-border pt-4">
-                <MedicationCreateForm
-                  onCreated={handleCreated}
-                  onCancel={() => setShowCreateForm(false)}
-                />
-              </div>
-            ) : (
-              <Button
-                type="button"
-                onClick={() => setShowCreateForm(true)}
-                className="mt-4 self-start"
-              >
-                + New medication
               </Button>
             )}
           </>
@@ -1115,7 +811,7 @@ function CategoriesSection() {
     <SectionCard>
       <CollapsibleSection title="Categories" storageKey="settings.categories">
         <p className="mb-4 text-sm text-text-muted">
-          Beyond medications, create your own trackable categories - alongside any an admin has
+          Create your own trackable categories - medications included - alongside any an admin has
           added for everyone (including Mood, Energy, Stress, and every default symptom, like
           Headache or Fatigue). Hide a built-in one you don&apos;t use instead of deleting it - your
           own categories are archived instead, from the same list.
@@ -1301,8 +997,8 @@ function ExportDataSection() {
     <SectionCard>
       <CollapsibleSection title="Export your data" storageKey="settings.export">
         <p className="mb-4 text-sm text-text-muted">
-          Download every medication and category entry you've logged (Mood check-ins included) -
-          along with your own medication and category definitions - as a single JSON file.
+          Download every category entry you've logged (Mood check-ins and medication doses included)
+          - along with your own category definitions - as a single JSON file.
         </p>
         <div className="flex flex-col gap-4">
           {exportError && (
@@ -1352,8 +1048,8 @@ function AccountDeletionSection() {
     <SectionCard>
       <CollapsibleSection title="Delete account" storageKey="settings.deleteAccount">
         <p className="mb-4 text-sm text-text-muted">
-          This permanently deletes your account and every medication and category entry (Mood
-          check-ins included) you've logged. This can't be undone.
+          This permanently deletes your account and every category entry you've logged (Mood
+          check-ins and medication doses included). This can't be undone.
         </p>
         <div className="flex flex-col gap-4">
           <TextField
@@ -1463,10 +1159,6 @@ export function SettingsPage() {
 
         <section className="mt-6">
           <RemindersSection />
-        </section>
-
-        <section className="mt-6">
-          <MedicationsSection />
         </section>
 
         <section className="mt-6">

@@ -4,42 +4,36 @@ import { PushPermissionDeniedError } from "../lib/pushNotifications";
 import { Button } from "./Button";
 import { TextField } from "./TextField";
 import type { Category } from "./CategoryCreateForm";
-import type { Medication } from "./MedicationEntryForm";
 
-export type ReminderTarget = "general" | "medication" | "category";
+export type ReminderTarget = "general" | "category";
 
 export interface Reminder {
   id: string;
   userId: string;
   target: ReminderTarget;
-  medicationId: string | null;
   categoryId: string | null;
   times: string[];
   enabled: boolean;
   createdAt: string;
-  medication: { name: string; dosage: string | null } | null;
   category: { name: string; icon: string | null } | null;
 }
 
 export interface ReminderCreateInput {
   target: ReminderTarget;
-  medicationId?: string;
   categoryId?: string;
   times: string[];
 }
 
 const TARGET_OPTIONS: Array<{ value: ReminderTarget; label: string; hint: string }> = [
   { value: "general", label: "General", hint: "Nudge if nothing's been logged at all yet" },
-  { value: "medication", label: "A specific medication", hint: "e.g. Diazepam every morning" },
   {
     value: "category",
     label: "A specific category",
-    hint: "e.g. Mood, or Water intake every few hours",
+    hint: "e.g. Mood, Water intake, or a medication every few hours",
   },
 ];
 
 interface ReminderCreateFormProps {
-  medications: Medication[];
   categories: Category[];
   // The parent (RemindersSection) owns whether this create needs to run the push-subscribe flow
   // first (only when it's about to become the account's first-ever enabled reminder) - this form
@@ -51,21 +45,17 @@ interface ReminderCreateFormProps {
 }
 
 // The "+ Add reminder" form - a target-type picker (mirrors CategoryCreateForm's own radiogroup
-// pattern for "how is this tracked"), a second picker that only appears for Medication/Category
-// (fetched by the parent, since it already needs both lists for the archived-category cross-check
-// on the reminders list itself), and a repeatable list of plain `<input type="time">` rows - no
+// pattern for "how is this tracked"), a second picker that only appears for Category (fetched by
+// the parent, since it already needs the list for the archived-category cross-check on the
+// reminders list itself), and a repeatable list of plain `<input type="time">` rows - no
 // interval-math helper, since fixed times approximating "every N hours" is deliberately the whole
 // point (confirmed directly with the project owner - see docs/log/16-reminders-and-category-
-// toggles.md's Task 2 entry).
-export function ReminderCreateForm({
-  medications,
-  categories,
-  onSubmit,
-  onCancel,
-}: ReminderCreateFormProps) {
+// toggles.md's Task 2 entry). Medication used to be its own target/picker here too, until it
+// unified into Category (Phase 19, see docs/log/19-medication-to-category.md) - a reminder for a
+// specific medication is now just a "specific category" reminder like any other.
+export function ReminderCreateForm({ categories, onSubmit, onCancel }: ReminderCreateFormProps) {
   const [target, setTarget] = useState<ReminderTarget | null>(null);
   const [targetError, setTargetError] = useState<string | null>(null);
-  const [medicationId, setMedicationId] = useState<string | null>(null);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [subPickerError, setSubPickerError] = useState<string | null>(null);
   const [times, setTimes] = useState<string[]>([""]);
@@ -97,14 +87,7 @@ export function ReminderCreateForm({
       setTargetError(null);
     }
 
-    if (target === "medication" && !medicationId) {
-      setSubPickerError(
-        medications.length === 0
-          ? "Add a medication in the Medications section above first."
-          : "Choose which medication.",
-      );
-      hasError = true;
-    } else if (target === "category" && !categoryId) {
+    if (target === "category" && !categoryId) {
       setSubPickerError(
         categories.length === 0 ? "Add a category below first." : "Choose which category.",
       );
@@ -127,7 +110,6 @@ export function ReminderCreateForm({
     try {
       await onSubmit({
         target,
-        medicationId: target === "medication" ? (medicationId as string) : undefined,
         categoryId: target === "category" ? (categoryId as string) : undefined,
         times: filteredTimes,
       });
@@ -138,10 +120,7 @@ export function ReminderCreateForm({
         );
       } else if (err instanceof ApiError && err.code === "REMINDER_ALREADY_EXISTS") {
         setFormError("You already have a reminder for this.");
-      } else if (
-        err instanceof ApiError &&
-        (err.code === "MEDICATION_NOT_FOUND" || err.code === "CATEGORY_NOT_FOUND")
-      ) {
+      } else if (err instanceof ApiError && err.code === "CATEGORY_NOT_FOUND") {
         setFormError("That couldn't be found - please refresh the page and try again.");
       } else if (err instanceof ApiError && err.code === "VALIDATION_ERROR") {
         setFormError("Please check the highlighted fields.");
@@ -167,7 +146,6 @@ export function ReminderCreateForm({
               onClick={() => {
                 setTarget(option.value);
                 setTargetError(null);
-                setMedicationId(null);
                 setCategoryId(null);
                 setSubPickerError(null);
               }}
@@ -186,47 +164,6 @@ export function ReminderCreateForm({
           </p>
         )}
       </fieldset>
-
-      {target === "medication" && (
-        <fieldset>
-          <legend className="text-sm font-medium text-text">Which medication?</legend>
-          {medications.length > 0 && (
-            <div
-              className="mt-2 flex flex-col gap-2"
-              role="radiogroup"
-              aria-label="Which medication?"
-            >
-              {medications.map((medication) => (
-                <button
-                  key={medication.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={medicationId === medication.id}
-                  onClick={() => {
-                    setMedicationId(medication.id);
-                    setSubPickerError(null);
-                  }}
-                  className={`rounded-lg border-2 px-4 py-3 text-left text-base font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
-                    medicationId === medication.id
-                      ? "border-brand bg-brand/10 text-brand"
-                      : "border-border text-text"
-                  }`}
-                >
-                  {medication.name}
-                  {medication.dosage && (
-                    <span className="ml-2 font-normal text-text-muted">— {medication.dosage}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-          {subPickerError && (
-            <p role="alert" className="mt-1 text-sm text-danger">
-              {subPickerError}
-            </p>
-          )}
-        </fieldset>
-      )}
 
       {target === "category" && (
         <fieldset>

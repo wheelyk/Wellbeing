@@ -23,30 +23,28 @@ function renderDashboard() {
 }
 
 // A composition-level guard, not a re-test of each section's own behavior (that's already
-// covered by CategorySection.test.tsx / MedicationSection.test.tsx / etc). This exists
-// specifically to catch a regression in how DashboardPage wires its sections together - e.g. a
-// future edit accidentally dropping one section's import, or breaking NavBar - since nothing
-// else in the suite renders DashboardPage as a whole.
+// covered by CategorySection.test.tsx). This exists specifically to catch a regression in how
+// DashboardPage wires its sections together - e.g. a future edit accidentally dropping an
+// import, or breaking NavBar - since nothing else in the suite renders DashboardPage as a whole.
 describe("DashboardPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("renders the nav, the dashboard summary, and all log-type sections together", async () => {
-    // Every section fires its own fetch on mount; some (Medication, Category) fire two
-    // simultaneous calls via Promise.all, so mockImplementation is required here (not
-    // mockResolvedValue) to give each call its own fresh, independently-readable Response -
-    // see docs/log/08-git-github-workflow.md for why mockResolvedValue silently breaks this.
-    // DashboardSummary's GET /api/dashboard expects a differently-shaped object; the *-logs
-    // endpoints (medication/category) are paginated ({entries, limit, offset, hasMore} - see
-    // backend/src/lib/pagination.ts) while their sibling list endpoints (/api/categories,
-    // /api/medications) are still plain arrays - both special-cased by URL here.
+  it("renders the nav, the dashboard summary, and the category section together", async () => {
+    // CategorySection fires two simultaneous calls via Promise.all, so mockImplementation is
+    // required here (not mockResolvedValue) to give each call its own fresh, independently-
+    // readable Response - see docs/log/08-git-github-workflow.md for why mockResolvedValue
+    // silently breaks this. DashboardSummary's GET /api/dashboard expects a differently-shaped
+    // object; /api/category-logs is paginated ({entries, limit, offset, hasMore} - see
+    // backend/src/lib/pagination.ts) while /api/categories is still a plain array - both
+    // special-cased by URL here.
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/api/dashboard")) {
         return Promise.resolve(
           jsonResponse(200, {
             date: "2026-08-17",
-            medicationSummary: { taken: 0, total: 0 },
+            loggedTodayCount: 0,
             recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
             streak: { current: 0, daysLoggedThisWeek: 0 },
           }),
@@ -75,20 +73,18 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
 
     expect(screen.getByRole("button", { name: "Add category entry" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add medication entry" })).toBeInTheDocument();
 
     expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
     expect(await screen.findByText("Log a category")).toBeInTheDocument();
-    expect(await screen.findByText("Recent medications")).toBeInTheDocument();
   });
 
-  it("opens a section's add dialog directly from the floating Quick Add button", async () => {
+  it("opens the category add dialog directly from the floating Quick Add button", async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/api/dashboard")) {
         return Promise.resolve(
           jsonResponse(200, {
             date: "2026-08-17",
-            medicationSummary: { taken: 0, total: 0 },
+            loggedTodayCount: 0,
             recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
             streak: { current: 0, daysLoggedThisWeek: 0 },
           }),
@@ -105,65 +101,15 @@ describe("DashboardPage", () => {
     const user = userEvent.setup();
 
     renderDashboard();
-    await screen.findByText("Recent medications");
+    await screen.findByText("Log a category");
 
-    // No dialog open yet - the FAB's own menu is closed by default.
+    // No dialog open yet - the FAB doesn't open one until clicked.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Quick add" }));
-    await user.click(screen.getByRole("menuitem", { name: /medication/i }));
 
-    // Medication's own "+" button never got clicked directly - this proves the FAB reaches it
-    // via the shared dashboardQuickAddEvent, not a coincidence of some other trigger.
-    expect(screen.getByRole("dialog", { name: "Log a medication" })).toBeInTheDocument();
-  });
-
-  it("hides the Medication section and Quick Add entry when disabled, but leaves Categories alone", async () => {
-    const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (url.includes("/api/auth/refresh")) {
-        return Promise.resolve(
-          jsonResponse(200, {
-            user: {
-              id: "user-1",
-              email: "test@example.com",
-              displayName: "Test User",
-              timezone: "UTC",
-              createdAt: "2026-01-01T00:00:00.000Z",
-              isAdmin: false,
-              medicationEnabled: false,
-            },
-            accessToken: "test-token",
-          }),
-        );
-      }
-      if (url.includes("/api/dashboard")) {
-        return Promise.resolve(
-          jsonResponse(200, {
-            date: "2026-08-17",
-            medicationSummary: { taken: 0, total: 0 },
-            recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
-            streak: { current: 0, daysLoggedThisWeek: 0 },
-          }),
-        );
-      }
-      if (url.includes("-logs")) {
-        return Promise.resolve(
-          jsonResponse(200, { entries: [], limit: 10, offset: 0, hasMore: false }),
-        );
-      }
-      return Promise.resolve(jsonResponse(200, []));
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-
-    renderDashboard();
-
-    expect(await screen.findByText("Log a category")).toBeInTheDocument();
-    expect(screen.queryByText("Recent medications")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Add medication entry" })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Quick add" }));
-    expect(screen.queryByRole("menuitem", { name: /medication/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /more/i })).toBeInTheDocument();
+    // The category section's own "+" button never got clicked directly - this proves the FAB
+    // reaches it via the shared dashboardQuickAddEvent, not a coincidence of some other trigger.
+    expect(screen.getByRole("dialog", { name: "Create your first category" })).toBeInTheDocument();
   });
 });

@@ -13,8 +13,8 @@ function jsonResponse(status: number, body: unknown): Response {
 
 // This component only ever fires a single `fetch` call (one GET /api/dashboard, no
 // Promise.all), so `.mockResolvedValue` returning the same Response object for every call is
-// safe here - unlike MedicationSection/CategorySection, which fire two calls and specifically
-// need `.mockImplementation` instead (see those components' tests for why).
+// safe here - unlike CategorySection, which fires two calls and specifically needs
+// `.mockImplementation` instead (see that component's tests for why).
 function mockDashboardFetch(body: unknown, status = 200) {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(status, body)));
 }
@@ -42,7 +42,7 @@ describe("DashboardSummary", () => {
   it("shows a friendly empty state for a first-time user with nothing logged", async () => {
     mockDashboardFetch({
       date: "2026-08-17",
-      medicationSummary: { taken: 0, total: 0 },
+      loggedTodayCount: 0,
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
@@ -52,28 +52,29 @@ describe("DashboardSummary", () => {
     expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
     expect(screen.getByText(/no current logging streak/i)).toBeInTheDocument();
     expect(screen.getByText(/you haven't logged anything yet/i)).toBeInTheDocument();
-    // The friendly empty-state copy above should replace, not sit alongside, the raw
-    // "0/0 taken" summary line.
-    expect(screen.queryByText(/medications: 0\/0 taken/i)).not.toBeInTheDocument();
+    // The friendly empty-state copy above should replace, not sit alongside, a "logged N" line.
+    expect(screen.queryByText(/logged \d+ entr/i)).not.toBeInTheDocument();
   });
 
   it("renders the date, the day's summary line, streak, and recent entries", async () => {
     mockDashboardFetch({
       date: "2026-08-17",
-      medicationSummary: { taken: 1, total: 2 },
+      loggedTodayCount: 2,
       recentEntries: {
         entries: [
           {
-            type: "category",
             label: "Headache",
             value: "6/10",
             loggedAt: "2026-08-17T14:30:00.000Z",
+            categoryId: "cat-1",
+            icon: null,
           },
           {
-            type: "category",
             label: "Mood",
             value: "4/5",
             loggedAt: "2026-08-17T09:00:00.000Z",
+            categoryId: "cat-2",
+            icon: null,
           },
         ],
         limit: 10,
@@ -94,7 +95,7 @@ describe("DashboardSummary", () => {
     expect(heading.textContent).toMatch(/august/i);
     expect(heading.textContent).toMatch(/17/);
     expect(heading.textContent).toMatch(/2026/);
-    expect(screen.getByText(/medications: 1\/2 taken/i)).toBeInTheDocument();
+    expect(screen.getByText(/logged 2 entries today/i)).toBeInTheDocument();
     expect(screen.getByText(/logging streak: 3 days/i)).toBeInTheDocument();
     expect(screen.getByText(/logged 4 of 7 days this week/i)).toBeInTheDocument();
     expect(screen.getByText(/headache — 6\/10/i)).toBeInTheDocument();
@@ -116,9 +117,11 @@ describe("DashboardSummary", () => {
   it("labels a recent entry logged today as 'Today'", async () => {
     mockDashboardFetch({
       date: "2026-08-17",
-      medicationSummary: { taken: 0, total: 0 },
+      loggedTodayCount: 0,
       recentEntries: {
-        entries: [{ type: "category", label: "Mood", value: "4/5", loggedAt: daysAgoIso(0) }],
+        entries: [
+          { label: "Mood", value: "4/5", loggedAt: daysAgoIso(0), categoryId: "cat-1", icon: null },
+        ],
         limit: 10,
         offset: 0,
         hasMore: false,
@@ -134,9 +137,17 @@ describe("DashboardSummary", () => {
   it("labels a recent entry logged yesterday as 'Yesterday', not 'Today'", async () => {
     mockDashboardFetch({
       date: "2026-08-17",
-      medicationSummary: { taken: 0, total: 0 },
+      loggedTodayCount: 0,
       recentEntries: {
-        entries: [{ type: "category", label: "Nap", value: "30 min", loggedAt: daysAgoIso(1) }],
+        entries: [
+          {
+            label: "Nap",
+            value: "30 min",
+            loggedAt: daysAgoIso(1),
+            categoryId: "cat-1",
+            icon: null,
+          },
+        ],
         limit: 10,
         offset: 0,
         hasMore: false,
@@ -153,10 +164,16 @@ describe("DashboardSummary", () => {
   it("labels an older recent entry with its actual date, not a relative word", async () => {
     mockDashboardFetch({
       date: "2026-08-17",
-      medicationSummary: { taken: 0, total: 0 },
+      loggedTodayCount: 0,
       recentEntries: {
         entries: [
-          { type: "medication", label: "Diazepam", value: "Taken", loggedAt: daysAgoIso(10) },
+          {
+            label: "Diazepam",
+            value: "Done",
+            loggedAt: daysAgoIso(10),
+            categoryId: "cat-1",
+            icon: null,
+          },
         ],
         limit: 10,
         offset: 0,
@@ -167,25 +184,8 @@ describe("DashboardSummary", () => {
 
     render(<DashboardSummary />);
 
-    const entry = await screen.findByText(/diazepam — taken —/i);
+    const entry = await screen.findByText(/diazepam — done —/i);
     expect(entry.textContent).not.toMatch(/today|yesterday/i);
-  });
-
-  it("falls back to the friendly empty state when the one remaining built-in is disabled", async () => {
-    mockDashboardFetch({
-      date: "2026-08-17",
-      medicationSummary: { taken: 1, total: 2 },
-      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
-      streak: { current: 0, daysLoggedThisWeek: 0 },
-    });
-
-    render(<DashboardSummary medicationEnabled={false} />);
-
-    // With Medications disabled, there's no clause left at all (Mood, Habit, and Symptom each
-    // had their own clause here too until Phase 17 folded all three into Category - see
-    // DashboardSummary.tsx's own comment) - so this always falls through to the empty state,
-    // regardless of `hasLoggedAnything`.
-    expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
   });
 
   it("loads more recent entries by refetching with a larger limit when Load more is clicked", async () => {
@@ -194,20 +194,22 @@ describe("DashboardSummary", () => {
     // DashboardSummary.tsx's own comment on why appending pages independently of polling would
     // let a background poll silently discard anything "Load more" had added.
     const entryA = {
-      type: "category",
       label: "Mood",
       value: "4/5",
       loggedAt: "2026-08-17T09:00:00.000Z",
+      categoryId: "cat-1",
+      icon: null,
     };
     const entryB = {
-      type: "category",
       label: "Nap",
       value: "30 min",
       loggedAt: "2026-08-16T09:00:00.000Z",
+      categoryId: "cat-2",
+      icon: null,
     };
     const baseFields = {
       date: "2026-08-17",
-      medicationSummary: { taken: 0, total: 0 },
+      loggedTodayCount: 0,
       streak: { current: 0, daysLoggedThisWeek: 0 },
     };
     const fetchMock = vi.fn().mockImplementation((url: string) => {
@@ -241,20 +243,22 @@ describe("DashboardSummary", () => {
 
   it("shrinks the limit and refetches when Load less is clicked after expanding", async () => {
     const entryA = {
-      type: "category",
       label: "Mood",
       value: "4/5",
       loggedAt: "2026-08-17T09:00:00.000Z",
+      categoryId: "cat-1",
+      icon: null,
     };
     const entryB = {
-      type: "category",
       label: "Nap",
       value: "30 min",
       loggedAt: "2026-08-16T09:00:00.000Z",
+      categoryId: "cat-2",
+      icon: null,
     };
     const baseFields = {
       date: "2026-08-17",
-      medicationSummary: { taken: 0, total: 0 },
+      loggedTodayCount: 0,
       streak: { current: 0, daysLoggedThisWeek: 0 },
     };
     const fetchMock = vi.fn().mockImplementation((url: string) => {
@@ -299,11 +303,17 @@ describe("DashboardSummary", () => {
   it("groups recent entries under Today/Yesterday day headings", async () => {
     mockDashboardFetch({
       date: "2026-08-17",
-      medicationSummary: { taken: 0, total: 0 },
+      loggedTodayCount: 0,
       recentEntries: {
         entries: [
-          { type: "category", label: "Mood", value: "4/5", loggedAt: daysAgoIso(0) },
-          { type: "category", label: "Nap", value: "30 min", loggedAt: daysAgoIso(1) },
+          { label: "Mood", value: "4/5", loggedAt: daysAgoIso(0), categoryId: "cat-1", icon: null },
+          {
+            label: "Nap",
+            value: "30 min",
+            loggedAt: daysAgoIso(1),
+            categoryId: "cat-2",
+            icon: null,
+          },
         ],
         limit: 10,
         offset: 0,
@@ -328,9 +338,11 @@ describe("DashboardSummary", () => {
   it("collapses and re-expands the recent entries list, hiding it while collapsed", async () => {
     mockDashboardFetch({
       date: "2026-08-17",
-      medicationSummary: { taken: 0, total: 0 },
+      loggedTodayCount: 0,
       recentEntries: {
-        entries: [{ type: "category", label: "Mood", value: "4/5", loggedAt: daysAgoIso(0) }],
+        entries: [
+          { label: "Mood", value: "4/5", loggedAt: daysAgoIso(0), categoryId: "cat-1", icon: null },
+        ],
         limit: 10,
         offset: 0,
         hasMore: false,
@@ -359,7 +371,7 @@ describe("DashboardSummary", () => {
   it("uses singular 'day' for a one-day streak", async () => {
     mockDashboardFetch({
       date: "2026-08-17",
-      medicationSummary: { taken: 0, total: 0 },
+      loggedTodayCount: 0,
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 1, daysLoggedThisWeek: 1 },
     });
@@ -367,6 +379,20 @@ describe("DashboardSummary", () => {
     render(<DashboardSummary />);
 
     expect(await screen.findByText(/logging streak: 1 day(?!s)/i)).toBeInTheDocument();
+  });
+
+  it("uses singular 'entry' for a count of one", async () => {
+    mockDashboardFetch({
+      date: "2026-08-17",
+      loggedTodayCount: 1,
+      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    });
+
+    render(<DashboardSummary />);
+
+    expect(await screen.findByText(/logged 1 entry today/i)).toBeInTheDocument();
+    expect(screen.queryByText(/logged 1 entries today/i)).not.toBeInTheDocument();
   });
 
   // The actual fix: previously this card only ever learned about a fresh save/delete from one
@@ -387,7 +413,7 @@ describe("DashboardSummary", () => {
       return Promise.resolve(
         jsonResponse(200, {
           ...baseFields,
-          medicationSummary: { taken: callCount === 1 ? 0 : 1, total: 1 },
+          loggedTodayCount: callCount === 1 ? 0 : 1,
         }),
       );
     });
@@ -395,19 +421,19 @@ describe("DashboardSummary", () => {
 
     render(<DashboardSummary />);
 
-    expect(await screen.findByText(/medications: 0\/1 taken/i)).toBeInTheDocument();
+    expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    dispatchDashboardEntryChanged("medication");
+    dispatchDashboardEntryChanged();
 
-    expect(await screen.findByText(/medications: 1\/1 taken/i)).toBeInTheDocument();
+    expect(await screen.findByText(/logged 1 entry today/i)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("stops listening for entry-changed events after unmount", async () => {
     mockDashboardFetch({
       date: "2026-08-17",
-      medicationSummary: { taken: 0, total: 0 },
+      loggedTodayCount: 0,
       recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
@@ -417,7 +443,7 @@ describe("DashboardSummary", () => {
     const callsBeforeUnmount = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
 
     unmount();
-    dispatchDashboardEntryChanged("medication");
+    dispatchDashboardEntryChanged();
     // Nothing to await on directly (there should be no new fetch) - a microtask flush is enough
     // to prove a stray refetch didn't slip in via a listener that outlived the component.
     await Promise.resolve();

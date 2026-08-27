@@ -4,10 +4,10 @@ import { serializeCategory } from "../lib/categoryValueType";
 
 export const exportRouter = Router();
 
-// GET /api/export - lets a user download everything they've ever logged (plus the
-// medication/category definitions those logs reference) as a single JSON file. Every query below
-// is scoped to req.userId, the same ownership boundary every other route in this app enforces
-// (see dashboard.ts/history.ts) - nothing here is a system-wide export.
+// GET /api/export - lets a user download everything they've ever logged (plus the category
+// definitions those logs reference) as a single JSON file. Every query below is scoped to
+// req.userId, the same ownership boundary every other route in this app enforces (see
+// dashboard.ts/history.ts) - nothing here is a system-wide export.
 //
 // System-default categories (userId null, see schema.prisma) are deliberately excluded from the
 // `categories` definitions list below, since they aren't something this user created or owns -
@@ -17,20 +17,14 @@ export const exportRouter = Router();
 exportRouter.get("/", async (req, res) => {
   const userId = req.userId as string;
 
-  const [user, medications, medicationLogs, categories, categoryLogs] = await Promise.all([
+  const [user, categories, categoryLogs] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, displayName: true, timezone: true, createdAt: true },
     }),
-    prisma.medication.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
-    prisma.medicationLog.findMany({
-      where: { userId },
-      orderBy: { loggedAt: "asc" },
-      include: { medication: { select: { name: true } } },
-    }),
-    // Personal categories only (userId set) - this is also where every former habit's and
-    // symptom's own definition now lives, since both unified into Category (Phase 17) - see
-    // docs/log/17-unify-mood-symptom-habit.md.
+    // Personal categories only (userId set) - this is also where every former habit's,
+    // symptom's, and medication's own definition now lives, since all three unified into Category
+    // (see docs/log/17-unify-mood-symptom-habit.md and docs/log/19-medication-to-category.md).
     prisma.category.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
     prisma.categoryLog.findMany({
       where: { userId },
@@ -54,11 +48,6 @@ exportRouter.get("/", async (req, res) => {
   const body = {
     exportedAt: exportedAt.toISOString(),
     user,
-    medications,
-    medicationLogs: medicationLogs.map(({ medication, ...log }) => ({
-      ...log,
-      medicationName: medication.name,
-    })),
     categories: categories.map(serializeCategory),
     categoryLogs: categoryLogs.map(({ category, ...log }) => ({
       ...log,

@@ -180,33 +180,6 @@ describe("GET /api/trends", () => {
     expect(otherDays.every((d: { hasActivity: boolean }) => d.hasActivity === false)).toBe(true);
   });
 
-  // Regression test: the test above (despite its own title) only actually seeds a boolean
-  // *category* log - a medication log alone marking a day active had never been exercised by any
-  // test, even though it goes through its own separate `bucketByDay(medicationLogs, ...)` call in
-  // trends.ts.
-  it("marks a day active from a medication log alone, with no other log type present", async () => {
-    const { accessToken } = await registerAndLogin("activity-medication-only");
-    const today = todayInTimezone("UTC");
-
-    const medicationRes = await request(app)
-      .post("/api/medications")
-      .set(authed(accessToken))
-      .send({ name: "Ibuprofen" });
-    await request(app)
-      .post("/api/medication-logs")
-      .set(authed(accessToken))
-      .send({
-        medicationId: medicationRes.body.id,
-        taken: true,
-        loggedAt: `${today}T09:00:00.000Z`,
-      });
-
-    const res = await request(app).get("/api/trends").set(authed(accessToken));
-
-    const todayActivity = res.body.activity.days.find((d: { date: string }) => d.date === today);
-    expect(todayActivity).toMatchObject({ hasActivity: true });
-  });
-
   it("excludes entries outside the requested period", async () => {
     const { accessToken } = await registerAndLogin("out-of-range");
     const today = todayInTimezone("UTC");

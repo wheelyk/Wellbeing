@@ -11,14 +11,13 @@ test("edit an entry from History, then delete it, with real persistence across a
   await registerAndLandOnDashboard(page, uniqueTestEmail("edit-delete"));
 
   // Mood unified into Category in Phase 17 (see docs/log/17-unify-mood-symptom-habit.md) - logging
-  // it now goes through the generic "More…" entry and the system Mood category (seeded for every
-  // account, selectable directly from the picker), and editing/deleting both go through
+  // it now goes through the generic "Quick add" entry and the system Mood category (seeded for
+  // every account, selectable directly from the picker), and editing/deleting both go through
   // CategoryEntryForm/the category-logs endpoint like any other category, not a dedicated
   // MoodEntryForm/mood-logs endpoint of its own anymore. Since Phase 18, saving this first entry
   // also promotes Mood into its own "Recent Mood" Dashboard card (see
   // docs/log/18-per-category-dashboard-cards.md) rather than an inline "Mood: 3/5" line.
   await page.getByRole("button", { name: "Quick add" }).click();
-  await page.getByRole("menuitem", { name: /more/i }).click();
   await page.waitForSelector("text=Log an entry");
   await page.locator("#category-picker").selectOption({ label: "Mood" });
   await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "3" }).click();
@@ -29,7 +28,7 @@ test("edit an entry from History, then delete it, with real persistence across a
   await page.waitForSelector("text=Mood: 3/5");
 
   // Edit: change the value and add a note, using the real shared CategoryEntryForm.
-  await page.getByRole("button", { name: /^edit category entry/i }).click();
+  await page.getByRole("button", { name: /^edit entry/i }).click();
   await page.waitForSelector("text=Edit entry");
   await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "5" }).click();
   await page.getByLabel(/notes/i).fill("Edited via e2e suite");
@@ -44,8 +43,8 @@ test("edit an entry from History, then delete it, with real persistence across a
   await expect(page.getByText("Edited via e2e suite")).toBeVisible();
 
   // Delete: the real Modal-based confirmation (see PR #99), not a native window.confirm.
-  await page.getByRole("button", { name: /^delete category entry/i }).click();
-  await page.waitForSelector("text=/delete this category entry/i");
+  await page.getByRole("button", { name: /^delete entry/i }).click();
+  await page.waitForSelector("text=/delete this entry/i");
   // HistoryPage's delete is optimistic - it removes the entry from local state immediately,
   // before the DELETE request has actually resolved (see handleConfirmDelete in
   // HistoryPage.tsx) - so the two expects just below can (and, under CI, sometimes did:

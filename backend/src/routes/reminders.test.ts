@@ -28,11 +28,6 @@ function authed(accessToken: string) {
   return { Authorization: `Bearer ${accessToken}` };
 }
 
-async function createMedication(accessToken: string, name = "Diazepam") {
-  const res = await request(app).post("/api/medications").set(authed(accessToken)).send({ name });
-  return res.body.id as string;
-}
-
 async function createCategory(accessToken: string, name = "Water intake") {
   const res = await request(app)
     .post("/api/categories")
@@ -95,37 +90,23 @@ describe("reminders routes", () => {
     expect(tooMany.status).toBe(400);
   });
 
-  it("creates a MEDICATION reminder for a specific, owned medication", async () => {
-    const { accessToken } = await registerAndLogin("medication-create");
-    const medicationId = await createMedication(accessToken);
-
-    const res = await request(app)
-      .post("/api/reminders")
-      .set(authed(accessToken))
-      .send({ target: "medication", medicationId, times: ["10:00"] });
-
-    expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ target: "medication", medicationId });
-    expect(res.body.medication).toMatchObject({ name: "Diazepam" });
-  });
-
-  it("rejects a MEDICATION reminder with no medicationId, or one owned by another user", async () => {
-    const owner = await registerAndLogin("medication-owner");
-    const intruder = await registerAndLogin("medication-intruder");
-    const medicationId = await createMedication(owner.accessToken);
+  it("rejects a CATEGORY reminder with no categoryId, or one not visible to the caller", async () => {
+    const owner = await registerAndLogin("category-owner");
+    const intruder = await registerAndLogin("category-intruder");
+    const categoryId = await createCategory(owner.accessToken);
 
     const missing = await request(app)
       .post("/api/reminders")
       .set(authed(owner.accessToken))
-      .send({ target: "medication", times: ["10:00"] });
+      .send({ target: "category", times: ["10:00"] });
     expect(missing.status).toBe(400);
 
     const wrongOwner = await request(app)
       .post("/api/reminders")
       .set(authed(intruder.accessToken))
-      .send({ target: "medication", medicationId, times: ["10:00"] });
+      .send({ target: "category", categoryId, times: ["10:00"] });
     expect(wrongOwner.status).toBe(404);
-    expect(wrongOwner.body.error.code).toBe("MEDICATION_NOT_FOUND");
+    expect(wrongOwner.body.error.code).toBe("CATEGORY_NOT_FOUND");
   });
 
   it("creates a CATEGORY reminder for a specific, visible category", async () => {
@@ -142,22 +123,15 @@ describe("reminders routes", () => {
     expect(res.body.category).toMatchObject({ name: "Water intake" });
   });
 
-  it("rejects mixing medicationId/categoryId with the wrong target, or with each other", async () => {
+  it("rejects a categoryId sent with the wrong target", async () => {
     const { accessToken } = await registerAndLogin("mixed-ids");
-    const medicationId = await createMedication(accessToken);
     const categoryId = await createCategory(accessToken);
 
-    const generalWithMedication = await request(app)
+    const generalWithCategory = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "general", medicationId, times: ["09:00"] });
-    expect(generalWithMedication.status).toBe(400);
-
-    const medicationWithCategory = await request(app)
-      .post("/api/reminders")
-      .set(authed(accessToken))
-      .send({ target: "medication", medicationId, categoryId, times: ["09:00"] });
-    expect(medicationWithCategory.status).toBe(400);
+      .send({ target: "general", categoryId, times: ["09:00"] });
+    expect(generalWithCategory.status).toBe(400);
   });
 
   it("409s creating a second reminder for the same (target, medication/category)", async () => {
@@ -177,19 +151,19 @@ describe("reminders routes", () => {
     expect(second.body.error.code).toBe("REMINDER_ALREADY_EXISTS");
   });
 
-  it("allows two independent reminders for two different medications", async () => {
-    const { accessToken } = await registerAndLogin("two-medications");
-    const diazepam = await createMedication(accessToken, "Diazepam");
-    const sertraline = await createMedication(accessToken, "Sertraline");
+  it("allows two independent reminders for two different categories", async () => {
+    const { accessToken } = await registerAndLogin("two-categories");
+    const diazepam = await createCategory(accessToken, "Diazepam");
+    const sertraline = await createCategory(accessToken, "Sertraline");
 
     const first = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "medication", medicationId: diazepam, times: ["10:00"] });
+      .send({ target: "category", categoryId: diazepam, times: ["10:00"] });
     const second = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "medication", medicationId: sertraline, times: ["08:30"] });
+      .send({ target: "category", categoryId: sertraline, times: ["08:30"] });
 
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
@@ -214,7 +188,7 @@ describe("reminders routes", () => {
     expect(res.body[0].userId).toBe(userA.userId);
   });
 
-  it("updates times and enabled, but not target/medicationId/categoryId", async () => {
+  it("updates times and enabled, but not target/categoryId", async () => {
     const { accessToken } = await registerAndLogin("update");
     const created = await request(app)
       .post("/api/reminders")
@@ -315,7 +289,6 @@ afterAll(async () => {
   await prisma.reminderSend.deleteMany({ where: { reminder: { userId: { in: userIds } } } });
   await prisma.reminder.deleteMany({ where: { userId: { in: userIds } } });
   await prisma.category.deleteMany({ where: { userId: { in: userIds } } });
-  await prisma.medication.deleteMany({ where: { userId: { in: userIds } } });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   await prisma.$disconnect();
 });

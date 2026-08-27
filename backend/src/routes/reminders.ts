@@ -26,19 +26,17 @@ const timesSchema = z
 const createSchema = z
   .object({
     target: z.enum(API_REMINDER_TARGETS),
-    medicationId: z.string().trim().min(1).optional(),
     categoryId: z.string().trim().min(1).optional(),
     times: timesSchema,
   })
   .refine(
     (data) => {
-      if (data.target === "medication") return !!data.medicationId && !data.categoryId;
-      if (data.target === "category") return !!data.categoryId && !data.medicationId;
-      return !data.medicationId && !data.categoryId;
+      if (data.target === "category") return !!data.categoryId;
+      return !data.categoryId;
     },
     {
       message:
-        'medicationId is required (and categoryId forbidden) for target "medication"; categoryId is required (and medicationId forbidden) for target "category"; neither is allowed for any other target',
+        'categoryId is required for target "category"; it is not allowed for any other target',
       path: ["target"],
     },
   );
@@ -56,17 +54,15 @@ const updateSchema = z
   });
 
 const REMINDER_INCLUDE = {
-  medication: { select: { name: true, dosage: true } },
   category: { select: { name: true, icon: true } },
 } as const;
 
-// Shapes a raw Prisma Reminder row (SCREAMING_CASE target, plus the joined medication/category)
-// into the JSON the API actually returns - mirrors habitType.ts's serializeHabit/
-// categoryValueType.ts's serializeCategory.
+// Shapes a raw Prisma Reminder row (SCREAMING_CASE target, plus the joined category) into the
+// JSON the API actually returns - mirrors habitType.ts's serializeHabit/categoryValueType.ts's
+// serializeCategory.
 function serializeReminder<
   T extends {
     target: PrismaReminderTarget;
-    medication: { name: string; dosage: string | null } | null;
     category: { name: string; icon: string | null } | null;
   },
 >(reminder: T): Omit<T, "target"> & { target: string } {
@@ -96,21 +92,12 @@ remindersRouter.post("/", async (req, res) => {
     });
   }
 
-  const { target, medicationId, categoryId, times } = parsed.data;
+  const { target, categoryId, times } = parsed.data;
   const prismaTarget = toPrismaReminderTarget(target);
 
   // ID-tampering defense - the same pattern every other route with a foreign reference already
   // uses: scope the lookup by ownership/visibility before ever trusting the id in the request.
-  if (target === "medication") {
-    const medication = await prisma.medication.findFirst({
-      where: { id: medicationId, userId: req.userId },
-    });
-    if (!medication) {
-      return res.status(404).json({
-        error: { message: "Medication not found", code: "MEDICATION_NOT_FOUND" },
-      });
-    }
-  } else if (target === "category") {
+  if (target === "category") {
     const category = await prisma.category.findFirst({
       where: { id: categoryId, archivedAt: null, OR: [{ userId: null }, { userId: req.userId }] },
     });
@@ -121,14 +108,13 @@ remindersRouter.post("/", async (req, res) => {
     }
   }
 
-  // At most one reminder per (user, target, medicationId-or-categoryId) - an app-level check,
-  // not a DB constraint, matching this codebase's established preference for this class of
-  // invariant (see e.g. HabitLog's own "exactly one value column" check in habitLogs.ts).
+  // At most one reminder per (user, target, categoryId) - an app-level check, not a DB
+  // constraint, matching this codebase's established preference for this class of invariant (see
+  // e.g. HabitLog's own "exactly one value column" check in habitLogs.ts).
   const existing = await prisma.reminder.findFirst({
     where: {
       userId: req.userId,
       target: prismaTarget,
-      medicationId: medicationId ?? null,
       categoryId: categoryId ?? null,
     },
   });
@@ -142,7 +128,6 @@ remindersRouter.post("/", async (req, res) => {
     data: {
       userId: req.userId as string,
       target: prismaTarget,
-      medicationId: medicationId ?? null,
       categoryId: categoryId ?? null,
       times,
     },

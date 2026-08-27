@@ -4,32 +4,28 @@ import { prisma } from "../lib/prisma";
 import type { CategoryValueType as PrismaCategoryValueType } from "../generated/prisma/client";
 import { getDayRangeUtc } from "../lib/timezone";
 
-const HISTORY_TYPES = ["medication", "category"] as const;
-type HistoryType = (typeof HISTORY_TYPES)[number];
-
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
 const querySchema = z.object({
-  type: z.enum(HISTORY_TYPES).optional(),
   from: z.string().regex(DATE_ONLY, "from must be YYYY-MM-DD").optional(),
   to: z.string().regex(DATE_ONLY, "to must be YYYY-MM-DD").optional(),
+  // Narrows results to one category's own entries - mirrors categoryLogs.ts's identical
+  // Phase 18 addition. Replaces the old `?type=` filter (medication vs. category), which stopped
+  // meaning anything once every entry became a category (see
+  // docs/log/19-medication-to-category.md) - filtering by the actual category is what a user
+  // wanting to isolate e.g. just "Ibuprofen" or just "Reading" actually needs.
+  categoryId: z.string().trim().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_LIMIT).optional(),
   offset: z.coerce.number().int().min(0).optional(),
 });
 
 interface HistoryEntry {
   id: string;
-  type: HistoryType;
   label: string;
   notes: string | null;
   loggedAt: string;
-}
-
-function medicationLabel(name: string, dosage: string | null, taken: boolean): string {
-  const base = dosage ? `${name} — ${dosage}` : name;
-  return `${base} — ${taken ? "Taken" : "Not taken"}`;
 }
 
 // Mirrors dashboard.ts's identical formatCategoryLogValue - see there for why SCALE renders as
@@ -65,7 +61,7 @@ historyRouter.get("/", async (req, res) => {
     });
   }
 
-  const { type, from, to, limit = DEFAULT_LIMIT, offset = 0 } = parsed.data;
+  const { from, to, categoryId, limit = DEFAULT_LIMIT, offset = 0 } = parsed.data;
 
   if (from && to && from > to) {
     return res.status(400).json({
@@ -106,70 +102,32 @@ historyRouter.get("/", async (req, res) => {
         }
       : {};
 
-  const wantsType = (t: HistoryType) => !type || type === t;
-
-  // Pagination strategy (see IMPLEMENTATION_LOG.md's history entry for the full write-up):
-  // offset-based, applied *after* merging two independently-sorted per-type queries rather than a
-  // single SQL query, since medication/category logs live in two separate tables with no shared
-  // "all entries" table to page over directly. Each table is queried for its own `desc` order and
-  // capped at `offset + limit + 1` rows - enough for the merge below to produce a correct
-  // top-(offset+limit) result (a standard k-way merge of sorted streams), with the "+1"
-  // specifically so `hasMore` can be computed exactly rather than guessed at.
-  const fetchCap = offset + limit + 1;
-
-  const [medicationLogs, categoryLogs] = await Promise.all([
-    wantsType("medication")
-      ? prisma.medicationLog.findMany({
-          where: { userId, ...dateFilter },
-          // `id` as a secondary sort key: the in-memory merge below already breaks loggedAt ties
-          // by id for the *final* ordering, but that alone doesn't help if the DB-level
-          // `take: fetchCap` cutoff itself non-deterministically chose *which* tied rows survived
-          // to reach that merge in the first place - the tiebreak needs to happen at the query
-          // level too.
-          orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
-          take: fetchCap,
-          include: { medication: true },
-        })
-      : Promise.resolve([]),
-    wantsType("category")
-      ? prisma.categoryLog.findMany({
-          where: { userId, ...dateFilter },
-          // `id` as a secondary sort key - see the identical reasoning on the medication query
-          // above.
-          orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
-          take: fetchCap,
-          include: { category: { select: { name: true, valueType: true, scaleMax: true } } },
-        })
-      : Promise.resolve([]),
-  ]);
-
-  const entries: HistoryEntry[] = [
-    ...medicationLogs.map((log) => ({
-      id: log.id,
-      type: "medication" as const,
-      label: medicationLabel(log.medication.name, log.medication.dosage, log.taken),
-      notes: log.notes,
-      loggedAt: log.loggedAt.toISOString(),
-    })),
-    ...categoryLogs.map((log) => ({
-      id: log.id,
-      type: "category" as const,
-      label: `${log.category.name}: ${formatCategoryLogValue(log)}`,
-      notes: log.notes,
-      loggedAt: log.loggedAt.toISOString(),
-    })),
-  ];
-
-  // Merge-sort by loggedAt desc; ties (e.g. two entries backfilled to the exact same instant)
-  // broken by id so the ordering - and therefore pagination - is deterministic across requests.
-  entries.sort((a, b) => {
-    const diff = new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime();
-    if (diff !== 0) return diff;
-    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+  // Every log is a category log now that Medication has unified into Category too (see
+  // docs/log/19-medication-to-category.md) - a single, already-sorted query with a plain
+  // offset/limit is enough; the old two-table k-way in-memory merge this route used to need
+  // (medication logs and category logs living in separate tables) no longer applies.
+  const categoryLogs = await prisma.categoryLog.findMany({
+    // `categoryId` is applied underneath the same `userId` scope regardless of what's passed -
+    // the same defense categoryLogs.ts's own `?categoryId=` filter already relies on, so an
+    // arbitrary or shared system category id can never leak another user's data, it just returns
+    // however many of the caller's own logs match.
+    where: { userId, ...(categoryId ? { categoryId } : {}), ...dateFilter },
+    // `id` as a secondary sort key: two logs sharing the exact same `loggedAt` (e.g. both
+    // backfilled to the same instant) otherwise have no guaranteed relative order across separate
+    // requests, which would make pagination non-deterministic.
+    orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
+    take: limit + 1,
+    skip: offset,
+    include: { category: { select: { name: true, valueType: true, scaleMax: true } } },
   });
 
-  const page = entries.slice(offset, offset + limit);
-  const hasMore = entries.length > offset + limit;
+  const hasMore = categoryLogs.length > limit;
+  const entries: HistoryEntry[] = categoryLogs.slice(0, limit).map((log) => ({
+    id: log.id,
+    label: `${log.category.name}: ${formatCategoryLogValue(log)}`,
+    notes: log.notes,
+    loggedAt: log.loggedAt.toISOString(),
+  }));
 
-  res.json({ entries: page, limit, offset, hasMore });
+  res.json({ entries, limit, offset, hasMore });
 });

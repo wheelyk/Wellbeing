@@ -305,11 +305,11 @@ describe("SettingsPage — reminders", () => {
     vi.mocked(pushNotifications.unsubscribeFromPush).mockReset().mockResolvedValue(undefined);
   });
 
-  // Every test in this block hits three fetches on mount (GET /api/reminders, /api/medications,
-  // /api/categories) in addition to the two every SettingsPage render already fires - a small
-  // wrapper around routedFetchMock so each test only has to specify what it actually cares about,
-  // the same "sensible defaults, only override what matters" shape withAuthedUser already uses in
-  // the categories describe block below.
+  // Every test in this block hits two fetches on mount (GET /api/reminders, /api/categories) in
+  // addition to the two every SettingsPage render already fires - a small wrapper around
+  // routedFetchMock so each test only has to specify what it actually cares about, the same
+  // "sensible defaults, only override what matters" shape withAuthedUser already uses in the
+  // categories describe block below.
   //
   // Deliberately NOT `routedFetchMock({ ...bareDefaults, ...overrides })` - routedFetchMock's own
   // matching loop returns on the *first* key whose path matches (see its own comment above), so a
@@ -323,14 +323,13 @@ describe("SettingsPage — reminders", () => {
   // bare default only for a path with no key of its own yet, keeps a test-supplied method-specific
   // key at its natural early position while still getting a working bare GET fallback for mount -
   // exactly the ordering every other describe block in this file already gets "for free" by simply
-  // writing both keys directly, method-specific first, in one literal (see e.g. the medications
-  // block's own "creates a new medication" test) - this just automates supplying the bare default
+  // writing both keys directly, method-specific first, in one literal (see e.g. the categories
+  // block's own "creates a new category" test) - this just automates supplying the bare default
   // half of that pattern, without disturbing the position of whatever a test explicitly wrote.
   function withReminders(overrides: Record<string, (init?: RequestInit) => Response> = {}) {
     const merged: Record<string, (init?: RequestInit) => Response> = { ...overrides };
     const bareDefaults: Record<string, (init?: RequestInit) => Response> = {
       "/api/reminders": () => jsonResponse(200, []),
-      "/api/medications": () => jsonResponse(200, []),
       "/api/categories": () => jsonResponse(200, []),
       "/api/push/vapid-public-key": () => jsonResponse(200, { publicKey: "test-public-key" }),
     };
@@ -344,44 +343,21 @@ describe("SettingsPage — reminders", () => {
     id: "rem-general",
     userId: "user-1",
     target: "general",
-    medicationId: null,
     categoryId: null,
     times: ["20:00"],
     enabled: true,
     createdAt: "2026-08-24T00:00:00.000Z",
-    medication: null,
-    category: null,
-  };
-  const medicationReminder = {
-    id: "rem-medication",
-    userId: "user-1",
-    target: "medication",
-    medicationId: "med-1",
-    categoryId: null,
-    times: ["10:00"],
-    enabled: true,
-    createdAt: "2026-08-24T00:00:00.000Z",
-    medication: { name: "Diazepam", dosage: "2mg" },
     category: null,
   };
   const categoryReminder = {
     id: "rem-category",
     userId: "user-1",
     target: "category",
-    medicationId: null,
     categoryId: "cat-1",
     times: ["09:00", "15:00"],
     enabled: true,
     createdAt: "2026-08-24T00:00:00.000Z",
-    medication: null,
     category: { name: "Water intake", icon: "💧" },
-  };
-  const diazepam = {
-    id: "med-1",
-    userId: "user-1",
-    name: "Diazepam",
-    dosage: "2mg",
-    createdAt: "2026-08-24T00:00:00.000Z",
   };
   const waterCategory = {
     id: "cat-1",
@@ -416,14 +392,12 @@ describe("SettingsPage — reminders", () => {
 
   it("lists reminders with their resolved target label and times as chips", async () => {
     const fetchMock = withReminders({
-      "/api/reminders": () =>
-        jsonResponse(200, [generalReminder, medicationReminder, categoryReminder]),
+      "/api/reminders": () => jsonResponse(200, [generalReminder, categoryReminder]),
     });
     vi.stubGlobal("fetch", fetchMock);
     renderSettingsPage();
 
     expect(await screen.findByText("General")).toBeInTheDocument();
-    expect(screen.getByText("Diazepam — 2mg")).toBeInTheDocument();
     expect(screen.getByText("💧 Water intake")).toBeInTheDocument();
     expect(screen.getByText("20:00")).toBeInTheDocument();
     expect(screen.getByText("09:00")).toBeInTheDocument();
@@ -458,45 +432,6 @@ describe("SettingsPage — reminders", () => {
     expect(body).toEqual({ target: "general", times: ["20:00"] });
   });
 
-  it("creates a MEDICATION reminder via the medication sub-picker", async () => {
-    const fetchMock = withReminders({
-      "POST /api/reminders": (init) => {
-        const body = JSON.parse(init?.body as string);
-        return jsonResponse(201, { ...medicationReminder, ...body });
-      },
-      "/api/reminders": () => jsonResponse(200, [generalReminder]),
-      "/api/medications": () => jsonResponse(200, [diazepam]),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    renderSettingsPage();
-
-    await screen.findByText("General");
-    await user.click(screen.getByRole("button", { name: "+ Add reminder" }));
-    await user.click(screen.getByRole("radio", { name: /a specific medication/i }));
-    // Scoped to the medication sub-picker's own radiogroup - "A specific medication"'s own hint
-    // text also mentions "Diazepam" as an example, so an unscoped match is ambiguous between the
-    // two radios.
-    await user.click(
-      within(screen.getByRole("radiogroup", { name: /which medication/i })).getByRole("radio", {
-        name: /diazepam/i,
-      }),
-    );
-    await user.type(screen.getByLabelText(/^time 1$/i), "10:00");
-    await user.click(screen.getByRole("button", { name: /create reminder/i }));
-
-    expect(await screen.findByText("Diazepam — 2mg")).toBeInTheDocument();
-    // subscribeToPush is not called here - a GENERAL reminder was already enabled, so this
-    // browser is already subscribed.
-    expect(pushNotifications.subscribeToPush).not.toHaveBeenCalled();
-
-    const postCall = fetchMock.mock.calls.find(
-      ([url, init]) => url.includes("/api/reminders") && init?.method === "POST",
-    );
-    const body = JSON.parse((postCall as [string, RequestInit])[1].body as string);
-    expect(body).toEqual({ target: "medication", medicationId: "med-1", times: ["10:00"] });
-  });
-
   it("creates a CATEGORY reminder via the category sub-picker, with two independent times", async () => {
     const fetchMock = withReminders({
       "/api/categories": () => jsonResponse(200, [waterCategory]),
@@ -512,8 +447,8 @@ describe("SettingsPage — reminders", () => {
     await screen.findByText(/no reminders yet/i);
     await user.click(screen.getByRole("button", { name: "+ Add reminder" }));
     await user.click(screen.getByRole("radio", { name: /a specific category/i }));
-    // Scoped for the same reason as the medication sub-picker above - "A specific category"'s own
-    // hint text also mentions "Water intake" as an example.
+    // Scoped to the category sub-picker's own radiogroup - "A specific category"'s own hint text
+    // also mentions "Water intake" as an example, so an unscoped match would be ambiguous.
     await user.click(
       within(screen.getByRole("radiogroup", { name: /which category/i })).getByRole("radio", {
         name: /water intake/i,
@@ -539,9 +474,9 @@ describe("SettingsPage — reminders", () => {
     expect(body).toEqual({ target: "category", categoryId: "cat-1", times: ["09:00", "15:00"] });
   });
 
-  it("requires choosing a medication before submitting a MEDICATION reminder", async () => {
+  it("requires choosing a category before submitting a CATEGORY reminder", async () => {
     const fetchMock = withReminders({
-      "/api/medications": () => jsonResponse(200, [diazepam]),
+      "/api/categories": () => jsonResponse(200, [waterCategory]),
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -549,11 +484,11 @@ describe("SettingsPage — reminders", () => {
 
     await screen.findByText(/no reminders yet/i);
     await user.click(screen.getByRole("button", { name: "+ Add reminder" }));
-    await user.click(screen.getByRole("radio", { name: /a specific medication/i }));
+    await user.click(screen.getByRole("radio", { name: /a specific category/i }));
     await user.type(screen.getByLabelText(/^time 1$/i), "10:00");
     await user.click(screen.getByRole("button", { name: /create reminder/i }));
 
-    expect(await screen.findByText(/choose which medication/i)).toBeInTheDocument();
+    expect(await screen.findByText(/choose which category/i)).toBeInTheDocument();
     expect(
       fetchMock.mock.calls.some(
         ([url, init]) => url.includes("/api/reminders") && init?.method === "POST",
@@ -665,28 +600,6 @@ describe("SettingsPage — reminders", () => {
     await vi.waitFor(() => expect(pushNotifications.unsubscribeFromPush).toHaveBeenCalledOnce());
   });
 
-  it("shows an inline note when a reminder is disabled because its built-in category is toggled off", async () => {
-    const disabledByToggle = { ...medicationReminder, enabled: false };
-    const fetchMock = routedFetchMock({
-      "/api/auth/refresh": () =>
-        jsonResponse(200, {
-          user: { ...DEFAULT_PROFILE, isAdmin: false, medicationEnabled: false },
-          accessToken: "test-token",
-        }),
-      "/api/reminders": () => jsonResponse(200, [disabledByToggle]),
-      "/api/medications": () => jsonResponse(200, [diazepam]),
-      "/api/categories": () => jsonResponse(200, []),
-      "/api/push/vapid-public-key": () => jsonResponse(200, { publicKey: "test-public-key" }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    renderSettingsPage();
-
-    expect(await screen.findByText("Diazepam — 2mg")).toBeInTheDocument();
-    expect(
-      screen.getByText(/medications is currently turned off in settings/i),
-    ).toBeInTheDocument();
-  });
-
   it("shows an inline note when a CATEGORY reminder's category has been archived", async () => {
     const disabledArchived = { ...categoryReminder, enabled: false };
     const fetchMock = withReminders({
@@ -701,210 +614,6 @@ describe("SettingsPage — reminders", () => {
 
     expect(await screen.findByText("💧 Water intake")).toBeInTheDocument();
     expect(screen.getByText(/this category has been archived/i)).toBeInTheDocument();
-  });
-});
-
-// Mood, Habit, and Symptom each had a toggle here too until Phase 17 folded all three into
-// Category (see docs/log/17-unify-mood-symptom-habit.md) - Medication is the only one left, now
-// folded into MedicationsSection itself rather than a standalone "Built-in categories" section
-// (see that section's own comment on why). Unlike ProfileSection's own GET /api/users/me, this
-// checkbox reads its initial value from AuthContext (populated via /api/auth/refresh), matching
-// every other place in this app that already reads user.medicationEnabled that way (e.g.
-// DashboardPage.tsx) - so these tests provide a "/api/auth/refresh" override, not a
-// "GET /api/users/me" one.
-describe("SettingsPage — medication toggle", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  function withAuthedUser(medicationEnabled: boolean) {
-    return {
-      "/api/auth/refresh": () =>
-        jsonResponse(200, {
-          user: { ...DEFAULT_PROFILE, isAdmin: false, medicationEnabled },
-          accessToken: "test-token",
-        }),
-    };
-  }
-
-  it("shows the toggle checked by default", async () => {
-    const fetchMock = routedFetchMock(withAuthedUser(true));
-    vi.stubGlobal("fetch", fetchMock);
-    renderSettingsPage();
-
-    expect(await screen.findByLabelText(/track medications/i)).toBeChecked();
-  });
-
-  it("reflects the toggle already off", async () => {
-    const fetchMock = routedFetchMock(withAuthedUser(false));
-    vi.stubGlobal("fetch", fetchMock);
-    renderSettingsPage();
-
-    expect(await screen.findByLabelText(/track medications/i)).not.toBeChecked();
-  });
-
-  it("saves a change immediately on click and shows a confirmation", async () => {
-    const fetchMock = routedFetchMock({
-      ...withAuthedUser(true),
-      "PATCH /api/users/me": (init) => {
-        const body = JSON.parse(init?.body as string);
-        return jsonResponse(200, { ...DEFAULT_PROFILE, ...body });
-      },
-      // MedicationsSection's own confirmation message only renders once its own medications
-      // list has loaded without error - unmocked here, its own fetch would throw (see
-      // routedFetchMock's own "Unhandled fetch" guard) and the section would show its load-error
-      // state instead, hiding the confirmation this test actually asserts on.
-      "/api/medications": () => jsonResponse(200, []),
-      "/api/reminders": () => jsonResponse(200, []),
-      "/api/categories": () => jsonResponse(200, []),
-      "/api/push/vapid-public-key": () => jsonResponse(200, { publicKey: "test-key" }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    renderSettingsPage();
-
-    const toggle = await screen.findByLabelText(/track medications/i);
-    expect(toggle).toBeChecked();
-    await user.click(toggle);
-
-    expect(await screen.findByText(/medications disabled/i)).toBeInTheDocument();
-    expect(toggle).not.toBeChecked();
-
-    const patchCall = fetchMock.mock.calls.find(
-      ([url, init]) =>
-        url.includes("/api/users/me") &&
-        init?.method === "PATCH" &&
-        JSON.parse(init.body as string).medicationEnabled !== undefined,
-    );
-    expect(patchCall).toBeDefined();
-    const [, requestInit] = patchCall as [string, RequestInit];
-    expect(JSON.parse(requestInit.body as string)).toEqual({ medicationEnabled: false });
-  });
-});
-
-describe("SettingsPage — medications", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  const diazepam = {
-    id: "med-1",
-    userId: "user-1",
-    name: "Diazepam",
-    dosage: "2mg",
-    createdAt: "2026-08-24T00:00:00.000Z",
-  };
-
-  it("shows 'No medications yet' when the list is empty", async () => {
-    const fetchMock = routedFetchMock({
-      "/api/medications": () => jsonResponse(200, []),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    renderSettingsPage();
-
-    expect(await screen.findByText(/no medications yet/i)).toBeInTheDocument();
-  });
-
-  it("lists a medication with its dosage", async () => {
-    const fetchMock = routedFetchMock({
-      "/api/medications": () => jsonResponse(200, [diazepam]),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    renderSettingsPage();
-
-    expect(await screen.findByText("Diazepam")).toBeInTheDocument();
-    expect(screen.getByText("2mg")).toBeInTheDocument();
-  });
-
-  it("adds a new medication and shows it in the list", async () => {
-    const created = {
-      id: "med-2",
-      userId: "user-1",
-      name: "Sertraline",
-      dosage: null,
-      createdAt: "2026-08-24T00:00:00.000Z",
-    };
-    // Method-specific override listed first - a bare (method-less) key would otherwise catch
-    // the POST too before this one is checked (same reasoning as the categories tests below).
-    const fetchMock = routedFetchMock({
-      "POST /api/medications": () => jsonResponse(201, created),
-      "/api/medications": () => jsonResponse(200, []),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    renderSettingsPage();
-
-    await screen.findByText(/no medications yet/i);
-    await user.click(screen.getByRole("button", { name: "+ New medication" }));
-    await user.type(screen.getByLabelText(/medication name/i), "Sertraline");
-    await user.click(screen.getByRole("button", { name: /add medication/i }));
-
-    expect(await screen.findByText("Sertraline")).toBeInTheDocument();
-    expect(await screen.findByText(/medication added/i)).toBeInTheDocument();
-  });
-
-  it("edits a medication's name and dosage", async () => {
-    const updated = { ...diazepam, name: "Diazepam", dosage: "5mg" };
-    const fetchMock = routedFetchMock({
-      "PATCH /api/medications": (init) => {
-        const body = JSON.parse(init?.body as string);
-        return jsonResponse(200, { ...diazepam, ...body });
-      },
-      "/api/medications": () => jsonResponse(200, [diazepam]),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    renderSettingsPage();
-
-    await screen.findByText("Diazepam");
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    const dosageField = screen.getByLabelText(/^dosage$/i);
-    await user.clear(dosageField);
-    await user.type(dosageField, updated.dosage);
-    const editRow = dosageField.closest("li") as HTMLElement;
-    await user.click(within(editRow).getByRole("button", { name: /^save$/i }));
-
-    expect(await screen.findByText("5mg")).toBeInTheDocument();
-  });
-
-  it("deletes a medication after a confirmation that warns logged entries are lost too", async () => {
-    const fetchMock = routedFetchMock({
-      "DELETE /api/medications": () => jsonResponse(200, { message: "Deleted" }),
-      "/api/medications": () => jsonResponse(200, [diazepam]),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    renderSettingsPage();
-
-    await screen.findByText("Diazepam");
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-
-    expect(confirmSpy).toHaveBeenCalledWith(
-      expect.stringMatching(/permanently deletes every logged entry/i),
-    );
-    expect(await screen.findByText(/medication deleted/i)).toBeInTheDocument();
-    expect(screen.queryByText("Diazepam")).not.toBeInTheDocument();
-  });
-
-  it("does not delete when the confirmation is declined", async () => {
-    const fetchMock = routedFetchMock({
-      "/api/medications": () => jsonResponse(200, [diazepam]),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(false);
-    renderSettingsPage();
-
-    await screen.findByText("Diazepam");
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-
-    expect(
-      fetchMock.mock.calls.some(
-        ([url, init]) => url.includes("/api/medications") && init?.method === "DELETE",
-      ),
-    ).toBe(false);
-    expect(screen.getByText("Diazepam")).toBeInTheDocument();
   });
 });
 

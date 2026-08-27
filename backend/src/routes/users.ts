@@ -3,7 +3,6 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { clearRefreshTokenCookie } from "../lib/cookies";
 import { isAdminEmail } from "../lib/isAdmin";
-import { ReminderTarget } from "../generated/prisma/client";
 
 // Validates by actually constructing an Intl.DateTimeFormat with this zone - the same call
 // `backend/src/lib/timezone.ts` makes for real, downstream, to resolve a user's calendar day -
@@ -30,7 +29,6 @@ const updateSchema = z
   .object({
     displayName: z.string().trim().min(1, "Display name can't be empty"),
     timezone: z.string().refine(isValidTimeZone, "Not a recognized timezone"),
-    medicationEnabled: z.boolean(),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
@@ -43,19 +41,7 @@ const PROFILE_SELECT = {
   displayName: true,
   timezone: true,
   createdAt: true,
-  medicationEnabled: true,
 } as const;
-
-// Maps each toggle field to the Reminder target it gates - used only on the false-going-false
-// transition below, to decide which Reminder rows to disable alongside the category itself.
-// habitEnabled (Phase 16), symptomEnabled and moodEnabled (both Phase 17) were all removed once
-// Habit/Symptom/Mood unified into Category - a former habit/symptom/mood check-in is now an
-// ordinary system-or-personal category with no whole-type toggle of its own anymore (a system one
-// is hidden per-row via HiddenCategory instead). Medication is the one built-in this phase leaves
-// untouched, so it's the only toggle target left here.
-const TOGGLE_TARGETS: Record<"medicationEnabled", ReminderTarget> = {
-  medicationEnabled: ReminderTarget.MEDICATION,
-};
 
 export const usersRouter = Router();
 
@@ -95,32 +81,12 @@ usersRouter.patch("/me", async (req, res) => {
     select: PROFILE_SELECT,
   });
 
-  // Turning a built-in category off also disables (not deletes) any Reminder aimed at it -
-  // MEDICATION reminders included, regardless of which specific medicationId they're for. Fires
-  // whenever the field is sent as false, whether or not it was already false - a harmless no-op
-  // on repeat, the same "re-archiving an already-archived category" tolerance categories.ts's own
-  // DELETE route allows. Turning a category back on deliberately does NOT re-enable those
-  // reminders - the user re-enables them explicitly from the reminders list, so a notification
-  // never silently resumes without a fresh confirmation.
-  const targetsToDisable = (
-    Object.keys(TOGGLE_TARGETS) as Array<keyof typeof TOGGLE_TARGETS>
-  ).filter((field) => parsed.data[field] === false);
-  if (targetsToDisable.length > 0) {
-    await prisma.reminder.updateMany({
-      where: {
-        userId: req.userId,
-        target: { in: targetsToDisable.map((field) => TOGGLE_TARGETS[field]) },
-      },
-      data: { enabled: false },
-    });
-  }
-
   res.json({ ...user, isAdmin: isAdminEmail(user.email) });
 });
 
 usersRouter.delete("/me", async (req, res) => {
-  // Every relation from User (Medication, MedicationLog, Category, CategoryLog) is declared
-  // `onDelete: Cascade` in schema.prisma, so a single delete of the User row is enough -
+  // Every relation from User (Category, CategoryLog) is declared `onDelete: Cascade` in
+  // schema.prisma, so a single delete of the User row is enough -
   // Postgres itself removes every row across every one of those tables that references this user,
   // in the same statement, with no separate application-level transaction needed. (Confirmed
   // directly: see users.test.ts's "removes every related row" test, which queries each table

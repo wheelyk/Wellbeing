@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../auth/AuthContext";
@@ -22,43 +22,52 @@ function renderPage() {
   );
 }
 
+// HistoryPage now fires a second, independent fetch on mount (GET /api/categories, to populate
+// the Category filter's own options - see HistoryPage.tsx's own comment) alongside GET
+// /api/history. Most tests below don't care about that list at all, so this gives it a harmless
+// empty-array default; a test that actually needs real categories (e.g. to exercise the edit
+// form's own category picker) still defines its own fetchMock directly instead of using this.
+function mockHistoryFetch(handler: (url: string, init?: RequestInit) => Response) {
+  return vi.fn((url: string, init?: RequestInit) => {
+    if (url.includes("/api/categories")) {
+      return Promise.resolve(jsonResponse(200, []));
+    }
+    return Promise.resolve(handler(url, init));
+  });
+}
+
 describe("HistoryPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
   it("renders fetched entries grouped by date, most recent first", async () => {
-    const fetchMock = vi.fn().mockImplementation(() =>
-      Promise.resolve(
-        jsonResponse(200, {
-          entries: [
-            {
-              id: "mood-1",
-              type: "category",
-              label: "Mood: 4/5",
-              notes: null,
-              loggedAt: "2026-08-17T14:00:00.000Z",
-            },
-            {
-              id: "category-1",
-              type: "category",
-              label: "Headache: 6/10",
-              notes: "Started after lunch",
-              loggedAt: "2026-08-17T09:00:00.000Z",
-            },
-            {
-              id: "category-2",
-              type: "category",
-              label: "Exercise: Done",
-              notes: null,
-              loggedAt: "2026-08-16T14:00:00.000Z",
-            },
-          ],
-          limit: 20,
-          offset: 0,
-          hasMore: false,
-        }),
-      ),
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, {
+        entries: [
+          {
+            id: "mood-1",
+            label: "Mood: 4/5",
+            notes: null,
+            loggedAt: "2026-08-17T14:00:00.000Z",
+          },
+          {
+            id: "category-1",
+            label: "Headache: 6/10",
+            notes: "Started after lunch",
+            loggedAt: "2026-08-17T09:00:00.000Z",
+          },
+          {
+            id: "category-2",
+            label: "Exercise: Done",
+            notes: null,
+            loggedAt: "2026-08-16T14:00:00.000Z",
+          },
+        ],
+        limit: 20,
+        offset: 0,
+        hasMore: false,
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -75,11 +84,9 @@ describe("HistoryPage", () => {
   });
 
   it("shows an empty state when there are no entries yet", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() =>
-        Promise.resolve(jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false })),
-      );
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     renderPage();
@@ -88,9 +95,7 @@ describe("HistoryPage", () => {
   });
 
   it("shows an error state when the fetch fails", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() => Promise.resolve(jsonResponse(500, { error: { message: "Oops" } })));
+    const fetchMock = mockHistoryFetch(() => jsonResponse(500, { error: { message: "Oops" } }));
     vi.stubGlobal("fetch", fetchMock);
 
     renderPage();
@@ -98,90 +103,77 @@ describe("HistoryPage", () => {
     expect(await screen.findByText(/couldn't load your history/i)).toBeInTheDocument();
   });
 
-  it("refetches with a type query param when the type filter changes", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() =>
-        Promise.resolve(jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false })),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-
-    renderPage();
-    await screen.findByText(/nothing to show yet/i);
-
-    await user.selectOptions(screen.getByLabelText(/type/i), "medication");
-
-    await waitFor(() => {
-      const lastCall = fetchMock.mock.calls.at(-1);
-      expect(lastCall?.[0]).toContain("type=medication");
-      expect(lastCall?.[0]).toContain("offset=0");
-    });
-  });
-
-  it("renders a category entry and offers Category as a filter option", async () => {
-    const fetchMock = vi.fn().mockImplementation(() =>
-      Promise.resolve(
-        jsonResponse(200, {
-          entries: [
-            {
-              id: "cat-log-1",
-              type: "category",
-              label: "Energy level: 4/5",
-              notes: null,
-              loggedAt: "2026-08-17T09:00:00.000Z",
-            },
-          ],
-          limit: 20,
-          offset: 0,
-          hasMore: false,
-        }),
-      ),
+  it("renders a category entry", async () => {
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, {
+        entries: [
+          {
+            id: "cat-log-1",
+            label: "Energy level: 4/5",
+            notes: null,
+            loggedAt: "2026-08-17T09:00:00.000Z",
+          },
+        ],
+        limit: 20,
+        offset: 0,
+        hasMore: false,
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     renderPage();
 
     expect(await screen.findByText(/energy level: 4\/5/i)).toBeInTheDocument();
-    expect(
-      within(screen.getByLabelText(/type/i)).getByRole("option", { name: "Category" }),
-    ).toBeInTheDocument();
   });
 
-  it("refetches with type=category when the Category filter is selected", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() =>
-        Promise.resolve(jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false })),
+  it("filters by category via the Category select, refetching with ?categoryId=", async () => {
+    const category = {
+      id: "cat-1",
+      userId: "user-1",
+      name: "Ibuprofen",
+      icon: null,
+      valueType: "boolean",
+      scaleMin: null,
+      scaleMax: null,
+      archivedAt: null,
+      createdAt: "2026-08-01T00:00:00.000Z",
+    };
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/api/categories")) {
+        return Promise.resolve(jsonResponse(200, [category]));
+      }
+      return Promise.resolve(
+        jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false }),
       );
+    });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
     renderPage();
     await screen.findByText(/nothing to show yet/i);
+    expect(screen.getByRole("option", { name: "Ibuprofen" })).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText(/type/i), "category");
+    await user.selectOptions(screen.getByLabelText(/^category$/i), "cat-1");
 
     await waitFor(() => {
-      const lastCall = fetchMock.mock.calls.at(-1);
-      expect(lastCall?.[0]).toContain("type=category");
+      const lastCall = fetchMock.mock.calls
+        .map(([callUrl]) => String(callUrl))
+        .filter((callUrl) => callUrl.includes("/api/history"))
+        .at(-1);
+      expect(lastCall).toContain("categoryId=cat-1");
     });
   });
 
-  it("deletes a category entry via /api/category-logs, not one of the four built-in endpoints", async () => {
+  it("deletes an entry via /api/category-logs", async () => {
     const entry = {
       id: "cat-log-1",
-      type: "category",
       label: "Energy level: 4/5",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
-    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-      if (init?.method === "DELETE")
-        return Promise.resolve(jsonResponse(200, { message: "Deleted" }));
-      return Promise.resolve(
-        jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
-      );
+    const fetchMock = mockHistoryFetch((_url, init) => {
+      if (init?.method === "DELETE") return jsonResponse(200, { message: "Deleted" });
+      return jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false });
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -189,7 +181,7 @@ describe("HistoryPage", () => {
     renderPage();
     await screen.findByText(/energy level: 4\/5/i);
 
-    await user.click(screen.getByRole("button", { name: /delete category entry/i }));
+    await user.click(screen.getByRole("button", { name: /delete entry/i }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
@@ -198,59 +190,50 @@ describe("HistoryPage", () => {
     });
   });
 
-  it("deletes an entry optimistically via the correct per-type endpoint, rolling back on failure", async () => {
+  it("deletes an entry optimistically, rolling back on failure", async () => {
     const entry = {
-      id: "med-log-1",
-      type: "medication",
-      label: "Ibuprofen — Taken",
+      id: "cat-log-1",
+      label: "Ibuprofen: Done",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
     let deleteCallCount = 0;
-    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+    const fetchMock = mockHistoryFetch((_url, init) => {
       if (init?.method === "DELETE") {
         deleteCallCount += 1;
-        // First delete attempt fails (to exercise rollback); second (different test) succeeds.
-        return Promise.resolve(jsonResponse(500, { error: { message: "Server error" } }));
+        return jsonResponse(500, { error: { message: "Server error" } });
       }
-      return Promise.resolve(
-        jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
-      );
+      return jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false });
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
     renderPage();
-    await screen.findByText(/ibuprofen — taken/i);
+    await screen.findByText(/ibuprofen: done/i);
 
     // Delete now opens this app's own Modal-based confirmation dialog rather than a native
     // window.confirm() popup - clicking the row's Delete button only opens it; the actual
     // delete request only fires once the dialog's own "Delete" button is clicked.
-    await user.click(screen.getByRole("button", { name: /delete medication entry/i }));
+    await user.click(screen.getByRole("button", { name: /delete entry/i }));
     await user.click(await screen.findByRole("button", { name: "Delete" }));
 
     // Optimistically removed, then rolled back once the DELETE call fails.
-    await screen.findByText(/ibuprofen — taken/i);
+    await screen.findByText(/ibuprofen: done/i);
     expect(deleteCallCount).toBe(1);
     const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
-    expect(deleteCall?.[0]).toContain(`/api/medication-logs/${entry.id}`);
+    expect(deleteCall?.[0]).toContain(`/api/category-logs/${entry.id}`);
   });
 
   it("deletes an entry and keeps it removed when the DELETE call succeeds", async () => {
     const entry = {
       id: "mood-1",
-      type: "category",
       label: "Mood: 4/5",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
-    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-      if (init?.method === "DELETE") {
-        return Promise.resolve(jsonResponse(200, { message: "Deleted" }));
-      }
-      return Promise.resolve(
-        jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
-      );
+    const fetchMock = mockHistoryFetch((_url, init) => {
+      if (init?.method === "DELETE") return jsonResponse(200, { message: "Deleted" });
+      return jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false });
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -258,7 +241,7 @@ describe("HistoryPage", () => {
     renderPage();
     await screen.findByText(/mood: 4\/5/i);
 
-    await user.click(screen.getByRole("button", { name: /delete category entry/i }));
+    await user.click(screen.getByRole("button", { name: /delete entry/i }));
     await user.click(await screen.findByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
@@ -270,25 +253,20 @@ describe("HistoryPage", () => {
   it("does not delete when the confirmation dialog is cancelled", async () => {
     const entry = {
       id: "mood-1",
-      type: "category",
       label: "Mood: 4/5",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() =>
-        Promise.resolve(
-          jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
-        ),
-      );
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
     renderPage();
     await screen.findByText(/mood: 4\/5/i);
 
-    await user.click(screen.getByRole("button", { name: /delete category entry/i }));
+    await user.click(screen.getByRole("button", { name: /delete entry/i }));
     await user.click(await screen.findByRole("button", { name: "Cancel" }));
 
     expect(screen.getByText(/mood: 4\/5/i)).toBeInTheDocument();
@@ -306,27 +284,21 @@ describe("HistoryPage", () => {
   it("loads more entries and appends them when Load more is clicked", async () => {
     const first = {
       id: "mood-1",
-      type: "category",
       label: "Mood: 4/5",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
     const second = {
       id: "mood-2",
-      type: "category",
       label: "Mood: 2/5",
       notes: null,
       loggedAt: "2026-08-16T09:00:00.000Z",
     };
-    const fetchMock = vi.fn().mockImplementation((url: string) => {
+    const fetchMock = mockHistoryFetch((url) => {
       if (url.includes("offset=1")) {
-        return Promise.resolve(
-          jsonResponse(200, { entries: [second], limit: 20, offset: 1, hasMore: false }),
-        );
+        return jsonResponse(200, { entries: [second], limit: 20, offset: 1, hasMore: false });
       }
-      return Promise.resolve(
-        jsonResponse(200, { entries: [first], limit: 20, offset: 0, hasMore: true }),
-      );
+      return jsonResponse(200, { entries: [first], limit: 20, offset: 0, hasMore: true });
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -345,27 +317,21 @@ describe("HistoryPage", () => {
   it("shows Load less once more than a page is loaded, and it collapses back without a new fetch", async () => {
     const firstPage = Array.from({ length: 20 }, (_, i) => ({
       id: `mood-${i}`,
-      type: "category",
       label: "Mood: 3/5",
       notes: null,
       loggedAt: `2026-08-17T${String(9 + (i % 12)).padStart(2, "0")}:00:00.000Z`,
     }));
     const twentyFirst = {
       id: "mood-20",
-      type: "category",
       label: "Mood: 5/5",
       notes: null,
       loggedAt: "2026-08-16T09:00:00.000Z",
     };
-    const fetchMock = vi.fn().mockImplementation((url: string) => {
+    const fetchMock = mockHistoryFetch((url) => {
       if (url.includes("offset=20")) {
-        return Promise.resolve(
-          jsonResponse(200, { entries: [twentyFirst], limit: 20, offset: 20, hasMore: false }),
-        );
+        return jsonResponse(200, { entries: [twentyFirst], limit: 20, offset: 20, hasMore: false });
       }
-      return Promise.resolve(
-        jsonResponse(200, { entries: firstPage, limit: 20, offset: 0, hasMore: true }),
-      );
+      return jsonResponse(200, { entries: firstPage, limit: 20, offset: 0, hasMore: true });
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -390,30 +356,26 @@ describe("HistoryPage", () => {
   });
 
   it("collapses one date group without affecting another", async () => {
-    const fetchMock = vi.fn().mockImplementation(() =>
-      Promise.resolve(
-        jsonResponse(200, {
-          entries: [
-            {
-              id: "mood-1",
-              type: "category",
-              label: "Mood: 4/5",
-              notes: null,
-              loggedAt: "2026-08-17T14:00:00.000Z",
-            },
-            {
-              id: "category-1",
-              type: "category",
-              label: "Exercise: Done",
-              notes: null,
-              loggedAt: "2026-08-16T14:00:00.000Z",
-            },
-          ],
-          limit: 20,
-          offset: 0,
-          hasMore: false,
-        }),
-      ),
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, {
+        entries: [
+          {
+            id: "mood-1",
+            label: "Mood: 4/5",
+            notes: null,
+            loggedAt: "2026-08-17T14:00:00.000Z",
+          },
+          {
+            id: "category-1",
+            label: "Exercise: Done",
+            notes: null,
+            loggedAt: "2026-08-16T14:00:00.000Z",
+          },
+        ],
+        limit: 20,
+        offset: 0,
+        hasMore: false,
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -435,21 +397,18 @@ describe("HistoryPage", () => {
   });
 
   it("collapses the Filters section, hiding the fields but not the entry list", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() =>
-        Promise.resolve(jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false })),
-      );
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
     renderPage();
     await screen.findByText(/nothing to show yet/i);
-    expect(screen.getByLabelText(/^type$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^from$/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^filters$/i }));
 
-    expect(screen.queryByLabelText(/^type$/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/^from$/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/^to$/i)).not.toBeInTheDocument();
     // Collapsing the filter fields doesn't touch the rest of the page.
@@ -459,7 +418,6 @@ describe("HistoryPage", () => {
   it("resolves a category entry's name via /api/categories and PATCHes the category-logs endpoint on save", async () => {
     const entry = {
       id: "cat-log-1",
-      type: "category",
       label: "Energy level: 4/5",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
@@ -513,7 +471,7 @@ describe("HistoryPage", () => {
     renderPage();
     await screen.findByText(/energy level: 4\/5/i);
 
-    await user.click(screen.getByRole("button", { name: /edit category entry/i }));
+    await user.click(screen.getByRole("button", { name: /edit entry/i }));
     await screen.findByRole("heading", { name: "Edit entry" });
 
     // Pre-filled with the real category, resolved from /api/categories via the log's

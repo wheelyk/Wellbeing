@@ -465,6 +465,65 @@ always-present entry point, exactly as today.
 
 ---
 
+## Phase 19 — Medication → Category, and History filtered by category
+
+Reference: direct user request - now that Habit, Symptom, and Mood have all unified into Category
+(Phase 17), Medication is the one remaining fixed built-in type, and History's "Type" filter is left
+with only two options (Medication vs. one broad "Category" bucket covering everything else), which
+doesn't let a user isolate one specific thing they log. Medication's own shape (`name` + optional
+`dosage`, one boolean `taken` per log) maps cleanly onto Category: a personal `BOOLEAN` category,
+with `dosage` carried in `Category.description` (added in Phase 17 for exactly this kind of
+context - "not used by any built-in category yet"). Once every log type is a category, History's
+filter is redesigned to filter by the actual category (by name) instead of by type - there's no
+longer a meaningful "type" to filter on at all once there's only one.
+
+### Task 1 — Backend: Medication → Category unification
+- [x] Hand-written migration (mirrors `habit_to_category`'s row-for-row shape, reusing each
+  medication's own id as its new category's id, plus `mood_to_category`'s reminder-remap pattern):
+  every `Medication` becomes a personal `BOOLEAN` Category (`description` = its old `dosage`);
+  every `MedicationLog` becomes a `CategoryLog` (`valueBoolean` = `taken`); any existing
+  `MEDICATION`-target `Reminder` is remapped (not dropped - a clean 1:1 mapping exists, same
+  justification as `MOOD`'s own remap) to a `CATEGORY`-target reminder pointing at the same id.
+  Drops `medications`/`medication_logs`, `Reminder.medicationId`, `User.medicationEnabled`, and
+  `MEDICATION` from the `reminder_target` enum.
+- [x] Deletes `routes/medications.ts`/`medicationLogs.ts` (+ tests); unmounts both from `app.ts`.
+  Folds Medication out of `dashboard.ts` (drops `medicationSummary`, replaced by a plain
+  `loggedTodayCount` derived from `CategoryLog` alone), `history.ts` (drops the medication branch -
+  see Task 3 for `history.ts`'s own filter redesign), `export.ts` (drops the dedicated
+  `medications`/`medicationLogs` fields - already-generic `categories`/`categoryLogs` covers it),
+  `reminderTarget.ts`/`reminderScheduler.ts`/`reminders.ts` (drops the `medication` target entirely -
+  a former medication reminder is a `category` reminder like any other), `trends.ts` (drops its own
+  separate medication-activity query), and `users.ts` (drops the whole `medicationEnabled` toggle
+  mechanism, the last surviving one).
+
+### Task 2 — Frontend: Medication retirement
+- [x] Deletes `MedicationEntryForm.tsx`, `MedicationCreateForm.tsx`, `MedicationSection.tsx`, and
+  Settings' own `MedicationsSection` (+ their tests) - `CategorySection`/`CategorySection`'s own
+  per-category cards (Phase 18) and Settings' existing `CategoriesSection` already cover the same
+  ground for an ordinary personal category, so a former medication gets its own "Recent `<name>`"
+  Dashboard card and a manage/hide row in Settings for free, with no dedicated component needed.
+  Removes `medicationEnabled` from `AuthContext.tsx`/`DashboardPage.tsx`/`QuickAddFab.tsx`/
+  `DashboardSummary.tsx` and the now-single-item Quick Add menu collapses to a direct action (no
+  one-item dropdown). `DashboardSummary`'s per-type summary clause (the last one) is replaced by a
+  plain "logged N entries today" line, since an unbounded category set has no natural "X/Y taken"
+  count the way the original fixed built-ins did. `ReminderCreateForm`/`HistoryEditModal`/
+  `historyLogApi.ts` drop their medication branch entirely.
+
+### Task 3 — Backend: History filtered by category, not type
+- [x] `GET /api/history` gains an optional `?categoryId=` filter (mirrors `categoryLogs.ts`'s own
+  Phase 18 addition), narrowing results to just that one category's own entries. Its old `?type=`
+  filter (meaningless once every entry became a category) was already dropped in Task 1, alongside
+  the two-table merge it existed to select between.
+
+### Task 4 — Frontend: History filter UI updated to filter by category
+- [x] Adds a "Category" `<select>` to History's Filters (in place of the old "Type" one already
+  removed in Task 2), listing every category visible to the caller by name (including former
+  medications), wired to Task 3's new `?categoryId=` param - lets a user isolate e.g. just their
+  "Ibuprofen" entries, or just "Reading," instead of the old all-or-nothing Medication/Category
+  split.
+
+---
+
 ## Definition of Done Checklist (from requirements §20)
 
 Use this as the final go/no-go check before calling the MVP complete:
