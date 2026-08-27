@@ -510,9 +510,10 @@ longer a meaningful "type" to filter on at all once there's only one.
   `historyLogApi.ts` drop their medication branch entirely.
 
 ### Task 3 — Backend: History filtered by category, not type
-- [ ] `GET /api/history` drops its `?type=` filter (meaningless now that every entry is a category)
-  in favor of an optional `?categoryId=` filter (mirrors `categoryLogs.ts`'s own Phase 18 addition),
-  narrowing results to just that one category's own entries.
+- [x] `GET /api/history` gains an optional `?categoryId=` filter (mirrors `categoryLogs.ts`'s own
+  Phase 18 addition), narrowing results to just that one category's own entries. Its old `?type=`
+  filter (meaningless once every entry became a category) was already dropped in Task 1, alongside
+  the two-table merge it existed to select between.
 
 ### Task 4 — Frontend: History filter UI updated to filter by category
 - [ ] Replaces History's "Type" `<select>` (Medication / Category) with a "Category" `<select>`
