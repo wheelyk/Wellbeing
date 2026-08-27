@@ -304,6 +304,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 
 - 2026-08-26 — Task 1: Backend — category activity/filtering support
 - 2026-08-26 — Task 2: Frontend — split "Your categories" into per-category cards
+- 2026-08-27 — Bug fix: discovery picker wrongly excluded already-carded categories
 
 ### [Medication → Category, and History filtered by category](docs/log/19-medication-to-category.md)
 
