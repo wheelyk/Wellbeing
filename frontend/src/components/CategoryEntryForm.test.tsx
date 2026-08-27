@@ -153,6 +153,50 @@ describe("CategoryEntryForm", () => {
     expect(body).toMatchObject({ categoryId: scaleCategory.id, valueNumeric: 4 });
   });
 
+  // Regression test: a 1-10 scale (e.g. Headache, and every other seeded severity-style category)
+  // used to render its 10 rating buttons in one unwrapped row, which overflowed and got clipped
+  // on a mobile viewport - reported directly on the live app. A 5-value or 7-value range (like
+  // this suite's own scaleCategory fixture, or Energy/Stress) already fits on one line and must
+  // stay a plain single row.
+  it("wraps a wide scale category's rating buttons into two rows instead of one overflowing row", async () => {
+    const wideScaleCategory: Category = {
+      ...scaleCategory,
+      id: "cat-scale-wide",
+      name: "Headache",
+      scaleMin: 1,
+      scaleMax: 10,
+    };
+    vi.stubGlobal("fetch", vi.fn());
+
+    render(
+      <CategoryEntryForm
+        categories={[wideScaleCategory]}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+        onAddCategory={vi.fn()}
+      />,
+    );
+
+    const radiogroup = screen.getByRole("radiogroup", { name: "Headache" });
+    expect(radiogroup).toHaveStyle({ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" });
+  });
+
+  it("keeps a scale category within a small range as a single, unwrapped row", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    render(
+      <CategoryEntryForm
+        categories={[scaleCategory]}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+        onAddCategory={vi.fn()}
+      />,
+    );
+
+    const radiogroup = screen.getByRole("radiogroup", { name: "Energy level" });
+    expect(radiogroup.style.gridTemplateColumns).toBe("");
+  });
+
   it("requires choosing a scale value before submitting", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

@@ -6,6 +6,13 @@ import { DateTimeField } from "./DateTimeField";
 import { RatingScale } from "./RatingScale";
 import type { Category } from "./CategoryCreateForm";
 
+// A row of RatingScale's h-10/min-w-10 buttons plus its gap-2 spacing fits about this many
+// values before overflowing a narrow mobile viewport (~360-412px of usable width once the
+// Modal's own padding is subtracted) - matches the 1-7 range every seeded Energy/Stress-style
+// category already fits on one line at, and is exceeded by every 1-10 scale (Headache and
+// similar), which is exactly the case reported as cut off and clipped on mobile.
+const SINGLE_ROW_MAX_VALUES = 7;
+
 export interface CategoryLog {
   id: string;
   userId: string;
@@ -255,6 +262,17 @@ export function CategoryEntryForm({
           }}
           lowLabel="Low"
           highLabel="High"
+          // A range beyond ~7 values (e.g. a 1-10 scale) no longer fits in one row on a mobile
+          // viewport without overflowing and getting clipped - see RatingScale's own `columns`
+          // prop, which this form never actually passed until this fix. Splitting into exactly
+          // two even rows (rather than a fixed column count like 5, which would leave an
+          // 11-value range's second row lopsided) keeps this correct for any custom category's
+          // own scaleMin/scaleMax range, not just the seeded 1-10 ones.
+          columns={
+            scaleValues.length > SINGLE_ROW_MAX_VALUES
+              ? Math.ceil(scaleValues.length / 2)
+              : undefined
+          }
         />
       )}
 
