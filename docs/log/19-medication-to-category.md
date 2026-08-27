@@ -242,3 +242,42 @@ what's now structurally identical data.
   `target: "category"` is already fully covered by real, passing backend tests.
 
 ---
+
+## 2026-08-27 — Task 3: Backend — History filtered by category, not type
+
+**Task:** [Phase 19, Task 3](../../Tasks.md#task-3--backend-history-filtered-by-category-not-type) -
+`GET /api/history`'s old `?type=` filter (Medication vs. Category) was already dropped in Task 1,
+alongside the two-table merge it existed to choose between - it had nowhere meaningful left to
+point once there was only one type. This task adds what actually replaces it: a `?categoryId=`
+filter, letting a user isolate one specific category's own history (e.g. just "Ibuprofen," or just
+"Reading") instead of the old all-or-nothing type split.
+
+### What was done
+
+- **`history.ts`**: `querySchema` gains an optional `categoryId` field; the main query's `where`
+  clause applies it alongside the existing `userId` scope, so an arbitrary or shared system
+  category id can never leak another user's data - it just returns however many of the caller's
+  own logs match, the identical defense `categoryLogs.ts`'s own Phase 18 `?categoryId=` filter
+  already relies on.
+- **Tests**: two new tests mirroring `categoryLogs.test.ts`'s own precedent exactly - filtering
+  returns only that one category's own entries; a shared system category's id never returns
+  another user's own logs against it.
+
+### Why it's needed
+
+Without this, Task 4's frontend filter would have nothing real to call - the whole point of
+replacing the Type dropdown with a Category one is letting the user actually narrow results by
+category, which only works once the backend can filter by `categoryId`.
+
+### Decisions
+
+- **Applied underneath `userId`, not instead of it** - identical ownership-boundary reasoning to
+  every other per-user filter in this codebase; scoping order (userId first, categoryId as a
+  further narrowing) is what makes a tampered or shared id harmless rather than a data leak.
+
+### Verification
+
+- `npm test` (backend): full suite green - 202 tests across 19 files (2 new).
+- `npx tsc --noEmit`, `npx eslint .`, `npx prettier --check .`: all clean.
+
+---

@@ -11,6 +11,12 @@ const MAX_LIMIT = 100;
 const querySchema = z.object({
   from: z.string().regex(DATE_ONLY, "from must be YYYY-MM-DD").optional(),
   to: z.string().regex(DATE_ONLY, "to must be YYYY-MM-DD").optional(),
+  // Narrows results to one category's own entries - mirrors categoryLogs.ts's identical
+  // Phase 18 addition. Replaces the old `?type=` filter (medication vs. category), which stopped
+  // meaning anything once every entry became a category (see
+  // docs/log/19-medication-to-category.md) - filtering by the actual category is what a user
+  // wanting to isolate e.g. just "Ibuprofen" or just "Reading" actually needs.
+  categoryId: z.string().trim().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_LIMIT).optional(),
   offset: z.coerce.number().int().min(0).optional(),
 });
@@ -55,7 +61,7 @@ historyRouter.get("/", async (req, res) => {
     });
   }
 
-  const { from, to, limit = DEFAULT_LIMIT, offset = 0 } = parsed.data;
+  const { from, to, categoryId, limit = DEFAULT_LIMIT, offset = 0 } = parsed.data;
 
   if (from && to && from > to) {
     return res.status(400).json({
@@ -101,7 +107,11 @@ historyRouter.get("/", async (req, res) => {
   // offset/limit is enough; the old two-table k-way in-memory merge this route used to need
   // (medication logs and category logs living in separate tables) no longer applies.
   const categoryLogs = await prisma.categoryLog.findMany({
-    where: { userId, ...dateFilter },
+    // `categoryId` is applied underneath the same `userId` scope regardless of what's passed -
+    // the same defense categoryLogs.ts's own `?categoryId=` filter already relies on, so an
+    // arbitrary or shared system category id can never leak another user's data, it just returns
+    // however many of the caller's own logs match.
+    where: { userId, ...(categoryId ? { categoryId } : {}), ...dateFilter },
     // `id` as a secondary sort key: two logs sharing the exact same `loggedAt` (e.g. both
     // backfilled to the same instant) otherwise have no guaranteed relative order across separate
     // requests, which would make pagination non-deterministic.

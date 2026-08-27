@@ -309,3 +309,4 @@ useful for browsing what's gone wrong before, rather than looking something spec
 
 - 2026-08-27 — Task 1: Backend — Medication → Category unification
 - 2026-08-27 — Task 2: Frontend — Medication retirement
+- 2026-08-27 — Task 3: Backend — History filtered by category, not type

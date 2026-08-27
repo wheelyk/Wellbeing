@@ -156,6 +156,54 @@ describe("GET /api/history", () => {
     expect(labels).toEqual(expect.arrayContaining(["Energy level: 4/5", "Meditation: 15 min"]));
   });
 
+  it("filters by ?categoryId=, returning only that category's own entries", async () => {
+    const { accessToken } = await registerAndLogin("category-filter");
+    await seedOneOfEach(accessToken, "2026-06-04T12:00:00.000Z");
+    const categoriesRes = await request(app).get("/api/categories").set(authed(accessToken));
+    const ibuprofen = categoriesRes.body.find((c: { name: string }) => c.name === "Ibuprofen") as {
+      id: string;
+    };
+
+    const res = await request(app)
+      .get("/api/history")
+      .query({ categoryId: ibuprofen.id })
+      .set(authed(accessToken));
+
+    expect(res.status).toBe(200);
+    expect(res.body.entries).toHaveLength(1);
+    expect(res.body.entries[0].label).toBe("Ibuprofen: Done");
+  });
+
+  it("never returns another user's entries even when ?categoryId= names a shared system category", async () => {
+    const owner = await registerAndLogin("history-category-filter-owner");
+    const other = await registerAndLogin("history-category-filter-other");
+    const systemCategory = await prisma.category.create({
+      data: { userId: null, name: "Vitest history filter system category", valueType: "BOOLEAN" },
+    });
+
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(owner.accessToken))
+      .send({ categoryId: systemCategory.id, valueBoolean: true });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(other.accessToken))
+      .send({ categoryId: systemCategory.id, valueBoolean: true });
+
+    const res = await request(app)
+      .get("/api/history")
+      .query({ categoryId: systemCategory.id })
+      .set(authed(owner.accessToken));
+
+    expect(res.status).toBe(200);
+    expect(res.body.entries).toHaveLength(1);
+
+    // The category_logs FK is Restrict, not Cascade (see schema.prisma) - both logs created
+    // above against this system category have to go first, or deleting it would fail.
+    await prisma.categoryLog.deleteMany({ where: { categoryId: systemCategory.id } });
+    await prisma.category.delete({ where: { id: systemCategory.id } });
+  });
+
   it("filters by date range (from/to, inclusive)", async () => {
     const { accessToken } = await registerAndLogin("filter-date");
     const categoryId = await createCategory(accessToken, "Mood", "scale", {
