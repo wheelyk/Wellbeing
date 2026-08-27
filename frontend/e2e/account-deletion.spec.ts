@@ -11,21 +11,22 @@ test("deleting an account ends the session and really removes the data", async (
   const email = uniqueTestEmail("delete");
   await registerAndLandOnDashboard(page, email);
 
-  // Logs a medication dose, just to have some real data on the account before deleting it - the
+  // Logs a category entry, just to have some real data on the account before deleting it - the
   // point of this test is "does deleting really remove whatever was logged," not which type of
-  // entry that happens to be.
+  // entry that happens to be. Medication itself unified into Category (Phase 19, see
+  // docs/log/19-medication-to-category.md) - "Quick add" now opens the category discovery flow
+  // directly, with no menu to pick a type from first.
   await page.getByRole("button", { name: "Quick add" }).click();
-  await page.getByRole("menuitem", { name: /medication/i }).click();
-  await page.waitForSelector("text=Log a medication");
-  await page.getByLabel(/medication name/i).fill("E2E Test Medication");
-  await page.getByRole("button", { name: "Add", exact: true }).click();
-  await page.waitForTimeout(300);
-  await page
-    .getByRole("radiogroup", { name: /was it taken/i })
-    .getByRole("radio", { name: "Taken", exact: true })
-    .click();
+  await page.waitForSelector("text=Log an entry");
+  await page.getByRole("button", { name: /add a new category/i }).click();
+  await page.waitForSelector("text=Create a new category");
+  await page.getByLabel(/category name/i).fill("E2E Test Medication");
+  await page.getByRole("radio", { name: /yes \/ no/i }).click();
+  await page.getByRole("button", { name: /create category/i }).click();
+  await page.waitForSelector("text=Log an entry");
+  await page.getByRole("radio", { name: "Yes" }).click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector("text=E2E Test Medication — Taken");
+  await page.waitForSelector("text=Recent E2E Test Medication");
 
   // The "Delete account" CollapsibleSection starts expanded by default (no localStorage entry
   // yet in this fresh browser context), so - unlike a section a user has previously collapsed -

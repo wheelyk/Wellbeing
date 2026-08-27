@@ -6,14 +6,11 @@ import { useCollapsedState } from "../../hooks/useCollapsedState";
 import { listenForDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
 
 interface RecentEntry {
-  type: "medication" | "category";
   label: string;
   value: string;
   loggedAt: string;
-  // Only present for type "category" - a custom category's icon is per-category (set when it
-  // was created), not one of the two fixed icons ENTRY_TYPE_ICON below already covers.
-  categoryId?: string;
-  icon?: string | null;
+  categoryId: string;
+  icon: string | null;
 }
 
 interface RecentEntryPage {
@@ -25,7 +22,7 @@ interface RecentEntryPage {
 
 interface DashboardSummaryData {
   date: string;
-  medicationSummary: { taken: number; total: number };
+  loggedTodayCount: number;
   recentEntries: RecentEntryPage;
   streak: { current: number; daysLoggedThisWeek: number };
 }
@@ -49,14 +46,10 @@ function formatDisplayDate(dateStr: string): string {
   });
 }
 
-const ENTRY_TYPE_ICON: Record<RecentEntry["type"], string> = {
-  medication: "💊",
-  // Fallback only - a category entry normally carries its own `icon` (see the render below),
-  // used only if that category was created with no icon set at all. Every former habit's,
-  // symptom's, and mood check-in's entries render through this same "category" branch now, not a
-  // dedicated icon.
-  category: "⭐",
-};
+// Fallback only, used when a category was created with no icon of its own set - every entry
+// carries its own `icon` (see the render below) now that every loggable thing is a category (see
+// docs/log/17-unify-mood-symptom-habit.md and docs/log/19-medication-to-category.md).
+const FALLBACK_ENTRY_ICON = "⭐";
 
 interface RecentEntryGroup {
   label: string;
@@ -96,20 +89,7 @@ function groupEntriesByDay(entries: RecentEntry[]): RecentEntryGroup[] {
 // enough to miss the dispatch - so staleness is bounded at POLL_INTERVAL_MS even then.
 const POLL_INTERVAL_MS = 10_000;
 
-interface DashboardSummaryProps {
-  // Whether the one remaining built-in category is currently on (Settings > Built-in categories)
-  // - defaults true, matching every existing call site (and every test rendering this component
-  // with no props) so today's summary line is unchanged unless a caller explicitly says
-  // otherwise. Only affects whether the Medications clause appears in the summary line below -
-  // the underlying dashboard data (streak, recent entries) is unaffected by this, since disabling
-  // it never hides history that already exists. Mood, Habit, and Symptom each had a clause/toggle
-  // here too until Phase 17 folded all three into Category - a former habit's, symptom's, or mood
-  // check-in's activity is reflected in the streak/recent-entries data like any other category,
-  // just with no summary clause of its own.
-  medicationEnabled?: boolean;
-}
-
-export function DashboardSummary({ medicationEnabled = true }: DashboardSummaryProps = {}) {
+export function DashboardSummary() {
   const [data, setData] = useState<DashboardSummaryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -220,25 +200,14 @@ export function DashboardSummary({ medicationEnabled = true }: DashboardSummaryP
     );
   }
 
-  // Deliberately just this one check, not "any category logged today" too - unlike
-  // medicationSummary above, the dashboard response has no bounded-to-today category count to
-  // check (recentEntries is the N most recent entries overall, not scoped to today, so treating
-  // "a category shows up in recentEntries" as "logged today" would be wrong for anything older).
-  const hasLoggedAnything = data.medicationSummary.total > 0;
-
-  // Just one clause now, for the one remaining built-in - omitted outright (not shown as zero) if
-  // medicationEnabled is off, since it isn't offered for logging today at all. Mood, Habit, and
-  // Symptom each had their own clause here too until Phase 17 folded all three into Category - a
-  // former habit's, symptom's, or mood check-in's today-status now surfaces in the Recent entries
-  // list below like any other category, not as a summary clause of its own (there being no fixed,
-  // bounded set of categories to summarize into one "X/Y logged" count the way the original
-  // built-ins had).
-  const summaryParts: string[] = [];
-  if (medicationEnabled) {
-    summaryParts.push(
-      `Medications: ${data.medicationSummary.taken}/${data.medicationSummary.total} taken`,
-    );
-  }
+  // `loggedTodayCount` (see dashboard.ts) replaces the old medicationSummary-based check - an
+  // unbounded, user-extensible category set has no fixed "how many were there to log today"
+  // denominator the way the original built-ins did, so a plain count (not an "X/Y taken"
+  // breakdown) is the honest summary now that every loggable thing is a category (see
+  // docs/log/17-unify-mood-symptom-habit.md and docs/log/19-medication-to-category.md). Today's
+  // per-category status still surfaces in the Recent entries list below, not as a summary clause
+  // of its own.
+  const hasLoggedAnything = data.loggedTodayCount > 0;
 
   return (
     <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
@@ -246,8 +215,10 @@ export function DashboardSummary({ medicationEnabled = true }: DashboardSummaryP
           card is a section within the page, not a second top-level heading. */}
       <h2 className="text-2xl font-semibold text-text">{formatDisplayDate(data.date)}</h2>
 
-      {hasLoggedAnything && summaryParts.length > 0 ? (
-        <p className="mt-2 text-text">{summaryParts.join(" · ")}</p>
+      {hasLoggedAnything ? (
+        <p className="mt-2 text-text">
+          Logged {data.loggedTodayCount} {data.loggedTodayCount === 1 ? "entry" : "entries"} today
+        </p>
       ) : (
         <p className="mt-2 text-text-muted">
           Nothing logged yet today — use one of the Quick Add buttons below to get started.
@@ -302,18 +273,16 @@ export function DashboardSummary({ medicationEnabled = true }: DashboardSummaryP
                     <h4 className="mb-2 text-sm font-semibold text-text-muted">{group.label}</h4>
                     <ul className="flex flex-col gap-2">
                       {group.entries.map((entry, index) => (
-                        // Entries have no id of their own in this response (they're a merge
-                        // across two different tables) - type + loggedAt + position within the
-                        // group is unique enough for a stable React key here without the backend
-                        // needing to invent a composite id field.
+                        // Entries have no id of their own in this response - categoryId +
+                        // loggedAt + position within the group is unique enough for a stable
+                        // React key here without the backend needing to invent a composite id
+                        // field.
                         <li
-                          key={`${entry.type}-${entry.loggedAt}-${index}`}
+                          key={`${entry.categoryId}-${entry.loggedAt}-${index}`}
                           className="flex items-center gap-3 rounded-xl border border-border bg-surface-muted px-4 py-3"
                         >
                           <span className="text-xl" aria-hidden="true">
-                            {entry.type === "category" && entry.icon
-                              ? entry.icon
-                              : ENTRY_TYPE_ICON[entry.type]}
+                            {entry.icon ?? FALLBACK_ENTRY_ICON}
                           </span>
                           <p className="text-text">
                             {entry.label} — {entry.value} — {formatEntryDateTime(entry.loggedAt)}

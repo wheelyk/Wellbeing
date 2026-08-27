@@ -26,7 +26,7 @@ type DiscoveryFormMode = "closed" | "log" | "create-category";
 // "only once logged" and "each card gets its own +" decisions this design is built around.
 //
 // Logging a category for the very first time (or defining a brand-new one) still goes through
-// one small, always-present "Log a category" panel below, reachable from QuickAddFab's "More…"
+// one small, always-present "Log a category" panel below, reachable from QuickAddFab's "+"
 // exactly as before - saving through it promotes that category into its own card immediately, by
 // updating its lastLoggedAt locally rather than re-fetching.
 export function CategorySection() {
@@ -37,6 +37,16 @@ export function CategorySection() {
   // Set only right after CategoryCreateForm succeeds, so the log form that follows opens with the
   // category the user just defined already selected instead of defaulting to categories[0].
   const [categoryToPreselect, setCategoryToPreselect] = useState<string | null>(null);
+  // True only in the brief window between the "+" being clicked and the initial categories fetch
+  // resolving - deciding "log" vs. "create-category" depends on undiscoveredCategories, which is
+  // meaningless before that fetch completes (every category would look "undiscovered" against an
+  // empty array, wrongly implying there are none to log yet). QuickAddFab dispatches this click
+  // the instant it's pressed, with no menu in between to absorb the wait the way it used to (see
+  // docs/log/19-medication-to-category.md) - a real race that surfaced as e2e flakiness, not just
+  // a hypothetical one. Deferring the decision here (rather than opening in the wrong mode) is
+  // what fixes it, without needing QuickAddFab to know anything about this section's own loading
+  // state.
+  const [pendingAdd, setPendingAdd] = useState(false);
   const { message: savedMessage, showMessage: showSavedMessage } = useTimedMessage();
 
   useEffect(() => {
@@ -73,16 +83,25 @@ export function CategorySection() {
   );
 
   const handleAddButtonClick = useCallback(() => {
+    if (categoriesLoading) {
+      setPendingAdd(true);
+      return;
+    }
     setCategoryToPreselect(null);
     setDiscoveryFormMode(undiscoveredCategories.length === 0 ? "create-category" : "log");
-  }, [undiscoveredCategories.length]);
+  }, [categoriesLoading, undiscoveredCategories.length]);
 
-  // Lets QuickAddFab's "More…" entry open this discovery flow directly - see
-  // dashboardQuickAddEvent.ts.
-  useEffect(
-    () => listenForDashboardQuickAdd("category", handleAddButtonClick),
-    [handleAddButtonClick],
-  );
+  // Resolves a click that arrived before the initial fetch finished - see pendingAdd's own
+  // comment above.
+  useEffect(() => {
+    if (categoriesLoading || !pendingAdd) return;
+    setPendingAdd(false);
+    setCategoryToPreselect(null);
+    setDiscoveryFormMode(undiscoveredCategories.length === 0 ? "create-category" : "log");
+  }, [categoriesLoading, pendingAdd, undiscoveredCategories.length]);
+
+  // Lets QuickAddFab's "+" open this discovery flow directly - see dashboardQuickAddEvent.ts.
+  useEffect(() => listenForDashboardQuickAdd(handleAddButtonClick), [handleAddButtonClick]);
 
   function handleCategoryCreated(category: Category) {
     setCategories((prev) =>
@@ -103,7 +122,7 @@ export function CategorySection() {
     setDiscoveryFormMode("closed");
     setCategoryToPreselect(null);
     showSavedMessage("Entry saved.");
-    dispatchDashboardEntryChanged("category");
+    dispatchDashboardEntryChanged();
   }
 
   function handleDiscoveryFormCancel() {

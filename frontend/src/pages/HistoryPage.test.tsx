@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../auth/AuthContext";
@@ -98,35 +98,13 @@ describe("HistoryPage", () => {
     expect(await screen.findByText(/couldn't load your history/i)).toBeInTheDocument();
   });
 
-  it("refetches with a type query param when the type filter changes", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() =>
-        Promise.resolve(jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false })),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-
-    renderPage();
-    await screen.findByText(/nothing to show yet/i);
-
-    await user.selectOptions(screen.getByLabelText(/type/i), "medication");
-
-    await waitFor(() => {
-      const lastCall = fetchMock.mock.calls.at(-1);
-      expect(lastCall?.[0]).toContain("type=medication");
-      expect(lastCall?.[0]).toContain("offset=0");
-    });
-  });
-
-  it("renders a category entry and offers Category as a filter option", async () => {
+  it("renders a category entry", async () => {
     const fetchMock = vi.fn().mockImplementation(() =>
       Promise.resolve(
         jsonResponse(200, {
           entries: [
             {
               id: "cat-log-1",
-              type: "category",
               label: "Energy level: 4/5",
               notes: null,
               loggedAt: "2026-08-17T09:00:00.000Z",
@@ -143,35 +121,11 @@ describe("HistoryPage", () => {
     renderPage();
 
     expect(await screen.findByText(/energy level: 4\/5/i)).toBeInTheDocument();
-    expect(
-      within(screen.getByLabelText(/type/i)).getByRole("option", { name: "Category" }),
-    ).toBeInTheDocument();
   });
 
-  it("refetches with type=category when the Category filter is selected", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() =>
-        Promise.resolve(jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false })),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-
-    renderPage();
-    await screen.findByText(/nothing to show yet/i);
-
-    await user.selectOptions(screen.getByLabelText(/type/i), "category");
-
-    await waitFor(() => {
-      const lastCall = fetchMock.mock.calls.at(-1);
-      expect(lastCall?.[0]).toContain("type=category");
-    });
-  });
-
-  it("deletes a category entry via /api/category-logs, not one of the four built-in endpoints", async () => {
+  it("deletes an entry via /api/category-logs", async () => {
     const entry = {
       id: "cat-log-1",
-      type: "category",
       label: "Energy level: 4/5",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
@@ -189,7 +143,7 @@ describe("HistoryPage", () => {
     renderPage();
     await screen.findByText(/energy level: 4\/5/i);
 
-    await user.click(screen.getByRole("button", { name: /delete category entry/i }));
+    await user.click(screen.getByRole("button", { name: /delete entry/i }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
@@ -198,11 +152,10 @@ describe("HistoryPage", () => {
     });
   });
 
-  it("deletes an entry optimistically via the correct per-type endpoint, rolling back on failure", async () => {
+  it("deletes an entry optimistically, rolling back on failure", async () => {
     const entry = {
-      id: "med-log-1",
-      type: "medication",
-      label: "Ibuprofen — Taken",
+      id: "cat-log-1",
+      label: "Ibuprofen: Done",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
@@ -210,7 +163,6 @@ describe("HistoryPage", () => {
     const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       if (init?.method === "DELETE") {
         deleteCallCount += 1;
-        // First delete attempt fails (to exercise rollback); second (different test) succeeds.
         return Promise.resolve(jsonResponse(500, { error: { message: "Server error" } }));
       }
       return Promise.resolve(
@@ -221,25 +173,24 @@ describe("HistoryPage", () => {
     const user = userEvent.setup();
 
     renderPage();
-    await screen.findByText(/ibuprofen — taken/i);
+    await screen.findByText(/ibuprofen: done/i);
 
     // Delete now opens this app's own Modal-based confirmation dialog rather than a native
     // window.confirm() popup - clicking the row's Delete button only opens it; the actual
     // delete request only fires once the dialog's own "Delete" button is clicked.
-    await user.click(screen.getByRole("button", { name: /delete medication entry/i }));
+    await user.click(screen.getByRole("button", { name: /delete entry/i }));
     await user.click(await screen.findByRole("button", { name: "Delete" }));
 
     // Optimistically removed, then rolled back once the DELETE call fails.
-    await screen.findByText(/ibuprofen — taken/i);
+    await screen.findByText(/ibuprofen: done/i);
     expect(deleteCallCount).toBe(1);
     const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
-    expect(deleteCall?.[0]).toContain(`/api/medication-logs/${entry.id}`);
+    expect(deleteCall?.[0]).toContain(`/api/category-logs/${entry.id}`);
   });
 
   it("deletes an entry and keeps it removed when the DELETE call succeeds", async () => {
     const entry = {
       id: "mood-1",
-      type: "category",
       label: "Mood: 4/5",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
@@ -258,7 +209,7 @@ describe("HistoryPage", () => {
     renderPage();
     await screen.findByText(/mood: 4\/5/i);
 
-    await user.click(screen.getByRole("button", { name: /delete category entry/i }));
+    await user.click(screen.getByRole("button", { name: /delete entry/i }));
     await user.click(await screen.findByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
@@ -270,7 +221,6 @@ describe("HistoryPage", () => {
   it("does not delete when the confirmation dialog is cancelled", async () => {
     const entry = {
       id: "mood-1",
-      type: "category",
       label: "Mood: 4/5",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
@@ -288,7 +238,7 @@ describe("HistoryPage", () => {
     renderPage();
     await screen.findByText(/mood: 4\/5/i);
 
-    await user.click(screen.getByRole("button", { name: /delete category entry/i }));
+    await user.click(screen.getByRole("button", { name: /delete entry/i }));
     await user.click(await screen.findByRole("button", { name: "Cancel" }));
 
     expect(screen.getByText(/mood: 4\/5/i)).toBeInTheDocument();
@@ -445,11 +395,10 @@ describe("HistoryPage", () => {
 
     renderPage();
     await screen.findByText(/nothing to show yet/i);
-    expect(screen.getByLabelText(/^type$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^from$/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^filters$/i }));
 
-    expect(screen.queryByLabelText(/^type$/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/^from$/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/^to$/i)).not.toBeInTheDocument();
     // Collapsing the filter fields doesn't touch the rest of the page.
@@ -513,7 +462,7 @@ describe("HistoryPage", () => {
     renderPage();
     await screen.findByText(/energy level: 4\/5/i);
 
-    await user.click(screen.getByRole("button", { name: /edit category entry/i }));
+    await user.click(screen.getByRole("button", { name: /edit entry/i }));
     await screen.findByRole("heading", { name: "Edit entry" });
 
     // Pre-filled with the real category, resolved from /api/categories via the log's

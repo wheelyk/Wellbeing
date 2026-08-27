@@ -1,17 +1,10 @@
 import { useEffect, useState } from "react";
 import { Button } from "../../components/Button";
 import { Modal } from "../../components/Modal";
-import { MedicationEntryForm, type MedicationLog } from "../../components/MedicationEntryForm";
 import { CategoryEntryForm, type CategoryLog } from "../../components/CategoryEntryForm";
 import type { Category } from "../../components/CategoryCreateForm";
 import type { HistoryEntry } from "../HistoryPage";
-import {
-  fetchCategories,
-  fetchCategoryLog,
-  fetchMedicationLog,
-  categoryLabel,
-  medicationLabel,
-} from "./historyLogApi";
+import { fetchCategories, fetchCategoryLog, categoryLabel } from "./historyLogApi";
 
 interface HistoryEditModalProps {
   // null means "closed" - same convention as HistoryPage's own deletingEntry state, so the
@@ -24,28 +17,23 @@ interface HistoryEditModalProps {
 
 type LoadState = { status: "loading" } | { status: "error" } | { status: "ready"; view: ReadyView };
 
-type ReadyView =
-  | { kind: "medication"; log: MedicationLog }
-  | { kind: "category"; log: CategoryLog; categories: Category[] };
+interface ReadyView {
+  log: CategoryLog;
+  categories: Category[];
+}
 
-const TYPE_TITLE: Record<HistoryEntry["type"], string> = {
-  medication: "Edit medication entry",
-  category: "Edit entry",
-};
-
-// Renders History's own pre-filled edit dialog for every log type - fetches the full structured
-// record each per-type endpoint owns (see historyLogApi.ts for why the unified history list
-// alone isn't enough to pre-fill a form), then hands it to the exact same MedicationEntryForm/
-// CategoryEntryForm components the Dashboard's own Section components already use in edit mode
-// (each already supports an `editingLog` prop for this). Mood, Habit, and Symptom each had their
-// own branch here too until Phase 17 folded all three into Category - a former habit's,
-// symptom's, or mood check-in's entries now go through the same CategoryEntryForm branch below as
-// any other category.
-// This used to be a fully self-contained, ~800-line duplicate of those forms - built that
-// way deliberately while a parallel workstream was also editing the Section components, to avoid
-// a guaranteed merge conflict (see the implementation log entry on the design-review-driven
-// History edit-parity task). Consolidated back onto the shared forms once both pieces of work
-// had landed, which is what this file (and historyLogApi.ts) now does.
+// Renders History's own pre-filled edit dialog - fetches the full structured record
+// /api/category-logs owns (see historyLogApi.ts for why the unified history list alone isn't
+// enough to pre-fill a form), then hands it to the exact same CategoryEntryForm component the
+// Dashboard's own CategoryLogCard already uses in edit mode (it already supports an `editingLog`
+// prop for this). Mood, Habit, Symptom, and Medication each had their own branch here too until
+// Phase 17 and Phase 19 folded all four into Category - every history entry goes through this one
+// path now, not a per-type branch.
+// This used to be a fully self-contained, ~800-line duplicate of the Dashboard's own forms - built
+// that way deliberately while a parallel workstream was also editing the Section components, to
+// avoid a guaranteed merge conflict (see the implementation log entry on the design-review-driven
+// History edit-parity task). Consolidated back onto the shared form once both pieces of work had
+// landed, which is what this file (and historyLogApi.ts) now does.
 export function HistoryEditModal({ entry, onClose, onSaved }: HistoryEditModalProps) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
@@ -56,20 +44,12 @@ export function HistoryEditModal({ entry, onClose, onSaved }: HistoryEditModalPr
 
     (async () => {
       try {
-        let view: ReadyView;
-        if (entry.type === "medication") {
-          const log = await fetchMedicationLog(entry.id, entry.loggedAt);
-          if (!log) throw new Error("Medication log not found");
-          view = { kind: "medication", log };
-        } else {
-          const [log, categories] = await Promise.all([
-            fetchCategoryLog(entry.id, entry.loggedAt),
-            fetchCategories(),
-          ]);
-          if (!log) throw new Error("Category log not found");
-          view = { kind: "category", log, categories };
-        }
-        if (!cancelled) setState({ status: "ready", view });
+        const [log, categories] = await Promise.all([
+          fetchCategoryLog(entry.id, entry.loggedAt),
+          fetchCategories(),
+        ]);
+        if (!log) throw new Error("Category log not found");
+        if (!cancelled) setState({ status: "ready", view: { log, categories } });
       } catch {
         if (!cancelled) setState({ status: "error" });
       }
@@ -81,7 +61,7 @@ export function HistoryEditModal({ entry, onClose, onSaved }: HistoryEditModalPr
   }, [entry]);
 
   return (
-    <Modal open={!!entry} onClose={onClose} title={entry ? TYPE_TITLE[entry.type] : ""}>
+    <Modal open={!!entry} onClose={onClose} title="Edit entry">
       {state.status === "loading" && <p className="text-text-muted">Loading…</p>}
       {state.status === "error" && (
         <div>
@@ -95,22 +75,7 @@ export function HistoryEditModal({ entry, onClose, onSaved }: HistoryEditModalPr
           </div>
         </div>
       )}
-      {state.status === "ready" && state.view.kind === "medication" && (
-        <MedicationEntryForm
-          editingLog={state.view.log}
-          onCancel={onClose}
-          onSaved={(log, medication) =>
-            onSaved({
-              id: log.id,
-              type: "medication",
-              label: medicationLabel(medication.name, medication.dosage, log.taken),
-              notes: log.notes,
-              loggedAt: log.loggedAt,
-            })
-          }
-        />
-      )}
-      {state.status === "ready" && state.view.kind === "category" && (
+      {state.status === "ready" && (
         <CategoryEntryForm
           editingLog={state.view.log}
           categories={state.view.categories}
@@ -120,12 +85,11 @@ export function HistoryEditModal({ entry, onClose, onSaved }: HistoryEditModalPr
           onAddCategory={() => {}}
           onSaved={(log) => {
             const category =
-              state.view.kind === "category"
+              state.status === "ready"
                 ? state.view.categories.find((c) => c.id === log.categoryId)
                 : undefined;
             onSaved({
               id: log.id,
-              type: "category",
               label: categoryLabel(category?.name ?? "Category", log, {
                 valueType: category?.valueType ?? "numeric",
                 scaleMax: category?.scaleMax ?? null,

@@ -66,12 +66,13 @@ await screenshot("03-login-then-dashboard");
 // Logs one real entry of each remaining type, so the before/after comparison this screenshot
 // feeds into actually proves the dashboard *functions* - not just that it renders while empty.
 // Mirrors the manual verification flow used when DashboardPage was decomposed into per-log-type
-// section components (see docs/log/08-git-github-workflow.md). Mood, Habit, and Symptom all
-// folded into Category in Phase 17 (see docs/log/17-unify-mood-symptom-habit.md) - there's no
-// dedicated "Add mood entry"/"Add symptom entry" button anymore, and every account already sees
-// the 11 seeded system categories (Mood/Energy/Stress plus every system symptom) from
-// registration onward, so "Add category entry" opens straight into "Log an entry", never an
-// empty "Create your first category" state, with Mood itself selectable directly from the picker.
+// section components (see docs/log/08-git-github-workflow.md). Mood, Habit, Symptom, and
+// Medication all folded into Category (see docs/log/17-unify-mood-symptom-habit.md and
+// docs/log/19-medication-to-category.md) - there's no dedicated "Add mood entry"/"Add medication
+// entry" button anymore, and every account already sees the 11 seeded system categories (Mood/
+// Energy/Stress plus every system symptom) from registration onward, so "Add category entry"
+// opens straight into "Log an entry", never an empty "Create your first category" state, with
+// Mood itself selectable directly from the picker.
 //
 // Since Phase 18, logging a category for the first time (through this shared "Log a category"
 // panel) promotes it into its own dedicated "Recent <name>" card immediately - it no longer
@@ -84,17 +85,20 @@ await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: 
 await page.getByRole("button", { name: /save entry/i }).click();
 await page.waitForSelector("text=Recent Mood");
 
-await page.getByRole("button", { name: "Add medication entry" }).click();
-await page.waitForSelector("text=Log a medication");
-await page.getByLabel(/medication name/i).fill("Ibuprofen");
-await page.getByRole("button", { name: "Add", exact: true }).click();
-await page.waitForTimeout(300);
-await page
-  .getByRole("radiogroup", { name: /was it taken/i })
-  .getByRole("radio", { name: "Taken", exact: true })
-  .click();
+// A boolean category standing in for what a Medication dose now looks like (Medication unified
+// into Category - see docs/log/19-medication-to-category.md) - reached the same "+ Add a new
+// category" way as any other brand-new category below.
+await page.getByRole("button", { name: "Add category entry" }).click();
+await page.waitForSelector("text=Log an entry");
+await page.getByRole("button", { name: /add a new category/i }).click();
+await page.waitForSelector("text=Create a new category");
+await page.getByLabel(/category name/i).fill("Ibuprofen");
+await page.getByRole("radio", { name: /yes \/ no/i }).click();
+await page.getByRole("button", { name: /create category/i }).click();
+await page.waitForSelector("text=Log an entry");
+await page.getByRole("radio", { name: "Yes" }).click();
 await page.getByRole("button", { name: /save entry/i }).click();
-await page.waitForSelector("text=Ibuprofen — Taken");
+await page.waitForSelector("text=Recent Ibuprofen");
 
 await page.getByRole("button", { name: "Add category entry" }).click();
 await page.waitForSelector("text=Log an entry");

@@ -107,7 +107,7 @@ export function CategoryLogCard({ category, onEmptied }: CategoryLogCardProps) {
     setShowForm(false);
     setEditingLog(null);
     showSavedMessage("Entry saved.");
-    dispatchDashboardEntryChanged("category");
+    dispatchDashboardEntryChanged();
   }
 
   function handleEdit(log: CategoryLog) {
@@ -129,7 +129,7 @@ export function CategoryLogCard({ category, onEmptied }: CategoryLogCardProps) {
     setLogs(next);
     try {
       await apiFetch(`/api/category-logs/${id}`, { method: "DELETE" });
-      dispatchDashboardEntryChanged("category");
+      dispatchDashboardEntryChanged();
       if (next.length === 0 && !hasMore) {
         onEmptied();
       }

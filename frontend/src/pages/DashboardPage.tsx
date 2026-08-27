@@ -2,7 +2,6 @@ import { useAuth } from "../auth/AuthContext";
 import { NavBar } from "../components/NavBar";
 import { BottomNav } from "../components/BottomNav";
 import { DashboardSummary } from "../components/dashboard/DashboardSummary";
-import { MedicationSection } from "../components/dashboard/MedicationSection";
 import { CategorySection } from "../components/dashboard/CategorySection";
 import { QuickAddFab } from "../components/dashboard/QuickAddFab";
 
@@ -24,31 +23,24 @@ export function DashboardPage() {
         <p className="mt-2 text-text-muted">You&apos;re logged in as {user?.email}.</p>
 
         <div className="mt-8">
-          <DashboardSummary medicationEnabled={user?.medicationEnabled ?? true} />
+          <DashboardSummary />
         </div>
 
         {/* One column on mobile (screen width is the scarce resource - see the implementation
             log entry), two from md: (768px) up once there's enough width for a second column
-            without cramping either one. Medication is the one remaining built-in section gated
-            on its own toggle (Settings > Built-in categories) - `?? true` treats a still-loading/
-            missing user (e.g. the brief window before rehydrateSession resolves) the same as
-            "enabled," matching the backend's own default, rather than flashing the section away
-            and back. Mood, Habit, and Symptom each had a toggle/section here too until Phase 17
-            folded all three into Category (see docs/log/17-unify-mood-symptom-habit.md) - a
-            former habit or mood check-in is an ordinary category (personal or system), rendered
-            through CategorySection below; a former symptom or Mood/Energy/Stress is a system
-            category, hidden per-row (Settings > Categories) instead of a whole-type toggle.
-            History deliberately isn't gated the same way - browsing past data is a different
-            concern from "can I log a new one" (see docs/log/16-reminders-and-category-toggles.md's
-            Task 3 entry). */}
+            without cramping either one. Mood, Habit, Symptom, and Medication each had their own
+            toggle/section here too until Phase 17 and Phase 19 folded all four into Category (see
+            docs/log/17-unify-mood-symptom-habit.md and docs/log/19-medication-to-category.md) -
+            every one of them is an ordinary category now (personal or system), rendered entirely
+            through CategorySection's own per-category cards below - no fixed built-in section is
+            left to gate on a toggle. History deliberately isn't gated the same way - browsing past
+            data is a different concern from "can I log a new one" (see
+            docs/log/16-reminders-and-category-toggles.md's Task 3 entry). */}
         <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
-          {(user?.medicationEnabled ?? true) && <MedicationSection />}
           <CategorySection />
         </div>
       </main>
-      <BottomNav
-        centerAction={<QuickAddFab medicationEnabled={user?.medicationEnabled ?? true} />}
-      />
+      <BottomNav centerAction={<QuickAddFab />} />
     </div>
   );
 }

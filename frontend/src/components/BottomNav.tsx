@@ -58,9 +58,7 @@ export function BottomNav({ centerAction }: BottomNavProps = {}) {
           {links.slice(0, 2).map((link) => (
             <NavLinkItem key={link.to} link={link} />
           ))}
-          <div className="flex flex-1 items-center justify-center self-stretch">
-            {centerAction}
-          </div>
+          <div className="flex flex-1 items-center justify-center self-stretch">{centerAction}</div>
           {links.slice(2).map((link) => (
             <NavLinkItem key={link.to} link={link} />
           ))}

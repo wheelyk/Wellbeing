@@ -7,11 +7,8 @@ import { apiFetch } from "../api/client";
 import { HistoryEditModal } from "./history/HistoryEditModal";
 import { ConfirmDeleteModal } from "./history/ConfirmDeleteModal";
 
-export type HistoryEntryType = "medication" | "category";
-
 export interface HistoryEntry {
   id: string;
-  type: HistoryEntryType;
   label: string;
   notes: string | null;
   loggedAt: string;
@@ -26,24 +23,12 @@ interface HistoryResponse {
 
 const PAGE_SIZE = 20;
 
-const TYPE_LABELS: Record<HistoryEntryType, string> = {
-  medication: "Medication",
-  // One broad "Category" bucket, not one filter option per category - the backend's own
-  // /api/history?type= only supports this same type-level granularity for the other type too, so
-  // this matches that existing precedent rather than introducing a finer filter dimension nothing
-  // else here has. Every former habit's, symptom's, and mood check-in's entries fall under this
-  // same bucket now, not a dedicated "Habit"/"Symptom"/"Mood" filter.
-  category: "Category",
-};
-
-// Maps a history entry back to the per-type DELETE endpoint that actually owns it - the
-// backend's unified /api/history endpoint is read-only, so deleting still goes through the
-// same endpoints the Dashboard's Section components already use (see MedicationSection.tsx's
-// handleDelete for the pattern this follows).
-const DELETE_PATH: Record<HistoryEntryType, string> = {
-  medication: "/api/medication-logs",
-  category: "/api/category-logs",
-};
+// The backend's unified /api/history endpoint is read-only, so deleting goes through
+// /api/category-logs directly - the same endpoint the Dashboard's own CategoryLogCard already
+// uses for its own delete action. Medication used to be a second, independent DELETE target here
+// until it unified into Category (Phase 19, see docs/log/19-medication-to-category.md) - every
+// history entry is a category log now.
+const DELETE_PATH = "/api/category-logs";
 
 // A stable, locale-independent grouping key (unlike a formatted display string, which can
 // vary by locale/timezone in ways that would make two entries on the same calendar day sort
@@ -85,12 +70,8 @@ function groupByDate(entries: HistoryEntry[]): Array<{ key: string; entries: His
   }));
 }
 
-function buildQuery(
-  filters: { type: HistoryEntryType | ""; from: string; to: string },
-  offset: number,
-) {
+function buildQuery(filters: { from: string; to: string }, offset: number) {
   const params = new URLSearchParams();
-  if (filters.type) params.set("type", filters.type);
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   params.set("limit", String(PAGE_SIZE));
@@ -100,7 +81,6 @@ function buildQuery(
 
 export function HistoryPage() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
-  const [typeFilter, setTypeFilter] = useState<HistoryEntryType | "">("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [loading, setLoading] = useState(true);
@@ -119,7 +99,7 @@ export function HistoryPage() {
     let cancelled = false;
     setLoading(true);
     setLoadError(false);
-    apiFetch<HistoryResponse>(`/api/history?${buildQuery({ type: typeFilter, from, to }, 0)}`)
+    apiFetch<HistoryResponse>(`/api/history?${buildQuery({ from, to }, 0)}`)
       .then((res) => {
         if (cancelled) return;
         setEntries(res.entries);
@@ -134,13 +114,13 @@ export function HistoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [typeFilter, from, to]);
+  }, [from, to]);
 
   async function handleLoadMore() {
     setLoadingMore(true);
     try {
       const res = await apiFetch<HistoryResponse>(
-        `/api/history?${buildQuery({ type: typeFilter, from, to }, entries.length)}`,
+        `/api/history?${buildQuery({ from, to }, entries.length)}`,
       );
       setEntries((prev) => [...prev, ...res.entries]);
       setHasMore(res.hasMore);
@@ -176,19 +156,16 @@ export function HistoryPage() {
     const previous = entries;
     setEntries((prev) => prev.filter((e) => e.id !== entry.id));
     try {
-      await apiFetch(`${DELETE_PATH[entry.type]}/${entry.id}`, { method: "DELETE" });
+      await apiFetch(`${DELETE_PATH}/${entry.id}`, { method: "DELETE" });
     } catch {
       setEntries(previous);
     }
   }
 
-  // Called by HistoryEditModal once a PATCH succeeds - updates the matching entry in place
-  // (matched by id+type, since ids are only unique within a single log type) so the change is
-  // visible immediately without a full refetch of /api/history.
+  // Called by HistoryEditModal once a PATCH succeeds - updates the matching entry in place so the
+  // change is visible immediately without a full refetch of /api/history.
   function handleEntrySaved(updated: HistoryEntry) {
-    setEntries((prev) =>
-      prev.map((e) => (e.id === updated.id && e.type === updated.type ? updated : e)),
-    );
+    setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
     setEditingEntry(null);
   }
 
@@ -208,39 +185,18 @@ export function HistoryPage() {
           gives the filter row and each entry card more breathing room even with one column. */}
       <main className="mx-auto max-w-3xl px-4 pt-8 pb-24 md:max-w-4xl md:pb-8 lg:max-w-5xl">
         <h1 className="text-2xl font-semibold text-text">History</h1>
-        <p className="mt-2 text-text-muted">
-          Browse everything you&apos;ve logged, across medications and categories.
-        </p>
+        <p className="mt-2 text-text-muted">Browse everything you&apos;ve logged.</p>
 
         <div className="mt-6 rounded-2xl border border-border bg-surface p-4 shadow-sm">
           <CollapsibleSection title="Filters" storageKey="history.filters">
             {/* Stacked, full-width fields on mobile (easy to tap, no cramped side-by-side date
                 inputs on a narrow screen); a single horizontal row from sm: up, once there's
-                actually room for four fields side by side without wrapping unpredictably - see
+                actually room for fields side by side without wrapping unpredictably - see
                 the implementation log entry on this app's mobile-first pass. This replaces
                 relying on flex-wrap's own default wrapping point (which happened to look
                 reasonable before, but wasn't a deliberate breakpoint decision - just wherever the
                 fields' natural widths happened to overflow). */}
             <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
-              <div className="flex flex-col gap-1">
-                <label htmlFor="history-type-filter" className="text-sm font-medium text-text">
-                  Type
-                </label>
-                <select
-                  id="history-type-filter"
-                  value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value as HistoryEntryType | "")}
-                  className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                >
-                  <option value="">All types</option>
-                  {(Object.keys(TYPE_LABELS) as HistoryEntryType[]).map((type) => (
-                    <option key={type} value={type}>
-                      {TYPE_LABELS[type]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               <div className="flex flex-col gap-1">
                 <label htmlFor="history-from" className="text-sm font-medium text-text">
                   From
@@ -269,11 +225,10 @@ export function HistoryPage() {
                 />
               </div>
 
-              {(typeFilter || from || to) && (
+              {(from || to) && (
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    setTypeFilter("");
                     setFrom("");
                     setTo("");
                   }}
@@ -309,13 +264,10 @@ export function HistoryPage() {
                   <ul className="flex flex-col gap-2">
                     {group.entries.map((entry) => (
                       <li
-                        key={`${entry.type}-${entry.id}`}
+                        key={entry.id}
                         className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm"
                       >
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-                            {TYPE_LABELS[entry.type]}
-                          </p>
                           <p className="text-text">{entry.label}</p>
                           {entry.notes && <p className="text-sm text-text-muted">{entry.notes}</p>}
                           <p className="text-xs text-text-muted">
@@ -329,18 +281,14 @@ export function HistoryPage() {
                           <Button
                             variant="secondary"
                             onClick={() => setEditingEntry(entry)}
-                            aria-label={`Edit ${TYPE_LABELS[entry.type].toLowerCase()} entry from ${new Date(
-                              entry.loggedAt,
-                            ).toLocaleString()}`}
+                            aria-label={`Edit entry from ${new Date(entry.loggedAt).toLocaleString()}`}
                           >
                             Edit
                           </Button>
                           <Button
                             variant="secondary"
                             onClick={() => handleRequestDelete(entry)}
-                            aria-label={`Delete ${TYPE_LABELS[entry.type].toLowerCase()} entry from ${new Date(
-                              entry.loggedAt,
-                            ).toLocaleString()}`}
+                            aria-label={`Delete entry from ${new Date(entry.loggedAt).toLocaleString()}`}
                           >
                             Delete
                           </Button>
@@ -377,11 +325,7 @@ export function HistoryPage() {
       <ConfirmDeleteModal
         open={!!deletingEntry}
         title="Delete entry?"
-        message={
-          deletingEntry
-            ? `Delete this ${TYPE_LABELS[deletingEntry.type].toLowerCase()} entry? This can't be undone.`
-            : ""
-        }
+        message={deletingEntry ? "Delete this entry? This can't be undone." : ""}
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeletingEntry(null)}
       />

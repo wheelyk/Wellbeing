@@ -1,36 +1,24 @@
-// A tiny, deliberately loose contract between QuickAddFab and the two Dashboard sections -
-// dispatched as a plain DOM CustomEvent rather than lifted React state or a context provider,
-// matching this app's existing "no shared store between sections" decision (see the
-// implementation log entry on the original Dashboard decomposition). QuickAddFab doesn't need
-// to know these sections exist, and a section doesn't need to know QuickAddFab exists - either
-// side could be removed without the other needing a code change, which a lifted-state or
-// context approach wouldn't give for free.
+// A tiny, deliberately loose contract between QuickAddFab and CategorySection - dispatched as a
+// plain DOM CustomEvent rather than lifted React state or a context provider, matching this app's
+// existing "no shared store between sections" decision (see the implementation log entry on the
+// original Dashboard decomposition). QuickAddFab doesn't need to know CategorySection exists, and
+// CategorySection doesn't need to know QuickAddFab exists - either side could be removed without
+// the other needing a code change, which a lifted-state or context approach wouldn't give for
+// free.
+//
+// Used to carry a `type` ("medication" vs. "category") back when Medication was still its own
+// fixed Dashboard section - now that it's unified into Category too (Phase 19, see
+// docs/log/19-medication-to-category.md), CategorySection is the only possible destination, so
+// this simplified to a plain, argument-free "open the add-a-category flow" signal.
 export const DASHBOARD_QUICK_ADD_EVENT = "welltrack:dashboard-quick-add";
 
-// "category" is the one type not backed by its own fixed Dashboard section file - it's handled
-// by the single, data-driven CategorySection instead (see its own comment for why), covering
-// every custom category (including every former habit, symptom, and mood check-in, now that all
-// three unified into Category - see docs/log/17-unify-mood-symptom-habit.md) rather than one type
-// per file the way medication still is.
-export type DashboardQuickAddType = "medication" | "category";
-
-export function dispatchDashboardQuickAdd(type: DashboardQuickAddType): void {
-  window.dispatchEvent(
-    new CustomEvent<DashboardQuickAddType>(DASHBOARD_QUICK_ADD_EVENT, { detail: type }),
-  );
+export function dispatchDashboardQuickAdd(): void {
+  window.dispatchEvent(new CustomEvent(DASHBOARD_QUICK_ADD_EVENT));
 }
 
-// Calls `onOpen` whenever a quick-add event for the matching `type` fires, for as long as the
-// calling component stays mounted. Returns the cleanup function a useEffect expects.
-export function listenForDashboardQuickAdd(
-  type: DashboardQuickAddType,
-  onOpen: () => void,
-): () => void {
-  function handler(event: Event) {
-    if ((event as CustomEvent<DashboardQuickAddType>).detail === type) {
-      onOpen();
-    }
-  }
-  window.addEventListener(DASHBOARD_QUICK_ADD_EVENT, handler);
-  return () => window.removeEventListener(DASHBOARD_QUICK_ADD_EVENT, handler);
+// Calls `onOpen` whenever a quick-add event fires, for as long as the calling component stays
+// mounted. Returns the cleanup function a useEffect expects.
+export function listenForDashboardQuickAdd(onOpen: () => void): () => void {
+  window.addEventListener(DASHBOARD_QUICK_ADD_EVENT, onOpen);
+  return () => window.removeEventListener(DASHBOARD_QUICK_ADD_EVENT, onOpen);
 }
