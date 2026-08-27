@@ -497,7 +497,7 @@ longer a meaningful "type" to filter on at all once there's only one.
   mechanism, the last surviving one).
 
 ### Task 2 — Frontend: Medication retirement
-- [ ] Deletes `MedicationEntryForm.tsx`, `MedicationCreateForm.tsx`, `MedicationSection.tsx`, and
+- [x] Deletes `MedicationEntryForm.tsx`, `MedicationCreateForm.tsx`, `MedicationSection.tsx`, and
   Settings' own `MedicationsSection` (+ their tests) - `CategorySection`/`CategorySection`'s own
   per-category cards (Phase 18) and Settings' existing `CategoriesSection` already cover the same
   ground for an ordinary personal category, so a former medication gets its own "Recent `<name>`"
