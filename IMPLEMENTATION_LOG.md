@@ -311,3 +311,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-27 — Task 2: Frontend — Medication retirement
 - 2026-08-27 — Task 3: Backend — History filtered by category, not type
 - 2026-08-27 — Task 4: Frontend — History filter UI updated to filter by category
+
+### [Unify Scale Categories to 1-7](docs/log/21-unify-scale-to-seven.md)
+
+- 2026-08-27 — Standardizing every built-in scale category onto a common 1-7 range

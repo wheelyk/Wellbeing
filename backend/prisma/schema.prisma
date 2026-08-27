@@ -64,10 +64,12 @@ model PushSubscription {
 // used to have, before they unified into Category - see docs/log/17-unify-mood-symptom-habit.md
 // and docs/log/19-medication-to-category.md), plus SCALE: a bounded 1-N picker (see
 // Category.scaleMin/scaleMax) generalizing what the now-retired Symptom model used to do with its
-// own fixed 1-10 severity scale, and what Mood/Energy/Stress now do too (1-5 and 1-7 respectively)
-// since both unified into Category. SCALE shares NUMERIC's storage column (valueNumeric) - the two
-// differ only in whether a min/max bound is enforced at write time, not in how the value itself is
-// stored.
+// own fixed 1-10 severity scale, and what Mood/Energy/Stress now do too, since all of them unified
+// into Category. Every built-in scale category (Mood, Energy, Stress, and the 8 seeded severity
+// categories) was standardized onto a common 1-7 range - see docs/log/21-unify-scale-to-seven.md -
+// though a user's own custom scale category may still use any range they choose. SCALE shares
+// NUMERIC's storage column (valueNumeric) - the two differ only in whether a min/max bound is
+// enforced at write time, not in how the value itself is stored.
 enum CategoryValueType {
   BOOLEAN
   NUMERIC
