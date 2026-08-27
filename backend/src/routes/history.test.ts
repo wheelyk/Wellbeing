@@ -28,11 +28,6 @@ function authed(accessToken: string) {
   return { Authorization: `Bearer ${accessToken}` };
 }
 
-async function createMedication(accessToken: string, name: string) {
-  const res = await request(app).post("/api/medications").set(authed(accessToken)).send({ name });
-  return res.body.id as string;
-}
-
 async function createCategory(
   accessToken: string,
   name: string,
@@ -46,17 +41,19 @@ async function createCategory(
   return res.body.id as string;
 }
 
-// Seeds one log of each of the two remaining types for a given user, plus a second category log
-// (standing in for what used to be a dedicated Mood entry), spaced an hour apart via explicit
+// Seeds three category logs for a given user - a scale category standing in for what used to be
+// a dedicated Mood entry, a boolean category standing in for what used to be a dedicated
+// Medication dose, and a plain boolean custom category - spaced an hour apart via explicit
 // loggedAt timestamps so ordering assertions are deterministic instead of relying on however fast
-// the requests happen to fire. Symptom and Mood were both once fourth/independent types here -
-// both folded into Category (Phase 17), so each is now just another category entry, not a
-// distinct type - see docs/log/17-unify-mood-symptom-habit.md.
+// the requests happen to fire. Mood and Medication were both once independent types here - both
+// folded into Category (see docs/log/17-unify-mood-symptom-habit.md and
+// docs/log/19-medication-to-category.md), so every entry is just another category log now, not a
+// distinct type.
 async function seedOneOfEach(accessToken: string, baseIso: string) {
   const base = new Date(baseIso).getTime();
   const at = (hoursAgo: number) => new Date(base - hoursAgo * 60 * 60 * 1000).toISOString();
 
-  const medicationId = await createMedication(accessToken, "Ibuprofen");
+  const medicationCategoryId = await createCategory(accessToken, "Ibuprofen");
   const moodCategoryId = await createCategory(accessToken, "Mood", "scale", {
     scaleMin: 1,
     scaleMax: 5,
@@ -68,9 +65,9 @@ async function seedOneOfEach(accessToken: string, baseIso: string) {
     .set(authed(accessToken))
     .send({ categoryId: moodCategoryId, valueNumeric: 4, loggedAt: at(1) });
   await request(app)
-    .post("/api/medication-logs")
+    .post("/api/category-logs")
     .set(authed(accessToken))
-    .send({ medicationId, taken: true, loggedAt: at(2) });
+    .send({ categoryId: medicationCategoryId, valueBoolean: true, loggedAt: at(2) });
   await request(app)
     .post("/api/category-logs")
     .set(authed(accessToken))
@@ -83,7 +80,7 @@ describe("GET /api/history", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns a unified, chronologically-sorted list across both remaining log types", async () => {
+  it("returns a chronologically-sorted list of category entries", async () => {
     const { accessToken } = await registerAndLogin("unified");
     await seedOneOfEach(accessToken, "2026-06-01T12:00:00.000Z");
 
@@ -91,23 +88,15 @@ describe("GET /api/history", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.entries).toHaveLength(3);
-    expect(res.body.entries.map((e: { type: string }) => e.type)).toEqual([
-      "category",
-      "medication",
-      "category",
-    ]);
     // Sorted most-recent-first.
     const times = res.body.entries.map((e: { loggedAt: string }) => new Date(e.loggedAt).getTime());
     expect(times).toEqual([...times].sort((a, b) => b - a));
 
-    expect(res.body.entries[0]).toMatchObject({ type: "category", label: "Mood: 4/5" });
-    expect(res.body.entries[1]).toMatchObject({
-      type: "medication",
-      label: "Ibuprofen — Taken",
-    });
-    expect(res.body.entries[2]).toMatchObject({ type: "category", label: "Exercise: Done" });
-    // Each entry's own id is present and is the id the corresponding per-type DELETE endpoint
-    // expects - the same id used to create it via the per-type routes above.
+    expect(res.body.entries[0]).toMatchObject({ label: "Mood: 4/5" });
+    expect(res.body.entries[1]).toMatchObject({ label: "Ibuprofen: Done" });
+    expect(res.body.entries[2]).toMatchObject({ label: "Exercise: Done" });
+    // Each entry's own id is present and is the id /api/category-logs/:id's DELETE endpoint
+    // expects - the same id used to create it via the route above.
     res.body.entries.forEach((entry: { id: string }) => expect(entry.id).toBeDefined());
   });
 
@@ -141,7 +130,7 @@ describe("GET /api/history", () => {
     expect(labels).toEqual(expect.arrayContaining(["Glasses of water: 6", "Meditation: 15 min"]));
   });
 
-  it("includes custom category logs, formatted the same way as any other category, and filters by them too", async () => {
+  it("includes custom category logs, formatted the same way as any other category", async () => {
     const { accessToken } = await registerAndLogin("category-entries");
 
     const scaleCategory = await request(app)
@@ -165,27 +154,6 @@ describe("GET /api/history", () => {
     const res = await request(app).get("/api/history").set(authed(accessToken));
     const labels = res.body.entries.map((e: { label: string }) => e.label);
     expect(labels).toEqual(expect.arrayContaining(["Energy level: 4/5", "Meditation: 15 min"]));
-
-    const filtered = await request(app)
-      .get("/api/history")
-      .query({ type: "category" })
-      .set(authed(accessToken));
-    expect(filtered.body.entries).toHaveLength(2);
-    expect(filtered.body.entries.every((e: { type: string }) => e.type === "category")).toBe(true);
-  });
-
-  it("filters by entry type", async () => {
-    const { accessToken } = await registerAndLogin("filter-type");
-    await seedOneOfEach(accessToken, "2026-06-02T12:00:00.000Z");
-
-    const res = await request(app)
-      .get("/api/history")
-      .query({ type: "medication" })
-      .set(authed(accessToken));
-
-    expect(res.status).toBe(200);
-    expect(res.body.entries).toHaveLength(1);
-    expect(res.body.entries[0].type).toBe("medication");
   });
 
   it("filters by date range (from/to, inclusive)", async () => {
@@ -275,14 +243,8 @@ describe("GET /api/history", () => {
     expect(res.body.error.code).toBe("VALIDATION_ERROR");
   });
 
-  it("rejects an invalid type or date format", async () => {
+  it("rejects an invalid date format", async () => {
     const { accessToken } = await registerAndLogin("bad-query");
-
-    const badType = await request(app)
-      .get("/api/history")
-      .query({ type: "not-a-real-type" })
-      .set(authed(accessToken));
-    expect(badType.status).toBe(400);
 
     const badDate = await request(app)
       .get("/api/history")

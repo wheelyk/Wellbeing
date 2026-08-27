@@ -104,8 +104,7 @@ trendsRouter.get("/", async (req, res) => {
   const { end } = getDayRangeUtc(endDate, timezone);
   const rangeWhere = { userId: req.userId, loggedAt: { gte: start, lt: end } };
 
-  const [medicationLogs, categories, categoryLogs] = await Promise.all([
-    prisma.medicationLog.findMany({ where: rangeWhere, select: { loggedAt: true } }),
+  const [categories, categoryLogs] = await Promise.all([
     // Every category visible to this user (their own + any system/admin ones) - fetched
     // regardless of period, so a numeric/scale category with zero logs *in this window* still
     // gets its own chart (an honest "not enough data yet" state) rather than not appearing at
@@ -137,19 +136,13 @@ trendsRouter.get("/", async (req, res) => {
     return map;
   }
 
-  const activeDays = new Set<string>();
-  for (const dateSet of [
-    bucketByDay(medicationLogs, () => true),
-    // Any category log counts toward a day being "active" - including boolean/duration ones,
-    // which get no chart of their own below (see categoryTrends) but still count the same way
-    // dashboard.ts's streak and reminderScheduler.ts's hasLoggedTarget already treat them. This
-    // also covers every former habit's, symptom's, and mood check-in's own activity now, since
-    // all three unified into Category (Phase 17) - see
-    // docs/log/17-unify-mood-symptom-habit.md.
-    bucketByDay(categoryLogs, () => true),
-  ]) {
-    for (const date of dateSet.keys()) activeDays.add(date);
-  }
+  // Any category log counts toward a day being "active" - including boolean/duration ones, which
+  // get no chart of their own below (see categoryTrends) but still count the same way
+  // dashboard.ts's streak and reminderScheduler.ts's hasLoggedTarget already treat them. This
+  // covers every former habit's, symptom's, mood's, and medication's own activity now, since all
+  // four unified into Category - see docs/log/17-unify-mood-symptom-habit.md and
+  // docs/log/19-medication-to-category.md.
+  const activeDays = new Set(bucketByDay(categoryLogs, () => true).keys());
 
   // One chart per numeric/scale category (built-in or custom) - boolean/duration categories get
   // no chart here (former habits included, now that Habit unified into Category - see

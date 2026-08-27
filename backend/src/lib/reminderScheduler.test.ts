@@ -50,8 +50,7 @@ async function addSubscription(userId: string, endpointSuffix: string) {
 async function createReminder(
   userId: string,
   overrides: {
-    target?: "GENERAL" | "MEDICATION" | "CATEGORY";
-    medicationId?: string;
+    target?: "GENERAL" | "CATEGORY";
     categoryId?: string;
     times?: string[];
     enabled?: boolean;
@@ -61,7 +60,6 @@ async function createReminder(
     data: {
       userId,
       target: overrides.target ?? "GENERAL",
-      medicationId: overrides.medicationId,
       categoryId: overrides.categoryId,
       times: overrides.times ?? ["20:00"],
       enabled: overrides.enabled ?? true,
@@ -161,52 +159,56 @@ describe("runReminderTick", () => {
     expect(sends.map((s) => s.time)).toEqual(["09:00", "20:00"]);
   });
 
-  it("scopes a MEDICATION reminder to its own specific medication, not any medication log", async () => {
-    const user = await registerUser("medication-specific");
-    await addSubscription(user.id, "medication-specific");
-    const diazepam = await prisma.medication.create({
-      data: { userId: user.id, name: "Diazepam" },
+  // A former Medication reminder is just a CATEGORY reminder now (see
+  // docs/log/19-medication-to-category.md) - these three tests mirror what the now-deleted
+  // reminderScheduler tests covered for MEDICATION specifically, using a boolean category (a
+  // former medication's own shape) with its `description` standing in for the old `dosage` field.
+  it("scopes a CATEGORY reminder to its own specific category, not any category log", async () => {
+    const user = await registerUser("category-specific-boolean");
+    await addSubscription(user.id, "category-specific-boolean");
+    const diazepam = await prisma.category.create({
+      data: { userId: user.id, name: "Diazepam", valueType: "BOOLEAN" },
     });
-    const sertraline = await prisma.medication.create({
-      data: { userId: user.id, name: "Sertraline" },
+    const sertraline = await prisma.category.create({
+      data: { userId: user.id, name: "Sertraline", valueType: "BOOLEAN" },
     });
-    await createReminder(user.id, { target: "MEDICATION", medicationId: diazepam.id });
+    await createReminder(user.id, { target: "CATEGORY", categoryId: diazepam.id });
 
     // Logged Sertraline, not Diazepam - the Diazepam-specific reminder should still fire.
-    await prisma.medicationLog.create({
-      data: { userId: user.id, medicationId: sertraline.id, taken: true },
+    await prisma.categoryLog.create({
+      data: { userId: user.id, categoryId: sertraline.id, valueBoolean: true },
     });
 
     await runReminderTick();
 
     expect(sendNotification).toHaveBeenCalledTimes(1);
-    expect(notifiedPayload(0)).toMatchObject({ body: "Time to take Diazepam." });
+    expect(notifiedPayload(0)).toMatchObject({ body: "Time to log Diazepam." });
   });
 
-  it("includes a medication's dosage in the notification body when set", async () => {
-    const user = await registerUser("medication-dosage");
-    await addSubscription(user.id, "medication-dosage");
-    const medication = await prisma.medication.create({
-      data: { userId: user.id, name: "Diazepam", dosage: "2mg" },
+  it("includes a category's description in the notification body when set", async () => {
+    const user = await registerUser("category-description");
+    await addSubscription(user.id, "category-description");
+    const category = await prisma.category.create({
+      data: { userId: user.id, name: "Diazepam", valueType: "BOOLEAN", description: "2mg" },
     });
-    await createReminder(user.id, { target: "MEDICATION", medicationId: medication.id });
+    await createReminder(user.id, { target: "CATEGORY", categoryId: category.id });
 
     await runReminderTick();
 
     expect(notifiedPayload(0)).toMatchObject({
-      body: "Time to take Diazepam (2mg).",
+      body: "Time to log Diazepam (2mg).",
     });
   });
 
-  it("does not send a MEDICATION reminder once its own medication has been logged today", async () => {
-    const user = await registerUser("medication-logged");
-    await addSubscription(user.id, "medication-logged");
-    const medication = await prisma.medication.create({
-      data: { userId: user.id, name: "Diazepam" },
+  it("does not send a CATEGORY reminder once its own category has been logged today", async () => {
+    const user = await registerUser("category-logged");
+    await addSubscription(user.id, "category-logged");
+    const category = await prisma.category.create({
+      data: { userId: user.id, name: "Diazepam", valueType: "BOOLEAN" },
     });
-    await createReminder(user.id, { target: "MEDICATION", medicationId: medication.id });
-    await prisma.medicationLog.create({
-      data: { userId: user.id, medicationId: medication.id, taken: true },
+    await createReminder(user.id, { target: "CATEGORY", categoryId: category.id });
+    await prisma.categoryLog.create({
+      data: { userId: user.id, categoryId: category.id, valueBoolean: true },
     });
 
     await runReminderTick();

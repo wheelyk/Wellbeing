@@ -58,14 +58,12 @@ describe("GET /api/export", () => {
     expect(res.body.user).toMatchObject({ email: expect.stringContaining("vitest-export-empty") });
     // Never leak the password hash, even though it lives on the same underlying User row.
     expect(res.body.user.passwordHash).toBeUndefined();
-    expect(res.body.medications).toEqual([]);
-    expect(res.body.medicationLogs).toEqual([]);
     expect(res.body.categories).toEqual([]);
     expect(res.body.categoryLogs).toEqual([]);
     expect(typeof res.body.exportedAt).toBe("string");
   });
 
-  it("gathers one logged entry of each type, plus its parent definition", async () => {
+  it("gathers one logged entry of each category type, plus its parent definition", async () => {
     const { accessToken } = await registerAndLogin("full");
     const loggedAt = "2026-08-17T09:00:00.000Z";
 
@@ -89,14 +87,17 @@ describe("GET /api/export", () => {
       .set(authed(accessToken))
       .send({ categoryId: moodRes.body.id, valueNumeric: 4, loggedAt });
 
+    // A personal boolean category (with its dosage carried in `description`) standing in for what
+    // a Medication dose now looks like (Medication unified into Category in Phase 19 - see
+    // docs/log/19-medication-to-category.md).
     const medicationRes = await request(app)
-      .post("/api/medications")
+      .post("/api/categories")
       .set(authed(accessToken))
-      .send({ name: "Lisinopril", dosage: "10mg" });
+      .send({ name: "Lisinopril", valueType: "boolean", description: "10mg" });
     await request(app)
-      .post("/api/medication-logs")
+      .post("/api/category-logs")
       .set(authed(accessToken))
-      .send({ medicationId: medicationRes.body.id, taken: true, loggedAt });
+      .send({ categoryId: medicationRes.body.id, valueBoolean: true, loggedAt });
 
     const categoryRes = await request(app)
       .post("/api/categories")
@@ -110,12 +111,11 @@ describe("GET /api/export", () => {
     const res = await request(app).get("/api/export").set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.medications).toMatchObject([{ name: "Lisinopril", dosage: "10mg" }]);
-    expect(res.body.medicationLogs).toMatchObject([{ taken: true, medicationName: "Lisinopril" }]);
     expect(res.body.categories).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "Headache", valueType: "scale" }),
         expect.objectContaining({ name: "Mood", valueType: "scale" }),
+        expect.objectContaining({ name: "Lisinopril", valueType: "boolean", description: "10mg" }),
         expect.objectContaining({ name: "Walk", valueType: "boolean" }),
       ]),
     );
@@ -123,6 +123,7 @@ describe("GET /api/export", () => {
       expect.arrayContaining([
         expect.objectContaining({ valueNumeric: 6, categoryName: "Headache" }),
         expect.objectContaining({ valueNumeric: 4, categoryName: "Mood" }),
+        expect.objectContaining({ valueBoolean: true, categoryName: "Lisinopril" }),
         expect.objectContaining({ valueBoolean: true, categoryName: "Walk" }),
       ]),
     );

@@ -3,8 +3,6 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { authRouter } from "./routes/auth";
-import { medicationsRouter } from "./routes/medications";
-import { medicationLogsRouter } from "./routes/medicationLogs";
 import { usersRouter } from "./routes/users";
 import { dashboardRouter } from "./routes/dashboard";
 import { historyRouter } from "./routes/history";
@@ -55,8 +53,6 @@ export function createApp(): Express {
   });
 
   app.use("/api/auth", authRouter);
-  app.use("/api/medications", requireAuth, medicationsRouter);
-  app.use("/api/medication-logs", requireAuth, medicationLogsRouter);
   app.use("/api/users", requireAuth, usersRouter);
   app.use("/api/dashboard", requireAuth, dashboardRouter);
   app.use("/api/history", requireAuth, historyRouter);

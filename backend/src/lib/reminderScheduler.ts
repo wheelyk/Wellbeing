@@ -15,35 +15,32 @@ const APP_TITLE = "WellTrack";
 
 type ReminderWithTargets = Reminder & {
   user: { timezone: string };
-  medication: { name: string; dosage: string | null } | null;
-  category: { name: string } | null;
+  category: { name: string; description: string | null } | null;
 };
 
 // The notification's actual text depends on what the reminder is about - a generic "you haven't
 // logged anything" body would be actively wrong for a reminder specifically about Diazepam.
+// `description` is included alongside a category's own name for exactly the same reason a former
+// Medication reminder used to append its dosage (e.g. "Diazepam (2mg)") - see
+// docs/log/19-medication-to-category.md for why a former medication's dosage now lives there.
 function reminderCopy(reminder: ReminderWithTargets): { title: string; body: string } {
   switch (reminder.target) {
     case "GENERAL":
       return { title: APP_TITLE, body: "You haven't logged anything today yet." };
-    case "MEDICATION": {
-      const name = reminder.medication?.name ?? "your medication";
-      const label = reminder.medication?.dosage ? `${name} (${reminder.medication.dosage})` : name;
-      return { title: APP_TITLE, body: `Time to take ${label}.` };
+    case "CATEGORY": {
+      const name = reminder.category?.name ?? "your category";
+      const label = reminder.category?.description
+        ? `${name} (${reminder.category.description})`
+        : name;
+      return { title: APP_TITLE, body: `Time to log ${label}.` };
     }
-    case "CATEGORY":
-      return {
-        title: APP_TITLE,
-        body: `Time to log ${reminder.category?.name ?? "your category"}.`,
-      };
   }
 }
 
 // Whether the user has already logged against this specific reminder's own target yet today -
-// GENERAL keeps the original blanket check (now two tables, since Habit, Symptom, and Mood all
-// unified into Category - see docs/log/17-unify-mood-symptom-habit.md); every other target is
-// scoped to just its own log table (and, for MEDICATION/CATEGORY, to the specific
-// medication/category this reminder is about - a "Diazepam" reminder isn't satisfied by logging
-// "Sertraline").
+// GENERAL is a blanket "any category log at all" check; CATEGORY is scoped to the specific
+// category this reminder is about (a "Diazepam" reminder isn't satisfied by logging
+// "Sertraline" - both are now their own categories, see docs/log/19-medication-to-category.md).
 async function hasLoggedTarget(
   reminder: ReminderWithTargets,
   userId: string,
@@ -53,20 +50,8 @@ async function hasLoggedTarget(
   const where = { userId, loggedAt: { gte: start, lt: end } };
 
   switch (reminder.target) {
-    case "GENERAL": {
-      const [medication, category] = await Promise.all([
-        prisma.medicationLog.findFirst({ where, select: { id: true } }),
-        prisma.categoryLog.findFirst({ where, select: { id: true } }),
-      ]);
-      return medication !== null || category !== null;
-    }
-    case "MEDICATION":
-      return (
-        (await prisma.medicationLog.findFirst({
-          where: { ...where, medicationId: reminder.medicationId as string },
-          select: { id: true },
-        })) !== null
-      );
+    case "GENERAL":
+      return (await prisma.categoryLog.findFirst({ where, select: { id: true } })) !== null;
     case "CATEGORY":
       return (
         (await prisma.categoryLog.findFirst({
@@ -110,8 +95,7 @@ export async function runReminderTick(): Promise<void> {
     where: { enabled: true },
     include: {
       user: { select: { timezone: true } },
-      medication: { select: { name: true, dosage: true } },
-      category: { select: { name: true } },
+      category: { select: { name: true, description: true } },
     },
   });
 

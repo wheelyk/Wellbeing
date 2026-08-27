@@ -23,18 +23,12 @@ const querySchema = z
   })
   .merge(paginationQuerySchema);
 
-type RecentEntryType = "medication" | "category";
-
 interface RecentEntry {
-  type: RecentEntryType;
   label: string;
   value: string;
   loggedAt: string;
-  // Only present for type "category" - unlike the two fixed types, "category" isn't
-  // self-describing on its own; the frontend needs to know *which* category (for its icon) and
-  // it's a categoryId a log's own edit/delete actions target.
-  categoryId?: string;
-  icon?: string | null;
+  categoryId: string;
+  icon: string | null;
 }
 
 // Exactly one of valueBoolean/valueNumeric/valueDurationMinutes is populated, matching the
@@ -96,84 +90,50 @@ dashboardRouter.get("/", async (req, res) => {
   const { limit: recentEntriesLimit = DEFAULT_LOG_LIST_LIMIT, offset: recentEntriesOffset = 0 } =
     parsedQuery.data;
 
-  const medicationLogsToday = await prisma.medicationLog.findMany({
+  // Every log is a category log now that Medication has unified into Category too (see
+  // docs/log/19-medication-to-category.md) - a plain count, not a "taken/total" breakdown, since
+  // an unbounded, user-extensible category set has no fixed "how many were there to log today"
+  // denominator the way the original built-ins did. This is the frontend's sole signal for
+  // whether to show "Nothing logged yet today" at all (see DashboardSummary.tsx).
+  const loggedTodayCount = await prisma.categoryLog.count({
     where: { userId: req.userId, loggedAt: { gte: start, lt: end } },
-    select: { taken: true },
   });
 
-  const medicationSummary = {
-    taken: medicationLogsToday.filter((log) => log.taken).length,
-    total: medicationLogsToday.length,
-  };
-
-  // Merging two separately-sorted, separately-paginated tables into one time-ordered page can't
-  // just `take: limit, skip: offset` either table - the entry at merged position `offset` might
-  // come from either. Instead, each table is asked for enough of its own most-recent rows to
-  // cover the worst case where a single type accounts for every entry up to and including one
-  // past the requested page (`offset + limit + 1`, the same N+1 "is there more?" trick as
-  // `fetchPage` in lib/pagination.ts, just applied before the merge instead of after).
-  const perTypeFetch = recentEntriesOffset + recentEntriesLimit + 1;
-
-  // `id` as a secondary sort key on every query below - without it, two logs sharing the exact
-  // same `loggedAt` have no guaranteed relative order across separate requests, which the
-  // merge-then-slice logic just below relies on being stable.
-  const [recentMedications, recentCategories] = await Promise.all([
-    prisma.medicationLog.findMany({
-      where: { userId: req.userId },
-      orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
-      take: perTypeFetch,
-      include: { medication: { select: { name: true } } },
-    }),
-    prisma.categoryLog.findMany({
-      where: { userId: req.userId },
-      orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
-      take: perTypeFetch,
-      include: {
-        category: { select: { name: true, icon: true, valueType: true, scaleMax: true } },
-      },
-    }),
-  ]);
-
-  const mergedRecentEntries: RecentEntry[] = [
-    ...recentMedications.map((log): RecentEntry => ({
-      type: "medication",
-      label: log.medication.name,
-      value: log.taken ? "Taken" : "Not taken",
-      loggedAt: log.loggedAt.toISOString(),
-    })),
-    ...recentCategories.map((log): RecentEntry => ({
-      type: "category",
-      label: log.category.name,
-      value: formatCategoryLogValue(log),
-      loggedAt: log.loggedAt.toISOString(),
-      categoryId: log.categoryId,
-      icon: log.category.icon,
-    })),
-  ].sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime());
+  const recentCategories = await prisma.categoryLog.findMany({
+    where: { userId: req.userId },
+    orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
+    take: recentEntriesOffset + recentEntriesLimit + 1,
+    include: {
+      category: { select: { name: true, icon: true, valueType: true, scaleMax: true } },
+    },
+  });
 
   const recentEntries = {
-    entries: mergedRecentEntries.slice(
-      recentEntriesOffset,
-      recentEntriesOffset + recentEntriesLimit,
-    ),
+    entries: recentCategories
+      .slice(recentEntriesOffset, recentEntriesOffset + recentEntriesLimit)
+      .map((log): RecentEntry => ({
+        label: log.category.name,
+        value: formatCategoryLogValue(log),
+        loggedAt: log.loggedAt.toISOString(),
+        categoryId: log.categoryId,
+        icon: log.category.icon,
+      })),
     limit: recentEntriesLimit,
     offset: recentEntriesOffset,
-    hasMore: mergedRecentEntries.length > recentEntriesOffset + recentEntriesLimit,
+    hasMore: recentCategories.length > recentEntriesOffset + recentEntriesLimit,
   };
 
-  // Every entry (of any of the three types) in the lookback window, reduced to just the set of
-  // distinct calendar days (in the user's timezone) it falls on - exactly what the pure
-  // `calculateStreak` function needs, and nothing more. Only `loggedAt` is selected from each
-  // table since that's all this calculation uses.
+  // Every category log in the lookback window, reduced to just the set of distinct calendar days
+  // (in the user's timezone) it falls on - exactly what the pure `calculateStreak` function needs,
+  // and nothing more. Only `loggedAt` is selected since that's all this calculation uses.
   const lookbackStart = new Date(start.getTime() - STREAK_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
-  const lookbackWhere = { userId: req.userId, loggedAt: { gte: lookbackStart, lt: end } };
-  const [medicationDates, categoryDates] = await Promise.all([
-    prisma.medicationLog.findMany({ where: lookbackWhere, select: { loggedAt: true } }),
-    prisma.categoryLog.findMany({ where: lookbackWhere, select: { loggedAt: true } }),
-  ]);
+  const categoryDates = await prisma.categoryLog.findMany({
+    where: { userId: req.userId, loggedAt: { gte: lookbackStart, lt: end } },
+    select: { loggedAt: true },
+  });
 
   const loggedDates = new Set<string>();
-  for (const log of [...medicationDates, ...categoryDates]) {
+  for (const log of categoryDates) {
     loggedDates.add(formatDateInTimezone(log.loggedAt, user.timezone));
   }
 
@@ -181,7 +141,7 @@ dashboardRouter.get("/", async (req, res) => {
 
   res.json({
     date,
-    medicationSummary,
+    loggedTodayCount,
     recentEntries,
     streak,
   });

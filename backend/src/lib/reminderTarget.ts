@@ -4,23 +4,21 @@ import { ReminderTarget as PrismaReminderTarget } from "../generated/prisma/clie
 // reason - this is the one place that translates between them, so every route only ever deals
 // with the lowercase API shape.
 //
-// "mood" was removed once Mood unified into Category (Phase 17, see
-// docs/log/17-unify-mood-symptom-habit.md) - a reminder about Mood is a "category" reminder now,
-// like any other category's, pointing at the new system Mood category. An existing MOOD-target
-// reminder was remapped (not dropped) by that same migration, since there was always exactly one
-// unambiguous destination category for it.
-export const API_REMINDER_TARGETS = ["general", "medication", "category"] as const;
+// "mood" (Phase 17) and "medication" (Phase 19) were both removed once Mood and Medication
+// unified into Category - a reminder about either is a "category" reminder now, like any other
+// category's. Both migrations remapped (not dropped) any existing reminder, since each had an
+// unambiguous single destination category - see docs/log/17-unify-mood-symptom-habit.md and
+// docs/log/19-medication-to-category.md.
+export const API_REMINDER_TARGETS = ["general", "category"] as const;
 export type ApiReminderTarget = (typeof API_REMINDER_TARGETS)[number];
 
 const API_TO_PRISMA: Record<ApiReminderTarget, PrismaReminderTarget> = {
   general: PrismaReminderTarget.GENERAL,
-  medication: PrismaReminderTarget.MEDICATION,
   category: PrismaReminderTarget.CATEGORY,
 };
 
 const PRISMA_TO_API: Record<PrismaReminderTarget, ApiReminderTarget> = {
   [PrismaReminderTarget.GENERAL]: "general",
-  [PrismaReminderTarget.MEDICATION]: "medication",
   [PrismaReminderTarget.CATEGORY]: "category",
 };
 

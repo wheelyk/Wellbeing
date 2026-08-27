@@ -26,21 +26,13 @@ model User {
   resetTokenHash      String?   @map("reset_token_hash")
   resetTokenExpiresAt DateTime? @map("reset_token_expires_at")
 
-  // Lets a user hide the one remaining built-in (Medication) from Dashboard/Quick Add without
-  // touching any data already logged under it - the toggle-off direction explored alongside the
-  // custom-Category feature and shipped here as a follow-up. Defaults true so every existing
-  // account keeps today's behavior unchanged. Turning it off also disables (not deletes) any
-  // Reminder targeting it - see routes/users.ts's PATCH /me.
-  //
-  // habitEnabled (Phase 16), symptomEnabled and moodEnabled (both Phase 17) were all removed once
-  // Habit/Symptom/Mood unified into Category - a former habit is an ordinary personal category
-  // (individually archivable, no whole-type toggle needed); a former symptom or Mood/Energy/Stress
-  // is a system category a user hides per-row via HiddenCategory instead of one blunt toggle for
-  // all of them. See docs/log/17-unify-mood-symptom-habit.md.
-  medicationEnabled Boolean @default(true) @map("medication_enabled")
+  // habitEnabled (Phase 16), symptomEnabled and moodEnabled (both Phase 17), and medicationEnabled
+  // (Phase 19) were all removed once Habit/Symptom/Mood/Medication unified into Category - a
+  // former habit or medication is an ordinary personal category (individually archivable, no
+  // whole-type toggle needed); a former symptom or Mood/Energy/Stress is a system category a user
+  // hides per-row via HiddenCategory instead of one blunt toggle for all of them. See
+  // docs/log/17-unify-mood-symptom-habit.md and docs/log/19-medication-to-category.md.
 
-  medications       Medication[]
-  medicationLogs    MedicationLog[]
   pushSubscriptions PushSubscription[]
   categories        Category[]
   categoryLogs      CategoryLog[]
@@ -67,61 +59,15 @@ model PushSubscription {
   @@map("push_subscriptions")
 }
 
-// A user's own list of medications they take (e.g. "Ibuprofen", "Vitamin D"), with an optional
-// dosage (e.g. "200mg") - beyond requirements §6.3's original MVP scope of name-only, added so
-// "Diazepam 2mg" doesn't have to be crammed into the name field itself. Each MedicationLog below
-// points back at one of these to record whether it was taken on a given occasion; each Reminder
-// below can point at one of these too, for a reminder specific to this one medication (e.g.
-// "Diazepam at 10:00") rather than the Medication category as a whole.
-model Medication {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  name      String
-  dosage    String?
-  createdAt DateTime @default(now()) @map("created_at")
-
-  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  logs      MedicationLog[]
-  reminders Reminder[]
-
-  // Every "list my medications" query filters by user; logs additionally query by medication,
-  // so this index covers the "does this user own this medication" ownership check used before
-  // any medication-log write (the ID-tampering defense described on MedicationLog below).
-  @@index([userId])
-  @@map("medications")
-}
-
-model MedicationLog {
-  id           String   @id @default(uuid())
-  userId       String   @map("user_id")
-  medicationId String   @map("medication_id")
-  taken        Boolean
-  notes        String?
-  loggedAt     DateTime @default(now()) @map("logged_at") @db.Timestamptz(3)
-
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  medication Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
-
-  // Denormalized userId (in addition to the medicationId relation) rather than joining through
-  // Medication for every read - the same shape CategoryLog uses, and it's what lets a "list my
-  // medication logs" query filter directly on this table instead of joining out to Medication
-  // first. The application layer still independently verifies medicationId belongs to userId
-  // before every write (see routes/medicationLogs.ts) - this column is not, on its own, a
-  // substitute for that check, since nothing here stops userId and the medication's own owner
-  // from disagreeing unless the application enforces it.
-  @@index([userId, loggedAt])
-  @@index([medicationId])
-  @@map("medication_logs")
-}
-
 // A category's `valueType` decides which single column on CategoryLog is expected to be
-// populated - BOOLEAN/NUMERIC/DURATION (the same three the now-retired Habit model used to have,
-// before it unified into Category - see docs/log/17-unify-mood-symptom-habit.md), plus SCALE: a
-// bounded 1-N picker (see Category.scaleMin/scaleMax) generalizing what the now-retired Symptom
-// model used to do with its own fixed 1-10 severity scale, and what Mood/Energy/Stress now do too
-// (1-5 and 1-7 respectively) since both unified into Category. SCALE shares NUMERIC's storage
-// column (valueNumeric) - the two differ only in whether a min/max bound is enforced at write
-// time, not in how the value itself is stored.
+// populated - BOOLEAN/NUMERIC/DURATION (the same three the now-retired Habit and Medication models
+// used to have, before they unified into Category - see docs/log/17-unify-mood-symptom-habit.md
+// and docs/log/19-medication-to-category.md), plus SCALE: a bounded 1-N picker (see
+// Category.scaleMin/scaleMax) generalizing what the now-retired Symptom model used to do with its
+// own fixed 1-10 severity scale, and what Mood/Energy/Stress now do too (1-5 and 1-7 respectively)
+// since both unified into Category. SCALE shares NUMERIC's storage column (valueNumeric) - the two
+// differ only in whether a min/max bound is enforced at write time, not in how the value itself is
+// stored.
 enum CategoryValueType {
   BOOLEAN
   NUMERIC
@@ -131,18 +77,21 @@ enum CategoryValueType {
   @@map("category_value_type")
 }
 
-// A user-extensible trackable category, alongside (not replacing) the one remaining fixed
-// built-in above (Medication). `userId` follows the exact same nullable convention Symptom
-// already established: null = a system-wide category (created only via the admin-only routes,
-// visible to every user), set = a user's own personal category, visible only to them.
+// A user-extensible trackable category - every loggable thing in this app is one of these now
+// that Habit, Symptom, Mood, and Medication have all unified into it (see
+// docs/log/17-unify-mood-symptom-habit.md and docs/log/19-medication-to-category.md). `userId`
+// follows the exact same nullable convention Symptom originally established: null = a system-wide
+// category (created only via the admin-only routes, visible to every user), set = a user's own
+// personal category, visible only to them.
 model Category {
   id          String            @id @default(uuid())
   userId      String?           @map("user_id")
   name        String
   icon        String?
-  // Optional freeform text about what this category is for - not used by any built-in category
-  // yet, but gives a home to context a category's own name doesn't capture on its own (e.g. what
-  // "Joint pain" specifically refers to for this user).
+  // Optional freeform text about what this category is for - gives a home to context a category's
+  // own name doesn't capture on its own (e.g. what "Joint pain" specifically refers to for this
+  // user, or a former Medication's own dosage, e.g. "200mg" - see docs/log/19-medication-to-
+  // category.md).
   description String?
   valueType   CategoryValueType @map("value_type")
   // Only meaningful when valueType is SCALE - enforced in application code (see
@@ -224,40 +173,38 @@ model CategoryLog {
 }
 
 // What a Reminder is "about." GENERAL is the original whole-app "you haven't logged anything
-// today" nudge; MEDICATION and CATEGORY are always paired with a specific Medication/Category row
-// (see Reminder.medicationId/categoryId below) - a user can have one reminder for "Diazepam" and a
-// completely independent one for "Sertraline," which a category-level target couldn't express.
+// today" nudge; CATEGORY is always paired with a specific Category row (see Reminder.categoryId
+// below) - a user can have one reminder for "Diazepam" and a completely independent one for
+// "Sertraline," each its own Category now, which a whole-type-level target couldn't express.
 //
 // HABIT and SYMPTOM (both Phase 17) were removed once Habit/Symptom unified into Category - any
 // existing HABIT- or SYMPTOM-target reminder was deleted by its own migration (confirmed directly
 // both times: drop and let the user reconfigure, rather than attempt a lossy auto-remap to one
-// specific former habit/symptom). MOOD (also Phase 17) was removed the same way Mood itself
-// unified into Category, but is the one deliberate exception to drop-and-reconfigure: since there
-// was always at most one MOOD-target reminder per user and exactly one unambiguous destination
-// (the new system Mood category), its own migration remapped any existing MOOD-target reminder to
-// a CATEGORY-target reminder pointing at that category instead of deleting it - see
-// docs/log/17-unify-mood-symptom-habit.md. A former habit, symptom, or mood reminder is now just a
-// CATEGORY-target reminder like any other category's.
+// specific former habit/symptom). MOOD (Phase 17) and MEDICATION (Phase 19) were each removed the
+// same way, but are the two deliberate exceptions to drop-and-reconfigure: MOOD had always at most
+// one reminder per user with exactly one unambiguous destination (the new system Mood category);
+// MEDICATION had a clean one-to-one mapping (each medication became exactly one category, reusing
+// its own id) - both migrations remapped any existing reminder to a CATEGORY-target reminder
+// pointing at the right category instead of deleting it. See docs/log/17-unify-mood-symptom-
+// habit.md and docs/log/19-medication-to-category.md. A former habit's, symptom's, mood's, or
+// medication's reminder is now just a CATEGORY-target reminder like any other category's.
 enum ReminderTarget {
   GENERAL
-  MEDICATION
   CATEGORY
 
   @@map("reminder_target")
 }
 
 // Replaces the single reminderEnabled/reminderTime pair User used to carry directly - a user can
-// now have any number of these, each aimed at a different target. `medicationId`/`categoryId`
-// are mutually exclusive with each other and only ever set together with the matching `target`
-// (MEDICATION -> medicationId, CATEGORY -> categoryId) - enforced in application code (see
-// routes/reminders.ts), the same choice this schema already makes for CategoryLog's own
-// type-conditional value columns rather than a DB CHECK constraint.
+// now have any number of these, each aimed at a different target. `categoryId` is only ever set
+// alongside target CATEGORY - enforced in application code (see routes/reminders.ts), the same
+// choice this schema already makes for CategoryLog's own type-conditional value columns rather
+// than a DB CHECK constraint.
 model Reminder {
-  id           String         @id @default(uuid())
-  userId       String         @map("user_id")
-  target       ReminderTarget
-  medicationId String?        @map("medication_id")
-  categoryId   String?        @map("category_id")
+  id         String         @id @default(uuid())
+  userId     String         @map("user_id")
+  target     ReminderTarget
+  categoryId String?        @map("category_id")
   // One or more "HH:mm" 24-hour local times - a plain Postgres text array rather than a separate
   // join table, since nothing beyond this Reminder's own row ever needs to reference a single
   // time in isolation (ReminderSend below references a time by its string value directly, not by
@@ -265,14 +212,11 @@ model Reminder {
   // as several fixed times (e.g. ["09:00","12:00","15:00"]) without any real recurring-interval
   // logic - confirmed directly with the user that fixed times are the whole point, not true
   // intervals.
-  times        String[]
-  enabled      Boolean        @default(true)
-  createdAt    DateTime       @default(now()) @map("created_at")
+  times      String[]
+  enabled    Boolean        @default(true)
+  createdAt  DateTime       @default(now()) @map("created_at")
 
-  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // Cascade: mirrors Medication's own real hard-delete (MedicationLog also cascades from it) -
-  // a reminder about a medication that no longer exists has nothing left to be about.
-  medication Medication?    @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Restrict, not Cascade - and not left as the bare default either: for an *optional* scalar
   // relation like this one (categoryId is nullable), Prisma's actual unspecified-onDelete default
   // is SetNull, not Restrict (Restrict is only the implicit default for a *required* relation,
@@ -285,8 +229,8 @@ model Reminder {
   // archivedAt), and archiving a category explicitly sets enabled: false on every Reminder
   // targeting it (see categories.ts/adminCategories.ts) - "stop acting on it" rather than relying
   // on a delete path that doesn't really happen.
-  category   Category?      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  sends      ReminderSend[]
+  category Category?      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  sends    ReminderSend[]
 
   // Every "list my reminders" query (GET /api/reminders) filters by user; the scheduler's own
   // tick queries "every enabled reminder" across all users, so no separate userId-only index is

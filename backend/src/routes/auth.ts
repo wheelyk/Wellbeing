@@ -46,7 +46,6 @@ function serializeUser(user: {
   displayName: string;
   timezone: string;
   createdAt: Date;
-  medicationEnabled: boolean;
 }) {
   return {
     id: user.id,
@@ -54,11 +53,10 @@ function serializeUser(user: {
     displayName: user.displayName,
     timezone: user.timezone,
     createdAt: user.createdAt,
-    medicationEnabled: user.medicationEnabled,
     // Computed, not stored - see lib/isAdmin.ts. AuthContext is populated from /login and
-    // /refresh (both call this function), never from GET /api/users/me directly, so isAdmin (and
-    // the toggle flags above) have to be included here too, not just on the /me response, or
-    // the frontend's session-derived state would lag a full page reload.
+    // /refresh (both call this function), never from GET /api/users/me directly, so isAdmin has
+    // to be included here too, not just on the /me response, or the frontend's session-derived
+    // state would lag a full page reload.
     isAdmin: isAdminEmail(user.email),
   };
 }
