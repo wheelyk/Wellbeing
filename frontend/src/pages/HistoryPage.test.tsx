@@ -22,43 +22,52 @@ function renderPage() {
   );
 }
 
+// HistoryPage now fires a second, independent fetch on mount (GET /api/categories, to populate
+// the Category filter's own options - see HistoryPage.tsx's own comment) alongside GET
+// /api/history. Most tests below don't care about that list at all, so this gives it a harmless
+// empty-array default; a test that actually needs real categories (e.g. to exercise the edit
+// form's own category picker) still defines its own fetchMock directly instead of using this.
+function mockHistoryFetch(handler: (url: string, init?: RequestInit) => Response) {
+  return vi.fn((url: string, init?: RequestInit) => {
+    if (url.includes("/api/categories")) {
+      return Promise.resolve(jsonResponse(200, []));
+    }
+    return Promise.resolve(handler(url, init));
+  });
+}
+
 describe("HistoryPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
   it("renders fetched entries grouped by date, most recent first", async () => {
-    const fetchMock = vi.fn().mockImplementation(() =>
-      Promise.resolve(
-        jsonResponse(200, {
-          entries: [
-            {
-              id: "mood-1",
-              type: "category",
-              label: "Mood: 4/5",
-              notes: null,
-              loggedAt: "2026-08-17T14:00:00.000Z",
-            },
-            {
-              id: "category-1",
-              type: "category",
-              label: "Headache: 6/10",
-              notes: "Started after lunch",
-              loggedAt: "2026-08-17T09:00:00.000Z",
-            },
-            {
-              id: "category-2",
-              type: "category",
-              label: "Exercise: Done",
-              notes: null,
-              loggedAt: "2026-08-16T14:00:00.000Z",
-            },
-          ],
-          limit: 20,
-          offset: 0,
-          hasMore: false,
-        }),
-      ),
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, {
+        entries: [
+          {
+            id: "mood-1",
+            label: "Mood: 4/5",
+            notes: null,
+            loggedAt: "2026-08-17T14:00:00.000Z",
+          },
+          {
+            id: "category-1",
+            label: "Headache: 6/10",
+            notes: "Started after lunch",
+            loggedAt: "2026-08-17T09:00:00.000Z",
+          },
+          {
+            id: "category-2",
+            label: "Exercise: Done",
+            notes: null,
+            loggedAt: "2026-08-16T14:00:00.000Z",
+          },
+        ],
+        limit: 20,
+        offset: 0,
+        hasMore: false,
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -75,11 +84,9 @@ describe("HistoryPage", () => {
   });
 
   it("shows an empty state when there are no entries yet", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() =>
-        Promise.resolve(jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false })),
-      );
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     renderPage();
@@ -88,9 +95,7 @@ describe("HistoryPage", () => {
   });
 
   it("shows an error state when the fetch fails", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() => Promise.resolve(jsonResponse(500, { error: { message: "Oops" } })));
+    const fetchMock = mockHistoryFetch(() => jsonResponse(500, { error: { message: "Oops" } }));
     vi.stubGlobal("fetch", fetchMock);
 
     renderPage();
@@ -99,28 +104,64 @@ describe("HistoryPage", () => {
   });
 
   it("renders a category entry", async () => {
-    const fetchMock = vi.fn().mockImplementation(() =>
-      Promise.resolve(
-        jsonResponse(200, {
-          entries: [
-            {
-              id: "cat-log-1",
-              label: "Energy level: 4/5",
-              notes: null,
-              loggedAt: "2026-08-17T09:00:00.000Z",
-            },
-          ],
-          limit: 20,
-          offset: 0,
-          hasMore: false,
-        }),
-      ),
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, {
+        entries: [
+          {
+            id: "cat-log-1",
+            label: "Energy level: 4/5",
+            notes: null,
+            loggedAt: "2026-08-17T09:00:00.000Z",
+          },
+        ],
+        limit: 20,
+        offset: 0,
+        hasMore: false,
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     renderPage();
 
     expect(await screen.findByText(/energy level: 4\/5/i)).toBeInTheDocument();
+  });
+
+  it("filters by category via the Category select, refetching with ?categoryId=", async () => {
+    const category = {
+      id: "cat-1",
+      userId: "user-1",
+      name: "Ibuprofen",
+      icon: null,
+      valueType: "boolean",
+      scaleMin: null,
+      scaleMax: null,
+      archivedAt: null,
+      createdAt: "2026-08-01T00:00:00.000Z",
+    };
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/api/categories")) {
+        return Promise.resolve(jsonResponse(200, [category]));
+      }
+      return Promise.resolve(
+        jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    renderPage();
+    await screen.findByText(/nothing to show yet/i);
+    expect(screen.getByRole("option", { name: "Ibuprofen" })).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText(/^category$/i), "cat-1");
+
+    await waitFor(() => {
+      const lastCall = fetchMock.mock.calls
+        .map(([callUrl]) => String(callUrl))
+        .filter((callUrl) => callUrl.includes("/api/history"))
+        .at(-1);
+      expect(lastCall).toContain("categoryId=cat-1");
+    });
   });
 
   it("deletes an entry via /api/category-logs", async () => {
@@ -130,12 +171,9 @@ describe("HistoryPage", () => {
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
-    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-      if (init?.method === "DELETE")
-        return Promise.resolve(jsonResponse(200, { message: "Deleted" }));
-      return Promise.resolve(
-        jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
-      );
+    const fetchMock = mockHistoryFetch((_url, init) => {
+      if (init?.method === "DELETE") return jsonResponse(200, { message: "Deleted" });
+      return jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false });
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -160,14 +198,12 @@ describe("HistoryPage", () => {
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
     let deleteCallCount = 0;
-    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+    const fetchMock = mockHistoryFetch((_url, init) => {
       if (init?.method === "DELETE") {
         deleteCallCount += 1;
-        return Promise.resolve(jsonResponse(500, { error: { message: "Server error" } }));
+        return jsonResponse(500, { error: { message: "Server error" } });
       }
-      return Promise.resolve(
-        jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
-      );
+      return jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false });
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -195,13 +231,9 @@ describe("HistoryPage", () => {
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
-    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-      if (init?.method === "DELETE") {
-        return Promise.resolve(jsonResponse(200, { message: "Deleted" }));
-      }
-      return Promise.resolve(
-        jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
-      );
+    const fetchMock = mockHistoryFetch((_url, init) => {
+      if (init?.method === "DELETE") return jsonResponse(200, { message: "Deleted" });
+      return jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false });
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -225,13 +257,9 @@ describe("HistoryPage", () => {
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() =>
-        Promise.resolve(
-          jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
-        ),
-      );
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, { entries: [entry], limit: 20, offset: 0, hasMore: false }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
@@ -256,27 +284,21 @@ describe("HistoryPage", () => {
   it("loads more entries and appends them when Load more is clicked", async () => {
     const first = {
       id: "mood-1",
-      type: "category",
       label: "Mood: 4/5",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",
     };
     const second = {
       id: "mood-2",
-      type: "category",
       label: "Mood: 2/5",
       notes: null,
       loggedAt: "2026-08-16T09:00:00.000Z",
     };
-    const fetchMock = vi.fn().mockImplementation((url: string) => {
+    const fetchMock = mockHistoryFetch((url) => {
       if (url.includes("offset=1")) {
-        return Promise.resolve(
-          jsonResponse(200, { entries: [second], limit: 20, offset: 1, hasMore: false }),
-        );
+        return jsonResponse(200, { entries: [second], limit: 20, offset: 1, hasMore: false });
       }
-      return Promise.resolve(
-        jsonResponse(200, { entries: [first], limit: 20, offset: 0, hasMore: true }),
-      );
+      return jsonResponse(200, { entries: [first], limit: 20, offset: 0, hasMore: true });
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -295,27 +317,21 @@ describe("HistoryPage", () => {
   it("shows Load less once more than a page is loaded, and it collapses back without a new fetch", async () => {
     const firstPage = Array.from({ length: 20 }, (_, i) => ({
       id: `mood-${i}`,
-      type: "category",
       label: "Mood: 3/5",
       notes: null,
       loggedAt: `2026-08-17T${String(9 + (i % 12)).padStart(2, "0")}:00:00.000Z`,
     }));
     const twentyFirst = {
       id: "mood-20",
-      type: "category",
       label: "Mood: 5/5",
       notes: null,
       loggedAt: "2026-08-16T09:00:00.000Z",
     };
-    const fetchMock = vi.fn().mockImplementation((url: string) => {
+    const fetchMock = mockHistoryFetch((url) => {
       if (url.includes("offset=20")) {
-        return Promise.resolve(
-          jsonResponse(200, { entries: [twentyFirst], limit: 20, offset: 20, hasMore: false }),
-        );
+        return jsonResponse(200, { entries: [twentyFirst], limit: 20, offset: 20, hasMore: false });
       }
-      return Promise.resolve(
-        jsonResponse(200, { entries: firstPage, limit: 20, offset: 0, hasMore: true }),
-      );
+      return jsonResponse(200, { entries: firstPage, limit: 20, offset: 0, hasMore: true });
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -340,30 +356,26 @@ describe("HistoryPage", () => {
   });
 
   it("collapses one date group without affecting another", async () => {
-    const fetchMock = vi.fn().mockImplementation(() =>
-      Promise.resolve(
-        jsonResponse(200, {
-          entries: [
-            {
-              id: "mood-1",
-              type: "category",
-              label: "Mood: 4/5",
-              notes: null,
-              loggedAt: "2026-08-17T14:00:00.000Z",
-            },
-            {
-              id: "category-1",
-              type: "category",
-              label: "Exercise: Done",
-              notes: null,
-              loggedAt: "2026-08-16T14:00:00.000Z",
-            },
-          ],
-          limit: 20,
-          offset: 0,
-          hasMore: false,
-        }),
-      ),
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, {
+        entries: [
+          {
+            id: "mood-1",
+            label: "Mood: 4/5",
+            notes: null,
+            loggedAt: "2026-08-17T14:00:00.000Z",
+          },
+          {
+            id: "category-1",
+            label: "Exercise: Done",
+            notes: null,
+            loggedAt: "2026-08-16T14:00:00.000Z",
+          },
+        ],
+        limit: 20,
+        offset: 0,
+        hasMore: false,
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -385,11 +397,9 @@ describe("HistoryPage", () => {
   });
 
   it("collapses the Filters section, hiding the fields but not the entry list", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() =>
-        Promise.resolve(jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false })),
-      );
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
@@ -408,7 +418,6 @@ describe("HistoryPage", () => {
   it("resolves a category entry's name via /api/categories and PATCHes the category-logs endpoint on save", async () => {
     const entry = {
       id: "cat-log-1",
-      type: "category",
       label: "Energy level: 4/5",
       notes: null,
       loggedAt: "2026-08-17T09:00:00.000Z",

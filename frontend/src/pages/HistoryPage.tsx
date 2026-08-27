@@ -4,6 +4,7 @@ import { BottomNav } from "../components/BottomNav";
 import { Button } from "../components/Button";
 import { CollapsibleSection } from "../components/CollapsibleSection";
 import { apiFetch } from "../api/client";
+import type { Category } from "../components/CategoryCreateForm";
 import { HistoryEditModal } from "./history/HistoryEditModal";
 import { ConfirmDeleteModal } from "./history/ConfirmDeleteModal";
 
@@ -70,10 +71,11 @@ function groupByDate(entries: HistoryEntry[]): Array<{ key: string; entries: His
   }));
 }
 
-function buildQuery(filters: { from: string; to: string }, offset: number) {
+function buildQuery(filters: { from: string; to: string; categoryId: string }, offset: number) {
   const params = new URLSearchParams();
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
+  if (filters.categoryId) params.set("categoryId", filters.categoryId);
   params.set("limit", String(PAGE_SIZE));
   params.set("offset", String(offset));
   return params.toString();
@@ -83,6 +85,10 @@ export function HistoryPage() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  // "" means "All categories" - not a real category id, so it's never sent as a query param
+  // (see buildQuery's own `if (filters.categoryId)` check).
+  const [categoryId, setCategoryId] = useState("");
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -92,6 +98,27 @@ export function HistoryPage() {
   const [editingEntry, setEditingEntry] = useState<HistoryEntry | null>(null);
   const [deletingEntry, setDeletingEntry] = useState<HistoryEntry | null>(null);
 
+  // Fetched once, independently of the entries themselves - the same default (non-hidden)
+  // visibility GET /api/categories already gives Dashboard/Quick Add, so a category the user has
+  // hidden doesn't clutter this filter either (its own past entries are still reachable via the
+  // date-range filter instead, the same "browse via date range" escape hatch a since-archived
+  // personal category already relies on).
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<Category[]>("/api/categories")
+      .then((res) => {
+        if (!cancelled) setCategories(res);
+      })
+      .catch(() => {
+        // A failed categories fetch only degrades the filter (no options beyond "All
+        // categories") - the entries list itself has its own independent load/error state, so
+        // this doesn't block the page from being useful.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Re-fetches from the beginning (offset 0) whenever a filter changes - a filter change means
   // the previously-loaded pages no longer reflect the current query, so they can't just be kept
   // around and appended to.
@@ -99,7 +126,7 @@ export function HistoryPage() {
     let cancelled = false;
     setLoading(true);
     setLoadError(false);
-    apiFetch<HistoryResponse>(`/api/history?${buildQuery({ from, to }, 0)}`)
+    apiFetch<HistoryResponse>(`/api/history?${buildQuery({ from, to, categoryId }, 0)}`)
       .then((res) => {
         if (cancelled) return;
         setEntries(res.entries);
@@ -114,13 +141,13 @@ export function HistoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [from, to]);
+  }, [from, to, categoryId]);
 
   async function handleLoadMore() {
     setLoadingMore(true);
     try {
       const res = await apiFetch<HistoryResponse>(
-        `/api/history?${buildQuery({ from, to }, entries.length)}`,
+        `/api/history?${buildQuery({ from, to, categoryId }, entries.length)}`,
       );
       setEntries((prev) => [...prev, ...res.entries]);
       setHasMore(res.hasMore);
@@ -198,6 +225,26 @@ export function HistoryPage() {
                 fields' natural widths happened to overflow). */}
             <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
               <div className="flex flex-col gap-1">
+                <label htmlFor="history-category-filter" className="text-sm font-medium text-text">
+                  Category
+                </label>
+                <select
+                  id="history-category-filter"
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                >
+                  <option value="">All categories</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.icon ? `${category.icon} ` : ""}
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1">
                 <label htmlFor="history-from" className="text-sm font-medium text-text">
                   From
                 </label>
@@ -225,10 +272,11 @@ export function HistoryPage() {
                 />
               </div>
 
-              {(from || to) && (
+              {(categoryId || from || to) && (
                 <Button
                   variant="secondary"
                   onClick={() => {
+                    setCategoryId("");
                     setFrom("");
                     setTo("");
                   }}
