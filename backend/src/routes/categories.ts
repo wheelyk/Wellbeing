@@ -6,6 +6,7 @@ import {
   serializeCategory,
   toPrismaCategoryValueType,
 } from "../lib/categoryValueType";
+import { purgeEligibleAt } from "../lib/categoryPurge";
 
 const createSchema = z
   .object({
@@ -85,6 +86,35 @@ categoriesRouter.get("/", async (req, res) => {
   );
 });
 
+// The caller's own soft-deleted (archived) personal categories - never a system category, which
+// only an admin can archive (see adminCategories.ts) and which this list has no opinion about.
+// This is the "Deleted categories" section's own fetch: listing what DELETE /:id below produced,
+// and what POST /:id/restore below can undo. Includes `purgeEligibleAt` (when the 30-day grace
+// period this project settled on ends) and `hasLogs`, so the frontend can tell "will be
+// permanently removed on this date" apart from "kept indefinitely, since it still has history" -
+// see the background purge job (categoryPurgeScheduler.ts) for what actually enforces that.
+categoriesRouter.get("/deleted", async (req, res) => {
+  const categories = await prisma.category.findMany({
+    where: { userId: req.userId, archivedAt: { not: null } },
+    orderBy: { archivedAt: "desc" },
+  });
+
+  const logCounts = await prisma.categoryLog.groupBy({
+    by: ["categoryId"],
+    where: { categoryId: { in: categories.map((c) => c.id) } },
+    _count: { _all: true },
+  });
+  const logCountByCategoryId = new Map(logCounts.map((row) => [row.categoryId, row._count._all]));
+
+  res.json(
+    categories.map((category) => ({
+      ...serializeCategory(category),
+      purgeEligibleAt: purgeEligibleAt(category.archivedAt as Date).toISOString(),
+      hasLogs: (logCountByCategoryId.get(category.id) ?? 0) > 0,
+    })),
+  );
+});
+
 categoriesRouter.post("/", async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -157,8 +187,15 @@ categoriesRouter.delete("/:id", async (req, res) => {
     });
   }
 
-  // Archiving, not deleting - see schema.prisma's Category.archivedAt comment for why. A repeat
-  // archive of an already-archived category is a harmless no-op, not an error.
+  // Soft-deletes, not a real (hard) delete - see schema.prisma's Category.archivedAt comment for
+  // why. A repeat delete of an already-deleted category is a harmless no-op, not an error (its
+  // 30-day grace period restarts from this moment, which is fine - nothing currently exposes a
+  // way to delete an already-deleted category anyway, since GET / stops returning it the instant
+  // this first runs). categoryPurgeScheduler.ts is what actually removes it for real, and only
+  // once it's sat archived for 30 days *and* has no logs against it - a category with real logged
+  // history is kept indefinitely rather than ever being silently erased. Until then (or until
+  // POST /:id/restore below undoes this), it behaves exactly like today's Archive already did:
+  // hidden from active use, but fully intact.
   const category = await prisma.category.update({
     where: { id: existing.id },
     data: { archivedAt: new Date() },
@@ -166,13 +203,40 @@ categoriesRouter.delete("/:id", async (req, res) => {
 
   // Any reminder targeting this category is disabled, not deleted, alongside it - a Reminder's
   // own relation to Category is Restrict (see schema.prisma), not Cascade, precisely because
-  // archiving (never a real delete) would otherwise leave it silently still "enabled" and trying
-  // to fire against a category that no longer accepts new logs.
+  // soft-deleting (not yet a real delete) would otherwise leave it silently still "enabled" and
+  // trying to fire against a category that no longer accepts new logs. Deliberately left disabled
+  // on restore too (see POST /:id/restore) rather than automatically re-enabled - see that
+  // route's own comment.
   await prisma.reminder.updateMany({
     where: { categoryId: category.id },
     data: { enabled: false },
   });
 
+  res.status(200).json(serializeCategory(category));
+});
+
+// Undoes DELETE /:id above, within its 30-day grace period - after that, categoryPurgeScheduler.ts
+// may have already removed the category for real (only if it had no logs; see that file), in
+// which case this 404s the same as any other category that doesn't exist.
+categoriesRouter.post("/:id/restore", async (req, res) => {
+  const existing = await prisma.category.findFirst({
+    where: { id: req.params.id, userId: req.userId, archivedAt: { not: null } },
+  });
+  if (!existing) {
+    return res.status(404).json({
+      error: { message: "Category not found", code: "CATEGORY_NOT_FOUND" },
+    });
+  }
+
+  const category = await prisma.category.update({
+    where: { id: existing.id },
+    data: { archivedAt: null },
+  });
+
+  // Deliberately does NOT re-enable any reminder DELETE /:id disabled above - restoring a
+  // category the caller had chosen to delete shouldn't silently start sending them notifications
+  // again without their say-so. They can re-enable a specific reminder themselves from Settings if
+  // they still want it.
   res.status(200).json(serializeCategory(category));
 });
 

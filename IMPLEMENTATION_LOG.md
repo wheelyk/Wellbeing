@@ -320,3 +320,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 ### [Unify Scale Categories to 1-7](docs/log/21-unify-scale-to-seven.md)
 
 - 2026-08-27 — Standardizing every built-in scale category onto a common 1-7 range
+
+### [Category Soft-Delete With Undo](docs/log/22-category-soft-delete-with-undo.md)
+
+- 2026-08-27 — Replacing Archive with a 30-day soft-delete, restore, and a real confirmation dialog

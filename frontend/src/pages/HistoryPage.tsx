@@ -6,7 +6,7 @@ import { CollapsibleSection } from "../components/CollapsibleSection";
 import { apiFetch } from "../api/client";
 import type { Category } from "../components/CategoryCreateForm";
 import { HistoryEditModal } from "./history/HistoryEditModal";
-import { ConfirmDeleteModal } from "./history/ConfirmDeleteModal";
+import { ConfirmDeleteModal } from "../components/ConfirmDeleteModal";
 
 export interface HistoryEntry {
   id: string;
