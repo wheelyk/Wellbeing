@@ -281,3 +281,56 @@ category, which only works once the backend can filter by `categoryId`.
 - `npx tsc --noEmit`, `npx eslint .`, `npx prettier --check .`: all clean.
 
 ---
+
+## 2026-08-27 — Task 4: Frontend — History filter UI updated to filter by category
+
+**Task:** [Phase 19, Task 4](../../Tasks.md#task-4--frontend-history-filter-ui-updated-to-filter-by-category) -
+adds the actual Category filter UI Task 3's backend work exists for. Task 2 had already removed
+the old, now-meaningless "Type" `<select>` (Medication vs. Category); this task fills that gap in
+Filters with something that actually helps - narrowing History down to one specific category's own
+entries, by name.
+
+### What was done
+
+- **`HistoryPage.tsx`**: fetches `/api/categories` once, independently of the entries list itself
+  (its own loading/error state is separate - a failed categories fetch only degrades the filter to
+  "All categories" only, it doesn't block the page). A new "Category" `<select>` in Filters lists
+  every category visible to the caller by name (with its icon, matching every other category
+  picker in this app), wired to `buildQuery`'s new `categoryId` parameter alongside the existing
+  `from`/`to`. "Clear filters" now also resets `categoryId` back to `""` ("All categories").
+- **Visibility scope**: reuses `GET /api/categories`'s own default (non-hidden) view - the same one
+  Dashboard/Quick Add already use - so a category the caller has hidden doesn't clutter this filter
+  either. Its own past entries are still reachable by clearing the category filter and narrowing by
+  date range instead, the same escape hatch an archived personal category already relies on.
+- **Tests**: `HistoryPage.test.tsx`'s shared `fetchMock` helper updated to also answer
+  `GET /api/categories` (harmless empty array by default, since most existing tests don't care
+  about the filter's own options) - one new test selects a real category from the `<select>` and
+  confirms the next `/api/history` request carries `?categoryId=`.
+
+### Why it's needed
+
+Completes the redesign Task 1-3 set up - without this, `?categoryId=` would be a working backend
+capability with no way for a user to actually reach it.
+
+### Decisions
+
+- **Categories fetched independently of entries, not gating the entries fetch on it** - a slow or
+  failed categories fetch shouldn't stop the History list itself from rendering; the filter simply
+  degrades to "All categories" only until/unless that fetch succeeds.
+
+### Verification
+
+- `npx vitest run` (frontend): full suite green - 195 tests across 30 files (1 new).
+- `npx tsc -b`, `npm run build`, `npx oxlint`, `npx prettier --check`: all clean.
+- Manual, real-browser verification via Playwright against the real running dev servers: registered
+  a fresh account, logged Mood plus two new boolean categories ("Ibuprofen" and "Exercise"),
+  confirmed all three appear in History with no filter applied, confirmed the Category `<select>`
+  lists every visible category by name, selected "Ibuprofen" and confirmed only that category's own
+  entry remained visible (Mood and Exercise both disappeared), then cleared back to "All
+  categories" and confirmed all three reappeared.
+- Re-ran the full real e2e suite (`npx playwright test`) afterward - all 4 specs still pass.
+
+This completes Phase 19 - every loggable thing in this app is now a `Category`, and History's own
+filter reflects that (by category, not by a type distinction that no longer exists).
+
+---

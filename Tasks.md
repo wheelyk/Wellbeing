@@ -516,10 +516,11 @@ longer a meaningful "type" to filter on at all once there's only one.
   the two-table merge it existed to select between.
 
 ### Task 4 — Frontend: History filter UI updated to filter by category
-- [ ] Replaces History's "Type" `<select>` (Medication / Category) with a "Category" `<select>`
-  listing every category visible to the caller by name (including former medications), wired to
-  the new `?categoryId=` param - lets a user isolate e.g. just their "Ibuprofen" entries, or just
-  "Reading," instead of the old all-or-nothing Medication/Category split.
+- [x] Adds a "Category" `<select>` to History's Filters (in place of the old "Type" one already
+  removed in Task 2), listing every category visible to the caller by name (including former
+  medications), wired to Task 3's new `?categoryId=` param - lets a user isolate e.g. just their
+  "Ibuprofen" entries, or just "Reading," instead of the old all-or-nothing Medication/Category
+  split.
 
 ---
 
