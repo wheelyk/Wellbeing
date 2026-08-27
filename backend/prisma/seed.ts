@@ -3,8 +3,12 @@
 // `userId: null` (see the `Category` model's comment in schema.prisma) - that's what makes them
 // system-wide rather than owned by a particular account. Symptom unified into Category in Phase
 // 17 (see docs/log/17-unify-mood-symptom-habit.md's Task 4 entry) - what used to be seeded as
-// `Symptom` rows here is now seeded as `SCALE` (1-10) categories instead, matching exactly how
-// that migration itself mapped each existing symptom onto Category.
+// `Symptom` rows here is now seeded as `SCALE` categories instead, matching exactly how that
+// migration itself mapped each existing symptom onto Category. Seeded at 1-7, not the original
+// 1-10 - the unify_scale_categories_to_1_7 migration (see docs/log/21-unify-scale-to-seven.md)
+// standardized every built-in scale category onto one common range; a brand-new database must
+// seed directly at the current standard, since that migration only ever rescales rows that
+// already existed at the time it ran, not ones seeded afterward.
 //
 // Run directly with `npx prisma db seed`, or automatically after `prisma migrate dev`/`reset`
 // (wired up via `migrations.seed` in prisma.config.ts).
@@ -45,7 +49,7 @@ async function main() {
         description: category.description,
         valueType: CategoryValueType.SCALE,
         scaleMin: 1,
-        scaleMax: 10,
+        scaleMax: 7,
       },
     });
     console.log(`Seeded system category: ${category.name}`);

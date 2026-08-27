@@ -25,7 +25,9 @@ test("edit an entry from History, then delete it, with real persistence across a
   await page.waitForSelector("text=Recent Mood");
 
   await page.goto("/history");
-  await page.waitForSelector("text=Mood: 3/5");
+  // Mood is a 1-7 scale (see docs/log/21-unify-scale-to-seven.md) - not the 1-5 it originally
+  // launched with, hence "/7" rather than "/5" below.
+  await page.waitForSelector("text=Mood: 3/7");
 
   // Edit: change the value and add a note, using the real shared CategoryEntryForm.
   await page.getByRole("button", { name: /^edit entry/i }).click();
@@ -34,12 +36,12 @@ test("edit an entry from History, then delete it, with real persistence across a
   await page.getByLabel(/notes/i).fill("Edited via e2e suite");
   await page.getByRole("button", { name: /save changes/i }).click();
 
-  await expect(page.getByText("Mood: 5/5")).toBeVisible();
+  await expect(page.getByText("Mood: 5/7")).toBeVisible();
   await expect(page.getByText("Edited via e2e suite")).toBeVisible();
 
   // Reload to prove this is real server-side persistence, not just local React state.
   await page.reload();
-  await expect(page.getByText("Mood: 5/5")).toBeVisible();
+  await expect(page.getByText("Mood: 5/7")).toBeVisible();
   await expect(page.getByText("Edited via e2e suite")).toBeVisible();
 
   // Delete: the real Modal-based confirmation (see PR #99), not a native window.confirm.
@@ -59,7 +61,7 @@ test("edit an entry from History, then delete it, with real persistence across a
   await page.getByRole("button", { name: /^delete$/i }).click();
   await deleteResponse;
 
-  await expect(page.getByText("Mood: 5/5")).not.toBeVisible();
+  await expect(page.getByText("Mood: 5/7")).not.toBeVisible();
   await expect(page.getByText(/nothing to show yet/i)).toBeVisible();
 
   // Reload again to prove the delete really reached the server too.

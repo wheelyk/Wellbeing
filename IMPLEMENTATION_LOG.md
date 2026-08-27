@@ -316,3 +316,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 ### [Scale Rating Wraps on Mobile](docs/log/20-scale-rating-mobile-wrap.md)
 
 - 2026-08-27 — Bug fix: wide scale categories overflowed and got clipped on mobile
+
+### [Unify Scale Categories to 1-7](docs/log/21-unify-scale-to-seven.md)
+
+- 2026-08-27 — Standardizing every built-in scale category onto a common 1-7 range

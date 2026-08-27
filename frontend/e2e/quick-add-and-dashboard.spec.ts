@@ -84,7 +84,9 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
   // page renders a near-identical value line too, and an unscoped getByText would match both
   // (Playwright's strict mode correctly rejects that as ambiguous).
   const recentEntries = page.locator("#recent-entries-content");
-  await expect(recentEntries.getByText(/Mood — 5\/5/)).toBeVisible();
+  // Mood is a 1-7 scale (see docs/log/21-unify-scale-to-seven.md) - not the 1-5 it originally
+  // launched with, hence "5/7" rather than "5/5" below.
+  await expect(recentEntries.getByText(/Mood — 5\/7/)).toBeVisible();
   await expect(recentEntries.getByText(/E2E Test Scale Category — 6\/10/)).toBeVisible();
   await expect(recentEntries.getByText(/E2E Test Medication — Done/)).toBeVisible();
   await expect(recentEntries.getByText(/E2E Test Category — Done/)).toBeVisible();

@@ -18,7 +18,7 @@ export interface Category {
 const TYPE_OPTIONS: Array<{ value: Category["valueType"]; label: string; hint: string }> = [
   { value: "boolean", label: "Yes / No", hint: "e.g. Read today" },
   { value: "numeric", label: "Number", hint: "e.g. Glasses of water" },
-  { value: "scale", label: "Scale", hint: "e.g. Energy level, 1-5" },
+  { value: "scale", label: "Scale", hint: "e.g. Energy level, 1-7" },
   { value: "duration", label: "Duration", hint: "e.g. Minutes meditated" },
 ];
 
@@ -33,10 +33,12 @@ interface CategoryCreateFormProps {
 }
 
 // A small, focused "define a category" form, supporting four value types (including "scale", a
-// bounded picker generalizing what Mood still does with its own fixed scale, and what Symptom
-// used to do with its own fixed 1-10 severity scale) - a former habit's three value types
-// (boolean/numeric/duration) are a subset of these four, since Habit (and, separately, Symptom)
-// unified into Category (see docs/log/17-unify-mood-symptom-habit.md).
+// bounded picker generalizing what Mood and Symptom each used to do with their own separate fixed
+// scale) - a former habit's three value types (boolean/numeric/duration) are a subset of these
+// four, since Habit (and, separately, Symptom and Mood) unified into Category (see
+// docs/log/17-unify-mood-symptom-habit.md). Defaults to a 1-7 range - every built-in scale
+// category was standardized onto 1-7 (see docs/log/21-unify-scale-to-seven.md), so a brand-new
+// custom one starts from the same house standard rather than an arbitrary 1-5.
 export function CategoryCreateForm({
   onCreated,
   onCancel,
@@ -46,7 +48,7 @@ export function CategoryCreateForm({
   const [icon, setIcon] = useState("");
   const [type, setType] = useState<Category["valueType"] | null>(null);
   const [scaleMin, setScaleMin] = useState("1");
-  const [scaleMax, setScaleMax] = useState("5");
+  const [scaleMax, setScaleMax] = useState("7");
   const [nameError, setNameError] = useState<string | null>(null);
   const [typeError, setTypeError] = useState<string | null>(null);
   const [scaleError, setScaleError] = useState<string | null>(null);

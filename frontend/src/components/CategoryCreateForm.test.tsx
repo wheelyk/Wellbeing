@@ -75,7 +75,7 @@ describe("CategoryCreateForm", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("creates a scale category with its bounds and an icon", async () => {
+  it("creates a scale category with its default 1-7 bounds and an icon", async () => {
     const createdCategory = {
       id: "cat-2",
       userId: "user-1",
@@ -83,7 +83,7 @@ describe("CategoryCreateForm", () => {
       icon: "⚡",
       valueType: "scale",
       scaleMin: 1,
-      scaleMax: 5,
+      scaleMax: 7,
       archivedAt: null,
       createdAt: "2026-08-23T12:00:00.000Z",
     };
@@ -102,12 +102,15 @@ describe("CategoryCreateForm", () => {
 
     const [, requestInit] = fetchMock.mock.calls[0];
     const body = JSON.parse(requestInit.body as string);
+    // 1-7, not 1-5 - a brand-new custom scale category defaults to the same house standard every
+    // built-in scale category was unified onto (see docs/log/21-unify-scale-to-seven.md), unless
+    // the user edits the bounds themselves.
     expect(body).toEqual({
       name: "Energy level",
       valueType: "scale",
       icon: "⚡",
       scaleMin: 1,
-      scaleMax: 5,
+      scaleMax: 7,
     });
   });
 
