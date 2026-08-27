@@ -24,10 +24,10 @@ separate "model" step to stack underneath.
   call all four itself and merge the results client-side, the same way `SymptomSection` and
   `HabitSection` already cross-reference two lists client-side (a log against its parent
   symptom/habit). Two things make that a worse fit here than for those sections:
-  - **Pagination.** Each existing per-type endpoint returns its *entire* list, unbounded — fine
+  - **Pagination.** Each existing per-type endpoint returns its _entire_ list, unbounded — fine
     for "this user's mood logs" (rendered inline, all at once, on the Dashboard), but wrong for
     a history view whose whole point is coping with a large amount of accumulated data over
-    time. Fetching all four *complete* lists just to show the first 20 combined entries would
+    time. Fetching all four _complete_ lists just to show the first 20 combined entries would
     mean downloading everything anyway, defeating the purpose of paginating at all.
   - **Filtering by date range across all four types at once.** The existing endpoints have no
     `from`/`to` query parameters (deliberately deferred to this exact phase — see the mood-logs
@@ -38,7 +38,7 @@ separate "model" step to stack underneath.
   like every other query in this codebase), merges them into one chronological list, and returns
   only the page actually requested. It doesn't replace the four per-type endpoints — those are
   still what the Dashboard's Quick Add sections use, and still what History's delete action
-  calls (more on that below) — it's purely an additional, read-optimized *view* over the same
+  calls (more on that below) — it's purely an additional, read-optimized _view_ over the same
   underlying data.
 
 #### What "pagination" actually means here, and why offset-based (not cursor-based)
@@ -46,18 +46,18 @@ separate "model" step to stack underneath.
 - **The problem pagination solves:** without it, "load my history" means "load literally every
   entry I have ever logged, in one response" — fine for a brand-new account with three entries,
   increasingly slow and wasteful for someone who's used this app daily for two years. Pagination
-  means the server hands back a bounded *page* of results (here, 20 by default, configurable up
+  means the server hands back a bounded _page_ of results (here, 20 by default, configurable up
   to 100 via `?limit=`) plus enough information for the client to ask for the next page.
 - **Two common styles**, and why this endpoint uses the simpler one:
   - **Offset-based** (`?limit=20&offset=40` means "skip the first 40, give me the next 20").
     Simple to reason about and to jump to an arbitrary page, but can, in the general case,
-    return duplicate or skipped rows if data is inserted/deleted *between* two page requests
+    return duplicate or skipped rows if data is inserted/deleted _between_ two page requests
     (page 2 shifts if something on page 1 was deleted in between). Used here.
   - **Cursor-based** (`?after=<opaque-token>` — "give me the 20 rows after whatever this token
     points at"). More robust against exactly the insert/delete-between-pages problem above, but
     needs a stable sort key to build the cursor from.
   - The reason cursor-based pagination was **not** used here, specifically: a cursor for this
-    endpoint would need to encode a position across *four separate tables* at once (mood logs,
+    endpoint would need to encode a position across _four separate tables_ at once (mood logs,
     symptom logs, medication logs, habit logs each have their own independent primary keys and
     insertion order) — there's no single underlying table with one natural row-ordering to point
     a cursor at, the way `GET /api/mood-logs` alone would have if it needed pagination. Building
@@ -81,9 +81,9 @@ separate "model" step to stack underneath.
   sorted streams (here, `k` = up to 4) and taking the top `N` items of the merged result — as
   long as each individual stream contributes at least its first `N` items to the merge, the
   correct top-`N` merged result is guaranteed to be produced entirely from those contributions
-  (an item that would appear in positions `N+1` or later of *its own* table's sorted order can
+  (an item that would appear in positions `N+1` or later of _its own_ table's sorted order can
   never end up in the merged top `N`, so it's safe to never fetch it in the first place). The
-  `+1` beyond `offset + limit` specifically exists to compute `hasMore` *exactly* rather than
+  `+1` beyond `offset + limit` specifically exists to compute `hasMore` _exactly_ rather than
   guessing — if the merged, capped result has more than `offset + limit` entries in it, there is
   genuinely at least one more entry beyond the current page; if it doesn't, there genuinely
   isn't, because every table was asked for one more than strictly needed and none of them had
@@ -96,10 +96,16 @@ separate "model" step to stack underneath.
 - This whole merge-then-slice happens in the Node process, in memory, not as one combined SQL
   query — deliberately: mood/symptom/medication/habit logs are four separate Postgres tables
   with no shared "all my entries" table or view to `UNION` across cheaply while also joining in
-  the symptom/medication/habit names each one needs for its display label. For the realistic
+  the symptom/medication/habit names each one needs for its display label (`UNION` is the SQL
+  keyword for stacking the results of two or more separate `SELECT` queries into one combined
+  result set — it needs each query to already be shaped compatibly, which four independently-
+  structured log tables aren't without first reshaping each one). For the realistic
   size of a single user's paginated history (a handful of small queries capped at roughly 100
   rows each, worst case), doing the merge in application code is simple, correct, and fast
-  enough — a materialized cross-table view is a reasonable future optimization if history sizes
+  enough — a materialized cross-table view (a database object that stores the _precomputed_
+  result of a query on disk, refreshed on some schedule, so reading it is fast even though
+  building it isn't — unlike a plain view, which just re-runs its underlying query fresh every
+  time) is a reasonable future optimization if history sizes
   or query volume ever demand it, not something this MVP needs yet.
 
 #### Why the response includes a `label`, not raw per-type fields
@@ -108,8 +114,8 @@ separate "model" step to stack underneath.
   the frontend format them for display (see `MoodSection.tsx`'s inline `Mood {log.mood}/5`,
   `HabitSection.tsx`'s `formatHabitValue`, and so on) — each Section component already knows how
   to render its own one log type. `GET /api/history` is different because a single response
-  mixes *four* differently-shaped rows together, and — critically — a symptom log's meaningful
-  display value depends on a *second* table (the symptom's `name`, via `symptomId`) exactly the
+  mixes _four_ differently-shaped rows together, and — critically — a symptom log's meaningful
+  display value depends on a _second_ table (the symptom's `name`, via `symptomId`) exactly the
   way `SymptomSection` already resolves it client-side today. Rather than have the History page
   re-implement all four of those formatting rules (and separately fetch symptoms/medications/
   habits just to resolve names, defeating some of the point of a single unified endpoint), the
@@ -119,16 +125,16 @@ separate "model" step to stack underneath.
   only ever needs to render `entry.label` plus the small amount of shared metadata (`type`,
   `notes`, `loggedAt`, `id`) every entry has regardless of type.
 
-#### Grouping by date is a *frontend* concern, on purpose
+#### Grouping by date is a _frontend_ concern, on purpose
 
 - Tasks.md's wording is "listing past entries... grouped by date." The actual grouping (turning
   a flat, time-sorted list into `{ "Monday, 17 August 2026": [...], "Sunday, 16 August 2026":
-  [...] }`-shaped buckets for display) happens entirely in `HistoryPage.tsx`'s `groupByDate`
+[...] }`-shaped buckets for display) happens entirely in `HistoryPage.tsx`'s `groupByDate`
   helper, not in the API response. The backend's only job is returning entries in the right
-  *order* — grouping is a pure, cheap, presentation-only transformation of an already-sorted
+  _order_ — grouping is a pure, cheap, presentation-only transformation of an already-sorted
   list, and doing it client-side means the API stays simple (a flat paginated list, the same
   shape every other list endpoint in this app already returns) rather than needing to reason
-  about "what if a page boundary falls in the middle of a day's entries" as a *server-side*
+  about "what if a page boundary falls in the middle of a day's entries" as a _server-side_
   concern (it doesn't need to — the frontend just re-groups the flat list it has after every
   fetch, including after "Load more" appends a new page onto the end).
 - One deliberate subtlety: grouping uses each entry's **local calendar date** (the viewer's
@@ -163,7 +169,7 @@ separate "model" step to stack underneath.
   thing that satisfies "a lightweight confirmation" without inventing a one-off custom dialog
   component ahead of that later, shared piece of work.
 
-#### Why editing is *not* built here, on purpose — not an oversight
+#### Why editing is _not_ built here, on purpose — not an oversight
 
 - `requirements.md` §9 lists "Edit entries" as a History requirement, and Tasks.md's Phase 9
   checklist literally says "tapping opens edit." **This PR deliberately does not build that.**
@@ -180,22 +186,22 @@ separate "model" step to stack underneath.
 - Concretely: every entry in the History list renders a visible, disabled **Edit** button
   (`title="Editing is coming soon"`, with a matching `aria-label`) right next to the working
   Delete button, plus a `// TODO(history-edit): wire this up once the pre-filled entry-edit
-  forms land (see Tasks.md Phase 7...)` comment at the exact spot in `HistoryPage.tsx` where the
-  click handler will eventually go. The button being *visible but disabled*, rather than simply
+forms land (see Tasks.md Phase 7...)` comment at the exact spot in `HistoryPage.tsx` where the
+  click handler will eventually go. The button being _visible but disabled_, rather than simply
   absent, is itself a small deliberate choice: it signals to anyone using the app (or reading
   the code) that editing is a known, planned, near-term capability — not a feature nobody
   thought of yet.
 - **Tasks.md reflects this explicitly, not silently.** The Phase 9 checklist item covering this
   ("Each entry shows type, value, and time; tapping opens edit; a delete affordance is available
   with confirmation") is checked off with an inline note that the "opens edit" half specifically
-  remains unimplemented and why — see the *What was done* section below and the diff of
+  remains unimplemented and why — see the _What was done_ section below and the diff of
   `Tasks.md` in this PR.
 
 ### What was done
 
 1. **`backend/src/routes/history.ts` (new).** A single `GET /` route (mounted at
    `/api/history`, behind `requireAuth`, in `app.ts`): validates `?type=mood|symptom|
-   medication|habit` (optional), `?from=`/`?to=` (optional, `YYYY-MM-DD`, `from` must not be
+medication|habit` (optional), `?from=`/`?to=` (optional, `YYYY-MM-DD`, `from` must not be
    after `to`), and `?limit=`/`?offset=` (optional, `limit` capped at 100, defaulting to 20) via
    Zod; queries the four relevant tables in parallel (`Promise.all`), each scoped to
    `req.userId` and the date range, each with the type-specific `include` needed to resolve a
@@ -271,7 +277,7 @@ separate "model" step to stack underneath.
     value, and time; tapping opens edit; a delete affordance is available with confirmation")
     is checked off too, since type/value/time/delete are all genuinely done — with an inline
     note that "opens edit" is intentionally deferred to the shared Phase 7 edit-forms task, per
-    the *Decisions* section below, so a future reader sees a deliberate choice, not a dropped
+    the _Decisions_ section below, so a future reader sees a deliberate choice, not a dropped
     requirement.
 
 ### Why it's needed
@@ -302,7 +308,7 @@ straightforward to locate an entry from a previous day."
   duplicate four separate formatting rules (and their name-resolution joins) that already exist,
   in slightly different form, across the four Dashboard Section components.
 - **Grouping by date is frontend-only.** The API returns a flat, correctly-sorted, paginated
-  list; turning that into date-headed groups (using the *viewer's local* calendar date, not UTC)
+  list; turning that into date-headed groups (using the _viewer's local_ calendar date, not UTC)
   is a cheap, pure, presentation-layer concern that doesn't need to complicate the API's shape or
   reasoning about page boundaries falling mid-day.
 - **Delete reuses the four existing per-type endpoints; there is no `DELETE /api/history/:id`.**
@@ -334,7 +340,7 @@ connect once the shared, pre-filled edit-forms task lands.
 ### Verification
 
 - Backend: `npm test` (`vitest run`) — 121/121 passing (111 pre-existing, 10 new). `npm run
-  build` — compiled cleanly. `npx eslint .` / `npx prettier --check .` — both clean.
+build` — compiled cleanly. `npx eslint .` / `npx prettier --check .` — both clean.
 - Frontend: `npm test` (`vitest run`) — 77/77 passing (69 pre-existing, 8 new). `npm run build`
   — compiled cleanly. `npm run lint` (`oxlint`) / `npx prettier --check .` — both clean (one
   pre-existing, unrelated warning noted above).
@@ -360,11 +366,11 @@ specific to History.
 #### "A calendar day" is not a universal, timezone-free fact
 
 A person doesn't experience "Tuesday" as a fixed slice of UTC time — they experience it as
-midnight-to-midnight *in whatever timezone they're physically in*. Two users can be logging an
+midnight-to-midnight _in whatever timezone they're physically in_. Two users can be logging an
 entry at the exact same real-world instant and genuinely be on two different calendar days from
 each other (11pm in New York is already past midnight the next day in London). This app already
 had to solve this correctly once, for Dashboard's "today" and Trends' "last 7/30/90 days" — see
-`backend/src/lib/timezone.ts`'s `getDayRangeUtc`, which takes a `"YYYY-MM-DD"` string *and* a
+`backend/src/lib/timezone.ts`'s `getDayRangeUtc`, which takes a `"YYYY-MM-DD"` string _and_ a
 user's own stored IANA timezone (`America/New_York`, `Europe/London`, etc.) and returns the exact
 UTC instant range that calendar day actually spans for that specific person.
 
@@ -381,7 +387,7 @@ loggedAt: {
 }
 ```
 
-This silently assumes the caller's "day" *is* UTC's day — true only for a user whose stored
+This silently assumes the caller's "day" _is_ UTC's day — true only for a user whose stored
 timezone happens to be UTC itself. Coincidentally, that's exactly the default every account
 starts with (`schema.prisma`'s `User.timezone` default), which is a big part of why this went
 unnoticed: every account anyone had tested by hand had also stayed on that same default.
@@ -390,14 +396,14 @@ unnoticed: every account anyone had tested by hand had also stayed on that same 
 
 Take a user whose stored timezone is `America/New_York` (UTC−5 in February, no DST). Their real
 calendar day "Feb 1" spans `2026-02-01T05:00:00.000Z` through `2026-02-02T05:00:00.000Z` in UTC —
-*not* `2026-02-01T00:00:00.000Z` through `2026-02-01T23:59:59.999Z`, which is what the naive code
+_not_ `2026-02-01T00:00:00.000Z` through `2026-02-01T23:59:59.999Z`, which is what the naive code
 above actually queried. Two concrete failures fall out of that mismatch:
 
 - An entry logged at `2026-02-01T02:00:00.000Z` (9pm on **Jan 31** in New York) has a UTC date
-  that already reads "Feb 1" — the naive filter's `gte` boundary wrongly *includes* it in a
+  that already reads "Feb 1" — the naive filter's `gte` boundary wrongly _includes_ it in a
   `from: "2026-02-01"` search, even though the user never logged anything on Feb 1 at that point.
 - An entry logged at `2026-02-02T02:00:00.000Z` (9pm on **Feb 1** in New York) has a UTC date that
-  already reads "Feb 2" — the naive filter's `lte` boundary wrongly *excludes* it from a
+  already reads "Feb 2" — the naive filter's `lte` boundary wrongly _excludes_ it from a
   `to: "2026-02-01"` search, even though it's genuinely one of the user's real Feb 1 entries.
 
 Both directions are real: the bug doesn't just shift a boundary one way, it can simultaneously
@@ -410,7 +416,7 @@ leak in entries that don't belong and hide entries that do.
    that had never been routed through it.
 2. Confirmed no existing test could have caught this: every `history.test.ts` account is created
    via a shared `registerAndLogin` helper that never sets a custom timezone, so every test account
-   silently stays on the UTC default the whole mismatch depends on being *absent* to trigger.
+   silently stays on the UTC default the whole mismatch depends on being _absent_ to trigger.
 3. **Reproduced the bug with a real regression test first**, using `America/New_York` specifically
    (not UTC) and three log entries placed deliberately on the "wrong side" of the naive boundary
    described above — confirmed it failed against the unpatched code (returning the wrong two of
@@ -424,7 +430,7 @@ leak in entries that don't belong and hide entries that do.
 ### Why it's needed
 
 Any feature that lets a user filter or query by a bare calendar-date string needs to answer "whose
-calendar, exactly?" — and for an app whose *entire product* is "correctly attribute an entry to
+calendar, exactly?" — and for an app whose _entire product_ is "correctly attribute an entry to
 the day it happened," silently defaulting to the server's own timezone (or, as here, to UTC) is
 never actually a neutral, safe default. It's a wrong answer that happens to look right for exactly
 one specific timezone and wrong for everyone else — which is precisely what made it invisible

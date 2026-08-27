@@ -25,9 +25,9 @@ own." A former medication's dosage is exactly that kind of context, so it moves 
 
 #### Why the reminder migration remaps (not drops) - the cleanest case of the four
 
-Habit and Symptom's own migrations *dropped* any existing reminder targeting them, on the
+Habit and Symptom's own migrations _dropped_ any existing reminder targeting them, on the
 reasoning that there was no single unambiguous destination category for a whole-type reminder.
-Mood's migration *remapped* instead, since there was always at most one `MOOD`-target reminder per
+Mood's migration _remapped_ instead, since there was always at most one `MOOD`-target reminder per
 user with exactly one destination (the new system Mood category). Medication is actually the
 cleanest remap case of all: because each medication becomes its own category (reusing its own id,
 the same 1:1 mapping `habit_to_category` used), a `MEDICATION`-target reminder pointing at
@@ -58,9 +58,12 @@ the same 1:1 mapping `habit_to_category` used), a `MEDICATION`-target reminder p
     were there to log today" denominator the way the original built-ins did, so a plain count is
     the honest replacement. `recentEntries` and the streak's lookback query both simplified from a
     two-table merge (medication logs + category logs) down to a single `categoryLog` query.
-  - `history.ts`: simplified from a two-table k-way merge down to a single sorted `categoryLog`
-    query with a plain `skip`/`take` - the `?type=` filter is dropped entirely here (see Task 3 for
-    its replacement, `?categoryId=`).
+  - `history.ts`: simplified from a two-table k-way merge (fetching a page from each of several
+    already-sorted tables, then interleaving them back into one combined, still-sorted list in
+    application code - the same idea as merging several sorted decks of cards into one) down to a
+    single sorted `categoryLog` query with a plain `skip`/`take` (the standard SQL pagination
+    pattern: skip past the entries already shown, then take only the next page's worth) - the
+    `?type=` filter is dropped entirely here (see Task 3 for its replacement, `?categoryId=`).
   - `export.ts`: drops the dedicated `medications`/`medicationLogs` fields - the already-generic
     `categories`/`categoryLogs` fields cover former medications for free.
   - `reminderTarget.ts`: `"medication"` removed from `API_REMINDER_TARGETS`.
@@ -113,7 +116,10 @@ Medication/Category type filter stops making sense the moment there's only one t
 - `npx tsc --noEmit`, `npx eslint .`, `npx prettier --check .`: all clean.
 - Manual, real-database verification (not just "the migration ran without erroring"): ran the
   migration against the local dev database (which already held real medications/medication logs
-  and reminders from earlier manual testing sessions), then queried directly via `psql`:
+  and reminders from earlier manual testing sessions), then queried directly via `psql` (Postgres's
+  own command-line client for typing SQL queries straight at the database, bypassing the backend
+  API entirely - used here so the check can't share any blind spot with the application code being
+  verified):
   confirmed `medications`/`medication_logs` tables no longer exist; confirmed every migrated
   `BOOLEAN` category and its logs landed in `categories`/`category_logs` (75 boolean categories,
   73 of their own logs, counts consistent with what existed pre-migration); confirmed every
@@ -135,7 +141,11 @@ its own "Recent `<name>`" Dashboard card (Phase 18), a manage/archive row in Set
 
 #### A pre-existing race the Quick Add simplification exposed
 
-Once Medication was the *only* other item next to "More…" in `QuickAddFab`'s dropdown, removing
+("Race," short for race condition: a bug where two things - here, a click handler running, and a
+data fetch resolving - can finish in either order depending on timing, and the code only behaves
+correctly if one of them happens to win.)
+
+Once Medication was the _only_ other item next to "More…" in `QuickAddFab`'s dropdown, removing
 it left a single-item menu - clear friction for one possible destination, so `QuickAddFab`
 collapsed to a single button that dispatches the quick-add event directly, no intermediate menu at
 all. This incidentally shortened the real-world delay between a user's click and `CategorySection`

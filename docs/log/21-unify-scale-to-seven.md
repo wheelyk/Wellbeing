@@ -20,8 +20,11 @@ This project already faced almost this exact question once before, for Energy/St
   entry. That earlier discussion rejected 1-10 in favor of 1-7 for two independent reasons: a mobile
   _layout_ argument (10 buttons didn't fit one row), and a **genuine midpoint** argument (an
   odd-sized scale like 1-7 has a true center value - 4 - which an even-sized one like 1-10 doesn't;
-  7-point Likert-style scales are a standard, validated choice for subjective self-ratings for
-  exactly this reason). The mobile-wrap fix in the entry just before this one only addresses the
+  7-point Likert-style scales (a Likert scale is the standard "rate this on a fixed numbered scale"
+  survey format - e.g. "1 = strongly disagree" through "5/7 = strongly agree" - widely used and
+  studied for reliably measuring subjective things like opinions or mood) are a standard, validated
+  choice for subjective self-ratings for exactly this reason). The mobile-wrap fix in the entry just
+  before this one only addresses the
   first reason - the midpoint argument is completely independent of screen space, and still favors
   7 over 10 on its own merits. That's why this was worth re-raising rather than treating the wrap
   fix as the end of the story.
@@ -66,8 +69,10 @@ the right answer once."
      for its derivation).
    - Updates each affected category's own `scale_max` to `7` (Mood was `5`, the severity
      categories were `10`; Energy and Stress are already `7` and untouched).
-   - **Built to be naturally idempotent this time**, unlike the migration that prompted the
-     Lessons Learned entry above: each rescale `UPDATE` is gated in its own `WHERE` clause on the
+   - **Built to be naturally idempotent this time** (see the [Glossary](../GLOSSARY.md)'s
+     "Idempotent" entry - it means running something more than once produces the same end result
+     as running it once), unlike the migration that prompted the Lessons Learned entry above: each
+     rescale `UPDATE` is gated in its own `WHERE` clause on the
      category's _current_ `scale_max` (`5` for Mood, `10` for the severities) - once the second
      half of the migration flips that to `7`, the exact same gate makes an accidental second run
      of the whole file a genuine no-op, rather than silently re-interpreting an already-rescaled
@@ -108,11 +113,16 @@ three different ranges that happened to share the same UI.
   today, not silently become "10/7" (out of bounds) or ambiguously "read as a 10 out of some
   unstated older scale." Preserving relative position matters more here than preserving the
   literal old digit.
-- **A linear 1-10 -> 1-7 mapping, rounded to the nearest integer** (`1 + (old-1) * 6/9`, rounded).
-  Endpoints land exactly (`1->1`, `10->7`); every intermediate value's fractional part is either
-  `.333` or `.667`, never exactly `.5`, so - unlike the original 1-5 -> 1-7 mapping - this one has
-  no round-half tie-break ambiguity to get wrong in the first place. Still verified against real
-  data rather than trusted by inspection (see _Verification_).
+- **A linear 1-10 -> 1-7 mapping, rounded to the nearest integer** - "linear" here just means each
+  old value is stretched or compressed onto the new range by the same fixed proportion throughout,
+  the way you'd evenly compress a 10cm ruler's markings onto a 7cm one, rather than compressing some
+  parts of the range more than others (`1 + (old-1) * 6/9`, rounded). Endpoints land exactly
+  (`1->1`, `10->7`); every intermediate value's fractional part is either `.333` or `.667`, never
+  exactly `.5`, so - unlike the original 1-5 -> 1-7 mapping - this one has no round-half tie-break
+  ambiguity (a case where a fraction lands exactly halfway between two whole numbers, e.g. `2.5`,
+  so "round up" vs. "round down" both seem equally reasonable and the choice has to be made
+  explicit) to get wrong in the first place. Still verified against real data rather than trusted
+  by inspection (see _Verification_).
 - **Gate each rescale `UPDATE` on the category's current bounds, making the whole migration
   naturally idempotent**, rather than repeating the earlier migration's approach of documenting
   non-idempotency as an accepted risk. A small amount of extra care in the `WHERE` clause converts
@@ -136,7 +146,9 @@ three different ranges that happened to share the same UI.
   reported `0` rows affected the second time, confirming the current-bounds gating works as
   designed - no double-shift occurred.
 - Test fixtures (one throwaway user and its category logs) were fully cleaned up afterward via a
-  cascading delete of the test user.
+  cascading delete of the test user (see the [Glossary](../GLOSSARY.md)'s "Cascading delete" entry -
+  deleting the user row automatically deleted every `category_logs` row that referenced it too, with
+  no separate manual cleanup step needed).
 - `npm test` (backend): full suite green - 202 tests across 19 files.
 - `npx vitest run` (frontend): full suite green - 195 tests across 30 files (1 updated for the new
   default).

@@ -49,7 +49,7 @@ deployment quirk this branch caused and how it was fixed.
    npm run dev
    ```
    (`npm run dev` itself doesn't apply migrations automatically — only the production `npm
-   start` script does, via `prisma migrate deploy`.)
+start` script does, via `prisma migrate deploy`.)
 4. Copy `frontend/.env.example` to `frontend/.env` (the default already points at the backend's
    local dev URL, `http://localhost:4000`).
 5. Install and run the frontend:
@@ -65,7 +65,9 @@ Each project also has `npm test`, `npm run lint`, `npm run format:check` — see
 
 ## Status
 
-Early-stage MVP under active development. See [Tasks.md](Tasks.md) for the current
+Early-stage MVP (Minimum Viable Product — the smallest version of the app that's genuinely usable
+end to end, built first so real feedback can shape what gets added next) under active
+development. See [Tasks.md](Tasks.md) for the current
 implementation plan and progress. A live deployment tracking `main` runs at
 [wellbeing-blue.vercel.app](https://wellbeing-blue.vercel.app) (frontend, on Vercel), backed by
 a Node/Express API on Railway.

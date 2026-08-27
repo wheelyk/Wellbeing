@@ -156,7 +156,10 @@ Verification below) rather than left as a theoretical fix.
    `requireAuth`): validates an optional `?date=` with Zod, fetches the caller's `timezone`,
    resolves the target calendar day, and returns `{ date, mood, symptomCount,
 medicationSummary, habitSummary, recentEntries, streak }` — all four log tables queried
-   in parallel via `Promise.all`, all scoped to `req.userId`. `recentEntries` merges the ten
+   in parallel via `Promise.all` (a built-in JavaScript function that kicks off several
+   asynchronous operations at once and waits for every one of them to finish, rather than running
+   them one after another and paying each one's wait time in sequence), all scoped to
+   `req.userId`. `recentEntries` merges the ten
    most recent rows from each of the four log tables, sorts them together by `loggedAt`, and
    caps the combined result at 10. Covered by `dashboard.test.ts`: missing-token rejection,
    malformed `?date=`, an empty-but-well-formed response for a brand-new user, a full
@@ -311,9 +314,11 @@ A day with no entry is plotted as a gap in the line, not bridged by a straight l
 real reading. Drawing a continuous line across several unlogged days would visually suggest a
 smooth, gradual trend on days when, in reality, nothing is known at all — exactly the kind of
 unsupported implication requirements §10/§14 rule out ("must avoid claiming that one factor causes
-another," "descriptive rather than diagnostic"). `TrendLineChart.tsx` builds the SVG path as
-several separate contiguous segments (broken at every `null`), rather than one path spanning the
-whole period.
+another," "descriptive rather than diagnostic"). `TrendLineChart.tsx` builds the SVG (Scalable
+Vector Graphics — an XML-based format for drawing shapes/lines/text directly in the browser,
+resolution-independent, which is what this hand-rolled chart draws itself with instead of a
+`<canvas>` or an image) path as several separate contiguous segments (broken at every `null`),
+rather than one path spanning the whole period.
 
 #### A real accessibility bug caught only by testing the hit targets, not by reading the code
 
@@ -650,30 +655,31 @@ opposite of what should happen.
   committed.
 
 ---
+
 ## 2026-08-18 — Dashboard redesign: paginating "Recent entries" too, own panels, and collapsible lists
 
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a follow-up design request, prompted
 directly by a screenshot of the real running app: the unified "Recent entries" summary box was
 still an unbounded-feeling fixed top-10 (see the pagination entry above, which only paginated the
-four *per-type* lists), and a question about whether the four sections below it should look and
+four _per-type_ lists), and a question about whether the four sections below it should look and
 behave more like distinct panels, collapsible for a long page.
 
 ### Background / concepts
 
 #### Why the unified "Recent entries" list can't reuse `fetchPage` as-is
 
-The per-type pagination entry above's `fetchPage()` helper works because it's pointed at *one*
+The per-type pagination entry above's `fetchPage()` helper works because it's pointed at _one_
 Prisma table: ask for `limit + 1` rows, `skip: offset`, done. `GET /api/dashboard`'s
 `recentEntries` is fundamentally different — it's a merge of the four separately-sorted log
-tables into one time-ordered list, and the row at merged position `offset` could come from *any*
+tables into one time-ordered list, and the row at merged position `offset` could come from _any_
 of them. Naively doing `take: offset + limit, skip: offset` on each table independently doesn't
 work: if, say, every entry between position 0 and `offset` happens to be a mood log, skipping
-`offset` rows *per table* skips far more than the merge actually needs from that table, and
+`offset` rows _per table_ skips far more than the merge actually needs from that table, and
 under-fetches from the others. The fix pulls the same "ask for one more than needed" idea from
-`fetchPage`, just applied *before* the merge instead of after: each of the four tables is asked
+`fetchPage`, just applied _before_ the merge instead of after: each of the four tables is asked
 for its own most recent `offset + limit + 1` rows (covering the worst case where a single type
 accounts for every entry up to one past the page), the results are merged and sorted once, and
-*then* sliced to `[offset, offset + limit)` — with `hasMore` computed from whether anything landed
+_then_ sliced to `[offset, offset + limit)` — with `hasMore` computed from whether anything landed
 past that slice.
 
 #### Why "Load more" on this specific list can't just append a second page
@@ -683,7 +689,7 @@ fetches once on mount and never refetches on its own after that — "Load more" 
 second page to what's already there. `DashboardSummary` is different: it already polls
 `GET /api/dashboard` every `POLL_INTERVAL_MS` (10s) to keep its counts fresh (see the original
 Phase 4/8 entry's own reasoning for why). If "Load more" here also just appended a second page,
-the *next* poll tick would refetch page one at the default limit and overwrite it, silently
+the _next_ poll tick would refetch page one at the default limit and overwrite it, silently
 snapping the list back down to 10 entries a few seconds after a user expanded it — a real,
 easy-to-miss interaction bug that only shows up on the one component in this app that already
 refetches state it doesn't own the pagination progression for. The fix: instead of tracking a
@@ -696,9 +702,12 @@ because it's asking with the same larger limit, not resetting to a smaller defau
 #### The first use of `localStorage` in this app, and why that's fine here
 
 Every earlier entry in this log that touches persistence (see the 2.2/2.3 auth entries) is about
-*deliberately not* persisting something — the access token lives in memory only, specifically
-because anything a page's own JavaScript can read isn't safe from XSS, so the blast radius of a
-leak is capped at 15 minutes rather than indefinite. A collapsed/expanded UI preference for a
+_deliberately not_ persisting something — the access token lives in memory only, specifically
+because anything a page's own JavaScript can read isn't safe from XSS (cross-site scripting — a
+vulnerability class where an attacker manages to get their own malicious JavaScript to run inside
+your page, e.g. by sneaking it into content that gets rendered without proper escaping; once that
+happens, that injected script can read anything the page's legitimate JavaScript could), so the
+blast radius of a leak is capped at 15 minutes rather than indefinite. A collapsed/expanded UI preference for a
 Dashboard panel carries none of that risk profile — there's nothing sensitive in "the user
 collapsed the Symptom section" — so persisting it in `localStorage` (`useCollapsedState.ts`) is a
 plain usability win, not an exception carved into that earlier, deliberately strict rule.
@@ -725,7 +734,7 @@ plain usability win, not an exception carved into that earlier, deliberately str
    `[collapsed, toggle]` pair, one per section (keyed by a per-section string), degrading
    gracefully (falls back to in-memory-only) if `localStorage` throws — covers real private-
    browsing/storage-disabled cases, and, incidentally, this exact test environment (see
-   *Verification* below).
+   _Verification_ below).
 6. **`MoodSection`/`SymptomSection`/`MedicationSection`/`HabitSection`** all rewired onto
    `SectionPanel`, and switched from `toLocaleString()` to `formatEntryDateTime`.
 
@@ -772,7 +781,7 @@ them.
   all (`TypeError: ... is not a function`), apparently Node's own experimental global storage
   shadowing jsdom's real implementation, inert without a `--localstorage-file` flag neither Vitest
   nor this project's config supplies. `useCollapsedState`'s existing try/catch fallback (written
-  for real private-browsing scenarios) degrades through this cleanly on its own, but *testing*
+  for real private-browsing scenarios) degrades through this cleanly on its own, but _testing_
   actual persistence needed a real, working `Storage` stubbed in via `vi.stubGlobal` rather than
   relying on the environment's own broken one.
 - Real end-to-end check against a live, Postgres-backed dev server: registered a throwaway user,
@@ -789,6 +798,7 @@ them.
   from the session-rehydration fix — not a regression here.
 
 ---
+
 ## 2026-08-19 — Inline icon "+ Add" buttons and a floating Quick Add across all four sections
 
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a follow-up to yesterday's panel
@@ -820,7 +830,7 @@ The two designs under review were genuinely different answers to "where does add
 live": one moved each section's own button into its collapsible header row (as a small icon
 button instead of a text pill, freeing horizontal space); the other removed per-section buttons
 entirely in favor of one floating global button. Asked to build both, not pick between them - so
-a section now has *two* ways to start logging: its own inline icon button (fast, if you're already
+a section now has _two_ ways to start logging: its own inline icon button (fast, if you're already
 looking at that section) and the floating button (fast, if you're not - jumps to any section
 without scrolling there by hand first). They're not actually redundant once you consider "I'm
 already on Mood" versus "I want to log a Habit but I'm scrolled down past it" as different starting
@@ -830,7 +840,7 @@ points.
 
 Each section panel can be collapsed (see yesterday's entry) independently of whether its "+ Add"
 icon has been clicked. If the icon button only called its section's existing
-`setShowForm(true)`-style handler, clicking it on a *collapsed* section would open the form inside
+`setShowForm(true)`-style handler, clicking it on a _collapsed_ section would open the form inside
 a `display: none` region — visibly nothing would happen. `useCollapsedState` gained a third
 control, `expand()` (alongside the existing `collapsed`/`toggle`), specifically for this: the icon
 button's `onClick` calls `expand()` and then the section's own add-handler, in that order, so the
@@ -858,7 +868,10 @@ otherwise have.
 2. **`SectionPanel`** redesigned: the "+ Add" control is now a small icon button
    (a plain "+", `aria-label`'d per section, e.g. "Add mood entry") living in the same
    always-visible header row as the title and collapse chevron, sized `h-11 w-11` (44px) to meet
-   the WCAG 2.5.5 minimum touch target despite the compact 20px icon inside it — the mockup's own
+   the WCAG (Web Content Accessibility Guidelines — the standard this project's accessibility work
+   is checked against, see the audit entry in
+   [Security & Accessibility Audits](12-security-and-accessibility-audits.md)) 2.5.5 minimum touch
+   target despite the compact 20px icon inside it — the mockup's own
    icon button was sized for a small phone-frame graphic, not a real thumb, and real-device
    verification below is what caught that gap. The panel's outer `<section>` also gained
    `id="dashboard-section-<key>"`, purely as a scroll target for the new FAB.
@@ -888,18 +901,18 @@ answer to "which one wins," not a placeholder for deciding later.
   use - a narrower, purpose-built addition rather than a second `useForceExpand` hook duplicating
   the same `localStorage` read/write logic.
 - **The FAB is viewport-`fixed`, matching this app's actual (not aspirational) responsive
-  approach.** Documented under *Background* above - this app doesn't have per-breakpoint layouts
+  approach.** Documented under _Background_ above - this app doesn't have per-breakpoint layouts
   to design the FAB around, so it doesn't invent one.
 - **44px (`h-11 w-11`) touch targets on the icon buttons, not the mockup's 26px.** A real-device
   check (not just eyeballing the static comparison mockup) is what caught this - see
-  *Verification*.
+  _Verification_.
 
 ### Verification
 
 - `npm test` (frontend): 139/139 passing. Updated every existing test asserting the old `"+ Mood"`/
   `"+ Habit"`/`"+ Symptom"`/`"+ Medication"` text-button role query to the new `aria-label`-based
   one (`"Add mood entry"`, etc.); added a `SectionPanel` test specifically for the force-expand
-  behavior (clicking Add while collapsed both fires the callback *and* reveals the content, not
+  behavior (clicking Add while collapsed both fires the callback _and_ reveals the content, not
   just one or the other); added parity "opens the entry form when the add button is clicked" tests
   to `MoodSection`/`MedicationSection`, which - discovered while fixing the other two - had never
   actually covered that interaction even before this change; new `QuickAddFab.test.tsx` (menu
@@ -910,11 +923,11 @@ answer to "which one wins," not a placeholder for deciding later.
   because this was asked for directly ("I want to see how this looks in mobile devices"): seeded
   one entry per type for a throwaway user, then drove the actual frontend through a headless
   browser at 375px (iPhone SE), 390px (iPhone 14), and 768px (tablet) widths. Confirmed no
-  horizontal overflow at any width; confirmed clicking a *collapsed* section's icon "+ Add" both
+  horizontal overflow at any width; confirmed clicking a _collapsed_ section's icon "+ Add" both
   expands it and shows the form (the `expand()` behavior, seen working, not just unit-tested);
   confirmed the FAB menu opens and a menu item click genuinely scrolls the page (isolated with a
   clean page load after the first pass showed no `scrollY` change - traced to the medication
-  section already being scrolled into view from *prior* steps in that same run, not a real bug,
+  section already being scrolled into view from _prior_ steps in that same run, not a real bug,
   confirmed by re-checking the section's bounding-box position moved from off-screen to
   near-top). A `fullPage: true` screenshot initially made the fixed FAB look like it was
   overlapping list content mid-page - a screenshot-stitching artifact of how `fullPage` captures
@@ -1078,7 +1091,10 @@ The inline form had a real, structural problem beyond how it looked: it lived in
 change). That coupling is what forced `expand()` to be called before opening the form — there was
 no way to show the form without the collapsible region itself also being open, which meant the
 entries list came along uninvited every time. A modal dialog sidesteps that entirely: it renders
-into its own layer (a React portal to `document.body`, not anywhere inside `SectionPanel`), so
+into its own layer (a React portal — React's mechanism for rendering a component's output into a
+different spot in the actual HTML tree than where it's written in the component tree, here
+`document.body` instead of nested inside `SectionPanel` — so the dialog's markup sits outside
+every parent's own layout/overflow/collapse behavior), not anywhere inside `SectionPanel`, so
 opening it has zero effect on whether that section's list is collapsed or expanded, and closing it
 leaves the list exactly as it was.
 
@@ -1108,7 +1124,10 @@ a section's own collapsed state, without touching that section's internals at al
 
 The mechanism chosen to do this, `frontend/src/lib/dashboardQuickAddEvent.ts`, still avoids lifting
 state into `DashboardPage` or introducing React Context — it's a thin wrapper around the browser's
-own `CustomEvent`/`window.dispatchEvent`/`addEventListener`, the same "plain DOM mechanism instead
+own `CustomEvent`/`window.dispatchEvent`/`addEventListener` (plain browser APIs for broadcasting a
+custom, named event from anywhere on the page and letting any other piece of code listen for it,
+with no import or direct reference needed between the sender and the listener), the same "plain
+DOM mechanism instead
 of a new state-sharing layer" instinct behind yesterday's `scrollIntoView` choice, just applied to a
 different problem: `dispatchDashboardQuickAdd("habit")` fires a `window`-level event carrying which
 log type was requested; each section calls `listenForDashboardQuickAdd("habit", handler)` in a
@@ -1138,7 +1157,7 @@ have two genuinely different correct implementations, not one:
   and nothing needs to be asked of the server again.
 - `DashboardSummary` cannot do the same trick safely. As the original Phase 4/8 entry and
   yesterday's pagination entry both explain, this component polls `GET /api/dashboard` on a timer
-  and always requests exactly `recentEntriesLimit` entries on *every* fetch, including background
+  and always requests exactly `recentEntriesLimit` entries on _every_ fetch, including background
   polls — that's what makes its own "Load more" grow a shared limit instead of appending pages (see
   yesterday's entry). A purely local truncation here would only last until the next poll tick, which
   would silently re-fetch at the old, larger limit and snap the list back to its expanded size a few
@@ -1238,7 +1257,7 @@ consistently, everywhere it existed in the app.
   `habits.length` directly.
 - Real browser verification (Playwright, against the actual running dev servers): registered a
   throwaway user and confirmed, end to end, that each section's own "+" opens a real dialog (not an
-  inline expansion) without disturbing that section's collapsed/expanded state; that a *collapsed*
+  inline expansion) without disturbing that section's collapsed/expanded state; that a _collapsed_
   section's "+" still opens its dialog correctly, now with no force-expand involved at all; that the
   FAB's menu opens each section's dialog directly from anywhere on the page, including the Habit
   item correctly routing to "create your first habit" for a brand-new user with none defined yet

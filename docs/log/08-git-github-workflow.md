@@ -12,7 +12,7 @@ and [#9](https://github.com/wheelyk/Wellbeing/pull/9) in order.
 #### What a "stacked" PR is, and why these three ended up that way
 
 - **Normally, every feature branch in this project branches off `main`** (see the very first
-  *Git Workflow* entry) — you start from the latest reviewed code, make your change, and open
+  _Git Workflow_ entry) — you start from the latest reviewed code, make your change, and open
   a PR back into `main`. That works cleanly as long as your branch doesn't need code that
   only exists on someone else's not-yet-merged branch.
 - **Tasks 2.2 → 2.3 → 2.4 broke that assumption, on purpose.** Login (2.2) added
@@ -20,7 +20,7 @@ and [#9](https://github.com/wheelyk/Wellbeing/pull/9) in order.
   but PR #7 (login) hadn't been merged into `main` yet when 2.3 was started. Branching 2.3
   off `main` at that point would mean starting from a `main` that doesn't have `lib/jwt.ts`
   at all. So instead, `feature/2.3-auth-refresh` was branched **off `feature/2.2-auth-login`
-  itself** — meaning it starts from *all* of 2.2's commits, plus its own new ones on top.
+  itself** — meaning it starts from _all_ of 2.2's commits, plus its own new ones on top.
   Same reasoning for `feature/2.4-auth-logout`, branched off `feature/2.3-auth-refresh` (it
   needs `clearRefreshTokenCookie` from 2.3's `lib/cookies.ts`). This chain — A, then B built
   on A, then C built on B, each as its own PR — is what "stacked PRs" means.
@@ -28,12 +28,12 @@ and [#9](https://github.com/wheelyk/Wellbeing/pull/9) in order.
   merged, don't start 2.4 until #8 is merged. Stacking trades that idle time for the
   bookkeeping described below — a normal, common tradeoff, not a shortcut or a mistake.
 
-#### What each PR's diff looks like *right now*, while stacked
+#### What each PR's diff looks like _right now_, while stacked
 
 - Because `feature/2.3-auth-refresh` contains 2.2's commits too, PR #8's diff (which GitHub
-  computes as "everything on this branch that isn't on the PR's *base* branch") was opened
+  computes as "everything on this branch that isn't on the PR's _base_ branch") was opened
   with its base explicitly set to `feature/2.2-auth-login`, **not** `main` — so GitHub only
-  shows 2.3's *own* new commits, not a confusing re-showing of all of 2.2's changes too. Same
+  shows 2.3's _own_ new commits, not a confusing re-showing of all of 2.2's changes too. Same
   for #9, based on `feature/2.3-auth-refresh`. This is why each PR's description explicitly
   says which branch it's stacked on, and that it's "not yet merged."
 
@@ -41,21 +41,21 @@ and [#9](https://github.com/wheelyk/Wellbeing/pull/9) in order.
 
 - GitHub tracks that PR #8's base is the branch `feature/2.2-auth-login` — not a fixed
   snapshot of it, the branch itself. The moment #7 is merged (which, on GitHub, typically
-  *deletes* the now-merged `feature/2.2-auth-login` branch), GitHub notices #8 was pointed at
+  _deletes_ the now-merged `feature/2.2-auth-login` branch), GitHub notices #8 was pointed at
   a branch that no longer exists and **automatically changes ("retargets") PR #8's base to
   `main`** instead, rather than leaving it pointed at a dead branch. This happens by itself,
   with no command to run — it's a GitHub website behavior, not a git operation.
-- **What retargeting does *not* do**: it doesn't touch any actual commits. `feature/2.3-auth-refresh`
+- **What retargeting does _not_ do**: it doesn't touch any actual commits. `feature/2.3-auth-refresh`
   still literally contains 2.2's old commits (the ones now already merged into `main` via
   #7), sitting underneath 2.3's own commits, exactly as before. Retargeting only changes
-  *which branch GitHub compares against* to compute what to show as "the diff" and "is this
+  _which branch GitHub compares against_ to compute what to show as "the diff" and "is this
   mergeable." Immediately after #7 merges, since `main` now already contains everything
-  `feature/2.2-auth-login` had, comparing `feature/2.3-auth-refresh` against the *new* `main`
+  `feature/2.2-auth-login` had, comparing `feature/2.3-auth-refresh` against the _new_ `main`
   should show the same clean "just 2.3's commits" diff #8 showed before — GitHub is usually
   able to work this out and merge #8 normally with no extra steps needed on GitHub's side.
   (The same then happens to #9 once #8 merges.)
 
-#### Rebasing: why the *local* copy of these branches may still need one
+#### Rebasing: why the _local_ copy of these branches may still need one
 
 - **A rebase rewrites where a branch's commits "start from."** Concretely, `git rebase main`
   while on `feature/2.3-auth-refresh` would take 2.3's own commits, temporarily set them
@@ -65,10 +65,10 @@ and [#9](https://github.com/wheelyk/Wellbeing/pull/9) in order.
   is different from a **merge**, which instead adds a new commit that ties two histories
   together side-by-side without moving or rewriting either one's existing commits.
 - **Why this matters here specifically:** GitHub's retargeting (above) fixes what the
-  *website* shows and how the *merge button* behaves — but it doesn't change what's sitting
+  _website_ shows and how the _merge button_ behaves — but it doesn't change what's sitting
   in this local clone's `feature/2.3-auth-refresh` branch, nor in the copy on GitHub's server
   until an actual merge/rebase happens there too. If more work were to continue locally on
-  `feature/2.3-auth-refresh` *after* #7 merges, without rebasing first, git would have no
+  `feature/2.3-auth-refresh` _after_ #7 merges, without rebasing first, git would have no
   idea 2.2's commits already landed via a different path (through #7 directly, not through
   #8) — this is exactly the kind of situation the earlier `git stash`/branch-juggling entry's
   "ahead/behind" concept describes, just with two different routes to the same code instead
@@ -97,7 +97,7 @@ means the explanation is available at the moment it's actually useful.
   had a hard code dependency on the previous task's unmerged work, and idling until each PR
   was individually reviewed and merged would have serialized three tasks that could otherwise
   be built back-to-back.
-- **Documented this *before* the merges happen**, not after, specifically because the useful
+- **Documented this _before_ the merges happen**, not after, specifically because the useful
   moment to understand "what's retargeting and do I need to rebase" is right before/while
   doing it — this entry is written prospectively for that reason, unlike most entries in this
   log which describe something already completed and verified.
@@ -107,18 +107,26 @@ means the explanation is available at the moment it's actually useful.
 **Update, written right after merging:** #7, #8, and #9 were all merged in order shortly
 after this entry was first written. `main`'s history now shows three separate merge commits
 (one per PR) landing cleanly with no conflicts — exactly the "GitHub works this out on its
-own" outcome predicted above. A `git pull` on `main` afterward was a plain fast-forward, the
+own" outcome predicted above. A `git pull` on `main` afterward was a plain fast-forward (a
+**fast-forward** just slides a branch's label forward to a later commit that already contains
+everything the branch used to point at — no new commit gets created, because there was nothing
+to reconcile between the two histories), the
 simplest possible outcome: no rebase, no conflict resolution, nothing manual required. That
 confirms the retargeting behavior described above played out as expected in practice, not
 just in theory.
 
 **A small, real example of why this stuff matters, discovered while writing this very
-entry:** the *previous* version of this entry was written, committed, and pushed to
+entry:** the _previous_ version of this entry was written, committed, and pushed to
 `feature/2.4-auth-logout` — but PR #9 got merged (by the user, on GitHub) at almost exactly
-the same moment, using whatever commit was on the branch *just before* that push landed.
+the same moment, using whatever commit was on the branch _just before_ that push landed.
 GitHub doesn't retroactively pull in commits pushed to a branch after its PR has already
 merged — a merged PR is done; new pushes to that same branch just sit there, unattached to
 `main`, until something explicitly brings them in. Concretely, `git log main..origin/feature/2.4-auth-logout`
+(`origin/<branch>` is this machine's own cached record of what that branch looked like on GitHub
+as of the last `git fetch` — a separate thing from the plain local branch name `main`, which is
+this machine's own local branch; the `A..B` form of `git log` lists every commit reachable from
+`B` that isn't also reachable from `A`, so this specifically lists commits sitting on the remote
+feature branch that the local `main` doesn't have)
 showed exactly one stranded commit (this entry's own text). The fix was mundane: open one
 more small PR (**#10**) from that same branch into `main`, containing just that one commit,
 and merge it too. Not a mistake exactly — more a demonstration, in miniature, of the same
@@ -134,7 +142,11 @@ whole sequence.
   stranded commit after PR #9 merged, rather than guessing.
 - `git checkout main && git pull` — a clean fast-forward through all three PR merges, with no
   conflicts and no rebase needed, confirming the retargeting behavior worked as described.
-- `gh pr view 9 --json state,mergedAt,headRefOid` — directly confirmed which exact commit PR
+- `gh pr view 9 --json state,mergedAt,headRefOid` (`gh` is GitHub's own official command-line
+  tool — it does from a terminal much of what clicking around the GitHub website does, like
+  viewing, creating, or merging a PR, without needing a browser; `--json` here asks it to print
+  specific fields as structured data instead of its normal human-readable summary) — directly
+  confirmed which exact commit PR
   #9 merged at, which is what pinpointed that this entry's own commit had arrived just after.
 
 ---
@@ -159,7 +171,7 @@ accidental `git push origin main`) from pushing straight to it.
 - **What a ruleset actually is:** a named, structured list of rules attached to a
   **condition** describing which branch(es) it applies to, plus an **enforcement status**
   (`active` — actually enforced — vs. `disabled`/`evaluate`, the latter being a dry-run mode
-  that reports what *would* be blocked without blocking anything). This project's ruleset
+  that reports what _would_ be blocked without blocking anything). This project's ruleset
   targets `~DEFAULT_BRANCH` — a placeholder meaning "whichever branch is currently configured
   as the repo's default" (`main` here) — rather than hard-coding the literal name `main`, so
   it keeps working correctly even if the default branch were ever renamed later.
@@ -177,7 +189,7 @@ accidental `git push origin main`) from pushing straight to it.
   push from a machine with valid credentials can't silently rewrite the project's official
   history.
 - **`pull_request` (Require a pull request before merging), with 0 required approvals:**
-  this is the one that actually enforces "no direct commits to `main`" — GitHub rejects *any*
+  this is the one that actually enforces "no direct commits to `main`" — GitHub rejects _any_
   push straight to `main` once this is active, full stop; the only way code reaches `main` is
   by merging an already-open pull request through GitHub's merge button (or `gh pr merge`).
   Required approvals was deliberately set to **0** rather than 1+: this repository has a
@@ -186,8 +198,8 @@ accidental `git push origin main`) from pushing straight to it.
   unmergeable via the normal UI. Zero approvals still keeps the actual protection that
   matters here (routing through a PR, getting a reviewable diff, no accidental direct
   pushes) without demanding a second human who doesn't exist on this project.
-- **Left off, deliberately, for now:** *require status checks to pass* (there's no CI
-  pipeline yet — that's Phase 13) and *require linear history* (would force every PR to be
+- **Left off, deliberately, for now:** _require status checks to pass_ (there's no CI
+  pipeline yet — that's Phase 13) and _require linear history_ (would force every PR to be
   squashed or rebased rather than merged with a regular merge commit, which is how #7/#8/#9
   were merged in the previous entry; no strong reason to forbid that yet).
 
@@ -196,31 +208,33 @@ accidental `git push origin main`) from pushing straight to it.
 - **A personal access token (fine-grained or classic) is just a long secret string, and an
   account can have any number of them at the same time** — e.g. one created ages ago for a
   different project or tool, one created specifically for this environment, one created by
-  accident while experimenting with token settings. GitHub's *Settings → Developer settings →
-  Fine-grained tokens* page lists every token the account owns, each with its own name,
+  accident while experimenting with token settings. GitHub's _Settings → Developer settings →
+  Fine-grained tokens_ page lists every token the account owns, each with its own name,
   its own separate list of permissions, and its own separate secret value — they don't share
   settings with each other in any way, even though they all belong to the same GitHub
   account and can all authenticate as the same user.
-- **Editing a token's permissions in that UI only ever changes *that one token*.** If two
+- **Editing a token's permissions in that UI only ever changes _that one token_.** If two
   tokens both exist, and only one of them is the actual value stored in this machine's
-  `GITHUB_TOKEN` environment variable, editing the *other* one's permissions has precisely
+  `GITHUB_TOKEN` environment variable, editing the _other_ one's permissions has precisely
   zero effect on what `gh api` requests are allowed to do — from the API's point of view,
   nothing changed at all, because the token actually being sent with every request is
-  unmodified. This is exactly what happened here: see *What was done* below.
+  unmodified. This is exactly what happened here: see _What was done_ below.
 
 ### What was done
 
 1. Confirmed the gap first: `gh api repos/wheelyk/Wellbeing/rulesets` returned `[]` — no
    rulesets existed at all, matching what GitHub's UI was warning about.
 2. Wrote the ruleset definition as a JSON file (target `~DEFAULT_BRANCH`, `enforcement:
-   "active"`, the three rules above) and attempted to create it via
+"active"`, the three rules above) and attempted to create it via
    `gh api repos/wheelyk/Wellbeing/rulesets -X POST --input ruleset.json` — the GitHub REST
    API endpoint for managing rulesets, used directly rather than via a `gh` subcommand, since
    `gh` doesn't have a dedicated ruleset-management command built in.
 3. **Hit a permissions wall, repeatedly.** The request failed with `403 Resource not
-   accessible by personal access token`. `gh auth status` showed the active credential is a
+accessible by personal access token`. `gh auth status` showed the active credential is a
    **fine-grained personal access token** (format `github_pat_...`, distinct from a classic
-   token, an OAuth token, or anything issued by Claude/Anthropic — this environment simply
+   token, an OAuth token (OAuth is a different, widely-used way of granting an app access to
+   your account — e.g. "Sign in with Google" — without ever handing that app your actual
+   password), or anything issued by Claude/Anthropic — this environment simply
    reads whatever value is already stored in the `GITHUB_TOKEN` environment variable on this
    machine, the same one used for every `gh pr create` throughout this log). Fine-grained
    tokens are scoped permission-by-permission per repository, and creating a ruleset needs
@@ -231,7 +245,7 @@ accidental `git push origin main`) from pushing straight to it.
    updated a token's permissions to add **Administration: Read and write**, then confirmed
    saving it. The very next retry **still** failed with the identical 403.
 5. To investigate rather than keep blindly retrying, printed a partial fingerprint of the
-   token *actually being used* for these API calls (`github_pat_11AB...H23JxQ` — only the
+   token _actually being used_ for these API calls (`github_pat_11AB...H23JxQ` — only the
    first 15 and last 6 characters, deliberately not the full secret) so the user could
    cross-check it against their token list.
 6. Retried twice more regardless, both still `403` — at this point still assumed to be a
@@ -239,17 +253,17 @@ accidental `git push origin main`) from pushing straight to it.
    everywhere), so continuing to retry seemed reasonable.
 7. **The real cause, confirmed by the user afterward: the first edit was made to the wrong
    token.** There was more than one fine-grained token on the account, and the one initially
-   opened and edited was a *different* token from the one whose value is actually stored in
-   this machine's `GITHUB_TOKEN` — see *Background* above for why that guarantees zero
+   opened and edited was a _different_ token from the one whose value is actually stored in
+   this machine's `GITHUB_TOKEN` — see _Background_ above for why that guarantees zero
    effect. The fingerprint printed in step 5 was what let the user identify the mismatch:
    comparing it against their token list showed the edited token didn't match. The user then
-   found and edited the *correct* token (the one matching that fingerprint) to add
+   found and edited the _correct_ token (the one matching that fingerprint) to add
    **Administration: Read and write**.
-8. The next retry after editing the *correct* token **succeeded immediately** — no further
+8. The next retry after editing the _correct_ token **succeeded immediately** — no further
    delay, no additional retries needed — returning the full created ruleset object, including
    its id (`20886071`). This on its own is good evidence the earlier "maybe it just needs
    time to propagate" theory was wrong: if propagation delay had been the real cause, the
-   *first* edit would eventually have started working too, on its own, without ever touching
+   _first_ edit would eventually have started working too, on its own, without ever touching
    a second token.
 9. Confirmed it stuck via `gh api repos/wheelyk/Wellbeing/rulesets`, which now listed exactly
    the one ruleset, `enforcement: "active"`.
@@ -263,11 +277,11 @@ skip: even an accidental `git push origin main` from a future session, a future
 collaborator, or a moment of forgetting the convention now gets rejected by GitHub itself,
 rather than relying on everyone remembering `CLAUDE.md`. This matters more than usual for a
 project handling health data, where the PR/review step is a real safety net (per the earlier
-Phase 0 *Git Workflow* entry's reasoning), not just a tidiness preference.
+Phase 0 _Git Workflow_ entry's reasoning), not just a tidiness preference.
 
 ### Decisions
 
-- **0 required approvals, not 1+.** Covered under *Background* above — the correct number
+- **0 required approvals, not 1+.** Covered under _Background_ above — the correct number
   for a solo-maintainer repo, since GitHub cannot let someone approve their own PR, and
   demanding an approval that structurally can never happen would just lock out the merge
   button entirely rather than add any real review step.
@@ -277,16 +291,16 @@ Phase 0 *Git Workflow* entry's reasoning), not just a tidiness preference.
   reproducible JSON definition of the ruleset in this log, rather than a one-time set of UI
   clicks that would be hard to reconstruct later if the ruleset ever needed to be recreated
   (e.g. on a future repository).
-- **Didn't switch to a *fresh* (newly created) token** when the permission edit didn't
+- **Didn't switch to a _fresh_ (newly created) token** when the permission edit didn't
   immediately take effect, per the user's explicit choice to keep retrying first — but the
-  actual fix that worked wasn't "just wait" either: it was identifying that the *existing*
+  actual fix that worked wasn't "just wait" either: it was identifying that the _existing_
   token being edited wasn't the one actually in use, and editing the correct one instead. In
   hindsight, printing the token fingerprint (step 5 above) should have been the very first
   troubleshooting move, before any retries — it's what eventually solved this, and doing it
   earlier would have skipped several rounds of retrying a permission change that could never
   have worked no matter how long it waited.
 - **Left "require status checks" and "require linear history" off for now** — both are
-  reasonable *future* additions (the former once Phase 13 adds CI; the latter is purely a
+  reasonable _future_ additions (the former once Phase 13 adds CI; the latter is purely a
   history-style preference) rather than gaps in the actual protection this task was about.
 
 ### State at end of this step
@@ -318,10 +332,10 @@ there right now and a documentation tool that was reached for but not available.
 
 #### What "running the app" means for a project with two separate halves
 
-- As covered back in the very first *Big picture* section near the top of this log, this
+- As covered back in the very first _Big picture_ section near the top of this log, this
   project is two independent programs: the **backend** (an API with no visual appearance of
   its own) and the **frontend** (the actual webpage a browser renders). "Running the app"
-  therefore means starting *both* — a database (Postgres, via Docker Compose), the backend
+  therefore means starting _both_ — a database (Postgres, via Docker Compose), the backend
   (`node dist/index.js`, listening on port `4000`), and the frontend (`vite`, serving on port
   `5173`) — and checking each one the way its actual audience would: `curl`/API calls against
   the backend, and an actual browser tab against the frontend.
@@ -333,7 +347,7 @@ there right now and a documentation tool that was reached for but not available.
   headless (no visible window) Chromium browser via a tool called **`chromium-cli`**, then
   saving a **screenshot** of whatever it rendered as proof. The idea: a screenshot is much
   stronger evidence than "the server started without crashing" — it's proof of what a real
-  user would actually *see*.
+  user would actually _see_.
 - **`chromium-cli` isn't installed in this environment** (`which chromium-cli` came back
   empty) — it's an optional tool some environments have and this one doesn't. Rather than
   spend time installing a new browser-automation dependency purely to prove out a page that's
@@ -344,13 +358,13 @@ there right now and a documentation tool that was reached for but not available.
   correctly, just via text instead of a picture. A live end-to-end `POST /api/auth/register`
   call was also made against the real running backend (and the test row cleaned up
   afterward) as extra proof beyond just the health check.
-- **The honest gap:** text output can't show *layout, styling, or visual bugs* the way a
+- **The honest gap:** text output can't show _layout, styling, or visual bugs_ the way a
   screenshot can. For this specific check, that gap didn't matter much (the page has no
   layout to speak of yet), but it will start to matter a lot from Phase 5 onward, once real
   UI — forms, buttons, the mood-picker's large visual controls specifically called out in
   requirements §6.2/§8 — actually exists to look wrong or right.
 
-#### Could a PR *itself* show a screenshot, for a reviewer? (Advice, not implemented here)
+#### Could a PR _itself_ show a screenshot, for a reviewer? (Advice, not implemented here)
 
 - **Yes — this is a well-established pattern**, usually called "visual review" or "preview
   screenshots in CI," and it would fit naturally into this project once there's real UI to
@@ -382,8 +396,8 @@ there right now and a documentation tool that was reached for but not available.
    — not `npm run dev`, per the previously logged `ts-node-dev`/TypeScript 7 incompatibility).
    Confirmed via `curl http://localhost:4000/api/health` → `{"status":"ok"}`.
 3. Started the frontend dev server (`npm run dev`, Vite) and confirmed via `curl
-   http://localhost:5173/` that it served the expected HTML shell (`<title>WellTrack</title>`).
-4. Attempted to use `chromium-cli` for an actual visual screenshot per *Background* above;
+http://localhost:5173/` that it served the expected HTML shell (`<title>WellTrack</title>`).
+4. Attempted to use `chromium-cli` for an actual visual screenshot per _Background_ above;
    confirmed it isn't installed, and made the deliberate call not to install a new dependency
    just to screenshot a single static heading — used direct HTTP verification instead.
 5. Made one more live round-trip against the real running backend (`POST /api/auth/register`)
@@ -400,7 +414,7 @@ there right now and a documentation tool that was reached for but not available.
 like this, and the honest answer — a fully working API with nothing to click yet — is easy to
 misread as "nothing's working" if it isn't explained clearly. This entry exists to make that
 gap legible: the backend genuinely works end-to-end (proven directly, again, above); the
-frontend showing almost nothing is a *sequencing* fact (Phase 5 hasn't started), not a *bug*.
+frontend showing almost nothing is a _sequencing_ fact (Phase 5 hasn't started), not a _bug_.
 
 ### Decisions
 
@@ -447,7 +461,7 @@ forward from a "worth doing later" note in the previous entry.
   The instinctive first guess — the screenshot files had been deleted from disk right after
   sending, before the chat client had actually rendered them — turned out to be a reasonable
   hypothesis but not something to just assume: it was tested directly, by resending the exact
-  same files *without* deleting them afterward. **Still broken.** That ruled out the timing
+  same files _without_ deleting them afterward. **Still broken.** That ruled out the timing
   theory.
 - Next, two more variables were changed at once — sending from a different folder (the
   scratchpad directory instead of the live project folder) and explicitly setting the display
@@ -461,11 +475,11 @@ forward from a "worth doing later" note in the previous entry.
   display/delivery issue on the chat client's own side, outside anything fixable from within
   this session.
 - **The general lesson, worth remembering beyond this one bug:** when several plausible causes
-  exist, changing one variable at a time (or, once stuck, picking the most *different* possible
+  exist, changing one variable at a time (or, once stuck, picking the most _different_ possible
   test — text vs. image is about as different as two file types get) narrows things down far
   faster than guessing and re-trying the same fix repeatedly. This is the same principle
   applied earlier when the GitHub ruleset kept failing with a 403 — the fix there ended up
-  being "the wrong token was edited," found only once fingerprinting narrowed down *which*
+  being "the wrong token was edited," found only once fingerprinting narrowed down _which_
   token was actually in play, rather than assuming propagation delay and just waiting.
 - **The practical resolution:** since the chat delivery mechanism itself isn't reliable in
   this session, the user was pointed at the literal file paths on disk to open directly in
@@ -480,10 +494,13 @@ forward from a "worth doing later" note in the previous entry.
   this one machine — builds, tests, the manual Playwright check. **CI** (Continuous
   Integration) means some of that instead runs automatically, on GitHub's own servers,
   triggered by events like "a pull request was opened." **GitHub Actions** is GitHub's
-  built-in CI system: a YAML file under `.github/workflows/` describes one or more **jobs**
+  built-in CI system: a YAML file (YAML is a plain-text configuration-file format — extension
+  `.yml` or `.yaml` — that uses indentation and `key: value` lines instead of brackets or
+  quotes, similar in purpose to JSON but meant to be easier for a person to read and hand-edit)
+  under `.github/workflows/` describes one or more **jobs**
   (here, one: `screenshots`), each running as a sequence of **steps** on a fresh, temporary
   virtual machine that's destroyed once the job finishes. Nothing about this workflow changes
-  how anyone works locally — it's purely automation that runs *in addition to*, triggered by,
+  how anyone works locally — it's purely automation that runs _in addition to_, triggered by,
   pushing a branch and opening a PR.
 - **A `services:` block gives a job a real, throwaway database for the duration of the run.**
   `pr-preview.yml` declares a `postgres:16-alpine` service, matching `docker-compose.yml`'s
@@ -492,7 +509,7 @@ forward from a "worth doing later" note in the previous entry.
   workflow gets a completely real, empty Postgres database every single run — the exact same
   kind of "real database, not mocked" testing this project has used from Phase 1 onward, now
   running unattended on GitHub's infrastructure instead of this laptop.
-- **`GITHUB_TOKEN` here is a *different* token from every other `GITHUB_TOKEN` in this log.**
+- **`GITHUB_TOKEN` here is a _different_ token from every other `GITHUB_TOKEN` in this log.**
   Every earlier entry's `GITHUB_TOKEN` was the fine-grained personal access token living in
   this machine's environment variables, used by the local `gh` CLI. Inside a GitHub Actions
   workflow, `GITHUB_TOKEN` instead refers to a **separate, automatically generated token that
@@ -501,7 +518,7 @@ forward from a "worth doing later" note in the previous entry.
   git's credentials for that job automatically — which is why the workflow's git commands
   (`git fetch`, `git push`) never need to manually supply a token or password anywhere; it's
   already wired in, as long as the workflow declares the right `permissions:` (`contents:
-  write` here, so it's actually allowed to push a new branch).
+write` here, so it's actually allowed to push a new branch).
 - **An orphan branch, and why one was used here.** A normal new branch starts from an existing
   commit and shares that commit's whole history. `git checkout --orphan pr-screenshots`
   instead creates a branch with **no parent commits at all** — a completely fresh, empty
@@ -511,7 +528,7 @@ forward from a "worth doing later" note in the previous entry.
 - **Why `raw.githubusercontent.com` links work at all here.** A PR comment is just Markdown;
   `![caption](url)` only actually shows an image if that URL serves the raw image bytes
   directly. `raw.githubusercontent.com/<owner>/<repo>/<commit-sha>/<path>` is GitHub's own
-  endpoint for exactly that — the *unrendered* file content at a specific commit. This only
+  endpoint for exactly that — the _unrendered_ file content at a specific commit. This only
   works **without requiring the viewer to be logged in** because this repository is public
   (checked explicitly via `gh repo view --json visibility` before relying on this) — the same
   URL pattern against a private repo would 404 for a signed-out visitor, since raw file access
@@ -538,8 +555,14 @@ forward from a "worth doing later" note in the previous entry.
 4. Added `frontend/pr-screenshots-output/` to `frontend/.gitignore`, so running the capture
    script locally never risks accidentally committing its output.
 5. **Validated the trickiest part — the git branch/worktree logic — locally before trusting it
-   to a real CI run**, since iterating on a real GitHub Actions failure is much slower than
-   testing locally: created a throwaway bare "fake origin" repo and two genuinely independent
+   to a real CI run** (a **worktree** is a separate, independent checked-out copy of the same
+   repository, sharing one underlying history — explained fully further down, in the "git
+   worktrees, explained from scratch" section; it's mentioned here only in passing, as part of
+   the test setup), since iterating on a real GitHub Actions failure is much slower than
+   testing locally: created a throwaway bare "fake origin" repo (a **bare** repository has no
+   checked-out working files at all — it's just the raw commit history, the same shape as what
+   actually sits on GitHub's own servers, which is why it's a realistic stand-in for a real
+   GitHub remote in a local test) and two genuinely independent
    clones of it (not reusing one clone to fake two runs, which produces misleading results —
    see below), simulating (a) the very first run for a PR, where the `pr-screenshots` branch
    doesn't exist yet and must be created as an orphan, and (b) a later run for the same PR
@@ -549,7 +572,7 @@ forward from a "worth doing later" note in the previous entry.
    at step 5 reused a single local clone to simulate "run one, then run two" back to back, and
    run two failed outright (`fatal: refusing to fetch into branch ... checked out at ...`).
    This looked like a real bug in the workflow at first — but it wasn't: it was an artifact of
-   the *test* incorrectly reusing local state (a worktree left registered from "run one") that
+   the _test_ incorrectly reusing local state (a worktree left registered from "run one") that
    would never actually exist in real CI, where every run gets a completely fresh, disposable
    virtual machine with no memory of any previous run. Re-ran the check with two fully separate
    clones instead, which is what actually matches how GitHub Actions behaves, and confirmed
@@ -588,7 +611,7 @@ on every future PR against `main`.
   even though this specific database only exists for the few minutes the job runs.
 - **A committed script, not another one-off scratch file.** Unlike the manual verification
   script in the previous entry (deliberately deleted, not committed, since Phase 13 owns real
-  e2e tests), `capture-pr-screenshots.mjs` *is* committed — it's not a test in the assertion
+  e2e tests), `capture-pr-screenshots.mjs` _is_ committed — it's not a test in the assertion
   sense, but it's a permanent, repeatedly-invoked piece of this project's automation now, not
   a one-off debugging aid.
 - **Validated the git logic locally with real (throwaway) repositories before pushing**,
@@ -599,7 +622,7 @@ on every future PR against `main`.
 ### State at end of this step
 
 `.github/workflows/pr-preview.yml` and `frontend/scripts/capture-pr-screenshots.mjs` are live
-and confirmed working against real GitHub infrastructure — see *Verification* below. This is
+and confirmed working against real GitHub infrastructure — see _Verification_ below. This is
 the project's first working CI pipeline: every future PR against `main` will automatically get
 a comment with three live screenshots proving the register/login flow actually works, with no
 manual steps.
@@ -650,7 +673,7 @@ piece by piece as it was built. Here's the fuller picture, since it was asked fo
 - **The problem CI solves.** Everything in this log up to the previous entry happened on one
   person's laptop: builds, tests, manual browser checks. That works, but it depends on someone
   remembering to actually run those checks, and running them the same way every time. **CI**
-  (Continuous Integration) means a *server* — not a person's laptop — automatically runs some
+  (Continuous Integration) means a _server_ — not a person's laptop — automatically runs some
   of those same checks whenever something relevant happens (most commonly: a commit is pushed,
   or a pull request is opened/updated). **GitHub Actions** is GitHub's own built-in CI system,
   free to use for public repositories like this one (with paid tiers for heavier usage on
@@ -693,7 +716,7 @@ piece by piece as it was built. Here's the fuller picture, since it was asked fo
   - **Artifacts.** `actions/upload-artifact` saves files from a job as a downloadable zip
     attached to that specific run — the simpler alternative to this project's orphan-branch
     approach, considered and explicitly not chosen back in the previous entry specifically
-    because it doesn't show images *directly on the PR*.
+    because it doesn't show images _directly on the PR_.
   - **Caching.** `actions/cache` can save `node_modules` (or similar) between runs so
     `npm ci` doesn't redownload every dependency on every single run — a common speed
     optimization once a project's CI usage grows large enough for it to matter.
@@ -723,22 +746,22 @@ piece by piece as it was built. Here's the fuller picture, since it was asked fo
    path is included too, so a future change to the workflow itself can still be tested by
    opening a PR that only touches this file.
    **A non-obvious detail confirmed while testing this, worth knowing:** the `paths` filter
-   on a `pull_request` trigger evaluates against the PR's *entire* base→head diff, not just
+   on a `pull_request` trigger evaluates against the PR's _entire_ base→head diff, not just
    the specific commit in the latest push. Confirmed directly: after this PR's `IMPLEMENTATION_LOG.md`-only
    commit was pushed (touching neither `frontend/**` nor the workflow file), the workflow
-   *still* ran again — because the PR's overall diff (from when it branched off `main`) still
+   _still_ ran again — because the PR's overall diff (from when it branched off `main`) still
    includes the earlier commit that changed `pr-preview.yml`. This is the sensible behavior,
    not a bug: once a PR is "in scope" for a path-filtered workflow, it stays in scope for
    every subsequent push to that same PR, rather than flickering on and off commit-by-commit
    depending on what each individual commit happens to touch.
 2. **Before/after comparison.** The backend now starts once and stays up for both captures
-   (reasonable specifically *because* the path filter above means a screenshot-triggering PR
-   changes frontend code only, in the common case — see *Decisions*). The frontend gets built
+   (reasonable specifically _because_ the path filter above means a screenshot-triggering PR
+   changes frontend code only, in the common case — see _Decisions_). The frontend gets built
    and served twice: once from the PR's own code ("after"), and once from a separate
-   `git worktree` checked out at the PR's **base** commit ("before") — reusing the *same*
+   `git worktree` checked out at the PR's **base** commit ("before") — reusing the _same_
    capture script from the head checkout both times (pointed at whichever server is currently
    running), rather than needing two copies of the script. This also sidesteps a real
-   chicken-and-egg problem: the base commit for *this very PR* doesn't have
+   chicken-and-egg problem: the base commit for _this very PR_ doesn't have
    `capture-pr-screenshots.mjs` yet, since this PR is what introduces it.
 3. **Graceful degradation when "before" isn't available.** Every "BEFORE:"-prefixed step is
    marked `continue-on-error: true`, and later steps check `steps.before_checkout.outcome`
@@ -762,7 +785,7 @@ piece by piece as it was built. Here's the fuller picture, since it was asked fo
 
 ### Why it's needed
 
-The original workflow ran on *every* PR and only ever showed "here's what it looks like now,"
+The original workflow ran on _every_ PR and only ever showed "here's what it looks like now,"
 which is a weaker signal than "here's what changed" — a reviewer has to already know what the
 old page looked like to judge whether a visual change is correct. Restricting to
 frontend-touching PRs also avoids noise: a PR that only fixes a backend validation rule has no
@@ -779,7 +802,7 @@ business getting a screenshot comment at all.
   version — accepted as a known, minor simplification rather than doubling the job's
   complexity and runtime to handle an edge case.
 - **"Before" failures never fail the whole job**, only degrade the comment — a missing or
-  broken comparison shouldn't block a PR's CI status the way a *broken PR itself* (a failing
+  broken comparison shouldn't block a PR's CI status the way a _broken PR itself_ (a failing
   "after" capture) correctly still does. This asymmetry is deliberate: "after" represents the
   actual change being reviewed and must work; "before" is a nice-to-have.
 - **Required exactly 3 "before" screenshots, not "at least 1."** A partially-captured before
@@ -820,7 +843,7 @@ sequence, not just the `if:`-skipped fallback path.
 ## 2026-08-15 — The real bug: `postinstall` never reached `main` at all (a stacked-PR gotcha), plus a more robust fix
 
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — Railway's rebuild failed with the
-*identical* error after PR #19 supposedly merged. The actual cause turned out to be a git
+_identical_ error after PR #19 supposedly merged. The actual cause turned out to be a git
 workflow mistake, not anything wrong with the `postinstall` fix itself — though a second,
 independently-real improvement came out of investigating it anyway.
 
@@ -829,14 +852,14 @@ independently-real improvement came out of investigating it anyway.
 #### What actually happened: a stacked PR that never reached `main`
 
 - The earlier "stacked PRs" entries (#7–#9, and #16–#19) both explained and directly observed
-  GitHub's **retargeting** behavior: when a PR's base branch gets merged *and deleted*, GitHub
+  GitHub's **retargeting** behavior: when a PR's base branch gets merged _and deleted_, GitHub
   automatically repoints any PR still based on it to `main` instead. Both previous times this
   was checked, it worked exactly as described.
 - **This time it didn't happen, because the precondition wasn't actually met.** PR #19's base
   was `docs/railway-deploy-and-npm-explainer` (PR #18's branch). PR #18 merged — but its
   branch was **not deleted** afterward (confirmed directly: `git branch -r` still shows
   `origin/docs/railway-deploy-and-npm-explainer` existing right now). Retargeting is
-  triggered specifically by the base branch *disappearing* — a branch that merges but survives
+  triggered specifically by the base branch _disappearing_ — a branch that merges but survives
   doesn't trigger it. So PR #19's base silently stayed pointed at that now-merged-but-still-
   alive branch, and clicking "merge" on #19 merged its commits **into that branch**, not into
   `main`.
@@ -845,7 +868,7 @@ independently-real improvement came out of investigating it anyway.
   `git merge-base --is-ancestor <PR19-merge-commit> main` returned **false**, and
   `git log main..origin/docs/railway-deploy-and-npm-explainer` listed all six commits from
   that PR — including the actual `postinstall` fix — sitting on a branch that was never itself
-  merged into `main`. This is why Railway kept failing with the *exact* same error: it was
+  merged into `main`. This is why Railway kept failing with the _exact_ same error: it was
   building `main`, and `main` genuinely never received the fix, despite every PR involved
   correctly showing as merged.
 - **The general lesson:** "is this PR merged?" and "did this PR's changes reach `main`?" are
@@ -867,23 +890,23 @@ independently-real improvement came out of investigating it anyway.
   delivered its parcel exactly where the label said — a branch that had already made its own,
   separate delivery to `main` earlier and had no further deliveries scheduled. The parcel
   arrived, correctly, at completely the wrong place — and "delivery successful" (GitHub's
-  "Merged" badge) is a perfectly true statement about *that* delivery, while still being the
+  "Merged" badge) is a perfectly true statement about _that_ delivery, while still being the
   wrong information for "did this reach the house" (`main`).
-- **The practical habit this suggests going forward:** for any stacked PR, once its *base* PR
+- **The practical habit this suggests going forward:** for any stacked PR, once its _base_ PR
   merges, it's worth explicitly checking whether that base branch actually got deleted before
   assuming the next PR in the stack will behave itself — or, more simply, just re-verify with
-  `git log main..<branch>` (exactly the command that caught this) after merging *any* PR that
+  `git log main..<branch>` (exactly the command that caught this) after merging _any_ PR that
   was part of a stack, rather than only when something looks visibly wrong.
 
 #### The independently real second problem: `postinstall` likely wasn't the right mechanism for Railway anyway
 
 - While tracking this down, Railway's build log carried another clue worth taking seriously
   even once the stranded-commit issue was found: `warn config production Use --omit=dev
-  instead` — language associated with npm skipping certain install behavior in
+instead` — language associated with npm skipping certain install behavior in
   production-oriented environments. Combined with the earlier `npm approve-scripts` warning
   (a real npm security feature that can restrict when lifecycle scripts run automatically),
   there's a reasonable chance Railway's build environment wouldn't have reliably run a plain
-  `postinstall` hook even *if* it had actually reached `main` this time.
+  `postinstall` hook even _if_ it had actually reached `main` this time.
 - **Rather than relying on a lifecycle hook that might or might not fire** depending on exactly
   which flags a given platform's install step happens to use, the more robust fix folds the
   same command directly into the `build` script itself:
@@ -891,7 +914,7 @@ independently-real improvement came out of investigating it anyway.
   "build": "prisma generate && tsc"
   ```
   `npm run build` is unambiguous — it's explicitly invoked, by name, everywhere this project
-  gets built (locally, in CI, on Railway), unlike `postinstall`, which depends on *how*
+  gets built (locally, in CI, on Railway), unlike `postinstall`, which depends on _how_
   `npm install`/`npm ci` happened to be invoked. This guarantees the generated client exists
   immediately before `tsc` needs it, regardless of any platform-specific install behavior.
   The `postinstall` script was left in place rather than removed — it's still correct and
@@ -904,10 +927,10 @@ chained into the script that actually needs it?" — comes up anywhere a project
 generated-or-derived-thing dependency, not just Prisma. Worth having a general rule rather than
 re-deriving it from scratch next time:
 
-- **A lifecycle hook (`postinstall` and similar) is *implicit*.** Its big advantage: every
+- **A lifecycle hook (`postinstall` and similar) is _implicit_.** Its big advantage: every
   script that might need the thing it produces — `dev`, `build`, `test`, `start` — benefits
   automatically, for free, without each one having to remember to ask for it. Its real
-  weakness, learned directly in this entry: it only runs as a *side effect* of `npm install`/
+  weakness, learned directly in this entry: it only runs as a _side effect_ of `npm install`/
   `npm ci`, and different environments run that install step differently — some skip
   lifecycle scripts outright for security (a defense against the exact supply-chain-attack
   pattern mentioned in the earlier entry), some use flags this project has no control over.
@@ -915,16 +938,16 @@ re-deriving it from scratch next time:
   "my own laptop, where I run plain `npm install`," much less certain for "some third party's
   build infrastructure, configured however they've configured it."
 - **Explicit chaining inside a named script (`"build": "prisma generate && tsc"`) is
-  *unambiguous*.** If that script runs at all, every command in the chain runs, in order, full
+  _unambiguous_.** If that script runs at all, every command in the chain runs, in order, full
   stop — there's no install-flag or security-policy variable that can silently skip a step
   written directly into the script itself. The tradeoff is the opposite one: it only protects
-  the *specific* script it's written into. If `test` or `dev` also needed the generated client
-  and *didn't* separately chain it in (or rely on the still-present `postinstall`), they'd be
+  the _specific_ script it's written into. If `test` or `dev` also needed the generated client
+  and _didn't_ separately chain it in (or rely on the still-present `postinstall`), they'd be
   unprotected — explicit chaining doesn't automatically spread to every script the way a hook
   does.
 - **The rule of thumb that falls out of this:** reach for a lifecycle hook for convenience when
   the install environment is fully within your own control or trust; reach for explicit
-  chaining specifically in whichever script(s) are the ones that actually *must not fail* on
+  chaining specifically in whichever script(s) are the ones that actually _must not fail_ on
   infrastructure you don't control — exactly a hosting platform's build step, which is the
   category of thing that just failed twice in this project for exactly this reason. Using
   **both at once**, as this project now does, isn't indecision — it's covering the convenient
@@ -952,7 +975,7 @@ re-deriving it from scratch next time:
 Without this, Railway would have kept failing indefinitely, and — worse — every future
 diagnosis attempt would have kept "confirming" the fix was merged (because it genuinely was,
 technically) while never explaining why the failure persisted, since the actual gap was in
-*where* it merged, not whether it did.
+_where_ it merged, not whether it did.
 
 ### Decisions
 
@@ -995,16 +1018,16 @@ one of them far older than expected.
 
 #### Why "check the one branch I was just working on" isn't good enough
 
-- The previous entry's fix specifically addressed PR #19's stranding. But the *cause* of that
+- The previous entry's fix specifically addressed PR #19's stranding. But the _cause_ of that
   stranding — a stacked PR whose base branch merged without being deleted — isn't something
   that only happens once. **The right question wasn't "is #19's content on `main` now,"** it
   was "has this happened anywhere else in this repository's entire history, undetected." A
   targeted fix for one confirmed instance says nothing about whether the same mistake happened
-  quietly, elsewhere, earlier — the only way to know is to check *everything*, not just the
+  quietly, elsewhere, earlier — the only way to know is to check _everything_, not just the
   branch already under suspicion.
 - **The method:** for every remote branch, compare it against `main` with
   `git log origin/main..origin/<branch>` — this lists every commit that exists on that branch
-  but is *not* an ancestor of `main`. A clean branch (fully merged, or never diverged) shows
+  but is _not_ an ancestor of `main`. A clean branch (fully merged, or never diverged) shows
   zero commits. Any nonzero result is either a real straggler or a branch that's deliberately
   meant to stay separate (like `pr-screenshots`, the orphan branch backing the CI screenshot
   workflow — expected to always show commits here, since it's never supposed to merge into
@@ -1012,18 +1035,18 @@ one of them far older than expected.
 
 #### What the audit actually found
 
-| Branch | Stranded commit(s) | Origin |
-| ------ | ------------------- | ------ |
-| `frontend/scaffold` | `bc5efb8` — "Document GitHub CLI install/auth..." | **From the PR #1 era** — pushed after PR #1 had already merged, and never picked up by any later PR. Sat undiscovered for the entire rest of this conversation until this direct audit. |
-| `docs/hosting-and-domains-explainer` | `4cf9923` — "docs: explain build artifacts..." | PR #17, the exact same stacked-PR-base-not-deleted pattern diagnosed for PR #19 two entries ago — just not previously checked for. |
-| `fix/land-stranded-postinstall-commits` | `1849826` — the beginner-friendly expansion of the merge-gotcha entry | A simple timing race: this commit was pushed roughly 43 seconds *after* the user clicked merge on PR #20, confirmed by comparing the commit's timestamp against the PR's `mergedAt` directly rather than assuming. |
+| Branch                                  | Stranded commit(s)                                                    | Origin                                                                                                                                                                                                             |
+| --------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `frontend/scaffold`                     | `bc5efb8` — "Document GitHub CLI install/auth..."                     | **From the PR #1 era** — pushed after PR #1 had already merged, and never picked up by any later PR. Sat undiscovered for the entire rest of this conversation until this direct audit.                            |
+| `docs/hosting-and-domains-explainer`    | `4cf9923` — "docs: explain build artifacts..."                        | PR #17, the exact same stacked-PR-base-not-deleted pattern diagnosed for PR #19 two entries ago — just not previously checked for.                                                                                 |
+| `fix/land-stranded-postinstall-commits` | `1849826` — the beginner-friendly expansion of the merge-gotcha entry | A simple timing race: this commit was pushed roughly 43 seconds _after_ the user clicked merge on PR #20, confirmed by comparing the commit's timestamp against the PR's `mergedAt` directly rather than assuming. |
 
 - **The `frontend/scaffold` case is the most notable one.** It predates every other entry in
   this log about stranded commits — including the entry that first explained what a stranded
-  commit even *is* (the "moving a file onto its own branch" `CLAUDE.md` entry, and the later
+  commit even _is_ (the "moving a file onto its own branch" `CLAUDE.md` entry, and the later
   #7–#9 stacked-PR entry). In other words: this exact failure mode happened once, quietly,
   before it was ever even named or understood — and then kept happening a few more times after
-  it *was* understood, simply because nobody had gone back to check whether the first,
+  it _was_ understood, simply because nobody had gone back to check whether the first,
   unrecognized occurrence had ever actually been fixed. It hadn't.
 - **Distinguishing a real straggler from `pr-screenshots`.** The screenshot-hosting branch
   showed up in the same scan with several commits "not in `main`" — but that's expected and
@@ -1040,13 +1063,13 @@ one of them far older than expected.
   **cherry-picked** onto a fresh branch from current `main`, rather than branched from their
   original stale tips — branching from the stale tip would have carried along an entire
   outdated snapshot of the file, guaranteeing a massive conflict against everything added
-  since. `git cherry-pick <commit>` instead takes just *that one commit's diff* and reapplies
+  since. `git cherry-pick <commit>` instead takes just _that one commit's diff_ and reapplies
   it against whatever `main` looks like right now.
 - **`bc5efb8` cherry-picked cleanly** — its insertion point (the end of the file, at the time)
   hadn't itself been altered since, only extended after, so the patch still applied without
   conflict even though hundreds of lines had been added beneath it since.
 - **`4cf9923` conflicted**, because its intended insertion point — right after the "hosting and
-  domains" entry — now had *different* new content already sitting there (the "First real
+  domains" entry — now had _different_ new content already sitting there (the "First real
   Railway deploy attempt" entry, correctly landed via PR #18). Resolving it meant manually
   placing the recovered entry in its correct chronological position (before the Railway-deploy
   entry, which is where it was always meant to sit) rather than wherever the automatic merge
@@ -1101,7 +1124,7 @@ by-design exception (`pr-screenshots`).
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — while resolving a real merge conflict
 on PR #27 (documented two entries up), the advice given was "delete each branch after it
 merges, in order." That advice was met with a completely reasonable instinct: doesn't keeping
-the branch around feel *safer*, in case something needs to be recovered later? Worth answering
+the branch around feel _safer_, in case something needs to be recovered later? Worth answering
 properly rather than just asserting it.
 
 ### Background / concepts
@@ -1120,10 +1143,10 @@ properly rather than just asserting it.
   the code is reachable from `main` forever, with full history, `git blame`, everything —
   completely independent of whether the `feature/2.7-auth-middleware` sticky note still exists.
   Deleting it only removes a now-redundant second label pointing at commits `main` already
-  includes; it's the git equivalent of throwing away a Post-it note *after* copying its
+  includes; it's the git equivalent of throwing away a Post-it note _after_ copying its
   contents permanently into a filing cabinet, not throwing away the only copy.
-- **The one real exception, so this isn't overstated:** a branch with commits that were *never*
-  merged anywhere is the only copy of that work — deleting *that* would genuinely lose it (this
+- **The one real exception, so this isn't overstated:** a branch with commits that were _never_
+  merged anywhere is the only copy of that work — deleting _that_ would genuinely lose it (this
   is exactly why the earlier "stranded commit" incidents in this log were worth the forensic
   effort: real, unmerged work was at risk of being mistaken for already-safe). But a branch
   that's been cleanly merged into `main` has already been "copied into the filing cabinet" —
@@ -1153,7 +1176,7 @@ properly rather than just asserting it.
 
 The instinct to preserve things rather than delete them is a good one in general — it's the
 same instinct behind this log's whole practice of checking `git status` before anything
-destructive. It just doesn't apply to a *merged* branch the way it would to, say, an untracked
+destructive. It just doesn't apply to a _merged_ branch the way it would to, say, an untracked
 file or uncommitted work: there, deleting really could lose the only copy; here, the copy
 already exists permanently in `main`, and the branch label is the thing actively causing harm
 by sticking around.
@@ -1162,7 +1185,7 @@ by sticking around.
 
 - No code change — this is a concept worth having written down plainly, since it's the kind
   of thing that's easy to get backwards by applying "don't delete things" as a blanket rule
-  rather than understanding *why* that rule exists in the cases where it does apply.
+  rather than understanding _why_ that rule exists in the cases where it does apply.
 
 ### State at end of this step
 
@@ -1189,7 +1212,7 @@ that GitHub's own UI showed as "Merged": PR #45, the symptom entry form.
   three stranded commits (the form itself, its docs entry, and the merge commit) sitting on a
   branch that was never itself merged into `main`.
 - **Why this recurred despite already being documented once:** the earlier entry's fix was
-  applied to the specific branches involved in that incident, and the *general habit* it
+  applied to the specific branches involved in that incident, and the _general habit_ it
   recommended — "for any stacked PR, check whether the base branch actually got deleted before
   trusting the next one merged cleanly" — depends on someone actually doing that check each
   time. This PR chain was reviewed and merged by a person working through a long list of
@@ -1197,8 +1220,8 @@ that GitHub's own UI showed as "Merged": PR #45, the symptom entry form.
   sign the earlier fix was wrong.
 - **The recovery**, identical in shape to last time: cherry-picked the two real commits (the
   merge commit itself doesn't need cherry-picking) from the stranded branch onto a fresh branch
-  off the *true* current `main`, verified independently (`npm test` — 30/30 passing, `npm run
-  build` — clean) rather than assuming a clean cherry-pick meant a working one, then opened this
+  off the _true_ current `main`, verified independently (`npm test` — 30/30 passing, `npm run
+build` — clean) rather than assuming a clean cherry-pick meant a working one, then opened this
   as its own PR.
 
 ### Why it's needed
@@ -1234,12 +1257,12 @@ it did.
 
 ## 2026-08-16 — Building three features at once with parallel AI agents
 
-**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — this entry explains a *process* decision
+**Task:** Not a [Tasks.md](../../Tasks.md) checklist item — this entry explains a _process_ decision
 rather than a code change: Symptom logging, Medication logging, and Habit logging (the three
 remaining log types from Phase 3/7) were each handed to a separate, independent AI agent,
 running **at the same time**, rather than built one after another the way Mood logging was.
 Worth explaining properly, since this is a genuinely different way of working than everything
-else in this log so far, and the reasoning behind *when* it's safe is more interesting than the
+else in this log so far, and the reasoning behind _when_ it's safe is more interesting than the
 mechanics.
 
 ### Background / concepts
@@ -1253,8 +1276,8 @@ mechanics.
   is the same "vertical slice" shape used for Mood logging, just three of them built
   simultaneously instead of one at a time.
 - **Contrast this with why Mood logging's own four pieces (auth middleware → model → endpoint →
-  form) were *not* parallelized.** Each of those genuinely needed the previous one's code to
-  exist first — the endpoint imports the model, the form calls the endpoint. That's a *real*
+  form) were _not_ parallelized.** Each of those genuinely needed the previous one's code to
+  exist first — the endpoint imports the model, the form calls the endpoint. That's a _real_
   dependency chain, not just a convenient ordering, and trying to parallelize genuinely
   dependent work would just mean each worker sitting idle waiting for the others, or worse,
   building against code that doesn't exist yet. Recognizing "these are independent" versus
@@ -1292,7 +1315,7 @@ mechanics.
 
 - A worktree solves file collisions, but three agents doing real backend work also needed to
   run their own local Postgres database and their own local backend server at the same time —
-  and those aren't isolated by a worktree at all, since they talk to the *outside* world
+  and those aren't isolated by a worktree at all, since they talk to the _outside_ world
   (a database port, a network port), not just the filesystem. Each agent was explicitly given:
   - **Its own database** inside the same running Postgres container (`welltrack_symptom`,
     `welltrack_medication`, `welltrack_habit`) — so three concurrent `prisma migrate dev` runs
@@ -1303,9 +1326,9 @@ mechanics.
     than they share tracked ones needing separate values) and its own fresh `npm install` in
     each project (worktrees don't share `node_modules` either).
 
-#### What was deliberately *not* isolated, and why that's fine
+#### What was deliberately _not_ isolated, and why that's fine
 
-- All three agents still shared several files that describe the *whole* app rather than one
+- All three agents still shared several files that describe the _whole_ app rather than one
   slice of it: `backend/prisma/schema.prisma`, `backend/src/app.ts` (where each new router gets
   mounted), `frontend/src/pages/DashboardPage.tsx` (where each new "+ X" button and list gets
   added), `Tasks.md`, and this log. There was no way to avoid this — three independent features
@@ -1315,7 +1338,7 @@ mechanics.
   auto-merge cleanly against each other — normal, expected git conflicts were anticipated when
   their PRs came in, to be resolved by hand the same way every other multi-branch conflict in
   this log has been (the earlier "why deleting a merged branch is safe" and stacked-PR entries
-  cover that exact skill). Parallelizing the *thinking and typing* was the goal; parallelizing
+  cover that exact skill). Parallelizing the _thinking and typing_ was the goal; parallelizing
   the final merge into one shared `main` was never going to be possible, nor was it attempted.
 
 ### Why it's needed
@@ -1343,7 +1366,7 @@ teaching-style log entries, exactly as if it had been built alone.
 The Symptom logging slice (one of the three) is complete, reviewed, and merged — three clean
 PRs, each built and verified with the same rigor as any sequentially-built task in this log.
 Medication logging and Habit logging were still running at the time this entry was written;
-this entry describes the *approach*, independent of any one slice's specific outcome.
+this entry describes the _approach_, independent of any one slice's specific outcome.
 
 ### Verification
 
@@ -1357,7 +1380,7 @@ this entry describes the *approach*, independent of any one slice's specific out
 ## 2026-08-16 — Turning on "automatically delete head branches," so this stops happening
 
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — the exact stranded-PR bug (a merged PR
-whose base branch survives, so the *next* PR in the stack never gets retargeted to `main`) had
+whose base branch survives, so the _next_ PR in the stack never gets retargeted to `main`) had
 now happened twice in this project. Rather than relying purely on remembering to delete each
 branch by hand after every merge, GitHub has a repository setting that does it automatically.
 
@@ -1369,7 +1392,7 @@ branch by hand after every merge, GitHub has a repository setting that does it a
   UI — or, exactly equivalently, `gh repo edit wheelyk/Wellbeing --delete-branch-on-merge` from
   the command line, which is what was actually run here. Confirmed directly afterward (not just
   assumed from the command exiting successfully) via `gh api repos/wheelyk/Wellbeing --jq
-  '.delete_branch_on_merge'`, which returned `true`.
+'.delete_branch_on_merge'`, which returned `true`.
 - **What it actually does:** the instant a PR is merged through GitHub (the button in the PR's
   UI, or `gh pr merge`), GitHub deletes that PR's head branch itself, automatically, with no
   further action needed. This is the exact manual step ("delete each branch after it merges")
@@ -1378,7 +1401,7 @@ branch by hand after every merge, GitHub has a repository setting that does it a
   extra command every single time.
 - **Why this directly prevents the bug that keeps recurring.** The earlier "why deleting a
   merged branch is safe" entry already explained the mechanism: GitHub's stacked-PR
-  auto-retargeting is specifically triggered by the base branch's *deletion*, not by the merge
+  auto-retargeting is specifically triggered by the base branch's _deletion_, not by the merge
   itself. A branch that merges but is left alive still looks, to GitHub, like a valid, ongoing
   place the next PR in a stack is based on — nothing tells it "this is done, move on" except the
   branch actually disappearing. With this setting on, that disappearance now happens
@@ -1388,7 +1411,7 @@ branch by hand after every merge, GitHub has a repository setting that does it a
 
 - **If a branch is deleted the moment its PR merges, it's gone — there's no "let me quickly
   check that branch again" a few minutes later without recreating it.** This is the concern
-  worth naming plainly, and it's real in the sense that the *convenience* of an existing branch
+  worth naming plainly, and it's real in the sense that the _convenience_ of an existing branch
   name pointing at that exact spot is gone.
 - **But nothing about the actual work is at risk.** The "why deleting a merged branch is safe"
   entry covers this in depth: a branch is just a movable label pointing at a commit, not a
@@ -1410,9 +1433,13 @@ branch by hand after every merge, GitHub has a repository setting that does it a
   local references to branches that no longer exist on the remote. Harmless — those stale
   references don't cause incorrect behavior, they're just clutter — but worth knowing the
   command for, rather than being confused by a locally-visible branch that's actually gone.
-- **If this project ever switched to "squash and merge" or "rebase and merge"** (it hasn't —
+- **If this project ever switched to "squash and merge" or "rebase and merge"** — GitHub's other
+  two merge-button options, alongside the plain "merge commit" strategy this project has used
+  throughout: **squash and merge** combines every commit on a PR into one single new commit on
+  `main`; **rebase and merge** replays the PR's individual commits onto `main` one at a time
+  with no separate merge commit tying them together at all. (It hasn't switched —
   every merge so far has been an ordinary merge commit, preserving each branch's individual
-  commits), the deleted branch's *exact original commits* would only be reachable through the
+  commits.) The deleted branch's _exact original commits_ would only be reachable through the
   new squashed/rebased commit(s) on `main`, not as themselves. Not a real concern under this
   project's current merge strategy, but worth knowing as a reason some teams intentionally keep
   branches around longer when using those other strategies specifically.
@@ -1463,19 +1490,19 @@ share the same fix:
    next PR onto `main`, and it silently merges into an orphaned branch instead. **This one is
    now actually fixed**, not just documented around: `delete_branch_on_merge` (enabled a few
    entries back) removes the human "remember to delete it" step entirely.
-2. **Cascading conflicts through a stack.** Every time one PR in a chain merges, the *next*
+2. **Cascading conflicts through a stack.** Every time one PR in a chain merges, the _next_
    one needs `main` merged back into it before it can merge cleanly — normal, expected, and
-   explained back in the very first stacked-PR entry. What changed today is the *volume*: three
+   explained back in the very first stacked-PR entry. What changed today is the _volume_: three
    independent vertical slices, each its own 3-deep stack, all open at once, meant this
    happened **six separate times** in one sitting (once per link, per stack) rather than the
    occasional single occurrence it was earlier in the project.
 3. **The same handful of files being the conflict every single time.** Not random — a small,
    consistent set of "hot" files: `IMPLEMENTATION_LOG.md` (every task appends to the same
-   growing file — pure-append conflicts, but *guaranteed* whenever two branches are open on the
+   growing file — pure-append conflicts, but _guaranteed_ whenever two branches are open on the
    same day), `backend/prisma/schema.prisma` (every new model touches the shared `User`
    relations block and gets appended near the end), `backend/src/app.ts` (every new router
    touches the shared import/mount blocks), and worst of all `frontend/src/pages/
-   DashboardPage.tsx` (genuine multi-hunk structural conflicts mixing state, effects, handlers,
+DashboardPage.tsx` (genuine multi-hunk structural conflicts mixing state, effects, handlers,
    and JSX — not just appends, real interleaved code that needed careful manual reconciliation
    each time).
 
@@ -1486,7 +1513,7 @@ share the same fix:
   ready, so conflicts are rare and small when they happen.
 - Three agents working **simultaneously**, each building a genuine 3-PR stack, inverted that:
   by the time any one slice's PRs were ready for review, `main` had already moved forward
-  significantly from the *other two* slices' work landing first. The three slices never
+  significantly from the _other two_ slices' work landing first. The three slices never
   touched each other's actual business logic (routes, models, forms) — but they all touched
   the same small set of shared "front door" files, and elapsed time is exactly what turns
   "touches the same file" into "produces a conflict."
@@ -1499,23 +1526,23 @@ share the same fix:
 ### Why it's needed
 
 Paying the same conflict-resolution tax by hand, the same way, every time this pattern repeats
-is a real, recurring cost — worth spending some effort *reducing the collision surface itself*
+is a real, recurring cost — worth spending some effort _reducing the collision surface itself_
 rather than only getting faster at resolving conflicts once they happen.
 
 ### Decisions — options considered, and what's actually recommended
 
 - **Split `IMPLEMENTATION_LOG.md` into multiple files (highest-leverage, lowest-risk option).**
-  This single file has been the *most consistent* conflict of the entire session — it conflicts
+  This single file has been the _most consistent_ conflict of the entire session — it conflicts
   essentially every time two branches are both open on the same day, because every task appends
   to the same growing tail. A natural split: one file per phase (or per major feature) under a
   `docs/log/` directory, with a short `IMPLEMENTATION_LOG.md` remaining at the root as an index
-  linking to each. Two branches adding entries to *different* feature files would never conflict
-  at all; two adding to the *same* feature file would still occasionally conflict, but far less
+  linking to each. Two branches adding entries to _different_ feature files would never conflict
+  at all; two adding to the _same_ feature file would still occasionally conflict, but far less
   often than the current single-file-forever design. **Recommended as the first thing to
   actually do** — it's a pure reorganization (no content changes), low-risk, and would have
   prevented the large majority of today's log conflicts specifically.
 - **Decompose `DashboardPage.tsx` into one component per log type, each in its own file.**
-  Today, adding a new log type means editing the *same* function body's state, effects,
+  Today, adding a new log type means editing the _same_ function body's state, effects,
   handlers, and JSX all at once — exactly the shape that produces multi-hunk structural
   conflicts. If each log type instead exported its own self-contained `<MoodSection />`,
   `<HabitSection />`, etc. (each owning its own state/effects/handlers internally), adding a new
@@ -1535,7 +1562,7 @@ rather than only getting faster at resolving conflicts once they happen.
   and these conflicts start costing more than a couple of minutes each.
 - **Process discipline, regardless of any structural change:** when running multiple parallel
   stacks again, resolve and merge each stack's conflicts as soon as it's ready rather than
-  letting several sit open at once — the *volume* problem (six cascade-resolutions in one
+  letting several sit open at once — the _volume_ problem (six cascade-resolutions in one
   sitting) is a direct function of how many stacks were simultaneously in flight, independent
   of any file-structure fix.
 
@@ -1543,7 +1570,7 @@ rather than only getting faster at resolving conflicts once they happen.
 
 Nothing implemented yet in this entry — this is the analysis and recommendation, written down
 before deciding whether/when to act on it, the same way the very first stacked-PR entry was
-written *before* acting, back when that pattern was new. `delete_branch_on_merge` (already
+written _before_ acting, back when that pattern was new. `delete_branch_on_merge` (already
 enabled) is the one concrete fix already in place from this whole retrospective. **Update:**
 the top recommendation (splitting this log) was acted on immediately after — see the next
 entry for how, and confirmed working the very next time a conflict on this exact chain needed
@@ -1558,7 +1585,7 @@ N/A — this entry is analysis, not a code or configuration change.
 ## 2026-08-16 — Actually splitting `IMPLEMENTATION_LOG.md` into topic files
 
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — acting on the previous entry's
-top recommendation, immediately, after this exact log file caused its *fourth* conflict on
+top recommendation, immediately, after this exact log file caused its _fourth_ conflict on
 one PR chain in a single session.
 
 ### Background / concepts
@@ -1572,7 +1599,7 @@ one PR chain in a single session.
   approach already used throughout this project to inspect the file), sliced the file into
   chunks at those boundaries, and grouped the chunks into ten topic files.
 - **Verified by literal string comparison, not by eye.** After slicing, a second script
-  reassembled every chunk *in its original order* (ignoring the new topic groupings) and
+  reassembled every chunk _in its original order_ (ignoring the new topic groupings) and
   compared that reconstruction against the original file's content character-for-character.
   The first attempt reported a difference — investigated directly with `diff` rather than
   assumed to be a bug in the splitting logic, and turned out to be a single missing trailing
@@ -1580,7 +1607,7 @@ one PR chain in a single session.
   `Array.join("\n")`, added one). A real difference, but a meaningless one — confirmed by
   reading what `diff` actually reported, not by hoping the one-character mismatch didn't
   matter. Every line of actual entry content was confirmed present, in the right file, with
-  nothing lost or duplicated, *before* the original single file was replaced with anything.
+  nothing lost or duplicated, _before_ the original single file was replaced with anything.
 - **A real bug caught by this process, not just risk avoided in the abstract:** the first
   pass left every new topic file starting with a doubled blank line after its `# Title`
   heading — cosmetic, not data loss, but still a mistake worth fixing rather than shipping,
@@ -1589,7 +1616,7 @@ one PR chain in a single session.
 #### The part that would have broken silently: relative links
 
 - Several entries link to `Tasks.md` and `README.md` using a relative path (`[Tasks.md]
-  (Tasks.md)`) that was correct when the log lived at the repository root — but every entry
+(Tasks.md)`) that was correct when the log lived at the repository root — but every entry
   just moved two directories deeper, into `docs/log/`. A relative link that used to mean "the
   same folder" now means `docs/log/Tasks.md`, a file that doesn't exist. This is exactly the
   kind of break that's invisible until someone actually clicks the link — grepped for every
@@ -1598,7 +1625,7 @@ one PR chain in a single session.
   always be plain backtick-quoted text, never an actual hyperlink, so nothing needed fixing
   there), then rewrote just those two link targets to `../../Tasks.md` and `../../README.md`
   across every affected file in one pass.
-- **Links pointing *into* the log from elsewhere needed no change at all.** `README.md`,
+- **Links pointing _into_ the log from elsewhere needed no change at all.** `README.md`,
   `Tasks.md`, `CLAUDE.md`, and a few backend/frontend source comments all link to
   `IMPLEMENTATION_LOG.md` — and since that file still exists at the repository root (now as
   an index instead of the full log), every one of those links still resolves correctly,
@@ -1609,7 +1636,7 @@ one PR chain in a single session.
 
 - The new root `IMPLEMENTATION_LOG.md` links to each topic file and lists every entry's
   headline underneath it, so someone can scan what exists without opening ten files one at a
-  time. Each *headline* isn't its own clickable link to that exact spot in the target file,
+  time. Each _headline_ isn't its own clickable link to that exact spot in the target file,
   though — GitHub (and other Markdown renderers) auto-generate heading anchors using their own
   slug rules (lowercasing, stripping punctuation, handling duplicates), and precisely
   replicating that algorithm by hand for headlines full of backticks, em dashes, and quotation
@@ -1631,7 +1658,7 @@ one PR chain in a single session.
 4. Rewrote the root `IMPLEMENTATION_LOG.md` as a short, evergreen index: the existing "what
    this document is" and "big picture" sections stay, followed by a new "how this log is
    organized" section explaining the split (written the same beginner-facing way as
-   everything else in this document — future readers deserve to know *why* the structure
+   everything else in this document — future readers deserve to know _why_ the structure
    changed, not just find it changed), followed by one section per topic file, each a link
    plus its entries' headlines listed underneath.
 5. Confirmed both projects still build cleanly (`npm run build` in each) — a docs-only
@@ -1642,7 +1669,7 @@ one PR chain in a single session.
 Directly and immediately: this exact log file had just caused four separate conflicts on one
 PR chain (#47, #48, #51, and this PR itself) in a single session, each requiring the same
 manual reconstruction-and-merge process. Splitting it doesn't make conflicts impossible, but
-it makes the overwhelmingly common case — two branches working on *different* things on the
+it makes the overwhelmingly common case — two branches working on _different_ things on the
 same day — stop colliding at all.
 
 ### Decisions
@@ -1652,7 +1679,7 @@ same day — stop colliding at all.
 - **Grouped by topic/feature, not by date-chunk.** A pure chronological split (e.g. "entries
   1–20," "entries 21–40") would have been simpler to script but wouldn't reduce conflicts
   nearly as well — two branches both landing in "the current chunk" would still collide. A
-  topic split means two branches touching *different* features essentially never conflict on
+  topic split means two branches touching _different_ features essentially never conflict on
   this file again, which is the actual problem being solved.
 
 ### State at end of this step
@@ -1678,7 +1705,7 @@ in the correct file, with working links throughout.
 ## 2026-08-17 — Decomposing `DashboardPage.tsx` into one section component per log type
 
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — acting on the retrospective's
-*second* recommendation (the log split above was the first): `DashboardPage.tsx` was named as
+_second_ recommendation (the log split above was the first): `DashboardPage.tsx` was named as
 the worst single conflict source of the whole parallel-agent session, and this splits it apart
 before Phase 8's real Dashboard build-out starts touching it even more.
 
@@ -1686,7 +1713,7 @@ before Phase 8's real Dashboard build-out starts touching it even more.
 
 #### Why one file per log type, specifically, is the fix
 
-- The retrospective diagnosed *why* `DashboardPage.tsx` conflicted so badly: every log type's
+- The retrospective diagnosed _why_ `DashboardPage.tsx` conflicted so badly: every log type's
   state (`useState`), data loading (`useEffect`), event handlers, and JSX all lived inside the
   same single `DashboardPage()` function body. Adding a fifth log type (say, a future "sleep"
   tracker) would mean editing that same function in four or five different places at once —
@@ -1696,13 +1723,13 @@ before Phase 8's real Dashboard build-out starts touching it even more.
 - **The fix is a standard React pattern: extraction into self-contained components.** Each log
   type (Mood, Habit, Medication, Symptom) now gets its own component file under
   `frontend/src/components/dashboard/` — `MoodSection.tsx`, `HabitSection.tsx`, etc. — each one
-  owning *all* of that log type's state, data-fetching effect, and handlers internally, and
+  owning _all_ of that log type's state, data-fetching effect, and handlers internally, and
   rendering its own complete UI (both the "+ X" button/form and the "Recent X entries" list).
   `DashboardPage.tsx` itself shrinks down to just the shared welcome header plus a list of
   `<MoodSection />`, `<HabitSection />`, etc. — a thin **composition layer** with almost nothing
   left in it to conflict over.
 - **Why this actually reduces conflicts, concretely:** a future fifth log type now means
-  *creating a new file* (`SleepSection.tsx`) — which can never conflict with anything, since no
+  _creating a new file_ (`SleepSection.tsx`) — which can never conflict with anything, since no
   other branch can simultaneously be creating a file with that exact name and content — plus
   adding one import line and one `<SleepSection />` line to `DashboardPage.tsx`. Two branches
   each adding a different new section would still each touch `DashboardPage.tsx`, but as two
@@ -1726,7 +1753,7 @@ before Phase 8's real Dashboard build-out starts touching it even more.
    this logic previously lived inline in `DashboardPage.tsx`, which had no test file of its own
    at all.
 5. Ran the full frontend test suite and hit five failures, all `TypeError: Cannot read
-   properties of null (reading 'length')`, every one inside a section that fetches two things at
+properties of null (reading 'length')`, every one inside a section that fetches two things at
    once via `Promise.all` (Habit, Medication, Symptom — Mood only fires a single fetch and was
    unaffected). Diagnosed and fixed — see the dedicated explanation below.
 6. Ran `npm run build`, `npm run lint`, and `npx prettier --check .` — all clean after the test
@@ -1746,10 +1773,10 @@ before Phase 8's real Dashboard build-out starts touching it even more.
   `mockImplementation`) configures the mock to resolve to the **exact same** `Response` object
   instance on every call, no matter how many times the mock is invoked.
 - **Why that broke specifically here and not elsewhere in this project:** a `Response` object's
-  body can only be read *once* — calling `.json()` on it a second time throws, because the
+  body can only be read _once_ — calling `.json()` on it a second time throws, because the
   underlying stream has already been consumed. Every earlier component in this project only ever
   fires one `fetch` call per load, so this was never an issue before. `HabitSection`,
-  `MedicationSection`, and `SymptomSection` all fire *two* simultaneous `fetch` calls via
+  `MedicationSection`, and `SymptomSection` all fire _two_ simultaneous `fetch` calls via
   `Promise.all` (e.g. medications + medication-logs together, so the log list can resolve each
   log's medication name without a loading flicker) — and with the mock returning the same
   instance both times, the second `.json()` call hit an already-consumed body.
@@ -1762,13 +1789,13 @@ before Phase 8's real Dashboard build-out starts touching it even more.
   assumed would always be an array.
 - **The fix:** switched the affected tests from `.mockResolvedValue(...)` to
   `.mockImplementation(() => Promise.resolve(jsonResponse(...)))` — `mockImplementation` runs
-  the given function fresh on *every* call, so each of the two simultaneous `fetch` calls gets
+  the given function fresh on _every_ call, so each of the two simultaneous `fetch` calls gets
   its own brand-new `Response` object with its own independently-readable body.
 - **The general lesson, worth remembering for any future component that fetches more than one
   thing at once:** `mockResolvedValue`/`mockReturnValue` share one fixed value across every
   call; `mockImplementation` (or `.mockResolvedValueOnce()` chained per call) produces a fresh
   value each time. The two are interchangeable for a mock that's only ever called once, and
-  silently *not* interchangeable the moment a component starts calling it concurrently — worth
+  silently _not_ interchangeable the moment a component starts calling it concurrently — worth
   defaulting to `mockImplementation` for any endpoint a component might call more than once in
   the same render, rather than only reaching for it after hitting this exact bug again.
 
@@ -1794,7 +1821,7 @@ structural problem.
   existing section's code or `DashboardPage`'s props, since it manages its own data end to end.
 - **Added test files for the new sections now, rather than waiting for Phase 13.** This mirrors
   the project's standing testing rule (light tests alongside any new testable logic, not held
-  back for the dedicated test-focused phase) — and this logic was previously *only* covered
+  back for the dedicated test-focused phase) — and this logic was previously _only_ covered
   implicitly, inline in an untested page component, so extracting it was a natural moment to add
   real coverage for it for the first time.
 - **Verified with a real browser flow, not just the (now-passing) mocked test suite,** since a
@@ -1830,7 +1857,7 @@ each type confirmed the decomposition preserved behavior exactly.
 ## 2026-08-17 — Two lasting regression checks for the dashboard, not just a one-off manual verification
 
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — the previous entry's browser
-verification proved the decomposition worked *once, by hand*. This adds two things that keep
+verification proved the decomposition worked _once, by hand_. This adds two things that keep
 checking it automatically, on every future change, instead of relying on someone remembering to
 repeat that manual flow.
 
@@ -1839,7 +1866,7 @@ repeat that manual flow.
 #### Why one manual check isn't the same as a regression test
 
 - The previous entry's Playwright run was real, valuable proof — but it ran once, in this one
-  session, and proved nothing about the *next* change to this code. A **regression test** is
+  session, and proved nothing about the _next_ change to this code. A **regression test** is
   specifically a check that keeps running automatically after the fact, so a future edit that
   breaks the same thing gets caught immediately rather than relying on someone remembering to
   manually repeat the same flow again.
@@ -1849,7 +1876,7 @@ repeat that manual flow.
      correctly inside `DashboardPage` — nothing in the existing test suite rendered
      `DashboardPage` itself; `MoodSection.test.tsx` and friends only ever test each section in
      isolation.
-  2. A visual, functioning check that the dashboard genuinely *works end to end* with real data
+  2. A visual, functioning check that the dashboard genuinely _works end to end_ with real data
      in it — the existing CI screenshot workflow (`pr-preview.yml`, from the earlier "GitHub
      Actions" entries) only ever captured the dashboard immediately after registering, which is
      always empty. It could pass while showing a blank page even if every section were silently
@@ -1869,7 +1896,7 @@ repeat that manual flow.
   here too, since this test exercises the same three `Promise.all`-based sections at once.
 - This is intentionally a thin test, not a re-test of each section's own behavior (loading/empty
   states, save/delete handlers, etc. are already covered per-section) — its only job is catching
-  a *composition* regression, e.g. a future edit that accidentally drops one section's import or
+  a _composition_ regression, e.g. a future edit that accidentally drops one section's import or
   otherwise breaks how `DashboardPage` wires the four together, which nothing else in the suite
   would catch since nothing else renders `DashboardPage` as a whole.
 
@@ -1881,7 +1908,7 @@ repeat that manual flow.
   a mood, a symptom (picked from the seeded system list), a medication (created inline), and a
   habit (created inline) — using the exact same flow validated by hand in the previous entry —
   before taking a `04-dashboard-functioning-with-entries` screenshot.
-- Because this reuses the *same* before/after mechanism already built (the earlier "GitHub
+- Because this reuses the _same_ before/after mechanism already built (the earlier "GitHub
   Actions" entries), this functioning-dashboard screenshot automatically gets the same
   before/after comparison as the other three: a reviewer on any future frontend-touching PR now
   sees, side by side, what a dashboard with real data in it looked like on `main` versus on the
@@ -1963,8 +1990,11 @@ that this one doesn't) or a **rebase** (replay this branch's own commits on top 
 starting point — see the earlier stacked-PR entries in this same file for both). `git cherry-pick
 <commit-sha>` is different: it takes **one specific, already-existing commit from anywhere in the
 repository's history** and re-applies just that one change on top of whatever branch you're
-currently on, as a brand-new commit with the same content and message but its own new SHA. It
-doesn't care what branch the original commit is "on," or even whether that branch still exists —
+currently on, as a brand-new commit with the same content and message but its own new SHA (SHA —
+short for the hashing algorithm git uses — is the long identifier, like `14091d9` seen further
+down, that git assigns to every commit; it's derived from that commit's exact content and its
+parent, so a commit with different content or a different parent always gets a different SHA).
+It doesn't care what branch the original commit is "on," or even whether that branch still exists —
 only that the commit itself still exists somewhere in the repository's history (which, once
 committed, a plain commit essentially always does, even after its branch is deleted, until git's
 garbage collection eventually cleans up anything truly unreachable — not a practical concern for
@@ -1981,7 +2011,7 @@ time (confirmed via `githubstatus.com`, not assumed), those two fix commits were
 **never pushed** — committed locally, held back on purpose until GitHub was confirmed healthy
 again, exactly the caution that outage called for.
 
-**The actual problem**: GitHub recovered *enough* for the human to merge PR #62 through the web
+**The actual problem**: GitHub recovered _enough_ for the human to merge PR #62 through the web
 UI before those fix commits were ever pushed. GitHub can only merge what's actually sitting on
 the remote branch — it had no way to know two more commits existed only on a laptop, never
 pushed. The merge went through cleanly, `feature/7-edit-log-entries` got auto-deleted (per this
@@ -2026,7 +2056,7 @@ from scratch (throwing away real, already-verified work), or manually copy-pasti
 hand into a new branch (error-prone, and loses the original commit's authorship/message/history).
 Cherry-pick is exactly the tool for "this exact change already exists and is correct, it just
 needs to land somewhere new" — a different situation from a merge or rebase, which both operate
-on *branches* as a whole rather than individually-chosen commits.
+on _branches_ as a whole rather than individually-chosen commits.
 
 ### Decisions
 
@@ -2041,7 +2071,7 @@ on *branches* as a whole rather than individually-chosen commits.
   a step worth skipping just because the change itself was already proven correct once before.
 - **Documented the outage-timing cause explicitly in the PR description**, not just fixed
   silently — a reviewer (or a future maintainer reading git history later) deserves to know
-  *why* a bug that was supposedly already fixed once shows up again as a "new" PR, rather than
+  _why_ a bug that was supposedly already fixed once shows up again as a "new" PR, rather than
   being left to wonder if it's a regression.
 
 ### State at end of this step
@@ -2051,7 +2081,7 @@ being deleted before it ever reached GitHub.
 
 ### Verification
 
-- `git log origin/main --oneline | grep "clearing an optional"` — confirmed empty *before* this
+- `git log origin/main --oneline | grep "clearing an optional"` — confirmed empty _before_ this
   recovery, proving the gap was real, not assumed.
 - `git ls-remote --heads origin feature/7-edit-log-entries` — confirmed the original branch was
   genuinely gone, not just hard to find.
@@ -2072,13 +2102,13 @@ in this file, worth spelling out precisely because it's easy to conflate the thr
 **Three ways work can go missing before it reaches `main`, and this project has now hit all
 three:**
 
-1. **Commits made, pushed, PR merged — but a *later* fix to that same PR never got pushed before
+1. **Commits made, pushed, PR merged — but a _later_ fix to that same PR never got pushed before
    the merge happened.** This is the earlier `git cherry-pick` entry above (PR #62): the fix
    existed and was even committed, but the outage's timing meant it missed the merge window.
 2. **A PR shows "Merged" on GitHub, but its commits landed in the wrong branch, not `main`** —
    because its base branch was still serving as another open PR's base and so didn't get deleted
    (see the PR #45 and PR #68/Trends entries elsewhere in this file). The commits exist on
-   *some* branch, just not the one that matters.
+   _some_ branch, just not the one that matters.
 3. **This entry: commits made, fully complete and correct, that were never pushed to GitHub at
    all — no PR ever opened.** Found not by suspicious GitHub UI state (there was no PR to look
    suspicious), but by directly comparing two things that should never disagree: `main`'s own
@@ -2088,7 +2118,7 @@ three:**
    `git log --all --oneline -S "rehydrateSession"` — searching **every** local branch, not just
    the current one — found the missing code sitting on a local-only branch,
    `fix/session-rehydration-on-reload`, that had simply never been pushed. The `-S` flag searches
-   commit *content* (did any commit add or remove this exact string), which is what made it
+   commit _content_ (did any commit add or remove this exact string), which is what made it
    possible to find work by what it contains rather than needing to already know which branch to
    look on.
 
@@ -2109,17 +2139,17 @@ For each of the two stranded branches (`fix/session-rehydration-on-reload`,
    which a merged commit always would be and an unpushed one never can be.
 2. Checked out the stranded branch and ran `git rebase origin/main`.
 3. Re-ran the full verification cycle (`npm test`, `npm run build`, lint, format) against the
-   rebased result — one of the two surfaced a genuine ripple effect this way (see *Decisions*).
+   rebased result — one of the two surfaced a genuine ripple effect this way (see _Decisions_).
 4. Pushed and opened a fresh PR for each, explaining in the PR description exactly what had
    happened and how it was found.
 
 #### What `git rebase origin/main` actually did here, precisely
 
-Both stranded branches had been created off an *old* point in `main`'s history — back before
+Both stranded branches had been created off an _old_ point in `main`'s history — back before
 several other features had since merged. `git rebase origin/main` took each branch's own commits
 (one commit for the error-handling branch, two for the rehydration branch), set them aside, moved
 the branch pointer forward to wherever `origin/main` currently is, and replayed those commits one
-at a time on top of that new position — as if the branch had been created from *today's* `main`
+at a time on top of that new position — as if the branch had been created from _today's_ `main`
 all along. Git rewrites each replayed commit with a brand-new SHA in the process (the original
 rehydration fix was `739c329`; after rebasing onto the current `main`, the same change became
 `b443f64` — same content and message, different SHA, because its parent commit is now different).
@@ -2131,7 +2161,7 @@ resolve, meaning nothing else had touched those exact files in the meantime.
 **Rebase vs. cherry-pick, for the same underlying problem — recovering commits that aren't where
 they need to be:** cherry-pick (the earlier entry) is for grabbing a specific commit (or a few)
 out of history and replaying it somewhere new, regardless of what branch it's "on" or whether that
-branch still exists. Rebase is for replaying an *entire branch's own commits*, in order, onto a
+branch still exists. Rebase is for replaying an _entire branch's own commits_, in order, onto a
 new starting point — the natural choice here because the whole point was "this branch, unchanged,
 just needs a newer foundation," not "extract one commit from a pile of others." Both operations
 share the same underlying mechanic (take a commit's diff, reapply it elsewhere, get a new SHA) —
@@ -2139,7 +2169,7 @@ the difference is just what you're telling git to move: one named commit, or a w
 worth of them at once.
 
 **Why rebasing was safe here specifically, and when it wouldn't be**: rewriting a commit's SHA is
-only safe if nobody else has a copy of the *original* SHA to get confused by. Both branches here
+only safe if nobody else has a copy of the _original_ SHA to get confused by. Both branches here
 were 100% local — never pushed, so no remote copy and no chance of a collaborator having them
 checked out. That's precisely why rebase was fine to use freely; rebasing (or otherwise rewriting)
 commits that are already pushed and shared is a much riskier operation, generally avoided unless
@@ -2147,8 +2177,8 @@ everyone who might have a copy is aware and can recover.
 
 ### Why it's needed
 
-An implementation log is only trustworthy if it's read as a description of what's *actually true
-in the code*, not a record of what someone intended or believed at the time of writing. Finding
+An implementation log is only trustworthy if it's read as a description of what's _actually true
+in the code_, not a record of what someone intended or believed at the time of writing. Finding
 two real gaps this way — by treating a mismatch between docs and code as a bug to investigate,
 not a documentation nitpick — is what keeps this log worth reading later, including by future
 instances of Claude picking up this project cold.
@@ -2205,15 +2235,15 @@ tradeoff is understood before deciding, not a record of it being turned on.
 #### The everyday problem merge queues solve
 
 Picture a checkout line with one register. Two customers can each individually have a valid cart
-and enough money — but if they both tried to pay from the *same* shared account at the exact same
+and enough money — but if they both tried to pay from the _same_ shared account at the exact same
 moment, the balance check one of them saw a second ago might already be wrong by the time their
 payment actually goes through. A queue fixes this by processing people **one at a time, each
 against the current, up-to-date balance** — not the balance from when they first walked in.
 
 The same shape of problem happens with PRs. Say two open PRs — "add rate limiting" and "fix the
 navbar" — are both reviewed, both pass CI, both show a green checkmark, and both say "no
-conflicts." Each one is individually true *against `main` as it is right now*. But if you merge
-the first one, `main` has now changed — and the second PR was only ever tested against the *old*
+conflicts." Each one is individually true _against `main` as it is right now_. But if you merge
+the first one, `main` has now changed — and the second PR was only ever tested against the _old_
 `main`, before that change. Usually this is fine. Occasionally it isn't: maybe both PRs happened
 to touch the same file in a way that's individually clean but combines into something broken, or
 a test that only fails once both changes are present together. GitHub's default merge button has
@@ -2227,15 +2257,15 @@ queue, GitHub:
 
 1. Builds a **temporary, throwaway branch** combining `main` + every PR already ahead of it in
    the queue + this PR's own changes.
-2. Runs the repo's required CI checks (tests, build, lint — whatever's configured) against *that
-   combined branch*, not against the PR's original, possibly-now-stale branch.
+2. Runs the repo's required CI checks (tests, build, lint — whatever's configured) against _that
+   combined branch_, not against the PR's original, possibly-now-stale branch.
 3. Only if that combined check passes does it actually merge the PR into `main` for real.
 4. Moves on to the next PR in line, which now gets tested against a `main` that includes
    everything merged so far.
 
 If a PR fails its combined check, it's removed from the queue and `main` is left untouched — the
 other queued PRs aren't blocked by it. The practical effect: every PR that merges through the
-queue was tested against the *actual* state `main` will be in right before it lands, not a
+queue was tested against the _actual_ state `main` will be in right before it lands, not a
 snapshot from whenever CI last ran on its own branch.
 
 #### Is this the same thing as a "stacked PR"? No — different problem, different tool
@@ -2244,15 +2274,15 @@ It's easy to conflate these since both involve "PRs and an order," but they solv
 of situations:
 
 - **A stacked PR (see the very first entry in this file, #7 → #8 → #9) is a deliberate choice**
-  made by whoever's writing the code, *because* one PR's code genuinely needs another
+  made by whoever's writing the code, _because_ one PR's code genuinely needs another
   not-yet-merged PR's code to exist first (2.3's refresh endpoint needing 2.2's `lib/jwt.ts`).
   Its base branch is intentionally another PR's branch, not `main` — that's the whole point.
-- **A merge queue is for PRs that are *not* related to each other at all** — "add rate limiting"
+- **A merge queue is for PRs that are _not_ related to each other at all** — "add rate limiting"
   and "fix the navbar" (this project's actual PRs #72 and the still-pending NavBar fix) don't
   need each other's code; they just both happen to be landing in `main` around the same time. The
   queue's job is purely safety and ordering for otherwise-independent changes, not expressing a
   code dependency.
-- Concretely: a PR whose base is set to *another PR's branch* (a real stack) isn't even eligible
+- Concretely: a PR whose base is set to _another PR's branch_ (a real stack) isn't even eligible
   to join `main`'s merge queue until it's been retargeted to `main` — which, per the very first
   entry in this file, is exactly the automatic step that (when it works correctly) happens once
   the branch it was stacked on merges. The merge queue only ever operates on PRs targeting the
@@ -2263,11 +2293,11 @@ of situations:
 Worth being precise about this rather than assuming a new tool would have helped: **no, not
 directly.** Every real incident in this project so far (the PR #62 cherry-pick recovery, the PR
 #45/#68 wrong-base-branch recoveries, and the two "never pushed at all" recoveries) happened
-*before* anything reached the actual merge step — commits that were never pushed, or that landed
+_before_ anything reached the actual merge step — commits that were never pushed, or that landed
 against the wrong base branch entirely. A merge queue only starts working once a PR is genuinely
 ready and someone clicks "merge" (or "add to queue") — it has no visibility into commits still
 sitting unpushed on a laptop, and it doesn't change how base-branch retargeting works for stacked
-PRs. What it specifically guards against is a *different, not-yet-encountered* risk: two
+PRs. What it specifically guards against is a _different, not-yet-encountered_ risk: two
 independently-fine PRs quietly breaking each other when combined — a real and growing risk the
 more PRs land in parallel (exactly the situation multiple AI agents working simultaneously,
 described elsewhere in this file, tends to create).
@@ -2279,7 +2309,7 @@ entry was written). None of them touch the same files, so the risk merge queues 
 hasn't caused a real problem yet — but as this project grows and more PRs start touching
 overlapping code (e.g. two different features both editing `NavBar.tsx`), that risk becomes more
 likely, not less. Knowing what the tool actually does — and, just as importantly, what it
-*doesn't* do — is what makes it possible to decide later whether it's worth turning on, rather
+_doesn't_ do — is what makes it possible to decide later whether it's worth turning on, rather
 than reaching for it as a vague "more automation is safer" reflex.
 
 ### Decisions
@@ -2312,12 +2342,18 @@ user in a PR's "AFTER: capture screenshots" job log and reported for a fix.
 came to exist) drives a real headless browser through register → log an entry of each of the
 four types → screenshot, so a PR's reviewers get visual proof the frontend actually works, not
 just that its automated tests pass. It does this by querying the real page the same way a person
-would — `page.getByRole("button", { name: "+ Mood" })` and three siblings for Symptom/
+would — `page.getByRole("button", { name: "+ Mood" })` (Playwright's `getByRole` finds an
+element the way a screen reader or an assistive-technology user would — by its accessible role,
+like "button," plus its visible/announced name — rather than a raw CSS selector tied to markup
+that can change for purely cosmetic reasons) and three siblings for Symptom/
 Medication/Habit.
 
 That's exactly the problem: this script is driven by real UI text, so when that UI text changes,
 nothing automatically tells the script to catch up. The Dashboard redesign that replaced each
-section's `"+ Mood"`-style text button with a compact icon button (`aria-label="Add mood entry"`,
+section's `"+ Mood"`-style text button with a compact icon button (`aria-label="Add mood entry"` —
+an `aria-label` is invisible text attached to an element specifically for screen readers and
+accessibility-based test queries like `getByRole` above; it gives an icon-only button, which has
+no visible text of its own, a name that can still be found by role,
 etc. — see [Dashboard & Trends](10-dashboard-and-trends.md)'s icon-button entry) shipped with a
 full Vitest suite covering the new behavior, but this script isn't a Vitest test — it's a plain
 Node script the CI workflow runs directly, invisible to `npm test` and therefore never run as
@@ -2347,7 +2383,7 @@ job log.
   not the other way around.
 - **Didn't add a Vitest test wrapping this script.** It's already a real, working
   end-to-end smoke test in its own right (see the two entries above) - the actual gap this bug
-  exposes is that *plain scripts CI depends on* have no equivalent of "run the suite before you
+  exposes is that _plain scripts CI depends on_ have no equivalent of "run the suite before you
   merge" the way app code does under this project's Testing Requirements, not that this specific
   script needs test coverage of its own. Worth remembering next time a UI element's accessible
   name changes: this script is a real, silent dependent that `npm test` passing doesn't cover.

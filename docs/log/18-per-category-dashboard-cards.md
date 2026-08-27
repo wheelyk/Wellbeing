@@ -21,8 +21,11 @@ The frontend needs two things out of this, not one: whether a category gets a ca
 what order those cards render in. A plain boolean would answer the first question but not the
 second - Task 2's own design (confirmed with the project owner) sorts cards most-recently-logged
 first, the same "Recent" framing every other section already uses. Returning the actual timestamp
-answers both from one field, computed by one `groupBy` query alongside the existing category list
-fetch - no extra round trip, and no separate endpoint needed.
+answers both from one field, computed by one `groupBy` query (a database query that clusters rows
+sharing the same value in a column - here, all of one category's logs - and computes one aggregate
+per cluster, in this case each category's single most-recent `loggedAt`, rather than returning
+every individual row) alongside the existing category list fetch - no extra round trip, and no
+separate endpoint needed.
 
 #### Scoped to the caller specifically, not "has anyone logged this category"
 
@@ -58,7 +61,10 @@ page through one category's own history independently of every other category's.
 ### Decisions
 
 - **One `groupBy` query, not a per-category subquery** - keeps `GET /api/categories`'s cost fixed
-  at two queries total regardless of how many categories exist, rather than N+1.
+  at two queries total regardless of how many categories exist, rather than N+1 (a common
+  performance trap: running one query to fetch a list of N things, then a separate follow-up query
+  _per item_ to fetch related data for each one - N+1 total queries instead of a small, fixed
+  number, which gets slower the more items exist).
 - **`lastLoggedAt` added to the existing `GET /api/categories` response**, not a separate endpoint -
   every other consumer of that endpoint (the Quick Add category picker, Settings' management list,
   `RemindersSection`'s own category picker) is unaffected by an extra field they simply don't read,
@@ -69,8 +75,10 @@ page through one category's own history independently of every other category's.
 - `npm test` (backend): full suite green - 231 tests across 21 files (5 new: 3 in
   `categories.test.ts`, 2 in `categoryLogs.test.ts`).
 - `npx tsc --noEmit`, `npm run build`, `npx eslint .`, `npx prettier --check .`: all clean.
-- Manual, real-server verification (curl against a running local backend, not just the automated
-  suite): created a category, confirmed `GET /api/categories` returned `lastLoggedAt: null` for it;
+- Manual, real-server verification (`curl` - a command-line tool for sending an HTTP request and
+  seeing the raw response, used here to talk to the backend directly rather than through the
+  frontend UI - against a running local backend, not just the automated suite): created a
+  category, confirmed `GET /api/categories` returned `lastLoggedAt: null` for it;
   logged one entry against it, confirmed the same category's `lastLoggedAt` in a fresh `GET
 /api/categories` call now matched that log's own `loggedAt` exactly; confirmed `GET
 /api/category-logs?categoryId=<id>` returned exactly that one log.
@@ -99,8 +107,10 @@ a card and in what order (derived purely from `lastLoggedAt`, Task 1's new field
 is a self-contained card - own fetch (`?categoryId=`, Task 1's other new bit), own pagination, own
 edit/delete, own "+" - one instance per qualifying category. This mirrors `MedicationSection`'s own
 shape almost exactly, which is what made this tractable: `SectionPanel`'s existing design (each
-instance is an independent grid child, keyed by its own `storageKey`) already supported rendering an
-arbitrary number of these as siblings with zero changes to `DashboardPage.tsx` itself.
+instance is an independent grid child - one cell in the CSS Grid layout `DashboardPage.tsx` arranges
+its sections in, so adding more of them just adds more cells, no layout code to change - keyed by
+its own `storageKey`) already supported rendering an arbitrary number of these as siblings with zero
+changes to `DashboardPage.tsx` itself.
 
 #### Why "only once logged" needs no special-casing for hidden categories
 
@@ -240,8 +250,10 @@ list until a reload. Excluding already-carded categories from the picker avoided
 
 `CategoryLogCard`'s own fetch runs once per mount (`useEffect` keyed on `category.id`). The fix
 forces a fresh mount - and therefore a fresh fetch - of the one affected card the instant the shared
-picker saves a log for a category that already has a card. This needed its own `key`, since
-`category.id` alone never changes.
+picker saves a log for a category that already has a card. This needed its own `key` (see the
+[Glossary](../GLOSSARY.md)'s "React `key` prop / reconciliation" entry for how React decides
+whether to update an existing component in place versus tear it down and mount a brand-new one),
+since `category.id` alone never changes.
 
 **First attempt, and the real bug it had**: the first version of this key was
 `` `${category.id}-${category.lastLoggedAt}` ``, on the theory that `lastLoggedAt` changing (which

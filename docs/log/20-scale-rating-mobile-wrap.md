@@ -13,17 +13,23 @@ instead.
 
 `Category`'s `valueType: "scale"` is generic - `scaleMin`/`scaleMax` are whatever the category (a
 seeded system one, or a user's own custom one) was defined with. Every value in that range renders
-as one `role="radio"` button in `RatingScale.tsx`. Two very different ranges exist among the
-seeded categories today: Mood (1-5) and Energy/Stress (1-7) - both narrow enough to fit on one
-line at a typical mobile width - and every former-Symptom severity category, including Headache
-(1-10) - too wide for one line without wrapping.
+as one `role="radio"` button in `RatingScale.tsx` (`role="radio"` is an ARIA attribute - metadata
+that tells assistive technology like a screen reader "treat this plain `<button>` as if it were one
+option in a group of radio buttons," since it isn't a native HTML `<input type="radio">`). Two very
+different ranges exist among the seeded categories today: Mood (1-5) and Energy/Stress (1-7) - both
+narrow enough to fit on one line at a typical mobile width (the visible width of a phone's browser
+window, roughly 360-412px for common phones) - and every former-Symptom severity category,
+including Headache (1-10) - too wide for one line without wrapping.
 
 #### `RatingScale` already had the mechanism this needed - it just wasn't wired up
 
 `RatingScale.tsx` has carried a `columns` prop since it was first pulled out as a shared component
 (see its own top-of-file comment, referencing the Phase 5 checklist): passing a number switches its
-container from an unwrapped `flex` row to a CSS grid with that many fixed columns, which wraps onto
-additional rows once the value count exceeds the column count. The bug wasn't in `RatingScale`
+container from an unwrapped `flex` row (CSS Flexbox - lays elements out in a single line, and by
+default keeps cramming them onto that one line rather than wrapping) to a CSS grid with that many
+fixed columns (CSS Grid - lays elements out into a fixed number of columns, automatically wrapping
+onto a new row once a row's columns fill up), which wraps onto additional rows once the value count
+exceeds the column count. The bug wasn't in `RatingScale`
 itself - it was that `CategoryEntryForm.tsx` (the only real caller of `RatingScale` for logging a
 category's value, used by both the shared discovery picker and every `CategoryLogCard`'s own "+")
 never actually passed `columns` for any category, regardless of how wide its range was. A 1-10

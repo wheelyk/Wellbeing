@@ -50,7 +50,9 @@ userId, categoryId, createdAt)`, `@@unique([userId, categoryId])`, both FKs `onD
   every returned category is serialized with `hidden: boolean`. New `POST /:id/hide` - scoped to
   `userId: null, archivedAt: null` (a personal or already-archived category isn't a valid hide
   target; both come back as the same 404, matching this codebase's established "don't leak which
-  case it is" convention) - and `DELETE /:id/hide`, both idempotent (`upsert`/best-effort `delete`,
+  case it is" convention) - and `DELETE /:id/hide`, both idempotent (`upsert` - shorthand for
+  "update or insert": update the row if it already exists, create it if it doesn't - so calling it
+  twice in a row has the same end result as calling it once) /best-effort `delete`,
   matching `categories.ts`'s own repeat-archive tolerance).
 - **`backend/src/routes/adminCategories.ts`**: `createSchema`/`updateSchema` also gain
   `description`, so an admin can set one when creating/editing a system category (needed for
@@ -132,7 +134,10 @@ the tool can't infer from a schema diff alone.
 directly onto three of `Category`'s four `valueType`s). The one wrinkle is that
 `HabitLog.habitId` needs to become `CategoryLog.categoryId`, pointing at the _new_ row, not the
 old one. Copying each habit's `id` verbatim into the new `categories` row (rather than letting
-Postgres generate a fresh uuid) means `habit_logs.habit_id` already equals the right
+Postgres generate a fresh uuid - a UUID, "Universally Unique Identifier," is a long,
+randomly-generated id that's effectively guaranteed unique without coordinating with anything
+else; Postgres's `gen_random_uuid()` generates one automatically whenever no id is explicitly
+supplied) means `habit_logs.habit_id` already equals the right
 `categories.id` with zero transformation - no lookup/join table needed at all, just a straight
 `INSERT ... SELECT` from `habit_logs` into `category_logs`.
 
@@ -225,8 +230,10 @@ behavioral benefit to the user.
   `GET /api/history` (`{type: "category", label: "Walk: Done"}`), `GET /api/trends` (marks the
   activity calendar active, contributes no chart of its own), and `GET /api/export`
   (`categories`/`categoryLogs`, with `categoryName` carried onto each log); confirmed
-  `POST /api/reminders` with `target: "habit"` now 400s validation while `target: "category"`
-  against the same category id still 201s. (As in Task 1, a stray backend process from an earlier
+  `POST /api/reminders` with `target: "habit"` now 400s (HTTP 400 - "Bad Request," meaning the
+  server rejects malformed/invalid input before doing anything) validation while `target: "category"`
+  against the same category id still 201s (HTTP 201 - "Created," the standard success code for a
+  `POST` that successfully created a new resource). (As in Task 1, a stray backend process from an earlier
   session was found already bound to port 4000 before this pass - killed and replaced with a fresh
   build before trusting any of the above.)
 
@@ -252,7 +259,9 @@ Task 2 is destructive instead - it deletes `/api/habits`, `/api/habit-logs`, and
 `habitSummary`/`habitEnabled` outright. Verifying Task 2 in isolation (its own PR's CI) surfaced
 this directly: with Task 2's backend running and the _old_ (pre-Task-3) frontend still pointed at
 it, `DashboardSummary.tsx`'s `data.habitSummary.loggedCount` throws on every render (`habitSummary`
-no longer exists in the response), crashing the dashboard - confirmed via three real e2e failures
+no longer exists in the response), crashing the dashboard - confirmed via three real e2e (e2e =
+"end-to-end": a test that drives the real, fully running app, browser included, rather than
+testing a function or component in isolation) failures
 in that PR's CI run, not a hypothetical. That means, unlike Task 2/3's own numbering, **Task 3 is
 actually safe to merge to `main` on its own first** (an unchanged Task-2-era backend simply ignores
 a frontend that no longer asks for Habit data), while **Task 2 is not safe to merge alone** before
@@ -326,7 +335,9 @@ wasn't "harmless dead code," it was a guaranteed runtime crash the moment Task 2
 ### Verification
 
 - `npx tsc -b`, `npm run build`: clean.
-- `npx vitest run` (frontend): full suite green - 278 tests across 36 files (up from 265 across
+- `npx vitest run` (Vitest is the test runner behind this project's frontend `npm test` script -
+  conceptually similar to a tool like Jest, just faster, and built to pair naturally with Vite, the
+  frontend's own dev-server/build tool) (frontend): full suite green - 278 tests across 36 files (up from 265 across
   30 files pre-Task-3, net of the 6 deleted Habit-specific test files and several tests
   converted/added in their place).
 - `npm run lint` (oxlint), `npx prettier --check .`: clean (two pre-existing, unrelated formatting
@@ -336,7 +347,7 @@ wasn't "harmless dead code," it was a guaranteed runtime crash the moment Task 2
   running backend + frontend dev server, not just the automated suite): to get a backend whose
   schema actually matches Task 2's migrated local database (this branch's own backend still has
   pre-Task-2 code, since Task 2 hasn't merged yet), Task 2's branch was checked out into a separate
-  git worktree and run there on port 4000, with this branch's frontend dev server on port 5173
+  git worktree (see the Glossary's "Git worktree" entry) and run there on port 4000, with this branch's frontend dev server on port 5173
   pointed at it - the same two-process setup the real deployed app uses, just both halves sourced
   from their own not-yet-merged branches. Confirmed end-to-end: registered a fresh account; logged
   a mood entry and a boolean category entry ("Exercise") via `CategorySection`'s own "Add category
@@ -344,7 +355,9 @@ wasn't "harmless dead code," it was a guaranteed runtime crash the moment Task 2
 Symptoms: 0 logged · Medications: 0/0 taken`) and Recent entries showed both; History showed
   "Exercise: Done" under a `CATEGORY` label; Settings' Built-in categories list showed exactly
   three toggles (no Habits row); on a mobile viewport (412×915, matching `BottomNav`'s `md:hidden`
-  breakpoint), Quick Add's menu showed Mood/Symptom/Medication/More… (no Habit item), and tapping
+  breakpoint - `md:hidden` follows a common utility-CSS naming convention where a `breakpoint:`
+  prefix like `md:` means "apply this rule from medium screen widths up," so this hides the
+  element on desktop-sized viewports), Quick Add's menu showed Mood/Symptom/Medication/More… (no Habit item), and tapping
   "More…" opened the generic category-log dialog pre-populated with "Exercise". Screenshots
   captured at each step. Both temporary processes and the worktree were torn down afterward.
 
@@ -474,7 +487,9 @@ had for free (an admin route, a description field, per-user hiding).
 - **A real gap this local verification missed, caught by CI**: `prisma/seed.ts` (the script that
   seeds the 8 system symptoms into a fresh database) still called `prisma.symptom.create` -
   `tsc --noEmit` doesn't catch this, since `backend/tsconfig.json`'s `include` is `["src"]` only,
-  and `prisma/seed.ts` lives outside it (`ts-node` compiles it directly when actually run,
+  and `prisma/seed.ts` lives outside it (`ts-node` runs a TypeScript file directly - compiling it
+  on the fly in memory - without a separate `tsc` build step first, which is why it isn't limited
+  by `tsconfig.json`'s own `include` list the way a normal build is; it compiles it directly when actually run,
   bypassing that same `include` restriction). The shared local dev database this task's other
   verification ran against had already been migrated mid-development, so `npx prisma db seed`
   never got exercised against it in a way that would have surfaced this. CI's own fresh-database
@@ -614,7 +629,9 @@ shipped, the same class of problem Task 2 caused for Habit before Task 3 landed.
   original pre-Task-4 test's assumption of an empty-categories first run no longer holds and the
   rewritten spec accounts for this. Verified by actually running the full e2e suite locally
   (`backend` built and started with `NODE_ENV=test`, `frontend` built and served via `vite
-preview`, `npx playwright test` from `frontend/`) - all 4 specs green. One environmental false
+preview` (Vite is this project's frontend build/dev-server tool; `vite preview` serves the
+  already-built production files locally, unlike `vite`'s own dev-server mode which serves and
+  hot-reloads uncompiled source), `npx playwright test` from `frontend/`) - all 4 specs green. One environmental false
   positive was diagnosed and ruled out along the way: an initial local run hit the real
   `authRateLimiter` (register got `429`s) despite `NODE_ENV=test` being intended to skip it in this
   app's own middleware - traced to the backend process itself not actually inheriting that env var
@@ -793,7 +810,8 @@ split) rather than needing a permanent special case.
   migration up to (but not including) this one, hand-inserted a user with two `mood_logs` rows
   (one with both `energy`/`stress` set, one with neither) and one `MOOD`-target reminder directly
   via raw SQL matching the pre-migration schema, then applied this migration alone and inspected
-  the result directly (via `pg`, bypassing Prisma entirely so the check couldn't share any blind
+  the result directly (via `pg` - the node-postgres npm package, a low-level database driver used
+  here directly instead of Prisma's own query layer - bypassing Prisma entirely so the check couldn't share any blind
   spot with the code under test): the reminder now reads `target: 'CATEGORY', category_id:
 '<Mood's id>'`; the two-value row produced three `category_logs` rows (Mood, Energy, Stress) all
   sharing one `logged_at`, with `notes: 'both set'` on the Mood row only and `null` on the other

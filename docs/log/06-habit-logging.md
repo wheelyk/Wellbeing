@@ -13,11 +13,11 @@ model first, then the CRUD endpoint, then the frontend form.
 
 ### Background / concepts
 
-#### The actual problem this task is about: a value whose *shape* depends on another row
+#### The actual problem this task is about: a value whose _shape_ depends on another row
 
 Every previous log table (`MoodLog`) has a fixed, known set of columns — a mood log always has a
 `mood` field, always an integer 1–5. A habit log is different: `requirements.md` §6.4 says a
-habit can be yes/no, a number, or a duration, and *which one* is a property of the `Habit` row
+habit can be yes/no, a number, or a duration, and _which one_ is a property of the `Habit` row
 the log points back at, not something fixed for the whole table. This is the core modeling
 question this task has to answer: how do you store "a value whose type depends on a foreign
 key's row" in a relational database, where every row in a table normally has the same columns
@@ -25,7 +25,9 @@ meaning the same thing?
 
 Three real options were weighed:
 
-1. **A single polymorphic column** (e.g. Prisma's `Json` type, or a `String` that gets
+1. **A single polymorphic column** ("polymorphic" here just means a column whose shape/meaning
+   isn't fixed — it can hold different kinds of value depending on context, unlike a normal
+   column that always means the same thing) (e.g. Prisma's `Json` type, or a `String` that gets
    parsed/coerced depending on context). Simplest schema, but every reader of the table has to
    know, out-of-band, how to interpret whatever's in that column — the database itself can't
    enforce "this is a number" vs. "this is a boolean," and a numeric aggregate query (e.g. "this
@@ -43,7 +45,7 @@ Three real options were weighed:
    as every other log type), keeps each value typed at the database level (a numeric aggregate is
    a plain SQL `AVG(value_numeric)`, not a JSON-extraction expression), and its one real cost — the
    "exactly one of three is set" rule isn't something Postgres or Prisma can express declaratively
-   as a constraint referencing a *different* table's row — is paid once, centrally, in the
+   as a constraint referencing a _different_ table's row — is paid once, centrally, in the
    `habit-logs` route's validation code (the next task), not scattered across every future
    consumer of this table the way option 1's "know how to interpret this column" cost would be.
 
@@ -66,7 +68,7 @@ compromise.
 #### Cascading deletes, one level deeper than `MoodLog` needed
 
 - `MoodLog` only needed `onDelete: Cascade` from `User`. `HabitLog` needs it from **both** `User`
-  *and* `Habit`: deleting a user should remove their habits and habit logs (same as every other
+  _and_ `Habit`: deleting a user should remove their habits and habit logs (same as every other
   log type), but deleting a single `Habit` (without deleting the user) should also remove that
   habit's logs — a `HabitLog` whose parent `Habit` no longer exists has no `type` left to interpret
   its `value*` columns against, so an orphaned log in that state isn't meaningful data worth
@@ -181,11 +183,11 @@ time, the same relationship the mood-logging slice's model → endpoint pair had
   `habitLogs.ts` manages entries against those habits, and is where the interesting new logic
   lives: **the value shape a request is allowed to submit depends on data read from a different
   table**, not on anything Zod alone can check from the request body in isolation. Zod validates
-  *shape* (is `valueNumeric`, if present, actually a finite number?) but has no way to know "this
+  _shape_ (is `valueNumeric`, if present, actually a finite number?) but has no way to know "this
   particular request's `habitId` refers to a `NUMERIC` habit, so `valueNumeric` is the only field
   allowed to be present" — that's a database read plus a hand-written check
-  (`extractTypedValue` in `habitLogs.ts`), run *after* Zod's structural validation succeeds and
-  *after* the habit's ownership is confirmed, immediately before anything reaches Prisma.
+  (`extractTypedValue` in `habitLogs.ts`), run _after_ Zod's structural validation succeeds and
+  _after_ the habit's ownership is confirmed, immediately before anything reaches Prisma.
 - The exact rule `extractTypedValue` enforces: **exactly one** of `valueBoolean` /
   `valueNumeric` / `valueDurationMinutes` may be present in the request, and it must be the one
   matching the referenced habit's `type` — zero fields, two-or-more fields, or the "wrong" single
@@ -201,14 +203,15 @@ time, the same relationship the mood-logging slice's model → endpoint pair had
 - This is the single most important check in `habitLogs.ts`, called out explicitly in the task
   brief as "the key defense against ID-tampering," and it's worth being precise about what it
   actually prevents: without it, a logged-in User A could submit `POST /api/habit-logs` with
-  `habitId` set to a habit that actually belongs to User B (guessed, enumerated, or leaked some
-  other way) — and if the server only checked "does a habit with this ID exist," User A's log
+  `habitId` set to a habit that actually belongs to User B (guessed, enumerated — systematically
+  tried in sequence or by pattern rather than found through a legitimate reference — or leaked
+  some other way) — and if the server only checked "does a habit with this ID exist," User A's log
   would silently attach itself to User B's habit, corrupting B's data with A's entries.
 - The fix is the same `findFirst({ where: { id, userId } })` pattern already established for
   ownership checks throughout this codebase (`moodLogs.ts`, and this task's own `habits.ts`) —
   applied here on the `POST /api/habit-logs` **create** path specifically, which is new: every
   prior use of this pattern was on `PATCH`/`DELETE` of a row the caller already owned by
-  definition of "found via their own `userId`." Here, the habit being referenced is a *different*
+  definition of "found via their own `userId`." Here, the habit being referenced is a _different_
   row than the one being created, so this is the first place in the app a foreign key from the
   request body — not the URL's `:id` — gets the same ownership check. `PATCH /api/habit-logs/:id`
   needs no equivalent re-check of `habitId`, because that field isn't editable after creation
@@ -230,7 +233,7 @@ time, the same relationship the mood-logging slice's model → endpoint pair had
 - **`Habit.type`** isn't in `habits.ts`'s `updateSchema` either — only `name` can be changed after
   a habit is created. This was an explicit judgment call the task brief flagged as worth making
   deliberately: once any `HabitLog` rows reference a habit, their `value*` columns were validated
-  and stored *at that time* against the habit's *then-current* type. If `type` could change
+  and stored _at that time_ against the habit's _then-current_ type. If `type` could change
   afterward, every existing log for that habit would become silently inconsistent with its new
   type — a `NUMERIC` habit retroactively turned `BOOLEAN` would leave old rows with a populated
   `value_numeric` and a `null` `value_boolean`, which nothing currently reads as invalid but which
@@ -272,8 +275,8 @@ time, the same relationship the mood-logging slice's model → endpoint pair had
 2. **`backend/src/routes/habits.ts` (new).** Four routes: `GET /` (list, oldest-created-first),
    `POST /` (create, `name` + `type` required), `PATCH /:id` (rename only - `type` silently
    ignored if sent), `DELETE /:id` (cascades to the habit's logs via the schema's `onDelete:
-   Cascade`). Ownership enforced throughout via the established `findFirst({ where: { id,
-   userId } })` → `404` pattern.
+Cascade`). Ownership enforced throughout via the established `findFirst({ where: { id,
+userId } })` → `404` pattern.
 3. **`backend/src/routes/habitLogs.ts` (new).** `GET /` (list, most-recent-first),
    `POST /` (validates `habitId` ownership, then the type-aware value shape, defaults `loggedAt`
    to now or accepts an explicit backfilled value), `PATCH /:id` (value fields all optional as a
@@ -302,7 +305,7 @@ time, the same relationship the mood-logging slice's model → endpoint pair had
    habit and confirmed via a second `GET` that its log was gone too (the cascade, exercised for
    real, not just inferred from the schema). Registered a second real user and confirmed,
    against the live server, that submitting the first user's habit ID returns `404
-   HABIT_NOT_FOUND` rather than succeeding. Cleaned up both manually-created test users
+HABIT_NOT_FOUND` rather than succeeding. Cleaned up both manually-created test users
    afterward via `psql` and stopped the manually-started server.
 
 ### Why it's needed
@@ -331,7 +334,7 @@ needs its own ownership check.
 - **Not building the centralized error-handling middleware or the shared `symptom_id`/
   `medication_id`/`habit_id` cross-cutting Tasks.md checklist item in this task.** Same reasoning
   as the mood-logs endpoint entry: this task's own error responses match the established
-  `{ error: { message, code } }` shape by hand, and the *centralized* version - plus confirming
+  `{ error: { message, code } }` shape by hand, and the _centralized_ version - plus confirming
   the equivalent check exists for symptoms/medications, which this vertical slice doesn't touch -
   is left to whichever task actually closes out that phase-wide checklist item, since those other
   log types are out of this slice's scope entirely (built independently, per the task brief).
@@ -375,13 +378,16 @@ real person can see and use, the same significance the mood entry form task had 
   a new user clicks `+ Habit`, there is nothing yet to log against. This is the actual design
   problem this task's UI has to solve that the mood form's simpler "always ready to log" case
   never faced.
-- The solution built here is a small state machine on `DashboardPage`, not inside either form
+- The solution built here is a small state machine (a "state machine" means exactly one of a
+  fixed set of named states is active at a time, with specific actions moving it from one to
+  another — simpler to reason about than several independent booleans that could disagree) on
+  `DashboardPage`, not inside either form
   component: `habitFormMode: "closed" | "log" | "create-habit"`. Clicking `+ Habit` checks
   `habits.length` and picks `"create-habit"` (no habits yet) or `"log"` (at least one exists)
   — the same button does either thing depending on what's actually possible right now, rather
   than the user needing to discover a separate "manage habits" screen before they can use the
   headline feature at all.
-- Once `HabitCreateForm` succeeds, its new habit is appended to `habits` state *and* the
+- Once `HabitCreateForm` succeeds, its new habit is appended to `habits` state _and_ the
   Dashboard immediately switches to `"log"` mode with that new habit pre-selected
   (`habitToPreselect`) — so "define a habit" chains straight into "log against it" in one
   continuous flow, rather than dropping the user back at an empty screen to click `+ Habit` a
@@ -397,7 +403,7 @@ real person can see and use, the same significance the mood entry form task had 
 - A boolean habit needs a binary choice (rendered as the same `role="radiogroup"`/`role="radio"`
   Yes/No buttons `MoodEntryForm` already established for its rating rows - reused for
   accessibility consistency, not reinvented). A numeric habit needs a free-form number (`<input
-  type="number" step="any">`, allowing decimals - water intake in liters, for instance, isn't
+type="number" step="any">`, allowing decimals - water intake in liters, for instance, isn't
   always a whole number). A duration habit also uses `<input type="number">`, but constrained to
   non-negative integers only (`min={0} step={1}`) - **minutes, not a separate hours/minutes
   picker**, the simplest reasonable choice for "how long," matching the backend's own
@@ -450,13 +456,13 @@ real person can see and use, the same significance the mood entry form task had 
 4. **`frontend/src/components/HabitEntryForm.tsx` (new).** Habit `<select>`, the type-adaptive
    value control described above, optional notes, a `datetime-local` field defaulting to "now"
    (same pattern as `MoodEntryForm`), a "+ Add a new habit" link, Save/Cancel. Submits `POST
-   /api/habit-logs` and calls `onSaved(log)`.
+/api/habit-logs` and calls `onSaved(log)`.
 5. **`frontend/src/pages/DashboardPage.tsx` (extended, not rewritten).** Added the
    `habits`/`habitLogs` state, the parallel fetch-on-mount effect, the three-mode state machine
    described above, and a second "Recent habit entries" section mirroring the mood section's
    shape (loading/error/empty states, a list with per-entry Delete using the same optimistic-
    removal-with-rollback pattern `handleDelete` already established for mood logs). The empty
-   state is split into two distinct messages depending on *why* the list is empty - "you haven't
+   state is split into two distinct messages depending on _why_ the list is empty - "you haven't
    created any habits yet" (points at the `+ Habit` button) versus "nothing logged yet" (habits
    exist, just no entries) - since those are different situations needing different guidance,
    unlike mood logging where "empty" only ever means one thing.
@@ -477,7 +483,7 @@ real person can see and use, the same significance the mood entry form task had 
     log form opens automatically with it pre-selected → log it as "Yes" with a note → confirm it
     appears in the list as "Exercise: Done" → click `+ Habit` again (now with one habit) → use
     "+ Add a new habit" to create a second, numeric habit ("Water intake") → confirm the log form
-    re-opens with the *new* habit pre-selected and a numeric input control (not the boolean
+    re-opens with the _new_ habit pre-selected and a numeric input control (not the boolean
     toggle) → log `2.5` → confirm both entries are listed with correctly-typed values ("Water
     intake: 2.5", most-recent-first) → delete the most recent entry → confirm exactly that one
     disappears and the other remains. Screenshots taken at each step and visually reviewed, not
@@ -499,7 +505,7 @@ has been held to.
 - **A Dashboard-level state machine (`"closed" | "log" | "create-habit"`) rather than baking
   "no habits yet" handling into `HabitEntryForm` itself.** Keeps `HabitEntryForm` focused on one
   job (logging against an already-known list of habits) and `HabitCreateForm` focused on a
-  different one (defining a habit) - `DashboardPage` is the one place that knows *when* each is
+  different one (defining a habit) - `DashboardPage` is the one place that knows _when_ each is
   appropriate, the same separation of concerns `MoodEntryForm` already has relative to
   `DashboardPage`'s mood-log fetching/list-rendering responsibilities.
 - **Minutes as a plain number field for duration, not a separate hours/minutes picker.** Matches
@@ -558,15 +564,19 @@ Medication edit work — one PR covering all four log types).
   `valueBoolean`/`valueNumeric`/`valueDurationMinutes` — with exactly one of the three ever
   non-null, matching whichever `type` the parent `Habit` was defined as (this is the same
   three-column shape `formatHabitValue` in `HabitSection.tsx` already reads from to render each
-  entry in the list). Pre-filling the *right* control for editing means reading the *matching*
+  entry in the list). Pre-filling the _right_ control for editing means reading the _matching_
   field, not just any of the three:
   ```ts
-  const [booleanValue, setBooleanValue] = useState<boolean | null>(editingLog?.valueBoolean ?? null);
+  const [booleanValue, setBooleanValue] = useState<boolean | null>(
+    editingLog?.valueBoolean ?? null,
+  );
   const [numericValue, setNumericValue] = useState(
     editingLog?.valueNumeric != null ? String(editingLog.valueNumeric) : "",
   );
   const [durationValue, setDurationValue] = useState(
-    editingLog?.valueDurationMinutes != null ? String(editingLog.valueDurationMinutes) : "",
+    editingLog?.valueDurationMinutes != null
+      ? String(editingLog.valueDurationMinutes)
+      : "",
   );
   ```
   This doesn't need any extra "which type is this" branching at pre-fill time — because the
@@ -602,7 +612,7 @@ Medication edit work — one PR covering all four log types).
 
 1. **`frontend/src/components/HabitEntryForm.tsx`.** Added the `editingLog` prop; pre-fills
    `habitId` and the type-matching value field as described above; submits `PATCH
-   /api/habit-logs/{id}` (without `habitId`) instead of `POST /api/habit-logs` when editing;
+/api/habit-logs/{id}` (without `habitId`) instead of `POST /api/habit-logs` when editing;
    locks the habit `<select>` and hides "+ Add a new habit" during edit; "Save Changes" button
    label.
 2. **`frontend/src/components/dashboard/HabitSection.tsx`.** Added `editingLog` state, an "Edit"

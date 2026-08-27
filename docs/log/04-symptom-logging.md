@@ -18,12 +18,12 @@ CRUD endpoint → frontend form, each its own stacked PR).
 
 - Every other owned resource in this app so far (`MoodLog`, and later `Medication`/`Habit`)
   has a `user_id` that's always set — the row always belongs to exactly one user. `Symptom` is
-  the first model where that's deliberately *not* always true: a row can either be a **system
+  the first model where that's deliberately _not_ always true: a row can either be a **system
   symptom** (seeded once, `userId` is `null`, visible to every user — e.g. "Headache") or a
   **user's own custom symptom** (`userId` set to whoever created it, e.g. "Joint pain" someone
   adds for themselves). Modeling this as one table with a nullable foreign key, rather than two
   separate tables, matches how the feature actually behaves end to end: both kinds of row are
-  fetched together (`GET /api/symptoms` returns system symptoms *plus* the caller's own), used
+  fetched together (`GET /api/symptoms` returns system symptoms _plus_ the caller's own), used
   identically as the target of a `SymptomLog`, and only distinguished at the point where it
   actually matters (edit/delete must reject anything with `userId !== req.userId`, including the
   `null` case — covered in the next task, not this one).
@@ -36,11 +36,11 @@ CRUD endpoint → frontend form, each its own stacked PR).
 
 - Every relation added in this app up to now cascades: delete the parent, its children go too
   (`User → MoodLog`, `User → Symptom`, `User → SymptomLog` here). But `SymptomLog → Symptom` is
-  different on purpose. If a user deletes a custom symptom they created, their *historical*
+  different on purpose. If a user deletes a custom symptom they created, their _historical_
   severity logs against it shouldn't silently vanish too — that's real health-tracking history,
   and losing it as a side effect of an unrelated cleanup action would be surprising and bad.
   Leaving this relation at Prisma's default (`Restrict`, since no `onDelete` was specified at
-  all) means Postgres will *reject* deleting a symptom that still has logs pointing at it, rather
+  all) means Postgres will _reject_ deleting a symptom that still has logs pointing at it, rather
   than either cascading (losing history) or leaving orphaned rows (a dangling foreign key).
   Concretely this means: before Phase 3's `DELETE /api/symptoms/:id` can let a symptom with
   existing logs actually be deleted, it'll need its own explicit decision (e.g. reject with a
@@ -48,14 +48,15 @@ CRUD endpoint → frontend form, each its own stacked PR).
   task's problem, not solved speculatively here.
 - System symptoms (`userId: null`) have no user row to delete in the first place, so they're
   never affected by any user's account deletion — only the `User → Symptom` cascade (for a
-  user's *own* custom symptoms) and the `User → SymptomLog` cascade (a user's own logs) fire
+  user's _own_ custom symptoms) and the `User → SymptomLog` cascade (a user's own logs) fire
   when an account is deleted.
 
 #### The seed script: why `prisma.config.ts`'s `migrations.seed`, not `package.json`'s
+
 `"prisma": { "seed": ... }`
 
 - The classic Prisma seeding convention (still what most tutorials show) is a `"prisma": {
-  "seed": "ts-node prisma/seed.ts" }` block in `package.json`. This project already moved off
+"seed": "ts-node prisma/seed.ts" }` block in `package.json`. This project already moved off
   `package.json`-based Prisma configuration entirely when it adopted `prisma.config.ts` (visible
   in that file's own `migrations.path` — the migrations folder location is configured there, not
   in `package.json`, either). Prisma 7's own config package (`@prisma/config`) defines the
@@ -69,11 +70,12 @@ CRUD endpoint → frontend form, each its own stacked PR).
   arguments, which is what most seed-script examples online show, doesn't compile against this
   project's generated types at all. Discovered this directly: the first version of this seed
   script did exactly that and `ts-node` refused to compile it.
-- **Idempotency.** The seed script checks `findFirst({ where: { userId: null, name } })` before
+- **Idempotency** (see the Glossary's "Idempotent" entry). The seed script checks
+  `findFirst({ where: { userId: null, name } })` before
   creating each system symptom, and skips ones that already exist, rather than assuming a clean
   database. `name` has no uniqueness constraint at the schema level (a user is free to name their
   own custom symptom "Headache" too, and that's a different, legitimate row) — so this check is
-  deliberately scoped to `userId: null` specifically, meaning "does this *system* symptom already
+  deliberately scoped to `userId: null` specifically, meaning "does this _system_ symptom already
   exist," not "does any symptom with this name exist." Verified by running the script twice in a
   row: the second run creates nothing and prints nothing, confirmed against `psql` directly.
 
@@ -107,7 +109,7 @@ CRUD endpoint → frontend form, each its own stacked PR).
    column types (`timestamp(3) with time zone` on `logged_at`, `user_id` genuinely nullable on
    `symptoms`), both indexes, the cascading foreign keys from `users`, and the `RESTRICT` (not
    cascade) foreign key from `symptom_logs.symptom_id` to `symptoms.id`; then `SELECT * FROM
-   symptoms` confirming all six seeded rows exist with `user_id` genuinely `NULL`.
+symptoms` confirming all six seeded rows exist with `user_id` genuinely `NULL`.
 
 ### Why it's needed
 
@@ -123,7 +125,9 @@ picker until someone manually creates symptoms.
   Fatigue, Nausea" was explicitly worded as an example (Tasks.md: "e.g. Headache, Fatigue,
   Nausea"), not an exhaustive list — a few more (Joint pain, Brain fog, Insomnia) makes the
   symptom picker in the next frontend task feel like a real feature rather than a three-item
-  placeholder, without inventing an exhaustive medical taxonomy this MVP doesn't need.
+  placeholder, without inventing an exhaustive medical taxonomy this MVP (MVP — Minimum Viable Product: the
+  smallest version of a feature that's still genuinely useful, deliberately leaving richer
+  functionality for later) doesn't need.
 - **`Restrict`, not `Cascade`, from `SymptomLog` to `Symptom`.** Covered above — the one relation
   in this schema so far that deliberately breaks from the "everything cascades" pattern, because
   losing historical severity logs as a side effect of deleting a symptom definition would be a
@@ -176,11 +180,11 @@ same shape `feature/3.5-mood-logs-endpoint` took for mood.
 
 - `moodLogs.ts` only ever needed one ownership check: "does this row's `userId` match
   `req.userId`?" Symptoms need a second, different check layered on top of that one: a
-  `Symptom` can *legitimately* have `userId: null` (a system symptom, readable and usable by
-  everyone) but must *never* be editable or deletable by anyone — not even by treating `null`
+  `Symptom` can _legitimately_ have `userId: null` (a system symptom, readable and usable by
+  everyone) but must _never_ be editable or deletable by anyone — not even by treating `null`
   as "unowned, anyone may claim it." `routes/symptoms.ts` handles that (`GET` reads with an
   `OR: [{ userId: null }, { userId: req.userId }]` filter; `PATCH`/`DELETE` look the row up
-  with a *plain* `userId: req.userId` filter — no `OR`, no `null` branch — so a system symptom
+  with a _plain_ `userId: req.userId` filter — no `OR`, no `null` branch — so a system symptom
   can never match and always 404s, exactly like another user's private one does).
   `routes/symptomLogs.ts` is a separate concern: logs are always owned outright (never
   system-wide), so its ownership check is the same single-condition shape `moodLogs.ts` already
@@ -192,19 +196,21 @@ same shape `feature/3.5-mood-logs-endpoint` took for mood.
 - This is Phase 3's cross-cutting requirement, and the reason `symptomLogs.ts` has a
   `symptomIsAccessible(symptomId, userId)` helper that every write path calls before touching
   the database: `POST /` calls it on the `symptomId` in the request body; `PATCH /:id` calls it
-  *only* if the update actually includes a new `symptomId` (leaving `symptomId` unchanged
+  _only_ if the update actually includes a new `symptomId` (leaving `symptomId` unchanged
   requires no re-check, since the original create already validated it). The helper itself is
   one query — `findFirst({ where: { id: symptomId, OR: [{ userId: null }, { userId }] } })` —
   the same "is this null (system) or mine" shape `symptoms.ts`'s own `GET` uses, applied here to
   guard writes instead of reads.
 - **Why this matters concretely:** without this check, a malicious or buggy client could `POST
-  /api/symptom-logs` with `{ symptomId: "<someone else's private symptom UUID>", severity: 8 }`
+/api/symptom-logs` with `{ symptomId: "<someone else's private symptom UUID>", severity: 8 }` (a UUID —
+  Universally Unique Identifier — is a long, randomly-generated ID used here as every row's `id`,
+  specifically so IDs can't be easily guessed or stepped through in sequence)
   and successfully create a log under their own account pointing at data they were never shown
   and don't own — a real information/consistency leak, since anything downstream (the dashboard,
   trends, an eventual "which of my symptoms is worst" view) would then treat that foreign
   symptom's name/description as if it belonged to the caller. The `symptom_logs.symptom_id`
-  foreign key (added in the previous task) stops the *database* from accepting a `symptomId`
-  that doesn't exist at all, but says nothing about *whose* symptom it is — that's exactly the
+  foreign key (added in the previous task) stops the _database_ from accepting a `symptomId`
+  that doesn't exist at all, but says nothing about _whose_ symptom it is — that's exactly the
   gap `symptomIsAccessible` closes, and it's a genuinely different failure mode from a garden-
   variety Zod validation error, which is why it 404s (`SYMPTOM_NOT_FOUND`) rather than 400s
   (`VALIDATION_ERROR`): the same "don't leak which case it is" reasoning already used for
@@ -212,8 +218,8 @@ same shape `feature/3.5-mood-logs-endpoint` took for mood.
   use," not just "is this JSON shaped correctly."
 - Directly tested (`symptomLogs.test.ts`): one test has user "attacker" `POST` a symptom log
   with user "owner"'s real, private symptom ID and asserts both the `404`/`SYMPTOM_NOT_FOUND`
-  response *and* that zero rows were actually created (`prisma.symptomLog.findMany` afterward);
-  a second test does the same thing via `PATCH` (attacker tries to retarget their *own* existing
+  response _and_ that zero rows were actually created (`prisma.symptomLog.findMany` afterward);
+  a second test does the same thing via `PATCH` (attacker tries to retarget their _own_ existing
   log onto the owner's private symptom) and confirms the log's `symptomId` is unchanged
   afterward, not just that the response looked right.
 
@@ -225,7 +231,7 @@ same shape `feature/3.5-mood-logs-endpoint` took for mood.
   handle: `DELETE /api/symptoms/:id` on a symptom that still has logs pointing at it will make
   Postgres reject the delete with a foreign-key-violation error. Left unhandled, Prisma throws
   that as an uncaught exception and Express's default error handling would turn it into an
-  opaque `500` — technically "the delete didn't happen," but with no indication *why*, and no
+  opaque `500` — technically "the delete didn't happen," but with no indication _why_, and no
   clear thing the caller could do about it. Catching
   `Prisma.PrismaClientKnownRequestError` with `code === "P2003"` (Prisma's code for "foreign key
   constraint failed") and translating it into `409 Conflict` with `code: "SYMPTOM_HAS_LOGS"`
@@ -250,7 +256,7 @@ same shape `feature/3.5-mood-logs-endpoint` took for mood.
    `app.use("/api/symptom-logs", requireAuth, symptomLogsRouter)`.
 4. **Tests.** `symptoms.test.ts` (13 tests): no-token rejection; listing system + own but not
    another user's; create with/without description; validation rejection; update; 404 on a
-   missing ID; 404 editing/deleting another user's symptom *and*, separately, 404 editing/
+   missing ID; 404 editing/deleting another user's symptom _and_, separately, 404 editing/
    deleting a system symptom (both asserted as the identical response shape); delete; and the
    `409 SYMPTOM_HAS_LOGS` case. `symptomLogs.test.ts` (16 tests): no-token rejection; create
    against an owned symptom and, separately, against a system symptom; **the two ID-tampering
@@ -267,7 +273,7 @@ same shape `feature/3.5-mood-logs-endpoint` took for mood.
    way `curl` would: registered two real users (A, B), confirmed `GET /api/symptoms` is `401`
    with no token and returns exactly the 6 seeded system symptoms plus zero custom ones for a
    fresh user; A created a private custom symptom, updated it, then B attempting to `PATCH` it
-   got `404`, and A attempting to `PATCH` the system "Headache" symptom *also* got `404` (same
+   got `404`, and A attempting to `PATCH` the system "Headache" symptom _also_ got `404` (same
    shape, proving the system-symptom carve-out actually works against a real running server, not
    just in an in-memory test); A logged against both the system symptom and their own private
    one; **B attempting to `POST /api/symptom-logs` against A's private symptom ID got `404`
@@ -279,7 +285,7 @@ same shape `feature/3.5-mood-logs-endpoint` took for mood.
 ### Why it's needed
 
 This is where the previous task's schema becomes an actual feature a client can call — and,
-notably, the first endpoint in this codebase whose central purpose *is* an authorization check
+notably, the first endpoint in this codebase whose central purpose _is_ an authorization check
 (`symptomIsAccessible`) rather than authorization being a secondary concern layered onto CRUD
 that would otherwise be simple. Every other Phase 3 log type (medications, habits) that
 references its own "which entity does this log belong to" ID will need the exact same shape of
@@ -295,7 +301,7 @@ check.
 - **`409 SYMPTOM_HAS_LOGS` on deleting a symptom with existing logs**, rather than silently
   cascading (which the previous task's schema decision already ruled out) or leaving it as an
   unhandled `500`. No Tasks.md item calls for this explicitly, but it's a direct, foreseeable
-  consequence of the previous task's `Restrict` decision that needed *some* deliberate handling
+  consequence of the previous task's `Restrict` decision that needed _some_ deliberate handling
   rather than an accidental crash the first time a real user hits it.
 - **`PATCH` only re-validates `symptomId` accessibility when `symptomId` is actually part of the
   update.** An update that only changes `severity` or `notes` doesn't re-run the check — the log
@@ -358,13 +364,14 @@ finally becomes something a real person can actually use.
   hide. `<optgroup>` also carries its own accessibility semantics for free (exposed to screen
   readers as a labeled group), confirmed directly in this task's own test
   (`screen.getByRole("group", { name: "Your symptoms" })` passes against real jsdom-rendered
-  markup, not just visually).
+  markup (jsdom is a JavaScript implementation of a browser's DOM that runs inside Node, letting
+  tests render and query component markup without an actual browser window), not just visually).
 
 #### Why `symptoms` is a prop, not fetched inside `SymptomEntryForm` itself
 
 - `MoodEntryForm` needs no data to render its options (mood/energy/stress are fixed, hardcoded
-  scales) — it only ever *sends* data. `SymptomEntryForm` is the first entry form in this app
-  that also needs to *receive* data first (the symptom list) before it can render anything
+  scales) — it only ever _sends_ data. `SymptomEntryForm` is the first entry form in this app
+  that also needs to _receive_ data first (the symptom list) before it can render anything
   useful. Two ways to get it: have the form fetch `GET /api/symptoms` itself on mount, or have
   `DashboardPage` fetch it once and pass it down as a prop. This task chose the latter,
   because `DashboardPage` already needs that exact same list for a second, unrelated reason:
@@ -378,7 +385,7 @@ finally becomes something a real person can actually use.
 #### The two dashboard data-fetching `useEffect`s aren't accidentally duplicated
 
 - `DashboardPage` now has two separate `useEffect(() => { ... }, [])` blocks: one for mood logs
-  (pre-existing, unchanged), one new one loading symptoms *and* symptom logs together via
+  (pre-existing, unchanged), one new one loading symptoms _and_ symptom logs together via
   `Promise.all`. These intentionally stay independent rather than being merged into one giant
   effect — mood and symptoms are unrelated data with no ordering dependency between them, so
   keeping them separate means a slow or failing mood-logs fetch can't block symptoms from
@@ -503,15 +510,15 @@ start); only the form's UI never grew the affordance to actually create one.
     optional/system-only in practice, never asked for at log time) — so it follows Medication's
     fully-inline shape, not Habit's separate-screen one.
 
-#### Why the new symptom has to be reported back to the *parent*, not just kept in this form
+#### Why the new symptom has to be reported back to the _parent_, not just kept in this form
 
 - Unlike `MedicationEntryForm`, which fetches and owns its own `medications` list internally,
   `SymptomEntryForm` deliberately receives `symptoms` as a prop from `SymptomSection` (see the
-  original entry's *Decisions* — one fetch shared between the picker and the recent-entries list,
+  original entry's _Decisions_ — one fetch shared between the picker and the recent-entries list,
   so they can't disagree). That means this form can't just add the new symptom to its own local
   state the way Medication's form does — `symptoms` isn't this form's to mutate. A new
   `onSymptomCreated` callback prop reports the created symptom up to `SymptomSection`, which folds
-  it into the state *it* owns, the same "fold into local state instead of re-fetching" pattern
+  it into the state _it_ owns, the same "fold into local state instead of re-fetching" pattern
   `MedicationSection.handleMedicationSaved` already uses.
 
 ### What was done
@@ -522,7 +529,7 @@ start); only the form's UI never grew the affordance to actually create one.
    field), and the matching JSX: a "+ Add another symptom" toggle link plus a `TextField` + `Add`
    button when open — copied directly from `MedicationEntryForm`'s equivalent block, including its
    dynamic label (`"Symptom name"` the first time a user has none of their own yet, `"New symptom
-   name"` afterward).
+name"` afterward).
 2. **`SymptomSection.tsx`.** Added `handleSymptomCreated`, folding the new symptom into local
    `symptoms` state (guarded against duplicates, matching `MedicationSection`'s pattern exactly),
    and passed it down as the new `onSymptomCreated` prop.
@@ -535,14 +542,20 @@ start); only the form's UI never grew the affordance to actually create one.
 4. **Tests.** Updated every existing `SymptomEntryForm.test.tsx` render call with the new required
    `onSymptomCreated` prop, and added two new tests: adding a custom symptom successfully (auto-
    selected, reported to the parent, correct POST body) and a failed add showing a friendly error
-   without clearing the typed name. The success test uses Testing Library's `rerender` to simulate
+   without clearing the typed name. The success test uses Testing Library's `rerender` (Testing
+   Library is a testing utility for rendering React components and interacting with them the way
+   a real user would — by visible text or ARIA role, rather than internal implementation
+   details; `rerender` re-renders the same component with new props, standing in for React
+   updating it naturally) to simulate
    what `SymptomSection` does in the real app — feed the newly-created symptom back in via an
    updated `symptoms` prop — since, unlike Medication's self-contained form, this form only tracks
-   the *id* of its own selection, not the option list itself; without that simulated rerender, the
+   the _id_ of its own selection, not the option list itself; without that simulated rerender, the
    test can't see the new `<option>` (a real gap in isolated component testing, not a bug in the
    component — confirmed directly by first writing the assertion the naive way, watching it fail
-   with the select showing the *previous* first option instead, and reasoning through why: a
-   browser's `<select>` falls back to its first real option whenever its controlled `value` points
+   with the select showing the _previous_ first option instead, and reasoning through why: a
+   browser's `<select>` falls back to its first real option whenever its controlled `value`
+   ("controlled" means React state — not the browser — is what drives the input's displayed
+   value) points
    at an id with no matching `<option>` — exactly what happens here without the rerender).
 5. **`npm run build`, `npm run lint`, `npx prettier --check .`** (frontend) — all clean after one
    formatting pass on the new test file.
@@ -599,7 +612,7 @@ keep including new defaults added the same way as they come up.
 - `npm test` (backend) — 110/110 passing, unaffected by the seed-data change.
 - `npm run build`, `npm run lint`, `npx prettier --check .` (frontend) — all clean.
 - `npx prisma db seed` (backend, local database) — printed exactly two new lines (`Seeded system
-  symptom: Anxiety` / `Depression`), confirming the idempotency guard correctly skipped the six
+symptom: Anxiety` / `Depression`), confirming the idempotency guard correctly skipped the six
   already-seeded symptoms rather than duplicating them.
 - Real headless-browser walkthrough (Playwright) against genuinely running dev servers: confirmed
   all eight common symptoms render, created a real custom symptom via the new inline flow,
@@ -627,7 +640,7 @@ single checklist item spanning all of them).
   as a third, independent prop alongside it, pre-filling `symptomId`, `severity`, `notes`, and
   `loggedAt` from `editingLog` exactly the same way Mood's fields do.
 - Unlike Habit (see [Habit Logging](06-habit-logging.md)'s entry), a symptom log's `symptomId`
-  *is* editable via `PATCH` — the backend's `symptomLogsRouter.patch("/:id", ...)` accepts an
+  _is_ editable via `PATCH` — the backend's `symptomLogsRouter.patch("/:id", ...)` accepts an
   optional `symptomId` and re-runs the same ownership check (`symptomIsAccessible`) used on
   create, so re-pointing an entry at a different symptom is a legitimate, supported edit. The
   symptom `<select>` is therefore left fully enabled during edit, with no equivalent of Habit's
