@@ -304,6 +304,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 
 - 2026-08-26 — Task 1: Backend — category activity/filtering support
 - 2026-08-26 — Task 2: Frontend — split "Your categories" into per-category cards
+- 2026-08-27 — Bug fix: discovery picker wrongly excluded already-carded categories
 
 ### [Medication → Category, and History filtered by category](docs/log/19-medication-to-category.md)
 
@@ -311,6 +312,10 @@ useful for browsing what's gone wrong before, rather than looking something spec
 - 2026-08-27 — Task 2: Frontend — Medication retirement
 - 2026-08-27 — Task 3: Backend — History filtered by category, not type
 - 2026-08-27 — Task 4: Frontend — History filter UI updated to filter by category
+
+### [Scale Rating Wraps on Mobile](docs/log/20-scale-rating-mobile-wrap.md)
+
+- 2026-08-27 — Bug fix: wide scale categories overflowed and got clipped on mobile
 
 ### [Unify Scale Categories to 1-7](docs/log/21-unify-scale-to-seven.md)
 

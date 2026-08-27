@@ -20,16 +20,16 @@ real page load.
 
 **Root cause:** every entry form sent an empty optional field as `undefined`, which
 `JSON.stringify` drops from the request body entirely. The backend's `PATCH` handlers only ever
-update columns whose key is actually *present* in the request — an absent key means "don't
-touch this," not "clear it." That distinction never mattered for *creating* an entry (nothing to
-clear yet), only for *editing* one that already had a value.
+update columns whose key is actually _present_ in the request — an absent key means "don't
+touch this," not "clear it." That distinction never mattered for _creating_ an entry (nothing to
+clear yet), only for _editing_ one that already had a value.
 
 **Lesson:** "not provided" and "explicitly cleared" are two different things, and a `PATCH`
 endpoint has to be able to tell them apart — usually by accepting an explicit `null` for anything
 that's genuinely optional. Test clearing a field, not just setting one, for any edit UI.
 
-**Full story:** [docs/log/03-mood-logging.md](log/03-mood-logging.md), *"A real bug found in
-review: clearing an optional field during edit didn't actually clear it."*
+**Full story:** [docs/log/03-mood-logging.md](log/03-mood-logging.md), _"A real bug found in
+review: clearing an optional field during edit didn't actually clear it."_
 
 ### A rescale migration's own safety claim was wrong — caught by testing it twice
 
@@ -37,15 +37,15 @@ review: clearing an optional field during edit didn't actually clear it."*
 claimed to safely rescale old values, but a specific edge case in that math was wrong.
 
 **Root cause:** covered in full in the entry itself — the kind of off-by-one/edge-case error
-that's easy to write and easy to *believe* is correct without actually re-deriving it against
+that's easy to write and easy to _believe_ is correct without actually re-deriving it against
 concrete numbers.
 
-**Lesson:** running a migration once and having it succeed isn't the same as it being *correct*
+**Lesson:** running a migration once and having it succeed isn't the same as it being _correct_
 — for anything with real arithmetic in it, test the actual before/after values, not just "the
 migration ran without erroring."
 
-**Full story:** [docs/log/03-mood-logging.md](log/03-mood-logging.md), *"A real bug in this
-migration's own safety claim — caught by actually testing it twice."*
+**Full story:** [docs/log/03-mood-logging.md](log/03-mood-logging.md), _"A real bug in this
+migration's own safety claim — caught by actually testing it twice."_
 
 ### A `Promise.all`-based component's tests passed for the wrong reason
 
@@ -59,7 +59,7 @@ because this app's shared `apiFetch` helper swallows JSON-parse failures defensi
 
 **Lesson:** `mockResolvedValue`/`mockReturnValue` share one fixed value across every call to a
 mock; `mockImplementation` produces a fresh value each time. The two are interchangeable for a
-mock that's only ever called once — and silently *not* interchangeable the moment a component
+mock that's only ever called once — and silently _not_ interchangeable the moment a component
 calls it more than once concurrently.
 
 **Full story:** [docs/log/08-git-github-workflow.md](log/08-git-github-workflow.md), the
@@ -75,9 +75,9 @@ calls it more than once concurrently.
 sometimes landed on `/settings` instead of `/dashboard` — with the wrong confirmation message,
 or none at all.
 
-**Root cause:** the code called `await logout()` *before* `navigate()`. `logout()` flips
+**Root cause:** the code called `await logout()` _before_ `navigate()`. `logout()` flips
 `isAuthenticated` to false while the still-current page is a protected route, so `RequireAuth`
-(the layout route guarding it) fires its *own* competing redirect — with its own `state`
+(the layout route guarding it) fires its _own_ competing redirect — with its own `state`
 overwriting the one the explicit `navigate()` call was about to set.
 
 **Lesson:** when a state change can itself trigger a side effect elsewhere in the app (like a
@@ -85,7 +85,30 @@ route guard reacting to auth state), the order of "update state" vs. "navigate" 
 exactly the kind of bug a mocked test suite won't catch — this one was found only by actually
 driving the flow in a real browser.
 
-**Full story:** [docs/log/02-auth-frontend.md](log/02-auth-frontend.md), *"A real, found-by-actually-testing-it race condition between two different redirects to `/login`."*
+**Full story:** [docs/log/02-auth-frontend.md](log/02-auth-frontend.md), _"A real, found-by-actually-testing-it race condition between two different redirects to `/login`."_
+
+### A React remount `key` collided with itself because it was built from the wrong value
+
+**What happened:** logging an already-carded category a second time through Dashboard's shared
+picker (rather than that category's own "+") saved correctly server-side, but that category's own
+"Recent `<name>`" card kept showing only the _first_ entry — silently stale, with no error.
+
+**Root cause:** the fix relied on changing a `CategoryLogCard`'s React `key` to force it to
+remount (and therefore refetch) whenever the shared picker logged something for it. The key was
+built from the new log's own `loggedAt` timestamp — which defaults to "now" truncated to the
+minute, and is user-editable. Two saves within the same clock minute produced the _exact same_
+key, so React saw no change and never remounted the card at all — not a slow refresh, a skipped
+one.
+
+**Lesson:** a value used purely to force React to treat two renders as "different" has to be
+guaranteed unique for that purpose specifically — a timestamp, especially a truncated or
+user-editable one, is a plausible-looking but unsound choice, because two logically distinct
+events can share the exact same timestamp. A monotonic counter bumped once per event that needs
+to force the change is unambiguous; a value that's "supposed to" change but isn't provably unique
+isn't.
+
+**Full story:** [docs/log/18-per-category-dashboard-cards.md](log/18-per-category-dashboard-cards.md),
+the _"Bug fix: discovery picker wrongly excluded already-carded categories"_ entry (2026-08-27).
 
 ---
 
@@ -106,8 +129,8 @@ lose track of across environments, unless it's made a safe, idempotent part of t
 runs automatically every time (here: chained into `start`, not left as a manual, rememberable
 step).
 
-**Full story:** [docs/log/07-deployment.md](log/07-deployment.md), *"A real production bug: the
-symptom picker was empty, because seeding never ran there."*
+**Full story:** [docs/log/07-deployment.md](log/07-deployment.md), _"A real production bug: the
+symptom picker was empty, because seeding never ran there."_
 
 ### A stacked PR merged into the wrong branch — twice
 
@@ -116,7 +139,7 @@ confirmed directly via `git log main..<branch>`, which still listed every one of
 missing.
 
 **Root cause:** a stacked PR's base branch survived its own merge (wasn't deleted) — GitHub only
-auto-retargets a stacked PR to `main` when its base branch *disappears*. A base that merges but
+auto-retargets a stacked PR to `main` when its base branch _disappears_. A base that merges but
 survives silently keeps the next PR pointed at it, so merging that PR delivers its commits to the
 now-orphaned branch, not `main`.
 
@@ -125,9 +148,9 @@ questions for a stacked PR specifically. `git log main..<branch>` answers the se
 directly; GitHub's "Merged" badge only answers the first. Fixed permanently (not just
 documented around) by turning on `delete_branch_on_merge` at the repo level.
 
-**Full story:** [docs/log/08-git-github-workflow.md](log/08-git-github-workflow.md), *"The real
-bug: `postinstall` never reached `main` at all"* and *"The exact stranded-PR bug happened again,
-on PR #45."*
+**Full story:** [docs/log/08-git-github-workflow.md](log/08-git-github-workflow.md), _"The real
+bug: `postinstall` never reached `main` at all"_ and _"The exact stranded-PR bug happened again,
+on PR #45."_
 
 ### A GitHub API permission fix "didn't work" for three retries — because the wrong token was edited
 
@@ -138,13 +161,13 @@ on PR #45."*
 one actually stored in this machine's `GITHUB_TOKEN` — editing a token's permissions only ever
 affects that one token, never any other, even on the same account.
 
-**Lesson:** when a fix that should obviously work doesn't, verify which *specific* credential is
+**Lesson:** when a fix that should obviously work doesn't, verify which _specific_ credential is
 actually in play (a partial token fingerprint, printed and cross-checked, is what solved this)
 before assuming the failure means the fix itself is wrong, or defaulting to "maybe it just needs
 time to propagate."
 
-**Full story:** [docs/log/08-git-github-workflow.md](log/08-git-github-workflow.md), *"A GitHub
-account can have many tokens at once, and editing one never touches another."*
+**Full story:** [docs/log/08-git-github-workflow.md](log/08-git-github-workflow.md), _"A GitHub
+account can have many tokens at once, and editing one never touches another."_
 
 ### Vercel showed a red "Build Failed" for a branch with no real app in it
 
@@ -152,7 +175,7 @@ account can have many tokens at once, and editing one never touches another."*
 frontend code) showed up in Vercel's dashboard as a failed deployment on every push.
 
 **Root cause:** Vercel's GitHub integration tries to deploy every branch pushed to a connected
-repo. Its "Ignored Build Step" feature — the obvious fix — runs a check *inside* the configured
+repo. Its "Ignored Build Step" feature — the obvious fix — runs a check _inside_ the configured
 Root Directory, which doesn't exist on a branch with no `frontend/` folder at all: a
 chicken-and-egg problem where the ignore mechanism can't run because the very thing it would
 ignore is missing.
@@ -162,8 +185,8 @@ satisfied in every scenario it's supposed to cover — the fix here was giving t
 enough of a `frontend/` folder (a one-line stub config) for the ignore mechanism to have
 somewhere to run at all.
 
-**Full story:** [docs/log/07-deployment.md](log/07-deployment.md), *"A harmless-but-alarming
-Vercel 'Build Failed': the screenshot CI branch has no app in it."*
+**Full story:** [docs/log/07-deployment.md](log/07-deployment.md), _"A harmless-but-alarming
+Vercel 'Build Failed': the screenshot CI branch has no app in it."_
 
 ### Direct links to any page but the homepage 404'd in production
 
@@ -179,8 +202,8 @@ before React Router ever got a chance to run.
 rule — this isn't a framework bug, it's a standard, expected piece of configuration every
 client-side-routed app needs on every static host.
 
-**Full story:** [docs/log/07-deployment.md](log/07-deployment.md), *"Fixing a real production
-bug: direct links to any page but the homepage 404'd."*
+**Full story:** [docs/log/07-deployment.md](log/07-deployment.md), _"Fixing a real production
+bug: direct links to any page but the homepage 404'd."_
 
 ### Environment variables were set on the wrong Railway service
 
@@ -188,24 +211,24 @@ bug: direct links to any page but the homepage 404'd."*
 caught directly rather than assumed.
 
 **Root cause:** Railway can host multiple services (e.g. the backend app and its Postgres
-database) under one project — environment variables have to be set on the *specific* service
+database) under one project — environment variables have to be set on the _specific_ service
 that needs them, not "the project" as a loose, undifferentiated whole.
 
 **Lesson:** when a platform has a concept of multiple services under one project, always confirm
-*which* service a setting actually landed on — a value that looks configured "somewhere" isn't
+_which_ service a setting actually landed on — a value that looks configured "somewhere" isn't
 the same as it being configured on the thing that reads it.
 
-**Full story:** [docs/log/07-deployment.md](log/07-deployment.md), *"A real mistake, caught
-before it mattered: variables set on the wrong service."*
+**Full story:** [docs/log/07-deployment.md](log/07-deployment.md), _"A real mistake, caught
+before it mattered: variables set on the wrong service."_
 
 ### Refreshing the app on mobile logged users out, because a cookie setting assumed the wrong kind of "same"
 
 **What happened:** a real user, on a real deployed Android phone, refreshed the app and landed
 back on the login page — even though they'd been actively using it moments before.
 
-**Root cause:** the frontend (Vercel) and backend (Railway) are genuinely different *sites*, not
-just different *origins* — but the refresh token cookie was `SameSite=Lax`, which browsers only
-attach on cross-site *top-level navigations*, never on a cross-site `fetch()`/XHR. Every API call
+**Root cause:** the frontend (Vercel) and backend (Railway) are genuinely different _sites_, not
+just different _origins_ — but the refresh token cookie was `SameSite=Lax`, which browsers only
+attach on cross-site _top-level navigations_, never on a cross-site `fetch()`/XHR. Every API call
 this frontend makes is exactly that, including the call that's supposed to restore a session after
 a page reload — so the cookie was never actually usable from the real deployed frontend at all.
 Not a flaky failure: structurally, definitionally, never. Confirmed directly (not just reasoned
@@ -214,8 +237,8 @@ about) by reproducing the same cross-site relationship entirely locally — `127
 login.
 
 **Lesson:** `SameSite` and CORS are two independent gates, and configuring one correctly does
-nothing for the other. CORS controls whether a cross-origin *response* can be read; `SameSite`
-controls whether a cookie is even *sent* on the request in the first place. "I configured CORS, so
+nothing for the other. CORS controls whether a cross-origin _response_ can be read; `SameSite`
+controls whether a cookie is even _sent_ on the request in the first place. "I configured CORS, so
 cross-origin should just work" is a genuinely easy trap — it only closes one of the two gates a
 cross-site, cookie-authenticated request has to pass. This also wasn't actually a mobile- or
 Android-specific bug, even though that's where it was noticed: it reproduces identically on
@@ -223,8 +246,8 @@ desktop given the same cross-site deployment. Mobile browsers just reclaim and f
 backgrounded tabs far more eagerly than desktop ones tend to, which is almost certainly why it
 surfaced there first.
 
-**Full story:** [docs/log/01-auth-backend.md](log/01-auth-backend.md), *"A real production bug:
-refreshing the app on mobile logged users out, and what `SameSite` actually gates."*
+**Full story:** [docs/log/01-auth-backend.md](log/01-auth-backend.md), _"A real production bug:
+refreshing the app on mobile logged users out, and what `SameSite` actually gates."_
 
 ### A Prisma migration checksum mismatch, self-inflicted
 
@@ -235,11 +258,11 @@ Prisma records a checksum of each migration when it's applied, specifically to c
 (a migration that looks the same by filename but no longer matches what actually ran).
 
 **Lesson:** never hand-edit a migration file that's already been applied anywhere (locally, in
-CI, or in production) — if a change is needed, write a *new* migration instead, even for a tiny
+CI, or in production) — if a change is needed, write a _new_ migration instead, even for a tiny
 correction.
 
-**Full story:** [docs/log/09-housekeeping.md](log/09-housekeeping.md), *"A real, self-inflicted
-Prisma migration checksum mismatch, found while double-checking the README."*
+**Full story:** [docs/log/09-housekeeping.md](log/09-housekeeping.md), _"A real, self-inflicted
+Prisma migration checksum mismatch, found while double-checking the README."_
 
 ---
 
@@ -247,7 +270,7 @@ Prisma migration checksum mismatch, found while double-checking the README."*
 
 - **A green checkmark / "success" status proves less than it looks like.** "The migration ran,"
   "the PR shows Merged," "the deploy succeeded" are all claims worth directly verifying (`git
-  log`, reading the actual response body, checking the real database) rather than trusting the
+log`, reading the actual response body, checking the real database) rather than trusting the
   status alone — several bugs above were only caught this way.
 - **Lifecycle hooks (like `postinstall`) are only as reliable as how the surrounding command gets
   invoked** — solid on a machine you fully control, much less certain on third-party
@@ -264,6 +287,6 @@ Prisma migration checksum mismatch, found while double-checking the README."*
   that gap.** Frontend and backend running on `localhost` are same-site with each other by
   definition; deployed to Vercel and Railway, they're genuinely cross-site — a difference that
   never shows up in ordinary local testing but changes what browsers will and won't do with a
-  cookie. When a bug is specifically about cross-origin/cross-site behavior, reproduce the *real*
+  cookie. When a bug is specifically about cross-origin/cross-site behavior, reproduce the _real_
   site relationship (even locally, e.g. `127.0.0.1` vs `localhost` — see the `SameSite` bug above)
   rather than trusting that "it works on localhost" generalizes to production.

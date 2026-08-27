@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CategorySection } from "./CategorySection";
 
@@ -228,8 +228,7 @@ describe("CategorySection", () => {
 
     await user.click(screen.getByRole("button", { name: /delete entry/i }));
 
-    await screen.findByText(/haven't tracked yet/i);
-    expect(screen.queryByText("Recent Read today")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Recent Read today")).not.toBeInTheDocument());
   });
 
   it("promotes a category into its own card once logged for the first time via the discovery flow", async () => {
@@ -278,5 +277,207 @@ describe("CategorySection", () => {
     await user.click(screen.getByRole("button", { name: /save entry/i }));
 
     expect(await screen.findByText("Recent Meditation")).toBeInTheDocument();
+  });
+
+  // Regression test: the discovery picker used to only offer categories with no card of their
+  // own yet ("undiscovered"), which meant an already-carded category (e.g. logging "Headache"
+  // again) simply didn't appear as an option here at all - direct user feedback reported this as
+  // a real usability problem on the live app, not a hypothetical one.
+  it("offers an already-carded category as an option in the discovery picker too", async () => {
+    const carded = {
+      id: "cat-1",
+      userId: "user-1",
+      name: "Headache",
+      icon: null,
+      valueType: "scale",
+      scaleMin: 1,
+      scaleMax: 10,
+      archivedAt: null,
+      createdAt: "2026-08-23T00:00:00.000Z",
+      hidden: false,
+      lastLoggedAt: "2026-08-23T09:00:00.000Z",
+    };
+    const uncarded = {
+      id: "cat-2",
+      userId: "user-1",
+      name: "Reading",
+      icon: null,
+      valueType: "boolean",
+      scaleMin: null,
+      scaleMax: null,
+      archivedAt: null,
+      createdAt: "2026-08-23T00:00:00.000Z",
+      hidden: false,
+      lastLoggedAt: null,
+    };
+    const existingLog = {
+      id: "log-1",
+      userId: "user-1",
+      categoryId: "cat-1",
+      valueBoolean: null,
+      valueNumeric: 6,
+      valueDurationMinutes: null,
+      notes: null,
+      loggedAt: "2026-08-23T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/categories") && !url.includes("logs")) {
+        return Promise.resolve(jsonResponse(200, [carded, uncarded]));
+      }
+      return Promise.resolve(logPage([existingLog]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<CategorySection />);
+    await screen.findByText("Recent Headache");
+
+    await user.click(screen.getByRole("button", { name: "Add category entry" }));
+
+    expect(screen.getByRole("option", { name: "Headache" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Reading" })).toBeInTheDocument();
+  });
+
+  // Regression test for the fix that made the above possible without going stale: logging an
+  // already-carded category through the shared discovery picker has to actually reach that
+  // card's own list, not just silently update the orchestrator's own state.
+  it("refreshes an already-carded category's own card when logged again via the discovery flow", async () => {
+    const category = {
+      id: "cat-1",
+      userId: "user-1",
+      name: "Headache",
+      icon: null,
+      valueType: "scale",
+      scaleMin: 1,
+      scaleMax: 10,
+      archivedAt: null,
+      createdAt: "2026-08-23T00:00:00.000Z",
+      hidden: false,
+      lastLoggedAt: "2026-08-23T09:00:00.000Z",
+    };
+    const firstLog = {
+      id: "log-1",
+      userId: "user-1",
+      categoryId: "cat-1",
+      valueBoolean: null,
+      valueNumeric: 6,
+      valueDurationMinutes: null,
+      notes: null,
+      loggedAt: "2026-08-23T09:00:00.000Z",
+    };
+    const secondLog = {
+      id: "log-2",
+      userId: "user-1",
+      categoryId: "cat-1",
+      valueBoolean: null,
+      valueNumeric: 8,
+      valueDurationMinutes: null,
+      notes: null,
+      loggedAt: "2026-08-24T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.includes("/api/category-logs")) {
+        return Promise.resolve(jsonResponse(201, secondLog));
+      }
+      if (url.includes("/api/categories") && !url.includes("logs")) {
+        return Promise.resolve(jsonResponse(200, [category]));
+      }
+      // The card's own fetch happens once on mount, then again after the remount this fix
+      // triggers - returning both logs the second time is what proves the card's own list
+      // (not just the orchestrator's local state) actually picked up the new entry.
+      if (fetchMock.mock.calls.filter((c) => String(c[0]).includes("category-logs")).length > 1) {
+        return Promise.resolve(logPage([secondLog, firstLog]));
+      }
+      return Promise.resolve(logPage([firstLog]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<CategorySection />);
+    await screen.findByText("Recent Headache");
+    await screen.findByText("6/10");
+
+    await user.click(screen.getByRole("button", { name: "Add category entry" }));
+    await user.selectOptions(screen.getByLabelText("Category"), "cat-1");
+    await user.click(
+      within(screen.getByRole("radiogroup", { name: "Headache" })).getByRole("radio", {
+        name: "8",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: /save entry/i }));
+
+    expect(await screen.findByText("8/10")).toBeInTheDocument();
+  });
+
+  // Regression test for a real bug found in manual browser verification of the fix above: the
+  // first version of the remount key was derived from the new log's own loggedAt, which defaults
+  // to "now" truncated to the minute and is user-editable - two saves within the same clock minute
+  // (very plausible: log a category, then immediately log it again at a different value) produced
+  // the exact same key, so React never remounted the card and it silently stayed stale. This test
+  // uses the SAME loggedAt for both logs specifically to catch that class of bug again.
+  it("refreshes an already-carded category's own card even when the new log has the exact same loggedAt as the previous one", async () => {
+    const category = {
+      id: "cat-1",
+      userId: "user-1",
+      name: "Headache",
+      icon: null,
+      valueType: "scale",
+      scaleMin: 1,
+      scaleMax: 10,
+      archivedAt: null,
+      createdAt: "2026-08-23T00:00:00.000Z",
+      hidden: false,
+      lastLoggedAt: "2026-08-23T09:00:00.000Z",
+    };
+    const firstLog = {
+      id: "log-1",
+      userId: "user-1",
+      categoryId: "cat-1",
+      valueBoolean: null,
+      valueNumeric: 6,
+      valueDurationMinutes: null,
+      notes: null,
+      loggedAt: "2026-08-23T09:00:00.000Z",
+    };
+    const secondLog = {
+      id: "log-2",
+      userId: "user-1",
+      categoryId: "cat-1",
+      valueBoolean: null,
+      valueNumeric: 9,
+      valueDurationMinutes: null,
+      notes: null,
+      // Deliberately identical to firstLog.loggedAt - see the test's own comment above.
+      loggedAt: "2026-08-23T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.includes("/api/category-logs")) {
+        return Promise.resolve(jsonResponse(201, secondLog));
+      }
+      if (url.includes("/api/categories") && !url.includes("logs")) {
+        return Promise.resolve(jsonResponse(200, [category]));
+      }
+      if (fetchMock.mock.calls.filter((c) => String(c[0]).includes("category-logs")).length > 1) {
+        return Promise.resolve(logPage([secondLog, firstLog]));
+      }
+      return Promise.resolve(logPage([firstLog]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<CategorySection />);
+    await screen.findByText("Recent Headache");
+    await screen.findByText("6/10");
+
+    await user.click(screen.getByRole("button", { name: "Add category entry" }));
+    await user.selectOptions(screen.getByLabelText("Category"), "cat-1");
+    await user.click(
+      within(screen.getByRole("radiogroup", { name: "Headache" })).getByRole("radio", {
+        name: "9",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: /save entry/i }));
+
+    expect(await screen.findByText("9/10")).toBeInTheDocument();
   });
 });

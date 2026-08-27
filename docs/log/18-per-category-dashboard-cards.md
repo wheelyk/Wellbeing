@@ -80,20 +80,21 @@ page through one category's own history independently of every other category's.
 ## 2026-08-26 — Task 2: Frontend — split "Your categories" into per-category cards
 
 **Task:** [Phase 18, Task 2](../../Tasks.md#task-2--frontend-split-your-categories-into-per-category-cards)
+
 - the actual Dashboard redesign Task 1 was the backend prerequisite for. Two design questions were
-put directly to the project owner before building this, since guessing wrong risked making a
-brand-new account's Dashboard *more* cluttered, not less (11 system categories, each with an empty
-card, greeting every new user): should a category's card appear only once logged, or always for
-every unhidden category regardless of history; and should each card get its own "+", or should
-logging still go through one shared picker. Both were answered with the recommended option: **only
-once logged**, and **each card gets its own +**.
+  put directly to the project owner before building this, since guessing wrong risked making a
+  brand-new account's Dashboard _more_ cluttered, not less (11 system categories, each with an empty
+  card, greeting every new user): should a category's card appear only once logged, or always for
+  every unhidden category regardless of history; and should each card get its own "+", or should
+  logging still go through one shared picker. Both were answered with the recommended option: **only
+  once logged**, and **each card gets its own +**.
 
 ### Background / concepts
 
 #### Why the orchestrator/card split, not one bigger component
 
 `CategorySection` used to be both "fetch everything" and "render one merged list." It's now split
-into two roles: `CategorySection` fetches `/api/categories` once and decides *which* categories get
+into two roles: `CategorySection` fetches `/api/categories` once and decides _which_ categories get
 a card and in what order (derived purely from `lastLoggedAt`, Task 1's new field); `CategoryLogCard`
 is a self-contained card - own fetch (`?categoryId=`, Task 1's other new bit), own pagination, own
 edit/delete, own "+" - one instance per qualifying category. This mirrors `MedicationSection`'s own
@@ -112,12 +113,12 @@ logged" compose for free, without either mechanism needing to know about the oth
 #### Why a card that loses its last log has to disappear itself, not wait for a reload
 
 The "only appears once logged" rule has a symmetric case the two clarifying questions didn't cover
-explicitly: what happens when a user deletes the *one* log a category has, from that category's own
+explicitly: what happens when a user deletes the _one_ log a category has, from that category's own
 card? Leaving an empty card sitting there until the next full page reload would undercut the exact
 tidiness this feature exists for. `CategoryLogCard` calls a new `onEmptied` callback the instant its
 own local log list goes to zero with no further page behind it; `CategorySection` responds by
 setting that category's local `lastLoggedAt` back to `null`, which drops it out of the rendered card
-list on the next render - no re-fetch needed, matching how *appearing* is already handled (see
+list on the next render - no re-fetch needed, matching how _appearing_ is already handled (see
 `handleDiscoveryLogSaved` below).
 
 #### Reusing `CategoryEntryForm` instead of a second form component
@@ -199,7 +200,7 @@ under a vague heading, unlike Medication's own dedicated card, reading as repeti
   - Ran the updated `capture-pr-screenshots.mjs` end to end against a freshly registered account:
     registered, logged Mood (5/5) via the discovery picker, logged a Medication, created a brand-new
     "Exercise" category and logged it - confirmed `Recent Mood`, `Recent Exercise`, and `Recent
-    medications` all render as separate cards, each with its own "+" and Edit/Delete, with the
+medications` all render as separate cards, each with its own "+" and Edit/Delete, with the
     "Log a category" panel unaffected above them. No unexpected browser console errors.
   - A second ad hoc script (not committed - scratch only) confirmed the two behaviors screenshots
     alone don't prove: clicking a card's own "+" (e.g. Mood's) opens a dialog titled "Log Mood" with
@@ -209,5 +210,117 @@ under a vague heading, unlike Medication's own dedicated card, reading as repeti
 - Not proven by any of the above: behavior under concurrent edits from two open tabs, or with a
   very large number of categories (dozens) - out of scope for this task's verification, same as
   every other Dashboard section's own existing coverage.
+
+---
+
+## 2026-08-27 — Bug fix: discovery picker wrongly excluded already-carded categories
+
+**Reported directly on the live app**: a screenshot of the mobile "Log an entry" picker (opened
+from Dashboard's shared "+") showed only 5 of the user's categories as options (Headache, Insomnia,
+Joint pain, Nausea, Water), while "Recent Depression" and "Recent Stress" cards were visible on the
+same screen. This is exactly Task 2's own documented `undiscoveredCategories` decision above
+working as designed - and, per this direct feedback, wrong in practice: a user who wants to log a
+second "Headache" entry has no way to reach it from the shared picker at all, only from that
+specific card's own "+". This entry reverses that one decision; everything else from Task 2 (only
+appearing once logged, each card gets its own "+", `onEmptied`, etc.) is unchanged.
+
+### Background / concepts
+
+#### Why the original restriction existed, and why it doesn't hold up
+
+Task 2's own reasoning was real, not arbitrary: each `CategoryLogCard` fetches its own history once
+on mount with no way to learn about a log created elsewhere, so routing a repeat log through the
+shared picker instead of that card's own "+" would leave the new entry invisible in that card's own
+list until a reload. Excluding already-carded categories from the picker avoided that staleness gap
+
+- but it did so by removing the _option_ entirely rather than fixing the underlying staleness gap,
+  which is what actually surfaces as "I can't log Headache again from here."
+
+#### Making the already-carded card learn about a log from elsewhere
+
+`CategoryLogCard`'s own fetch runs once per mount (`useEffect` keyed on `category.id`). The fix
+forces a fresh mount - and therefore a fresh fetch - of the one affected card the instant the shared
+picker saves a log for a category that already has a card. This needed its own `key`, since
+`category.id` alone never changes.
+
+**First attempt, and the real bug it had**: the first version of this key was
+`` `${category.id}-${category.lastLoggedAt}` ``, on the theory that `lastLoggedAt` changing (which
+`handleDiscoveryLogSaved` already does, to promote a newly-first-logged category) would also serve
+to force this remount. Real-browser Playwright verification caught this as genuinely broken, not
+just slow: `CategoryEntryForm`'s `loggedAt` field defaults to "now" truncated to the minute and is
+user-editable, so two saves within the same clock minute (trivially reproducible - log a category,
+then immediately log it again at a different value, well within the same minute in practice)
+produce the byte-identical `lastLoggedAt` string both times. Same key on both renders means React
+never remounts, so the card silently never refetches - exactly the staleness bug the whole design
+exists to prevent, just reintroduced through the fix meant to close it. Confirmed via a temporary
+debug script logging both the saved-log's `categoryId`/`loggedAt` and the card's own effect firing:
+the second save's `handleDiscoveryLogSaved` ran and updated `categories` state correctly, but no
+matching second "effect running" log appeared - the remount genuinely never happened, not just a
+test-timing artifact.
+
+**Fix**: a `discoveryRefreshTokens: Record<string, number>` counter in `CategorySection`, bumped for
+a category's id every time the discovery picker (not that category's own "+") saves a log for it,
+independent of the log's own timestamp. The key becomes
+`` `${category.id}-${discoveryRefreshTokens[category.id] ?? 0}` `` - guaranteed to differ on every
+discovery-picker save for that category, regardless of clock precision.
+
+### What was done
+
+- **`frontend/src/components/dashboard/CategorySection.tsx`**: removed the `undiscoveredCategories`
+  memo entirely; the discovery picker's `<CategoryEntryForm categories={...}>` now receives the full
+  `categories` list, and `handleAddButtonClick`/the pending-add resolution effect/`onCancel` now
+  branch on `categories.length` instead. Added `discoveryRefreshTokens` state and bump it in
+  `handleDiscoveryLogSaved`; `CategoryLogCard`'s `key` now derives from it instead of from
+  `lastLoggedAt`. Simplified the discovery panel's helper text to one unconditional message (the old
+  copy had a branch specifically for "every category already has its own card," which no longer
+  applies now that already-carded categories are offered too).
+- **`frontend/src/components/dashboard/CategorySection.test.tsx`**: new test asserting an
+  already-carded category still appears as an option in the discovery picker; new test logging a
+  second entry for an already-carded category via the shared picker and confirming that category's
+  own card picks up the new value; a second regression test doing the same but with the second log's
+  `loggedAt` deliberately identical to the first's, specifically to catch the same-minute bug above
+  if it ever comes back (this test would have failed against the first, `lastLoggedAt`-keyed attempt
+  at this fix). Fixed one pre-existing test that asserted on the now-removed conditional helper text.
+
+### Why it's needed
+
+Closes the exact gap reported: a user with several already-carded categories could only pick from
+whatever small set hadn't been logged yet from the shared "+", with no way to reach an
+already-carded one without hunting for that specific card's own "+" - confirmed as a real usability
+problem on the live app, not a hypothetical one.
+
+### Decisions
+
+- **A counter, not a timestamp, drives the remount key.** Anything derived from the log's own
+  `loggedAt` is unsound for this purpose - it's user-editable and only minute-precision, so it can
+  collide across two genuinely different saves. A value whose only job is "did the picker just save
+  something for this category" (bumped exactly once per such save) can't collide by construction.
+- **Kept the remount-based refresh approach, rather than switching `CategoryLogCard` to accept an
+  externally-injected log.** A prop-injection approach (passing the just-saved log down and having
+  the card splice it into its own `logs` state, mirroring its own `handleSaved`) would avoid the
+  remount/refetch entirely, but adds a second code path for "a log entered this card's list" instead
+  of one. Remounting costs one extra fetch per cross-picker save (rare relative to a card's own "+",
+  which needs no remount) in exchange for a single source of truth for how a card's list is
+  populated.
+
+### Verification
+
+- `npx vitest run` (frontend): full suite green - 198 tests across 30 files (2 new in
+  `CategorySection.test.tsx`).
+- `npx tsc -b`, `npm run build`, `npm run lint` (oxlint), `npx prettier --check`: all clean, no new
+  warnings introduced.
+- Manual, real-browser verification via a temporary Playwright script (not committed) against the
+  actual running dev servers (backend on :4000, frontend on :5173, real Postgres): registered a
+  fresh account, logged Headache once (6/10) to give it its own card, reopened the shared picker and
+  confirmed Headache now appears among its options (previously it did not), logged Headache again
+  (9/10) through that same shared picker, and confirmed the "Recent Headache" card itself - not just
+  Dashboard's independent "Recent entries" summary, which updates via its own separate fetch and
+  would have masked this bug - shows both entries. This is the same scenario that first caught the
+  same-minute key-collision bug above; re-running the identical script against the counter-based fix
+  passed.
+- Not proven by the above: behavior across a page reload immediately after a cross-picker save (the
+  remount/refetch happens client-side only; a reload would re-derive everything from a fresh
+  `GET /api/categories` regardless), or with many rapid cross-picker saves for the same category in
+  quick succession.
 
 ---
