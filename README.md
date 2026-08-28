@@ -7,6 +7,8 @@ historical trends over time.
 Full product requirements: [Documents/requirements.md](Documents/requirements.md).
 Implementation task list: [Tasks.md](Tasks.md).
 Running implementation log: [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).
+Frontend concepts and tooling explained: [docs/FRONTEND-CONCEPTS.md](docs/FRONTEND-CONCEPTS.md).
+Habits for working with an AI assistant: [docs/WORKING-WITH-AI.md](docs/WORKING-WITH-AI.md).
 
 ## Repository layout
 

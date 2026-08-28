@@ -44,14 +44,23 @@ phase. For every task:
 ### Backend (`/backend`)
 
 ```
-npm run dev     # ts-node-dev, hot-reload dev server on PORT (default 4000)
-npm run build   # tsc -> dist/
-npm start       # node dist/index.js (runs compiled output, as in production)
+npm run dev          # ts-node-dev, hot-reload dev server on PORT (default 4000)
+npm run build        # prisma generate && tsc -> dist/
+npm start            # prisma migrate deploy && prisma db seed && node dist/index.js
+npm test             # vitest run (full suite)
+npm run lint         # eslint
+npm run format:check # prettier --check .
 ```
 
-No test runner is configured yet (Phase 13 in `Tasks.md` adds backend tests, likely
-Jest/Vitest + Supertest). No linter is configured yet either (a later Phase 0 task adds
-ESLint/Prettier).
+`npm start` deliberately chains migrate + seed ahead of starting the server, so a deploy can
+never land on an un-migrated database. This is the general habit: a setup step that "only needs
+to happen once" gets skipped in some environment eventually unless it's an idempotent, automatic
+part of the thing that runs every time.
+
+Tests are Vitest + Supertest, running against the **real** local Postgres rather than mocks —
+deliberate, since this project's actual risk lives in real queries, migrations, foreign-key
+behaviour, and per-user data scoping, not in pure logic a mock could stand in for. A running
+Postgres is therefore a prerequisite for `npm test`, not just for `npm run dev`.
 
 `backend/src/app.ts` builds and configures the Express app (middleware, routes) but does
 not call `.listen()`; `backend/src/index.ts` is the only file that starts the server. This
@@ -65,14 +74,19 @@ adding compiler options or following older TypeScript tutorials/docs.
 ### Frontend (`/frontend`)
 
 ```
-npm run dev       # Vite dev server (default http://localhost:5173)
-npm run build     # tsc -b && vite build -> dist/
-npm run preview   # serve the production build locally
-npm run lint      # oxlint
+npm run dev          # Vite dev server (default http://localhost:5173)
+npm run build        # tsc -b && vite build -> dist/
+npm run preview      # serve the production build locally
+npm run lint         # oxlint
+npm test             # vitest run (component/page tests, React Testing Library)
+npm run test:e2e     # playwright test (real browser, real servers - see below)
+npm run format:check # prettier --check .
 ```
 
-No test runner is configured yet (Phase 13 in `Tasks.md` adds frontend tests, likely
-Vitest + React Testing Library).
+`npm test` is Vitest + React Testing Library with `fetch` mocked per test. `npm run test:e2e` is
+a separate, real end-to-end Playwright suite under `frontend/e2e/`, driving a real browser at a
+mobile viewport against real running servers — it expects the frontend, backend, and Postgres to
+already be up, and won't start them for you.
 
 Tailwind CSS is v4, wired in via the `@tailwindcss/vite` plugin in `vite.config.ts` — there
 is deliberately no `tailwind.config.js`/`postcss.config.js`; utility classes are enabled by
@@ -134,12 +148,9 @@ Before marking any task in `Tasks.md` as complete:
 
 1. **Write light unit tests for any new functionality.** Not exhaustive coverage — just
    enough to cover the core behavior the task introduced (e.g. a new validation rule, a new
-   calculation, a new endpoint's happy path). Test tooling isn't wired up yet in either
-   project (see *Commands* above — backend's `npm test` is currently a stub, frontend has no
-   test script). Add minimal test tooling (e.g. Vitest) as part of the first task that
-   introduces genuinely testable logic, rather than waiting for the dedicated test-focused
-   tasks in `Tasks.md` Phase 13 — those are for filling out full coverage, not for standing
-   up the tooling for the first time.
+   calculation, a new endpoint's happy path). Test tooling is already wired up in both
+   projects (Vitest — see *Commands* above), so add tests alongside the work rather than
+   deferring them.
 2. **Run the full test suite**, not just the new tests — `npm test` in the relevant project
    (`/backend` and/or `/frontend`, whichever was touched) — and confirm it passes.
 3. **If any test fails**, read the failure output and diagnose whether the code or the test
