@@ -10,9 +10,9 @@ and two small fixes it surfaced (covered in their own entries/files, linked belo
 
 #### What "audit" means here — checking the real thing, not re-reading intentions
 
-Every item in Phase 11 describes something that's *supposed* to already be true, built up over
+Every item in Phase 11 describes something that's _supposed_ to already be true, built up over
 many earlier tasks in this log. An audit's whole job is confirming each one is actually true
-*right now*, against the real running code and — where possible — the real deployed system, the
+_right now_, against the real running code and — where possible — the real deployed system, the
 same "verify, don't assume" discipline this whole log has followed since its first entries. Two
 techniques did most of the work:
 
@@ -21,7 +21,7 @@ techniques did most of the work:
   surfaces literally every database read in the backend in one screen, cheap to eyeball for a
   missing `userId` in its `where` clause.
 - **Checking the real production system directly**, not just the code that's supposed to
-  produce it. Cookie flags are a good example: reading `cookies.ts` shows the *intent*
+  produce it. Cookie flags are a good example: reading `cookies.ts` shows the _intent_
   (`httpOnly: true`, `secure: process.env.NODE_ENV === "production"`), but only an actual
   `curl -i` against the live login endpoint proves `NODE_ENV` is genuinely set to `"production"`
   on Railway and the header the browser actually receives really does say
@@ -39,13 +39,13 @@ techniques did most of the work:
   user's.
 - **"Add automated tests for cross-user access attempts."** ✅ Every resource type already has
   dedicated tests for this — not just "another user can't edit/delete my row" but the sharper
-  **ID-tampering** case: a user submitting *another user's* `medicationId`/`symptomId`/`habitId`
+  **ID-tampering** case: a user submitting _another user's_ `medicationId`/`symptomId`/`habitId`
   in a request body to create or re-point a log against it. Confirmed by reading the actual
   assertions in `medicationLogs.test.ts`, not just the test names.
 - **"Confirm refresh tokens are HTTP-only, `Secure`, `SameSite` cookies."** ✅ Confirmed twice:
   in code (`cookies.ts`) and empirically — `curl -i` against the real production
   `POST /api/auth/login` returned `Set-Cookie: refreshToken=...; HttpOnly; Secure;
-  SameSite=Lax`, proving `NODE_ENV=production` really is set on Railway, not just assumed.
+SameSite=Lax`, proving `NODE_ENV=production` really is set on Railway, not just assumed.
 - **"Confirm password hashing uses bcrypt/argon2 with an appropriate cost factor."** ✅
   `SALT_ROUNDS = 12` in `auth.ts` — bcrypt's own general recommendation is 10–12; this sits at
   the stronger end.
@@ -74,7 +74,7 @@ techniques did most of the work:
   error-handling middleware existed. See the dedicated entry in
   [Git & GitHub Workflow](08-git-github-workflow.md) — actually, this project's own convention
   puts cross-cutting backend infrastructure fixes in whichever file best fits; this one is
-  documented in full in this same file, directly below, since it was *found* by this audit.
+  documented in full in this same file, directly below, since it was _found_ by this audit.
 
 ### Why it's needed
 
@@ -95,7 +95,7 @@ fine, and here's exactly how."
 
 ### State at end of this step
 
-Every Phase 11 item is now either confirmed true (with a note on *how* it was confirmed) or
+Every Phase 11 item is now either confirmed true (with a note on _how_ it was confirmed) or
 explicitly identified as a real, outstanding gap (rate limiting) — nothing left in an assumed
 state. `Tasks.md` reflects exactly this.
 
@@ -124,10 +124,10 @@ found was never actually built.
 
 #### Why this was invisible until now
 
-Every route in this backend already handles its own *expected* failure cases explicitly — a
+Every route in this backend already handles its own _expected_ failure cases explicitly — a
 wrong password, a not-found id, a failed validation — each with its own status code and JSON
 body. None of those paths ever needed a fallback handler, so the gap never showed up in normal
-use or in the existing test suite. It only matters for something genuinely *unexpected* slipping
+use or in the existing test suite. It only matters for something genuinely _unexpected_ slipping
 through — e.g. `login`'s `prisma.user.findUnique` call, which has no surrounding `try`/`catch` at
 all, would throw uncaught on something like a transient database connection error.
 
@@ -138,7 +138,7 @@ matters for this). Express 5's real, relevant difference from Express 4: it auto
 forwards a rejected Promise from an `async` route handler to error-handling middleware. In
 Express 4, every route would have needed to catch its own errors and call `next(err)` by hand for
 this to work at all. That's genuinely convenient — but only if error-handling middleware actually
-exists to receive it. **Without any registered**, Express falls back to its own *built-in*
+exists to receive it. **Without any registered**, Express falls back to its own _built-in_
 default handler, which renders an **HTML page** — completely inconsistent with every other
 response this API ever sends (`{error:{message,code}}` JSON, always), and something like this
 project's own `apiFetch`'s `res.json()` call on the frontend would fail to parse an HTML page
@@ -151,12 +151,12 @@ JSON-parse crash on the client, obscuring what actually went wrong).
    `prisma.user.findUnique` to reject with a plain `Error` (simulating an ordinary,
    expected-to-happen-eventually failure like a transient database blip, not a contrived edge
    case), hits the real `POST /api/auth/login` through the real, unmodified app, and asserts a
-   JSON `{error:...}` body. Run against the *unpatched* code, it failed exactly as predicted:
+   JSON `{error:...}` body. Run against the _unpatched_ code, it failed exactly as predicted:
    `res.headers["content-type"]` was `text/html; charset=utf-8`, not JSON.
 2. **`backend/src/middleware/errorHandler.ts`** (new file) — an Express error-handling
    middleware (recognized by its four-parameter signature: `(err, req, res, next)`, not three).
    Logs the full error server-side (`console.error`) — genuinely useful for whoever's debugging
-   it from the server's own logs, and explicitly *not* sent to the client, which is exactly the
+   it from the server's own logs, and explicitly _not_ sent to the client, which is exactly the
    "stack trace" Phase 3's own wording says must never leak into an HTTP response. Responds with
    `{error:{message:"Something went wrong. Please try again.",code:"INTERNAL_ERROR"}}` and a 500
    status.
@@ -180,12 +180,12 @@ completely invisible to whoever's trying to diagnose it later.
 - **Reproduced the failure before fixing it**, the same discipline this project already applies
   to bugs found in the wild (see, for instance, this repo's earlier "clearing a field during
   edit didn't actually clear it" fix) — proves the problem is real and gives a concrete pass/fail
-  signal for the fix itself, rather than trusting that adding *some* middleware must obviously
+  signal for the fix itself, rather than trusting that adding _some_ middleware must obviously
   help.
 - **A generic client-facing message, always** — regardless of what the underlying error actually
   was, the response never varies. Distinguishing error types for the client is exactly what each
   route's own explicit error handling already does; this middleware exists specifically for the
-  *un*-distinguished, unexpected case.
+  _un_-distinguished, unexpected case.
 
 ### State at end of this step
 
@@ -220,7 +220,7 @@ new permanent dependency as a side effect of a single audit) and driven through 
 app via Playwright, the same way every other live-browser check in this log works.
 
 **What it can't catch, by design**: axe-core only flags things a machine can mechanically verify
-against a rule. It has no idea whether an *interaction pattern* matches what a real keyboard or
+against a rule. It has no idea whether an _interaction pattern_ matches what a real keyboard or
 screen-reader user would actually expect — e.g. a custom control correctly labeled and
 role-annotated can still behave in a way that's technically valid ARIA but not what the ARIA
 Authoring Practices Guide recommends for that role. That's exactly why Tasks.md's Phase 12 asks
@@ -236,7 +236,7 @@ they catch genuinely different classes of problem.
 2. **A real bug the audit script itself walked straight into, before any accessibility finding**:
    the script originally navigated to `/settings` via `page.goto()` (a hard page load) — which,
    at the time, silently redirected to Login instead of showing Settings, because nothing yet
-   rehydrated a session after a hard navigation (see the *separate* session-rehydration fix in
+   rehydrated a session after a hard navigation (see the _separate_ session-rehydration fix in
    [Authentication — Frontend](02-auth-frontend.md)). The audit script was navigating exactly the
    way this exact bug manifests. Fixed the script to navigate the way a real user actually would
    — clicking the Settings link, a client-side route change — rather than a hard reload.
@@ -246,7 +246,7 @@ they catch genuinely different classes of problem.
    which element actually had focus afterward.
    **Finding**: `ArrowRight` does **not** move focus between options — each option is instead
    individually `Tab`-stoppable, confirmed by pressing `Tab` and observing focus land on the
-   *next* button in sequence, not exit the group. Every option **is** still reachable and
+   _next_ button in sequence, not exit the group. Every option **is** still reachable and
    operable via keyboard (real `<button>` elements get that for free) — satisfying the literal
    letter of "every interactive element is reachable and operable via keyboard" — but this
    doesn't match the standard ARIA radiogroup keyboard pattern (arrow keys cycling selection,
@@ -265,9 +265,9 @@ they catch genuinely different classes of problem.
    follow-up.
 5. **Color-alone-conveys-information check** — confirmed by re-reading the actual rendered
    markup of every log type (already read in full during earlier entries in this log, not
-   re-derived from scratch): mood shows an emoji *and* a text label ("Great," not just a color);
+   re-derived from scratch): mood shows an emoji _and_ a text label ("Great," not just a color);
    symptom severity shows the actual number, not just a color-coded bar; medication shows a
-   ✅/❌ emoji *and* "Taken"/"Not taken" text; habits show "Done"/"Not done" text. Nothing in this
+   ✅/❌ emoji _and_ "Taken"/"Not taken" text; habits show "Done"/"Not done" text. Nothing in this
    app conveys a value through color alone.
 6. **Animation check** — `grep`'d every `.tsx` file for `animate-`, `@keyframes`,
    `transition-transform`, `transition-all`. Found none — every transition used anywhere in this
@@ -294,7 +294,7 @@ mobile header overflow) that a keyboard-only and multi-viewport pass specificall
   real, reproducible, and worth a dedicated follow-up task.
 - **A client-side-navigation fix to the audit script itself**, not a workaround — the script
   hitting the session-rehydration bug mid-audit was a genuine bug in how the script drove the
-  app (a hard `page.goto` to a protected route), not evidence of a *new* accessibility problem;
+  app (a hard `page.goto` to a protected route), not evidence of a _new_ accessibility problem;
   worth being explicit about that distinction rather than conflating the two.
 
 ### State at end of this step
@@ -320,16 +320,16 @@ overflows horizontally on narrow viewports with a long display name/email) — n
 
 The "session rehydration confuses an automated browser script" problem above turned out not to
 be a one-off. While getting the actual session-rehydration fix (PR #70, recovered from a
-never-pushed branch — see the *third stranding variant* entry in
+never-pushed branch — see the _third stranding variant_ entry in
 [Git & GitHub Workflow](08-git-github-workflow.md)) through CI, its required **PR Preview
 Screenshots** check (`.github/workflows/pr-preview.yml`, driving
 `frontend/scripts/capture-pr-screenshots.mjs`) started failing on every run.
 
-**Same underlying cause, different symptom.** The audit script above hit the bug via a *hard
-`page.goto` straight to a protected route* — no login had happened yet, so the route guard's
+**Same underlying cause, different symptom.** The audit script above hit the bug via a _hard
+`page.goto` straight to a protected route_ — no login had happened yet, so the route guard's
 redirect and the rehydration attempt collided. The screenshot script never does that (it always
 starts at `/register`), so it didn't fail the same way. Instead: `AuthProvider`'s new mount-time
-`rehydrateSession()` call fires on *every* page load, including that very first `/register` visit
+`rehydrateSession()` call fires on _every_ page load, including that very first `/register` visit
 — a brand-new CI browser has no refresh cookie yet, so the backend correctly answers `401`. That's
 the right, expected behavior for a logged-out visitor, not a bug. But Chrome logs any non-2xx
 `fetch` response to the console as an error automatically, regardless of whether the app's own
@@ -345,7 +345,7 @@ normally; this doesn't quietly widen into "ignore every 401."
 
 **Why this is worth calling out as its own addendum, not just a footnote**: two different
 automated scripts, written at two different times for two different purposes (an accessibility
-audit vs. a PR preview), both broke on the *same* new mount-time behavior, in two different ways.
+audit vs. a PR preview), both broke on the _same_ new mount-time behavior, in two different ways.
 That's a real signal that any future script driving this app through a fresh, logged-out browser
 session should expect this one benign 401 on first load — worth knowing before writing the next
 one, not just after debugging it a third time.
@@ -353,7 +353,7 @@ one, not just after debugging it a third time.
 ### Verification (addendum)
 
 - Reproduced first: CI's `screenshots` check failing with `Browser console errors detected:
-  Failed to load resource: the server responded with a status of 401 (Unauthorized)`.
+Failed to load resource: the server responded with a status of 401 (Unauthorized)`.
 - Verified the fix locally before pushing — built and started the real backend and frontend
   preview server (mirroring the CI job's own steps exactly), ran the script directly, confirmed
   it exited `0` with all 4 expected screenshots produced.
@@ -373,7 +373,7 @@ a genuine, unfixed gap.
 
 **What rate limiting is, and why auth endpoints specifically need it.** Without it, nothing stops
 a script from submitting thousands of password guesses per second against `/api/auth/login` — a
-*brute-force attack*. Rate limiting counts requests from the same client over a rolling time
+_brute-force attack_. Rate limiting counts requests from the same client over a rolling time
 window and starts rejecting them (with an HTTP `429 Too Many Requests` status) once a threshold
 is crossed, turning "try a million passwords in a minute" into "try ten, then wait." It's a
 per-route decision, not a blanket one — the right threshold, and even whether a route needs it at
@@ -382,7 +382,7 @@ decision below).
 
 **`express-rate-limit`'s `skip` option** lets a request bypass counting/blocking entirely based
 on a function you provide — used here to make the limiter inert while the automated test suite
-runs (see *Decisions*), without needing a second copy of the route wiring for tests.
+runs (see _Decisions_), without needing a second copy of the route wiring for tests.
 
 ### What was done
 
@@ -393,7 +393,7 @@ runs (see *Decisions*), without needing a second copy of the route wiring for te
    file also exports.
 2. **`backend/src/routes/auth.ts`**: `authRateLimiter` applied as middleware to exactly three
    routes — `POST /register`, `POST /login`, `POST /change-password`. **Deliberately not** applied
-   to `/refresh` or `/logout` (see *Decisions*).
+   to `/refresh` or `/logout` (see _Decisions_).
 3. **`backend/src/middleware/rateLimiter.test.ts`** (new): two tests against a throwaway
    `createAuthRateLimiter({ skip: false })` instance (never the shared real one, so tests can't
    pollute each other's request counts) — one proves the 11th request in a window gets blocked
@@ -428,7 +428,7 @@ theoretical nice-to-have.
   routes across dozens of test files, doesn't need to know rate limiting exists at all.
 - **A factory function (`createAuthRateLimiter`), not just one hard-coded exported instance.**
   Each `express-rate-limit` instance keeps its own private, in-memory hit-count store. Without the
-  factory, the *only* way to test the real blocking behavior would be to hammer the app's single
+  factory, the _only_ way to test the real blocking behavior would be to hammer the app's single
   shared instance directly — which would then carry leftover hit counts into whatever test (or
   real request, if run against a live server) came next. The factory lets the test build a second,
   fully independent instance with the exact same real configuration.
@@ -443,7 +443,7 @@ theoretical nice-to-have.
   `401` (as expected for a wrong password) carrying `RateLimit-Remaining` headers counting down
   from 9 to 0, and requests 11 and 12 came back `429 Too Many Requests` with the configured JSON
   body. (An earlier attempt at this same live check appeared to show no limiting at all — traced
-  to curling a dev server process that was still running from *before* the code existed, a stale
+  to curling a dev server process that was still running from _before_ the code existed, a stale
   background process rather than a real bug. Restarting cleanly and re-testing confirmed the fix
   actually works.)
 
@@ -455,7 +455,7 @@ theoretical nice-to-have.
 written prospectively (same pattern as the merge-queues entry in
 [Git & GitHub Workflow](08-git-github-workflow.md)), prompted by a question about whether
 Dependabot could help now that Phase 11's security hardening and this file's own audits are
-otherwise done. After weighing the two features separately (see *Decisions* below), the
+otherwise done. After weighing the two features separately (see _Decisions_ below), the
 security-updates half was actually turned on for this repo; version updates were deliberately
 left off for now.
 
@@ -473,23 +473,24 @@ they were one:
    [CLAUDE.md](../../CLAUDE.md) on why frontend/backend are kept independent) and opens a PR per
    outdated dependency (or a grouped batch, if configured), bumping it to the latest version
    allowed by that dependency's own semver range.
-2. **Security updates** — a repo *setting* (Settings → Code security → Dependabot alerts /
+2. **Security updates** — a repo _setting_ (Settings → Code security → Dependabot alerts /
    Dependabot security updates in the GitHub UI), not the config file above, and not the same
    schedule. GitHub continuously cross-references every dependency this project actually
-   resolves — including *transitive* ones nested deep in `node_modules` that nothing in
-   `package.json` names directly — against the GitHub Advisory Database (which aggregates CVEs
-   and other published vulnerability reports). The moment one of them is found to have a known
+   resolves — including _transitive_ ones nested deep in `node_modules` that nothing in
+   `package.json` names directly — against the GitHub Advisory Database (which aggregates CVEs — Common Vulnerabilities and
+   Exposures, the standard public catalog of disclosed software security flaws, each with its own
+   ID like `CVE-2024-12345` — along with other published vulnerability reports). The moment one of them is found to have a known
    vulnerability, an alert appears under the repo's Security tab, and — if security updates are
    enabled — a PR bumping straight to the first patched version opens automatically, outside the
    normal version-update schedule entirely.
 
 #### Why this is a different threat category than Phase 11 already covered
 
-Phase 11's security audit (see the entry above this one) verified things about *this codebase's
-own logic*: are queries scoped by `user_id`, is bcrypt's cost factor reasonable, are cookies
+Phase 11's security audit (see the entry above this one) verified things about _this codebase's
+own logic_: are queries scoped by `user_id`, is bcrypt's cost factor reasonable, are cookies
 `HttpOnly`/`Secure`, is every write endpoint validated. All of that is about code this project
 wrote. A dependency vulnerability is a different shape of risk entirely — a security hole
-disclosed *after* the fact, in code this project didn't write and mostly never reads, three or
+disclosed _after_ the fact, in code this project didn't write and mostly never reads, three or
 four layers deep in a dependency tree nobody manually re-audits once `npm install` succeeds once.
 That gap doesn't close itself just because the application-logic audit passed; it needs its own,
 ongoing mechanism, which is specifically what Dependabot's security-updates half is for.
@@ -530,7 +531,7 @@ API calls (`gh api -X PUT`, since neither has a dedicated `gh` subcommand):
    (a PR bumping straight to the first patched version opens automatically once an alert fires).
 
 No `.github/dependabot.yml` was added — that file only controls the separate version-updates
-feature (see *Background* above), which stays off for now.
+feature (see _Background_ above), which stays off for now.
 
 ### Why it's needed
 
@@ -572,9 +573,9 @@ thorough the Phase 11 application-logic audit was.
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a follow-up, open-ended "look for
 security issues" pass, done after a similar general bug-hunt pass had already found and fixed an
 unrelated timezone bug (see [History](11-history.md)). Phase 11's audit above already confirmed
-the *application-logic* security properties (query scoping, cookie flags, input validation,
+the _application-logic_ security properties (query scoping, cookie flags, input validation,
 password hashing). This pass looked one layer deeper — at how the app behaves once real network
-infrastructure (a reverse proxy) sits in front of it, and at *timing*, not just response content,
+infrastructure (a reverse proxy) sits in front of it, and at _timing_, not just response content,
 as its own kind of information leak.
 
 ### Background / concepts
@@ -584,14 +585,14 @@ as its own kind of information leak.
 Every earlier entry in this log's [Deployment](07-deployment.md) file explained that Railway
 doesn't run this app's own `node dist/index.js` process directly exposed to the internet — it
 sits a **reverse proxy** (Railway's own edge) in front of it. Every real visitor's request
-physically arrives at Railway's edge first, and Railway's edge then makes its *own*, separate
+physically arrives at Railway's edge first, and Railway's edge then makes its _own_, separate
 connection to this app's process to forward that request along. From the Node process's point of
 view, every single request — no matter which real person sent it — technically originates from
-the *same* machine: Railway's edge, not the actual visitor.
+the _same_ machine: Railway's edge, not the actual visitor.
 
 To solve this (a completely standard problem, not specific to Railway or this app), a reverse
 proxy adds an **`X-Forwarded-For`** header to the request before forwarding it, recording the
-*real* original client's IP address as plain text, so anything downstream can still find out who
+_real_ original client's IP address as plain text, so anything downstream can still find out who
 actually sent the request if it wants to.
 
 #### `trust proxy`: why Express doesn't just believe that header by default
@@ -603,9 +604,9 @@ If Express blindly trusted it, any attacker could impersonate any IP address pur
 header, defeating anything (like a rate limiter) that decides "who is this" based on it.
 
 **`app.set("trust proxy", N)`** is Express's way of saying "I genuinely do sit behind exactly `N`
-layers of a *trusted* proxy, so the *N*-th-from-the-end address in `X-Forwarded-For` really is the
+layers of a _trusted_ proxy, so the _N_-th-from-the-end address in `X-Forwarded-For` really is the
 real client — go ahead and use it for `req.ip`." This is safe specifically because a well-behaved
-reverse proxy (Railway's edge included) *overwrites or prepends* this header itself before
+reverse proxy (Railway's edge included) _overwrites or prepends_ this header itself before
 forwarding — it doesn't let an external caller's own forged value survive unchanged. Trusting the
 proxy is what makes trusting the header underneath it safe; skipping the setting entirely doesn't
 avoid trusting a lie, it just throws away real information Express could otherwise have used
@@ -615,23 +616,25 @@ correctly.
 
 `backend/src/app.ts` never called `app.set("trust proxy", ...)`. The practical consequence:
 `req.ip` — which `authRateLimiter` (`rateLimiter.ts`) uses to decide "how many recent attempts has
-*this* caller made" — resolved to the *same* value for every single request that ever reached the
+_this_ caller made" — resolved to the _same_ value for every single request that ever reached the
 deployed backend, regardless of who actually sent it. Every real user's register/login/
 change-password attempts were being counted into one shared bucket, not one bucket per person.
 
 **Confirmed directly, not just reasoned about**, with a small diagnostic test hitting the real
-`createApp()` via `supertest`: two requests, each carrying a different `X-Forwarded-For` value,
-produced an *identical* `req.ip` before the fix, and correctly different `req.ip` values after
+`createApp()` via `supertest` (a library for firing real HTTP requests at an Express app directly
+in a test, without needing an actual running server/port — the same tool this backend's other
+route tests already use): two requests, each carrying a different `X-Forwarded-For` value,
+produced an _identical_ `req.ip` before the fix, and correctly different `req.ip` values after
 adding `app.set("trust proxy", 1)`.
 
 **Why "1," specifically:** the Railway community's own guidance (searched directly rather than
 guessed at) is that Railway's edge adds exactly one hop before this app's own process sees a
 request — so trusting exactly one layer of `X-Forwarded-For` is the correct, minimal amount of
-trust, not an arbitrary guess. (Full research trail in *Verification* below.)
+trust, not an arbitrary guess. (Full research trail in _Verification_ below.)
 
 #### Why this was a security bug, not just a UX inconvenience
 
-A rate limiter's whole job is answering "is *this specific caller* making too many attempts."
+A rate limiter's whole job is answering "is _this specific caller_ making too many attempts."
 With every caller collapsed into one bucket:
 
 - **The intended protection didn't actually work.** An attacker's own brute-force attempts were
@@ -639,22 +642,22 @@ With every caller collapsed into one bucket:
   down a targeted attack the way it was designed to.
 - **A trivial, unintentional denial-of-service became possible.** Any 10 register/login/
   change-password requests within 15 minutes — from anyone, or even just ordinary concurrent
-  traffic with no malicious intent at all — would lock *every* real user out of authenticating
+  traffic with no malicious intent at all — would lock _every_ real user out of authenticating
   for the rest of that window. A security control meant to protect availability was itself an
   availability risk, because of what it was (mis)keyed on.
 
 #### Timing as its own information channel, separate from the response body
 
-Most people's first idea of "leaking information" is about the *content* of a response — what
+Most people's first idea of "leaking information" is about the _content_ of a response — what
 words or data it contains. **Timing side-channels** are a different, easy-to-forget category:
 even if two responses say the exact same thing, if one of them consistently takes measurably
-*longer* to arrive than the other, an attacker who can send many requests and measure the average
+_longer_ to arrive than the other, an attacker who can send many requests and measure the average
 response time can still tell the two cases apart — the delay itself is the leak, independent of
 anything the response body says.
 
 This project had already solved exactly this problem once, for `login`: `DUMMY_PASSWORD_HASH`
 (see the earlier [Auth Backend](01-auth-backend.md) entries) exists specifically so that
-`bcrypt.compare()` — a deliberately *slow* operation — always runs, whether or not the submitted
+`bcrypt.compare()` — a deliberately _slow_ operation — always runs, whether or not the submitted
 email matches a real account, so "wrong password" and "no such account" take the same amount of
 time as well as returning the same response body.
 
@@ -664,7 +667,7 @@ identical either way) — but not the timing half. Its "found" branch performed 
 `UPDATE` (writing the new reset-token hash); its "not found" branch did nothing at all. A real
 database write is measurably slower than doing nothing, so an attacker measuring response time
 across many attempts could still statistically distinguish "this email exists" from "it doesn't,"
-even though every response's *text* was identical.
+even though every response's _text_ was identical.
 
 ### What was done
 
@@ -672,7 +675,7 @@ even though every response's *text* was identical.
    requests, two different `X-Forwarded-For` values, asserting on `req.ip`) before writing any
    fix — confirmed both resolved to the same value.
 2. **Researched Railway's actual proxy topology** rather than guessing a hop count, since setting
-   this value *too high* (or to `true`, an unbounded chain) would itself reopen a spoofing risk if
+   this value _too high_ (or to `true`, an unbounded chain) would itself reopen a spoofing risk if
    Railway's edge ever turned out not to be the sole hop.
 3. Added `app.set("trust proxy", 1)` to `backend/src/app.ts`, with the reasoning inlined as a
    comment at the call site (not just in this log) so a future reader hits the explanation exactly
@@ -689,20 +692,24 @@ even though every response's *text* was identical.
    matches — confirmed failing against the pre-fix code (zero calls to `prisma.user.update`),
    passing against the fix.
 7. **Three additional, lower-risk hardening changes**, found while already reviewing this area:
-   - Pinned `algorithms: ["HS256"]` explicitly on every `jwt.verify()` call, instead of relying on
+   - Pinned `algorithms: ["HS256"]` (the specific signing algorithm — HMAC combined with SHA-256 —
+     this app's own JWTs, see the Glossary's "JWT" entry, have always been signed with) explicitly
+     on every `jwt.verify()` call, instead of relying on
      the `jsonwebtoken` library's own default acceptance behavior — defense in depth, so a verify
      call can never be tricked into accepting a token signed a different way than this app itself
      ever signs one, regardless of what a future library version's default turns out to be.
    - Added `helmet()`, a well-established Express middleware that sets a standard baseline of
      security response headers (`X-Content-Type-Options: nosniff`, no `X-Powered-By` framework
-     fingerprint, `X-Frame-Options`, HSTS, etc.) with sensible defaults, no per-header tuning
+     fingerprint, `X-Frame-Options`, HSTS — HTTP Strict Transport Security, a header telling the
+     browser to only ever talk to this site over HTTPS from now on, even if a future link or typo
+     points it at a plain `http://` address — etc.) with sensible defaults, no per-header tuning
      needed for a JSON-only API like this one.
    - **Verified `helmet`'s default `Cross-Origin-Resource-Policy: same-origin` header wouldn't
      break this app's own real cross-origin usage** (the Vercel frontend fetching from the Railway
      backend) before shipping it — this specific header is a well-known potential gotcha for APIs
      meant to be consumed cross-origin. Confirmed via research (this policy only restricts
      `no-cors`-style loads like `<img>`/`<script>` tags, not regular CORS-mode `fetch()` calls with
-     credentials) *and* empirically, by running the full Playwright end-to-end suite — a real
+     credentials) _and_ empirically, by running the full Playwright end-to-end suite — a real
      Chromium browser making real cross-origin requests — against a locally running backend with
      `helmet()` active. All four specs passed.
 
@@ -722,7 +729,7 @@ actually be run and measured to be caught.
   unnecessarily permissive (and therefore a real, if narrow, risk) if that's not actually the
   topology. `1` is the precise, minimal value that matches Railway's actual documented setup.
 - **A `DUMMY_USER_ID`, not a `try { } catch { }` around skipping the write entirely.** The whole
-  point is that the *same* database work has to happen either way — skipping the write in a
+  point is that the _same_ database work has to happen either way — skipping the write in a
   different way (e.g. an early return before ever calling `update`) would just move the timing gap
   rather than close it.
 - **Verified the CORP header against a real browser, not just documentation.** Reading that CORP
@@ -732,7 +739,7 @@ actually be run and measured to be caught.
 - **Left one related, lower-severity finding unfixed in code**: `/api/auth/logout` has no
   CSRF protection and could be triggered by a malicious cross-site page, forcing an unwanted
   logout. Documented rather than fixed in this pass — the impact is a nuisance (an unexpected
-  logout), not data exposure or account compromise, and every *data-changing* endpoint in this app
+  logout), not data exposure or account compromise, and every _data-changing_ endpoint in this app
   is already immune to CSRF by construction (they require a Bearer access token in a header, which
   a cross-site request cannot forge or attach automatically the way a cookie is attached).
   Building dedicated anti-CSRF infrastructure for a nuisance-level gap didn't seem proportionate

@@ -16,7 +16,9 @@ work happened to fall out.
 
 - **The alternative — "horizontal" completion — would mean finishing _all_ of Phase 5 first**
   (a fully wireframe-matching bottom nav, every design primitive including `RatingScale`,
-  `Modal`, `DatePicker`, a verified WCAG-AA color audit) before writing a single line of
+  `Modal`, `DatePicker`, a verified WCAG-AA color audit — WCAG-AA is "Web Content Accessibility
+  Guidelines, level AA," a widely used standard for how accessible a page's content, including
+  color contrast, needs to be) before writing a single line of
   Phase 6. Everything built that way stays untested against real usage until the very end,
   because nothing is actually wired to a real page or a real user flow until Phase 6 exists.
   If a design decision from Phase 5 turns out to be wrong (a primitive's API doesn't fit how
@@ -29,7 +31,8 @@ work happened to fall out.
   layer is intentionally minimal (three real pages, three reusable primitives, no bottom nav
   polish yet). The payoff: a genuinely working, demonstrable feature exists after one round
   of work, instead of a pile of unconnected infrastructure that only becomes demonstrable
-  much later.
+  much later. (`fetch` is the browser's built-in JavaScript function for sending an HTTP
+  request from a page — the standard way frontend code calls a backend API.)
 - **It also validates earlier decisions under real conditions for the first time.** Every
   previous Phase 2 entry in this log tested the backend auth endpoints via `curl` or
   Supertest — neither of which enforces a real browser's security model. Wiring an actual
@@ -69,7 +72,8 @@ work happened to fall out.
   persisted anywhere (not `localStorage`, not a cookie) — it lives only as a plain JavaScript
   variable in `api/client.ts` and mirrored in React state via `AuthContext`. This is the
   standard secure pattern for SPAs (nothing a page's own JavaScript can read is safe from
-  XSS, so keeping the access token _only_ in memory limits how long a leak could matter — at
+  XSS — Cross-Site Scripting, malicious script an attacker manages to get running on your page,
+  e.g. via unsanitized user input — so keeping the access token _only_ in memory limits how long a leak could matter — at
   most 15 minutes, its own expiry).
   The direct consequence: **a full browser reload currently logs the user out** — there's
   nothing in the page's memory to restore from, and nothing yet re-fetches "who is this
@@ -100,14 +104,19 @@ work happened to fall out.
 #### Race-safe token refresh, and the auth-failure listener that closes a real gap
 
 - **Why a single shared refresh attempt, not one per failed request.** If two API calls
-  happen to both hit a `401` around the same time (plausible — the access token expires
+  happen to both hit a `401` (`401 Unauthorized` is the standard HTTP status code a server
+  sends back when a request's credentials are missing, invalid, or expired) around the same
+  time (plausible — the access token expires
   after a fixed 15 minutes regardless of what the user is doing), naively refreshing
   separately for each would mean two concurrent `POST /api/auth/refresh` calls — and because
   refresh **rotates** the cookie (per the 2.3 entry), the second call would receive a cookie
   that's already been superseded by the first, likely failing. `api/client.ts` avoids this by
   holding one shared `refreshPromise`: whichever request hits `401` first kicks off the
   refresh, and any other concurrent caller awaits that _same_ promise instead of starting its
-  own.
+  own. (This is a small **publish/subscribe pattern**: one piece of code "publishes" an
+  outcome — here, the shared promise resolving — and any number of other pieces can
+  "subscribe" to be notified when it happens, without the publisher needing to know who's
+  listening. The same pattern shows up again a few paragraphs below for `onAuthFailure`.)
 - **A real bug found by trying to satisfy the checklist literally, not just "close enough."**
   `Tasks.md`'s Phase 5 wording is specific: "...on refresh failure, **redirect to Login**."
   The first implementation only cleared `api/client.ts`'s own module-level `accessToken`
@@ -127,13 +136,16 @@ work happened to fall out.
 #### Two different kinds of "prove this actually works," used for two different jobs
 
 - **Vitest + React Testing Library** (already used for the backend; now added for the
-  frontend) renders components in a simulated DOM (`jsdom` — a JavaScript implementation of
+  frontend) renders components in a simulated DOM (the **DOM**, or Document Object Model, is
+  the browser's in-memory tree representation of a webpage's HTML that JavaScript can read and
+  change; `jsdom` — a JavaScript implementation of
   browser DOM APIs with no real browser underneath) and mocks `fetch` directly, so tests run
   in milliseconds without a real network call or a real browser. This is what the 14 new
   frontend tests use — fast, deterministic, and exactly the kind of thing that should run in
   CI on every future change (once Phase 13 sets that up).
 - **Playwright**, used here for a genuinely different job: actually launching a real
-  (headless) Chromium browser, clicking through register → dashboard → logout → login →
+  (**headless**, meaning it runs without ever showing an on-screen window) **Chromium** (the
+  open-source browser engine that powers Google Chrome) browser, clicking through register → dashboard → logout → login →
   dashboard → a protected-route redirect check, and saving screenshots — the same kind of
   check the earlier "what's actually running" entry reached for `chromium-cli` to do and
   couldn't, and explicitly flagged as worth adding "once Phase 5+ gives the frontend real
@@ -147,7 +159,9 @@ work happened to fall out.
 
 #### A properly-fixed version of a previously-worked-around bug
 
-- The 2.2 (login) log entry documented hitting a Vitest/CommonJS import clash
+- The 2.2 (login) log entry documented hitting a Vitest/CommonJS import clash (CommonJS is
+  Node.js's original module system — `require`/`module.exports` — distinct from, and not
+  always compatible with, the newer `import`/`export` syntax)
   caused by a stale, previously-compiled `dist/routes/auth.test.js` interfering with Vitest's
   test discovery, and worked around it by manually deleting `dist/` before testing. Running
   `npm run build && npm test` in this step hit the _exact same_ failure again — because
@@ -265,7 +279,9 @@ a known, documented gap. Google OAuth was explicitly not built — not in `requi
   break any existing auth behavior.
 - **Frontend:** `npm run build` — compiled cleanly. `npm test` (`vitest run`) — 14/14 passing,
   including the new test proving a failed background refresh actually redirects to `/login`.
-  `npm run lint` (`oxlint`) — clean, aside from one harmless Fast Refresh warning about
+  `npm run lint` (`oxlint`) — clean, aside from one harmless Fast Refresh warning (Fast Refresh
+  is React's version of the Hot Module Reload behavior described in the earlier Vite scaffold
+  entry — it needs a file to export only components to reliably hot-swap it) about
   `AuthContext.tsx` exporting both a component and a hook (a common, accepted pattern; not
   worth splitting into two files for this).
 - **Real browser (Playwright, Chromium, headless):** registered a user → landed on the
@@ -449,7 +465,9 @@ in (now shared via one `serializeUser` helper, rather than two copies of the sam
 
 #### The new `isLoading` flag — why silently attempting rehydration in the background isn't enough
 
-The naive version of this fix — just fire the rehydration attempt in a `useEffect` and let
+The naive version of this fix — just fire the rehydration attempt in a `useEffect` (a React
+**hook** — a function letting a component run some code as a side effect of rendering, e.g.
+right after it first mounts) and let
 `isAuthenticated` update whenever it resolves — has a real, visible bug: `isAuthenticated` reads
 as `false` for the entire time that attempt is still in flight, exactly the same as "genuinely
 not logged in." `RequireAuth` checking `isAuthenticated` during that window would redirect a user
@@ -534,7 +552,8 @@ rotation policy) — the last remaining gap from Phase 5's original checklist.
   expected, harmless `401` console messages appear only from the _very first_ page load before
   any account exists yet — the mount-time rehydration attempt correctly, honestly reporting "no
   session yet" for a brand-new visitor, doubled by React StrictMode's dev-only double-effect
-  invocation; neither is a real error, and neither reproduces around the actual reload event this
+  invocation (StrictMode is a React development-mode-only tool that deliberately runs certain
+  code twice to help surface bugs; it does not run twice in production); neither is a real error, and neither reproduces around the actual reload event this
   fix targets).
 
 ---
@@ -571,7 +590,8 @@ rather than the name itself wrapping or truncating.
    viewport was left with only ~5px of the row to truncate into — not a readable `"Jane D…"`, just
    an unreadable sliver, confirmed by inspecting the rendered span's own bounding box in a headless
    browser. Stopping horizontal overflow isn't the same as the name staying legible.
-3. Fixed that by hiding the name entirely below the `sm` (640px) breakpoint (`hidden sm:block`) —
+3. Fixed that by hiding the name entirely below the `sm` (640px) breakpoint (a **breakpoint** is
+   a screen-width threshold above or below which Tailwind applies different styles) (`hidden sm:block`) —
    a common, simple mobile pattern — rather than trying to guarantee it a minimum readable width at
    the further expense of the nav links. The Log out button is never hidden at any width; only the
    name disappears on narrow screens.
@@ -638,12 +658,12 @@ tokens, `NavBar.tsx`'s own conventions) rather than a spec.
 
 ### Background / concepts
 
-#### Why a *separate* component, not just restyling `NavBar` with media queries
+#### Why a _separate_ component, not just restyling `NavBar` with media queries
 
 `NavBar.tsx` (introduced in the 2026-08-15 entry above, fixed for mobile overflow in the entry
 directly above this one) was, until now, one always-visible top bar holding the four primary nav
 links, the signed-in user's display name, and Log out. A bottom tab bar and a top bar are
-different enough in *shape* — a bottom bar is a full-width row of stacked icon+label buttons
+different enough in _shape_ — a bottom bar is a full-width row of stacked icon+label buttons
 pinned to the viewport's bottom edge; a top bar is a horizontal row of plain text links inline
 with branding and account actions — that squeezing both into one component's markup with
 breakpoint classes would mean two very different layouts fighting inside a single JSX tree. Two
@@ -666,7 +686,8 @@ workflow").
 
 #### `BottomNav.tsx`
 
-A `<nav aria-label="Primary">`, `fixed inset-x-0 bottom-0`, `h-16` (64px — a conventional mobile
+A `<nav aria-label="Primary">` (`aria-label` gives an element an accessible name for screen
+readers, since this nav has no visible heading of its own), `fixed inset-x-0 bottom-0`, `h-16` (64px — a conventional mobile
 tab-bar height, comfortably large as a touch target), one flex-1 `NavLink` per route with a small
 emoji icon above the label (matching the icon style `QuickAddFab.tsx` already established for its
 own per-type menu — see that file's own comment on why these are hardcoded per-component rather
@@ -676,16 +697,19 @@ both visible at once would be redundant chrome and (see below) an actual visual 
 
 #### A real collision this design predicted, and confirmed rather than assumed
 
-A `fixed`, bottom-pinned nav bar is exactly the kind of thing that silently overlaps *other* fixed
+A `fixed`, bottom-pinned nav bar is exactly the kind of thing that silently overlaps _other_ fixed
 elements already anchored to the bottom of the viewport — and this app already has one:
-`QuickAddFab.tsx`'s `+` button, `fixed bottom-6 right-6` on the Dashboard page. Reasoning about the
+`QuickAddFab.tsx`'s `+` button (a **FAB**, or "Floating Action Button" — a round button, usually
+fixed in a corner of the screen, for a page's primary action; this is where the "Fab" in the
+filename comes from), `fixed bottom-6 right-6` on the Dashboard page. Reasoning about the
 numbers alone (`BottomNav` is `h-16`/64px tall, sitting at `bottom-0`; the FAB was `bottom-6`/24px
-up) suggested a real overlap, but per this project's own established practice (the *previous* log
+up) suggested a real overlap, but per this project's own established practice (the _previous_ log
 entry in this same file title-cased this exact lesson: "a plausible-looking CSS diff... can still
 be wrong in a way only rendering it... actually reveals"), this was checked in an actual running
 browser rather than trusted from the arithmetic. It was, in fact, a real collision — with
-`BottomNav` visible, the FAB's own lower portion sat *inside* `BottomNav`'s bounding box at a real
-375px viewport, confirmed by comparing both elements' actual `boundingBox()` values in Playwright,
+`BottomNav` visible, the FAB's own lower portion sat _inside_ `BottomNav`'s bounding box at a real
+375px viewport, confirmed by comparing both elements' actual `boundingBox()` (a Playwright
+function returning an element's actual on-screen position and size, in pixels) values in Playwright,
 not just the source CSS. Fixed with a mobile-only offset: `bottom-24` (96px — clearing `BottomNav`
 plus real breathing room) on the FAB, reverting to the original `bottom-6` from `md:` up, where
 `BottomNav` is hidden and the FAB has the full viewport height to itself again. Re-measured after
@@ -694,7 +718,7 @@ viewport — a clean 32px gap, no overlap.
 
 #### The other collision this design predicted: page content hidden behind the bar
 
-The same `fixed`-positioning problem applies to *every* page's own content, not just the FAB —
+The same `fixed`-positioning problem applies to _every_ page's own content, not just the FAB —
 `main`'s last child on any page (`Dashboard`'s last section card, `History`'s last entry or "Load
 more" button, `Settings`'s "Update password" button) would sit directly behind `BottomNav` on
 mobile unless the page reserves room for it. Every page that renders `NavBar` (`DashboardPage`,
@@ -816,7 +840,7 @@ dialog) per §15." Pairs with the backend work in
 
 ### Background / concepts
 
-#### Why a destructive action needs a *deliberate* confirmation step, not just any confirmation
+#### Why a destructive action needs a _deliberate_ confirmation step, not just any confirmation
 
 Requirements §15 calls for confirming destructive actions before they happen — but not every
 confirmation is equally effective. A single "Are you sure?" dialog with a `Delete` button that
@@ -825,7 +849,7 @@ clicked "confirm" on a hundred other unrelated dialogs that day. **Type-to-confi
 the exact word `DELETE` typed into a text field before the destructive button even becomes
 clickable — is a stronger gate specifically because it can't be triggered by muscle-memory
 clicking. It forces a moment of genuinely reading and typing, which is exactly the kind of
-friction that's *appropriate* for "permanently erase this person's health history," even though
+friction that's _appropriate_ for "permanently erase this person's health history," even though
 that same friction would be an annoying, unjustified obstacle almost everywhere else in the app.
 
 This is why the button starts out `disabled` and only becomes clickable once
@@ -838,9 +862,9 @@ const canDelete = confirmationText.trim() === DELETE_CONFIRMATION_PHRASE;
 <Button type="button" variant="danger" onClick={handleDelete} disabled={!canDelete || deleting}>
 ```
 
-#### Why the account-deletion `navigate()` happens *before* `logout()`, again
+#### Why the account-deletion `navigate()` happens _before_ `logout()`, again
 
-This exact ordering — navigate to an unguarded route first, *then* clear auth state — was already
+This exact ordering — navigate to an unguarded route first, _then_ clear auth state — was already
 established (and the bug that motivated it explained in detail) in this file's change-password
 entry above. It applies identically here: `SettingsPage` is wrapped in `RequireAuth`, and clearing
 auth state while still rendering a guarded route would let `RequireAuth`'s own redirect race this
@@ -876,25 +900,30 @@ applied to a `danger` button in the first place.
 
 1. **`ProfileSection`** (new, inside `SettingsPage.tsx`): fetches `GET /api/users/me` on mount to
    populate a `displayName` text field and a `timezone` `<select>`; submits changes via `PATCH
-   /api/users/me`; shows a `role="status"` "Profile saved." confirmation on success, and a
-   `role="alert"` error otherwise. The timezone `<select>` offers a deliberately short, curated
-   list of ~20 common IANA zones (not the full ~400-zone list `Intl.supportedValuesOf` could
+/api/users/me`; shows a `role="status"` "Profile saved." confirmation on success, and a
+   `role="alert"` error otherwise (`role="status"`/`role="alert"` are ARIA accessibility
+   attributes that tell assistive technology like screen readers to announce this text
+   automatically, without the user needing to navigate to it). The timezone `<select>` offers a deliberately short, curated
+   list of ~20 common IANA zones (named time-zone identifiers like `"America/New_York"`,
+   maintained in a standard reference list overseen by IANA, the Internet Assigned Numbers
+   Authority) (not the full ~400-zone list `Intl.supportedValuesOf` — a built-in browser
+   JavaScript function that can list all the values a given feature supports — could
    provide) — a dropdown with hundreds of entries is its own usability problem this task didn't
-   call for building a fancier picker to solve. If the account's *current* timezone isn't in that
+   call for building a fancier picker to solve. If the account's _current_ timezone isn't in that
    curated list, it's appended so the `<select>` never silently misrepresents the saved value.
 2. **`AccountDeletionSection`** (new, inside `SettingsPage.tsx`): the type-to-confirm gate
    described above, calling `DELETE /api/users/me` once enabled, then `navigate("/login", ...)`
    followed by `logout()` — the same ordering, and the same reasoning, as the existing
    change-password flow just above it on the same page.
 3. Added a `danger` variant to the shared `Button` component (described above).
-4. `backend/tsconfig.json` needed one small unrelated fix to support this work's *backend* half
+4. `backend/tsconfig.json` needed one small unrelated fix to support this work's _backend_ half
    (`Intl.supportedValuesOf` typings) — covered in the paired backend log entry, not repeated here.
 5. Tests added to `SettingsPage.test.tsx`: profile loads and displays the fetched values; saving
    sends the right `PATCH` body and shows the confirmation; a server-side validation error (e.g. an
    invalid timezone) surfaces as an inline error without crashing the form; the delete button stays
    disabled for a wrong-case or partial confirmation string and only enables on an exact `DELETE`;
    a successful deletion logs out and redirects to `/login` with a confirmation message; a failed
-   deletion shows an error and does *not* navigate away. The existing change-password tests needed
+   deletion shows an error and does _not_ navigate away. The existing change-password tests needed
    updating too — `ProfileSection`'s own mount-time `GET /api/users/me` call meant every render of
    `SettingsPage` now fires an additional fetch alongside `AuthProvider`'s session-rehydration
    call, so the test helper switched from a strict, ordered sequence of `mockResolvedValueOnce`
@@ -915,7 +944,7 @@ precisely the kind of mistake a destructive-action confirmation step exists to p
 - **Type-to-confirm over a `window.confirm()` two-step dialog** (the pattern History's per-entry
   delete already uses) — deliberately a stronger gate for a stronger consequence, as explained
   above, and also more directly testable: `window.confirm` requires globally stubbing `window
-  .confirm` in every test that touches deletion, where a real form field is just another element to
+.confirm` in every test that touches deletion, where a real form field is just another element to
   query and type into with the same tools every other test in this file already uses.
 - **A real `danger` Button variant, not a one-off `className` override** — avoids the Tailwind
   same-property-two-classes ambiguity described above, and is now available to any future genuinely
@@ -940,7 +969,7 @@ precisely the kind of mistake a destructive-action confirmation step exists to p
   a fresh `GET /api/users/me` rather than just reflecting unsaved local state, confirmed the delete
   button stayed disabled for a lowercase `"delete"` and only enabled once `"DELETE"` was typed
   exactly, then completed a real deletion and confirmed both the `/login` redirect with its
-  confirmation message *and* that logging back in with the same credentials now fails. The scratch
+  confirmation message _and_ that logging back in with the same credentials now fails. The scratch
   Playwright script used for this was not committed.
 
 ---
@@ -964,7 +993,7 @@ endpoints — a vertical slice, the same shape earlier auth work in this project
 - The backend entry explains why `POST /forgot-password` always returns the identical response
   regardless of whether the email matches an account — anything else would let an anonymous
   caller learn who's a registered user. That protection is only real end-to-end if the frontend
-  doesn't undo it by branching on *anything* the backend didn't actually send. This page has
+  doesn't undo it by branching on _anything_ the backend didn't actually send. This page has
   exactly one success state: on any `200` response, it shows "If that email is registered, a
   reset link has been sent." — the same text the backend already returns, not a page-level
   guess dressed up differently. There's no way for this component to show "email sent!" only for
@@ -1000,7 +1029,7 @@ endpoints — a vertical slice, the same shape earlier auth work in this project
 
 1. **`frontend/src/pages/ForgotPasswordPage.tsx`.** Replaced the stub with a real form: one
    email field, submits to `POST /api/auth/forgot-password` via `apiFetch(..., { skipAuth: true
-   })` (same as `login`/`register` in `AuthContext` — this call happens before any session
+})` (same as `login`/`register` in `AuthContext` — this call happens before any session
    exists, so there's no access token to attach and no 401-triggered refresh retry to attempt).
    On success, swaps the form out for the backend's own generic message (see above). On a
    `VALIDATION_ERROR` (malformed email), shows a friendly inline error instead of the generic

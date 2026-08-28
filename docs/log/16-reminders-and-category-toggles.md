@@ -20,7 +20,7 @@ tracked separately since its own "disable matching reminders" rule depends on th
 
 #### Why "once per day" couldn't survive unchanged
 
-The old model's `lastReminderSentDate` was a single date string on `User` - "has *the* reminder
+The old model's `lastReminderSentDate` was a single date string on `User` - "has _the_ reminder
 already fired today?" only ever had one possible answer to track. Once a single `Reminder` can
 carry several independent times (e.g. "09:00" and "18:00"), that single-date gate breaks: the
 09:00 firing would set `lastReminderSentDate` to today, which would then incorrectly suppress the
@@ -47,14 +47,14 @@ shouldn't become silently unrecoverable). Because of that, giving `Reminder.cate
 `onDelete: Cascade` relation would almost never do anything in practice - the hard-delete path it
 guards against essentially never happens. Instead, both `categories.ts`'s and
 `adminCategories.ts`'s archive routes now also set `enabled: false` on every `Reminder` targeting
-the category being archived (across *every* user, not just the one archiving it, since a
+the category being archived (across _every_ user, not just the one archiving it, since a
 system-wide category can have many different users' own reminders pointed at it) - "stop trying
 to fire" is the real thing that needed to happen, not a delete that was never actually reachable.
 
 ### What was done
 
 - **`backend/prisma/schema.prisma`**: new `ReminderTarget` enum (`GENERAL | MOOD | SYMPTOM |
-  HABIT | MEDICATION | CATEGORY`). New `Reminder` (`userId`, `target`, `medicationId String?`,
+HABIT | MEDICATION | CATEGORY`). New `Reminder` (`userId`, `target`, `medicationId String?`,
   `categoryId String?`, `times String[]` - a plain Postgres text array, not a separate join
   table, mirroring how `HabitLog`'s own type-conditional value columns are validated in
   application code rather than a DB constraint - `enabled`, `createdAt`). New `ReminderSend`
@@ -68,7 +68,7 @@ to fire" is the real thing that needed to happen, not a delete that was never ac
   the `target`/`medicationId`/`categoryId` pairing (`medication` requires an owned
   `medicationId` and forbids `categoryId`; `category` requires a visible, non-archived
   `categoryId` and forbids `medicationId`; every other target forbids both), validates `times`
-  (deduped, sorted, capped at 6, each a valid `HH:mm`), and 409s if a reminder for the same
+  (deduped, sorted, capped at 6, each a valid `HH:mm`), and 409s (HTTP 409 - "Conflict," meaning the request is well-formed but clashes with something that already exists) if a reminder for the same
   `(user, target, medication-or-category)` already exists - an app-level check, not a DB
   constraint, matching this codebase's established preference for this class of invariant.
   `target`/`medicationId`/`categoryId` are immutable after creation (only `times`/`enabled` are
@@ -96,7 +96,7 @@ to fire" is the real thing that needed to happen, not a delete that was never ac
 
 The whole point of this generalization is the concrete example that prompted it: a user taking
 Diazepam every morning at 10:00 and Sertraline every morning at 08:30 needs two fully independent
-reminders, each with its own schedule and its own "have I taken *this one* today" check - the old
+reminders, each with its own schedule and its own "have I taken _this one_ today" check - the old
 one-reminder-per-user model couldn't express that at all, and hard-coding "which medication" into
 a single reminder wouldn't scale to a second one.
 
@@ -132,14 +132,18 @@ will need its own rewrite (Task 5) before reminders are reachable from the app a
   `reminderEligibility.test.ts` for the per-slot pure-function shape, and a rewritten
   `reminderScheduler.test.ts` covering GENERAL/MEDICATION/CATEGORY targets, two independent times
   firing separately on one reminder, a medication-specific reminder correctly ignoring a
-  *different* medication's own log, and disabled reminders never firing.
+  _different_ medication's own log, and disabled reminders never firing.
 - `npx tsc --noEmit`, `npm run build`, `npx eslint .`, `npx prettier --check`: all clean.
 - The schema migration itself was applied directly to the local dev database (via `prisma db
-  push --accept-data-loss`, after explicit confirmation this was the local dev DB - not
+push --accept-data-loss` - unlike `migrate dev`, `db push` shoves the current schema straight
+  onto the database with no migration file at all, which is why the destructive
+  `--accept-data-loss` flag has to be passed explicitly when it would drop a column with real data
+  in it; after explicit confirmation this was the local dev DB - not
   production - and explicit user consent for the destructive column drop, per Prisma's own
   built-in AI-safety guardrail for this exact class of command), then reconciled into a proper
   versioned migration file (`20260824000000_generalize_reminders`) for Railway's own `prisma
-  migrate deploy` step at actual deploy time.
+migrate deploy` step at actual deploy time (Railway is this project's backend hosting platform -
+  see `docs/log/07-deployment.md`).
 - Observed (not a regression): a few unrelated, pre-existing tests intermittently timed out
   across two full-suite runs before a third ran clean at 285/285 - the same environmental
   flakiness under heavy parallel local database load already documented in
@@ -162,20 +166,34 @@ category off also disables any `Reminder` aimed at it - reads from Task 2's `Rem
 Starting this task's migration turned up a genuine mistake in Task 2's schema, unrelated to the
 toggle columns themselves: `Reminder.category` (`categoryId String?`) had no explicit `onDelete`,
 and its own schema comment claimed "Restrict is Prisma's default for a relation with no onDelete
-specified" - true only for a **required** relation. For an **optional** one (which this is - the
-same reasoning `CategoryLog.category` uses does *not* transfer, because `CategoryLog.categoryId`
-is non-nullable), Prisma's actual unspecified-onDelete default is `SetNull`. The hand-written
+specified" - true only for a **required** relation (in Prisma, a required relation means the
+foreign key column can never be null - every row must point at something real; an optional
+relation allows the column to be null, meaning a row may point at nothing at all). For an
+**optional** one (which this is - the
+same reasoning `CategoryLog.category` uses does _not_ transfer, because `CategoryLog.categoryId`
+is non-nullable), Prisma's actual unspecified-onDelete default is `SetNull` (meaning Prisma
+automatically blanks the foreign key column to `NULL` when the row it points at is deleted,
+instead of blocking the delete the way `Restrict` does or deleting the dependent row too the way
+`Cascade` does). The hand-written
 `migration.sql` from Task 2 said `RESTRICT` (matching the intended design), but what `prisma db
 push` actually applied to the dev database - back when Task 2's migration history was reconciled
 via `prisma migrate resolve --applied` rather than genuinely replayed - was `SetNull`, since that
 reflected the schema as literally written at the time, not the comment's stated intent. This
 surfaced as `prisma migrate dev` refusing to run for this task's own change, reporting drift
-between the actual database and migration history and asking to reset the whole dev database.
+between the actual database and migration history (Prisma's term for "the live database's real
+structure no longer matches what the migration history file says it should be" - usually because
+something changed the database directly instead of through a tracked migration) and asking to
+reset the whole dev database.
 
 Rather than reset (real, if disposable, local data), the actual constraint was inspected directly
-(`pg_get_constraintdef` via a scratch script - `psql` isn't installed in this environment, so a
-one-off Prisma `$queryRawUnsafe` stood in for it), confirmed as the `SetNull` mismatch above, and
-corrected in two steps: the live constraint was fixed via `$executeRawUnsafe` to match what
+(`pg_get_constraintdef` - a built-in Postgres function that returns a constraint's definition as
+readable SQL text - via a scratch script; `psql` (Postgres's own command-line client, normally
+used to run SQL directly against a database) isn't installed in this environment, so a
+one-off Prisma `$queryRawUnsafe` (Prisma's escape hatch for running a raw SQL string when there's
+no built-in Prisma method for what's needed) stood in for it), confirmed as the `SetNull` mismatch
+above, and corrected in two steps: the live constraint was fixed via `$executeRawUnsafe`
+(the write-side counterpart to `$queryRawUnsafe`, for a raw SQL statement that changes data
+rather than just returning rows) to match what
 Task 2's own already-applied migration history says (`RESTRICT`) - restoring consistency without
 any data loss - and then `schema.prisma` was corrected to declare `onDelete: Restrict` explicitly
 rather than leaving it implicit, so the true default can never silently diverge from the intended
@@ -222,15 +240,26 @@ pushing notifications for something the user just said they don't want to see or
 
 #### A CI-only e2e failure this task's own PR turned up (in an unrelated test)
 
-The GitHub Actions run for this task's PR (#123) failed `e2e/edit-and-delete.spec.ts` - a test
+The GitHub Actions run for this task's PR (#123) failed `e2e/edit-and-delete.spec.ts` (e2e =
+"end-to-end": a test that drives the real, fully running app - browser included - rather than
+testing one function or component in isolation) - a test
 about editing and deleting a Mood entry from History, nothing this task touches. The trace
-(downloaded via `gh run download`, then read directly as HAR-shaped JSON lines - `psql` isn't
+(a Playwright trace: a recording of everything that happened during a test run, including every
+network request, downloaded via `gh run download` - `gh` is GitHub's own command-line tool, and
+this subcommand fetches the files a CI run saved, such as logs, screenshots and traces - then read
+directly as HAR-shaped JSON lines (HAR, "HTTP Archive," is a standard JSON format for recording a
+browser's network requests and responses) - `psql` isn't
 installed in this environment, so `pg_get_constraintdef` via a scratch Prisma script had already
 stood in for it once already in this same task, see above) showed the `DELETE
-/api/mood-logs/:id` request itself recorded with HAR status `-1` - Playwright's convention for "the
+/api/mood-logs/:id` request itself recorded with HAR status `-1` - Playwright's (the same
+browser-automation tool introduced in `docs/log/15-categories.md`, used here to drive these e2e
+specs) own convention for "the
 browser aborted this request before a response arrived." The cause was in the test, not this PR's
-own code: `HistoryPage.tsx`'s delete is optimistic - `handleConfirmDelete` calls `setEntries(...)`
-to remove the row from local state *before* `await`-ing the `DELETE` call - so the test's very next
+own code: `HistoryPage.tsx`'s delete is optimistic (an "optimistic" update changes the UI
+immediately, assuming the server request will succeed, rather than waiting for the server's
+response first - it makes the app feel faster, at the cost of needing to handle the rare case
+where the assumption turns out wrong) - `handleConfirmDelete` calls `setEntries(...)`
+to remove the row from local state _before_ `await`-ing the `DELETE` call - so the test's very next
 two assertions (row gone, "nothing to show yet" visible) pass instantly, well before the network
 request has actually reached the server. The test then called `page.reload()` immediately after,
 with nothing gating that reload on the request having actually finished - so on an unlucky timing
@@ -284,7 +313,7 @@ Habit on or off, and Dashboard/Quick Add/the summary line actually respecting th
 `DashboardPage.tsx` already calls `useAuth()` for the display name/email greeting, so it already
 has `user.moodEnabled` etc. in hand. `QuickAddFab` and `DashboardSummary` could each have called
 `useAuth()` themselves instead - but both already have dedicated test files that render them
-*without* an `AuthProvider` ancestor at all (`QuickAddFab.test.tsx`, `DashboardSummary.test.tsx`),
+_without_ an `AuthProvider` ancestor at all (`QuickAddFab.test.tsx`, `DashboardSummary.test.tsx`),
 since neither needed any auth state before this task. Adding `useAuth()` inside either one would
 have made every existing test in both files throw immediately (`useAuth must be used within an
 AuthProvider`), forcing a rewrite of tests that have nothing to do with this feature just to wrap
@@ -315,7 +344,7 @@ Two unrelated naming collisions turned up while wiring this in:
   `getByRole("button", { name: /^save$/i })` ambiguous on this page. Renamed the new button to
   "Save category settings" rather than touching the already-shipped Reminders section over a
   collision the new code caused.
-- The toggle checkboxes were first written with each item's description nested *inside* the same
+- The toggle checkboxes were first written with each item's description nested _inside_ the same
   `<label>` as the checkbox text (e.g. "Mood" plus "Daily mood check-ins." both inside one
   `<label>`) - which folds both into the checkbox's single accessible name ("Mood Daily mood
   check-ins."), breaking a clean `getByLabelText(/^mood$/i)` lookup. Fixed by moving each
@@ -327,7 +356,7 @@ Two unrelated naming collisions turned up while wiring this in:
 - **`frontend/src/auth/AuthContext.tsx`**: `AuthUser` gains `moodEnabled`/`symptomEnabled`/
   `medicationEnabled`/`habitEnabled`. New `updateUser(patch)` on the context value (see above).
 - **`frontend/src/pages/SettingsPage.tsx`**: new `BuiltInCategoriesSection` (own `GET`/`PATCH
-  /api/users/me`, matching the page's existing self-contained-section convention), placed above
+/api/users/me`, matching the page's existing self-contained-section convention), placed above
   the existing custom-`CategoriesSection`. Calls `updateUser` on a successful save.
 - **`frontend/src/pages/DashboardPage.tsx`**: `MoodSection`/`HabitSection`/`MedicationSection`/
   `SymptomSection` each conditionally rendered on `user?.xEnabled ?? true` (the `?? true` treats
@@ -384,7 +413,7 @@ and is currently non-functional; out of scope for this task).
 - Manual, real-browser verification (Playwright script against the built frontend + a running
   backend, not just the automated suites): registered a fresh account, confirmed all four
   sections and Quick Add entries present by default; toggled Medications off in Settings and
-  saved; confirmed the Medications section and its Quick Add entry both disappeared *immediately*
+  saved; confirmed the Medications section and its Quick Add entry both disappeared _immediately_
   on navigating back to Dashboard with no page reload (proving `updateUser` actually propagates
   in-session, not just after a fresh `rehydrateSession`); confirmed Mood stayed untouched
   throughout; reloaded the page and confirmed Medications stayed hidden (real server-side
@@ -395,14 +424,15 @@ and is currently non-functional; out of scope for this task).
 ## 2026-08-24 — Task 4: Medications management (closes a pre-existing gap)
 
 **Task:** [Phase 16, Task 4](../../Tasks.md#task-4--frontend-medications-management-closes-a-pre-existing-gap)
+
 - a "Medications" Settings section to list, rename/redose, and delete a user's own medications.
-Not a technical dependency of the reminders work (medications already fully worked via the
-existing inline add-affordance) - closes a real, independently-discovered gap: `PATCH`/`DELETE
+  Not a technical dependency of the reminders work (medications already fully worked via the
+  existing inline add-affordance) - closes a real, independently-discovered gap: `PATCH`/`DELETE
 /api/medications/:id` have existed on the backend since Phase 4, with no frontend caller at all
-until this task. The only way to create a medication was buried inside `MedicationEntryForm`'s own
-"+ Add another medication" affordance while logging a dose - there was nowhere to rename one,
-fix a typo'd dosage, or remove one no longer taken, and (looking ahead to Task 5) nowhere to set
-one up *before* ever logging a dose against it, which per-medication reminders need.
+  until this task. The only way to create a medication was buried inside `MedicationEntryForm`'s own
+  "+ Add another medication" affordance while logging a dose - there was nowhere to rename one,
+  fix a typo'd dosage, or remove one no longer taken, and (looking ahead to Task 5) nowhere to set
+  one up _before_ ever logging a dose against it, which per-medication reminders need.
 
 ### Background / concepts
 
@@ -414,7 +444,7 @@ indefinitely (see `docs/log/15-categories.md`). `Medication` has no such constra
 system-wide medication concept, and `medications.ts`'s `DELETE` route (unchanged by this task) has
 always been a genuine hard delete that cascades to every `MedicationLog` against it
 (`onDelete: Cascade` in `schema.prisma`). Reusing `CategoriesSection`'s own confirmation wording
-("existing entries are kept...") here would have been actively *wrong* - it would tell a user their
+("existing entries are kept...") here would have been actively _wrong_ - it would tell a user their
 logged doses are safe when this action removes them permanently. The new section's own
 confirmation says exactly what happens instead: "This also permanently deletes every logged entry
 for it."
@@ -497,7 +527,7 @@ Medication/Category sub-picker, and repeatable fixed-time inputs.
 
 `ReminderCreateForm` only ever gathers and validates input; `RemindersSection` (the parent) decides
 whether creating this reminder needs to run the push-subscribe flow first. This split exists
-because only the parent knows `hasEnabledReminder` (whether the account already has *any* enabled
+because only the parent knows `hasEnabledReminder` (whether the account already has _any_ enabled
 reminder) - the one piece of state that decides whether push subscription is even necessary. Folding
 that decision into the form itself would have meant either lifting the whole reminders list into
 the form (defeating the point of a small, focused form) or duplicating the "is this the first
@@ -505,13 +535,20 @@ enabled reminder" computation in two places.
 
 #### Gesture preservation, generalized
 
-The old `RemindersSection` called `subscribeToPush()` *before* its own `PATCH /api/users/me`, with
+(Background: this app uses the browser's Push API for reminder notifications. Before a site can
+send a push notification, the user's browser must first grant permission and register a
+"subscription" - a unique endpoint the server can later send notifications to; `subscribeToPush()`
+is this project's own helper that kicks off that browser flow. Browsers require the permission
+prompt to be triggered directly from a real user action like a click, or - especially on mobile -
+they silently refuse it, which is the "gesture" this section's title refers to.)
+
+The old `RemindersSection` called `subscribeToPush()` _before_ its own `PATCH /api/users/me`, with
 an explicit comment explaining why: an `await` between the user's click and
 `Notification.requestPermission()` risks losing the browser's "was this tied to a real user
 gesture" window, which mobile Chrome in particular enforces by silently auto-denying the prompt
 rather than showing it. The same ordering constraint applies here, just generalized across more
 call sites: `handleCreate` and `handleToggleEnabled` both call `subscribeToPush()` (when applicable)
-*before* their own `POST`/`PATCH` to `/api/reminders`, not after - the network round trip to create
+_before_ their own `POST`/`PATCH` to `/api/reminders`, not after - the network round trip to create
 or update a reminder must never sit between the click and the permission request.
 
 #### A real bug this task's own manual verification caught: stale medication/category lists
@@ -520,7 +557,7 @@ or update a reminder must never sit between the click and the permission request
 same "each section owns its own fetch/state, no shared store" convention this app already uses
 throughout Settings and Dashboard. That convention broke down for one specific interaction: a user
 creates a brand-new medication in `MedicationsSection` (or a category in `CategoriesSection`),
-*then*, without reloading, opens "+ Add reminder" to attach a reminder to what they just created -
+_then_, without reloading, opens "+ Add reminder" to attach a reminder to what they just created -
 `RemindersSection`'s own `medications`/`categories` state was still the pre-creation snapshot from
 page load, so the just-created medication/category simply didn't appear in the sub-picker at all.
 Found directly via manual browser verification (not the automated suite, which mocks fetch and
@@ -532,31 +569,42 @@ reactivity added) while making the one interaction that actually needs fresh dat
 
 #### Two accessible-name collisions found while writing this task's own tests
 
+(Background: an element's "accessible name" is the text screen readers - and Testing Library's
+query functions used in tests - use to identify it. Normally that's the text inside an associated
+`<label>`, but an explicit `aria-label` attribute overrides that. `getByRole`/`getByLabelText`/
+`within(...)` are Testing Library functions that find elements the same way an assistive-technology
+user effectively would, rather than by CSS selector; `radiogroup` is the ARIA role for a container
+grouping a set of related radio buttons together.)
+
 - Playwright/Testing Library's `getByLabelText` also matches an element via its own `aria-label`,
   not just a `<label>` association - `aria-label="Remove time 2"` on the per-time "Remove" button
-  collided with `getByLabelText(/time 2/i)` intended for the *input* labeled "Time 2", once a
+  collided with `getByLabelText(/time 2/i)` intended for the _input_ labeled "Time 2", once a
   second time row existed. Fixed by anchoring every such query to `/^time 1$/i` / `/^time 2$/i`.
 - The target-type picker's own hint text (e.g. "e.g. Diazepam every morning" on "A specific
-  medication") means an unscoped `getByRole("radio", { name: /diazepam/i })` matches *both* that
+  medication") means an unscoped `getByRole("radio", { name: /diazepam/i })` matches _both_ that
   hint and the real per-medication radio in the sub-picker once it's open - fixed by scoping the
   query to the sub-picker's own `radiogroup` (`aria-label="Which medication?"` /
   `"Which category?"`) via Testing Library's `within(...)`.
 
 #### The `withReminders` test helper's own bug, and why it existed
 
+(Background: "mocking fetch" in a frontend test means replacing the browser's real network-call
+function with a fake one that returns canned responses, so a component's tests can run without a
+real backend server behind them.)
+
 The first version of `withReminders` (a `routedFetchMock` wrapper supplying sensible GET defaults
 for `/api/reminders`/`/api/medications`/`/api/categories`) built its result as
-`{ ...bareDefaults, ...overrides }`. `routedFetchMock`'s own matching loop returns on the *first*
-key whose path matches a given request, and a bare (method-less) key matches *any* method - so a
+`{ ...bareDefaults, ...overrides }`. `routedFetchMock`'s own matching loop returns on the _first_
+key whose path matches a given request, and a bare (method-less) key matches _any_ method - so a
 test supplying only `"POST /api/reminders"` (a brand-new key, appended after the already-early bare
 default) still had every POST intercepted by the earlier bare `"/api/reminders"` default, silently
 returning `[]` instead of the intended handler. A first attempted fix (renaming the defaults to
 `"GET /api/reminders"`) made things worse: a plain `apiFetch` GET call never sets an explicit
 `method` on the request at all (relying on `fetch`'s own implicit default), so `init?.method` is
-`undefined`, not the literal string `"GET"` - a `"GET /path"` key can *never* match a plain GET
+`undefined`, not the literal string `"GET"` - a `"GET /path"` key can _never_ match a plain GET
 request from this app's own `apiFetch`, only the request-shape-aware special case `routedFetchMock`
 already hand-writes for `/api/users/me` handles that correctly. The actual fix: build the merged
-object from the test's own `overrides` *first* (so a test-supplied method-specific key keeps its
+object from the test's own `overrides` _first_ (so a test-supplied method-specific key keeps its
 early position), then fill in a bare default only for a path with no key of its own yet - this
 automates supplying the "bare GET fallback" half of the pattern every other describe block in this
 file already gets by simply writing both keys directly, method-specific first, in one literal.
@@ -574,7 +622,7 @@ file already gets by simply writing both keys directly, method-specific first, i
   `/api/reminders`/`/api/medications`/`/api/categories` together on mount; renders each reminder
   with its resolved target label (`reminderTargetLabel`), times as chips, an auto-saving `enabled`
   checkbox, and Edit (inline times editor, matching Categories/Medications' own edit-row shape) /
-  Delete. `reminderInactiveNote` explains *why* a disabled reminder is inactive when that reason
+  Delete. `reminderInactiveNote` explains _why_ a disabled reminder is inactive when that reason
   is something the user set elsewhere: a matching built-in-category toggle being off (cross-checked
   against `useAuth()`'s own `moodEnabled`/etc. - no separate fetch needed, `RemindersSection` is
   always rendered inside `SettingsPage`'s own `AuthProvider`) or a `CATEGORY` reminder's category
@@ -585,7 +633,7 @@ file already gets by simply writing both keys directly, method-specific first, i
 - **`handleCreate`/`handleToggleEnabled`**: both call `subscribeToPush()` before their own
   `POST`/`PATCH` when the action is about to create the account's first enabled reminder (gesture
   preservation - see above); `handleToggleEnabled`/`handleDelete` call `unsubscribeFromPush()`
-  (best-effort) when the action removes the account's *last* enabled reminder.
+  (best-effort) when the action removes the account's _last_ enabled reminder.
 - **`handleOpenCreateForm`**: refetches medications/categories before opening the create form (see
   the stale-list bug above).
 

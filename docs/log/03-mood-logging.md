@@ -22,13 +22,14 @@ progress waiting for either to be reviewed and merged first).
 - **What `mood_id_fkey` (the "foreign key") actually enforces.** `userId String @map("user_id")`
   alone would just be a plain text column — nothing would stop it from containing a value that
   doesn't correspond to any real user. Adding `user User @relation(fields: [userId],
-  references: [id], onDelete: Cascade)` tells Postgres itself to enforce that `user_id` must
+references: [id], onDelete: Cascade)` tells Postgres (PostgreSQL — the relational, SQL-based
+  database this project stores all its data in) itself to enforce that `user_id` must
   match a real row in `users`, at the database level — not just something the application layer
   promises to check. This is a stronger guarantee than an application-only check: even a bug
   elsewhere in the code can't insert an orphaned mood log.
 - **`onDelete: Cascade`, concretely.** Requirements call for "removing a `User` removes all
   associated logs" (Phase 1's cross-cutting item). Without `Cascade`, deleting a user whose
-  `id` is still referenced by existing `mood_logs` rows would simply be *rejected* by Postgres
+  `id` is still referenced by existing `mood_logs` rows would simply be _rejected_ by Postgres
   (a foreign key violation) — `Cascade` instead tells Postgres "when the referenced user is
   deleted, automatically delete every row that points to it too," so account deletion (a later
   Phase 2 task) will be able to remove a user cleanly in one step rather than needing to
@@ -37,7 +38,7 @@ progress waiting for either to be reviewed and merged first).
 #### `@db.Timestamptz(3)` — why the database column type was overridden
 
 - Prisma's `DateTime` type, on Postgres, defaults to a column type that stores a timestamp
-  *without* any timezone information attached — just a raw date and time, with no indication
+  _without_ any timezone information attached — just a raw date and time, with no indication
   of which timezone it's relative to. That's a real problem for this app specifically: a
   wellness log's exact moment matters (grouping entries into "today" correctly depends on it),
   and a user's chosen `timezone` (already stored per-user since the very first `User` model)
@@ -56,7 +57,7 @@ progress waiting for either to be reviewed and merged first).
 #### The composite index, and why `[userId, loggedAt]` specifically (not two separate indexes)
 
 - Every future read of this data — "this user's mood logs for the last 30 days," "this user's
-  most recent mood entry" — filters by `userId` *and* orders/ranges by `loggedAt` together, not
+  most recent mood entry" — filters by `userId` _and_ orders/ranges by `loggedAt` together, not
   either one alone. A single composite index on `[userId, loggedAt]` lets Postgres satisfy that
   combined pattern efficiently in one lookup; two separate single-column indexes wouldn't
   combine as effectively for this specific "filter by X, then range over Y" access pattern,
@@ -67,7 +68,9 @@ progress waiting for either to be reviewed and merged first).
 1. **`backend/prisma/schema.prisma`.** Added the `MoodLog` model as described above, plus the
    reciprocal `moodLogs MoodLog[]` field on `User` (Prisma requires both sides of a relation to
    be declared, not just the "many" side).
-2. **Migration.** `npx prisma migrate dev --name add_mood_log` — generated and applied
+2. **Migration.** `npx prisma migrate dev --name add_mood_log` (`npx` runs a command from a
+   locally-installed npm package — here, Prisma's own CLI — without needing to install it
+   globally first) — generated and applied
    `20260815174231_add_mood_log` against the local Postgres container.
 3. **`npm run build`** — compiled cleanly (also regenerates the Prisma Client, which is how
    `prisma.moodLog.create(...)` etc. become available with full TypeScript types in the next
@@ -75,7 +78,9 @@ progress waiting for either to be reviewed and merged first).
 4. **`npm test`** — 24/24 passing, unchanged from the previous entry (this task adds no new
    application code, only schema).
 5. **Manual verification directly against Postgres** (not just trusting the migration command's
-   own "success" output): `psql \d mood_logs`, confirming the exact column types, the
+   own "success" output): `psql \d mood_logs` (`psql` is Postgres's own command-line client — it
+   runs SQL statements directly against the database, bypassing the application entirely),
+   confirming the exact column types, the
    `timestamp(3) with time zone` type, the composite index, and the cascading foreign key all
    exist for real in the running database.
 
@@ -92,7 +97,7 @@ written against it, rather than discovering a missing constraint later after rea
   a log entry (when the mood happened, which can be backfilled to a past date/time); a separate
   "when was this database row inserted" timestamp isn't something any planned feature reads.
 - **Stacked this branch on `feature/2.7-auth-middleware` rather than `main`.** This model has
-  no code dependency on the auth middleware, but the *next* task (the mood-logs endpoint) needs
+  no code dependency on the auth middleware, but the _next_ task (the mood-logs endpoint) needs
   both, and there's no reason to sit idle waiting for either PR to be reviewed first. Both
   branches will need merging in order once reviewed, same as the earlier auth vertical slice.
 
@@ -123,16 +128,20 @@ task is where both of the previous two tasks actually get used together for the 
 
 ### Background / concepts
 
+(**CRUD** — Create, Read, Update, Delete — is the standard shorthand for the four basic
+operations most APIs expose over a resource. Here it maps onto HTTP methods: `POST` creates,
+`GET` reads, `PATCH` updates, and `DELETE` deletes.)
+
 #### "Scoped to the authenticated user" — what that phrase actually means in code
 
 - Every route in this file reads `req.userId`, which only exists because `requireAuth` (the
   previous task) ran first and put it there — this is `app.ts`'s
-  `app.use("/api/mood-logs", requireAuth, moodLogsRouter)`: the middleware runs on *every*
+  `app.use("/api/mood-logs", requireAuth, moodLogsRouter)`: the middleware runs on _every_
   request to any `/api/mood-logs/*` route before any of this file's own code does.
 - **"Scoped" isn't just about who's logged in — it's about which rows a query is even allowed
   to touch.** `GET` filters with `where: { userId: req.userId }`; `PATCH`/`DELETE` look the row
   up with `findFirst({ where: { id, userId: req.userId } })` rather than a plain `findUnique({
-  where: { id } })`. The difference matters: `findUnique` by `id` alone would find *any* user's
+where: { id } })`. The difference matters: `findUnique` by `id` alone would find _any_ user's
   mood log if you guessed or otherwise obtained its ID — the query itself would happily return
   someone else's data. Including `userId` in the `where` clause means a mismatched log simply
   doesn't match the query at all, as if it didn't exist. This is the concrete mechanism behind
@@ -147,14 +156,16 @@ task is where both of the previous two tasks actually get used together for the 
 
 #### Backfilling: accepting a caller-supplied `loggedAt`, safely
 
-- Requirements call for letting a user log an entry for *yesterday*, not just "right now" — a
+- Requirements call for letting a user log an entry for _yesterday_, not just "right now" — a
   real need for a wellness tracker (e.g. remembering this morning's mood in the evening). The
   `loggedAt` field in the request body is entirely optional; when present, it's validated as a
-  proper ISO 8601 datetime string by Zod's `z.string().datetime()` before ever reaching the
+  proper ISO 8601 datetime string (ISO 8601 is a standardized text format for dates/times, e.g.
+  `2026-08-15T14:30:00Z`, that's unambiguous regardless of timezone or locale) by Zod's
+  `z.string().datetime()` before ever reaching the
   database, and when absent, the database's own `@default(now())` (from the previous entry's
   schema) fills it in — "now" is deliberately resolved by the database at insert time, not
   computed earlier in the request-handling code, so it reflects the actual moment of insertion.
-- Nothing stops a caller from supplying a `loggedAt` in the *future* here — Tasks.md's spec
+- Nothing stops a caller from supplying a `loggedAt` in the _future_ here — Tasks.md's spec
   for this task only calls for validating the numeric rating fields, not constraining the date
   range, so this is left permissive rather than adding an unrequested rule.
 
@@ -173,7 +184,7 @@ task is where both of the previous two tasks actually get used together for the 
    - `POST /` — validates the body with Zod (`mood` required 1–5; `energy`/`stress` optional
      1–5; `notes` optional non-empty string; `loggedAt` optional ISO datetime), creates the row,
      returns `201` with the created log.
-   - `PATCH /:id` — validates a *partial* body (any subset of the same fields), looks the log
+   - `PATCH /:id` — validates a _partial_ body (any subset of the same fields), looks the log
      up scoped to the caller (`404` if missing or not owned), applies the update, returns `200`.
    - `DELETE /:id` — same ownership lookup, deletes, returns `200`.
 2. **`backend/src/app.ts`.** Mounted the router at `/api/mood-logs` with `requireAuth` applied
@@ -192,7 +203,9 @@ task is where both of the previous two tasks actually get used together for the 
 4. **`npm test`** — 33/33 passing (24 pre-existing, 9 new).
 5. **`npm run build`** — compiled cleanly.
 6. **Manual end-to-end verification against the compiled, running server** (`npm start`), via
-   `curl`: registered and logged in a real user, confirmed `/api/mood-logs` returns `401` with
+   `curl` (a command-line tool for sending HTTP requests directly, without a browser or
+   frontend — useful for checking an API behaves exactly as designed, independent of anything
+   that calls it): registered and logged in a real user, confirmed `/api/mood-logs` returns `401` with
    no token, then walked the full lifecycle with a real access token — create (`201`), list
    (the created log present), update (`200`, new `mood` value reflected), delete (`200`), and a
    final list confirming the log is genuinely gone (`[]`). Cleaned up the manually-created test
@@ -201,7 +214,7 @@ task is where both of the previous two tasks actually get used together for the 
 ### Why it's needed
 
 This is the first piece of real wellness-tracking functionality in the app — everything before
-this task was infrastructure (auth, deployment) in service of *eventually* letting a user
+this task was infrastructure (auth, deployment) in service of _eventually_ letting a user
 record something about their day. It also proves out the full pattern (auth middleware → model
 → scoped CRUD route) that every other log type (symptoms, medications, habits) in the rest of
 Phase 3 will repeat.
@@ -212,11 +225,14 @@ Phase 3 will repeat.
   checklist item in this task.** This route's error responses (`{ error: { message, code } }`)
   are written by hand, matching the exact shape already used throughout `routes/auth.ts` — kept
   consistent with the existing convention rather than introducing a mismatched shape, but the
-  *centralized* version (a single Express error-handling middleware other routes could rely on
+  _centralized_ version (a single Express error-handling middleware other routes could rely on
   instead of each repeating this by hand) is left as that checklist item's own separate task,
   not bundled in here.
 - **`200 { message: "Deleted" }` rather than `204 No Content` for `DELETE`.** `204` (with an
-  empty body) is the more common REST convention, but this codebase's one existing precedent
+  empty body) is the more common REST convention (REST is a widely-used style for designing HTTP
+  APIs around resources and standard verbs/status codes — `GET` to read, `POST` to create, a
+  status code that tells the caller what happened — rather than one-off custom actions), but
+  this codebase's one existing precedent
   for "an action completed, nothing to return" — `POST /api/auth/logout` — already returns `200`
   with a small JSON body. Matched that existing convention for consistency rather than
   introducing a second, different "successful action" shape.
@@ -232,7 +248,8 @@ pipeline documented in the earlier Railway entries).
 
 ### Verification
 
-- `npm test` (`vitest run`) — 33/33 passing (24 pre-existing, 9 new).
+- `npm test` (`vitest run` — Vitest is this project's test runner, the tool that discovers every
+  test file, executes it, and reports pass/fail counts) — 33/33 passing (24 pre-existing, 9 new).
 - `npm run build` — compiled cleanly.
 - Manual `curl` round-trip against the compiled, running server: unauthenticated request → 401;
   full create → list → update → delete → list-again lifecycle with a real access token, each
@@ -258,12 +275,12 @@ slice ended with an actual login form rather than just a working `/api/auth/logi
 
 - Tasks.md's own wording for this item is scoped to the form itself. But a form nobody can
   reach isn't a finished feature yet — the earlier auth vertical slice's whole justification
-  (documented back in its own entry) was building thin *end-to-end* slices specifically so
+  (documented back in its own entry) was building thin _end-to-end_ slices specifically so
   something is genuinely usable at the end of each one, not just individually correct in
   isolation. `DashboardPage.tsx` (previously just a placeholder welcome message) is where this
   form needed to actually live for that to be true here too.
 - **What was deliberately left out**, to keep this task's scope honest rather than quietly
-  absorbing later Tasks.md items: the shared "Quick Add" modal used by *all four* log types
+  absorbing later Tasks.md items: the shared "Quick Add" modal used by _all four_ log types
   (its own Phase 7 item), and reusing this same form pre-filled for editing (a separate,
   later Phase 7 item covering all log types at once). This entry's dashboard only has mood
   logging, shown inline rather than in a modal, with delete but not edit — intentionally
@@ -281,10 +298,13 @@ slice ended with an actual login form rather than just a working `/api/auth/logi
   - `role="radiogroup"` on the container and `role="radio"` + `aria-checked` on each button is
     how that meaning gets communicated explicitly instead — a screen reader announces these the
     same way it would a native radio group, even though under the hood they're just buttons with
-    an `onClick`. This is the same "custom rating control needs explicit ARIA roles" concern
+    an `onClick`. This is the same "custom rating control needs explicit ARIA roles" concern (ARIA — Accessible
+    Rich Internet Applications — is the set of `role`/`aria-*` attributes used above; they exist
+    specifically to tell assistive technology what a custom-built control means, since the browser
+    can't infer it the way it can from a real `<input>`)
     Phase 12 (Accessibility QA) calls out generally; applied here at the point the first rating
     control actually gets built, rather than retrofitted later.
-- The energy/stress rows reuse the same pattern but allow *deselecting* (clicking an already-
+- The energy/stress rows reuse the same pattern but allow _deselecting_ (clicking an already-
   selected value clears it back to "not set") — appropriate since those two fields are
   genuinely optional, unlike mood, which is required.
 
@@ -296,8 +316,9 @@ slice ended with an actual login form rather than just a working `/api/auth/logi
   format is a specific plain string (`"YYYY-MM-DDTHH:mm"`) with **no timezone information at
   all** — it represents whatever the browser's local wall-clock time is, nothing more. The
   `toDateTimeLocalValue` helper in `MoodEntryForm.tsx` builds that exact string from `new
-  Date()` to default the field to "right now" in the browser's own local time, since neither
-  `Date`'s own `toISOString()` (which is UTC, not local) nor any other built-in method produces
+Date()` to default the field to "right now" in the browser's own local time, since neither
+  `Date`'s own `toISOString()` (which is UTC — Coordinated Universal Time, the timezone-independent
+  reference clock — not local) nor any other built-in method produces
   this specific format directly.
 - On submit, that local-time string is converted back with `new Date(loggedAt).toISOString()`
   before being sent to the API — which is what the backend's `loggedAt` field actually expects
@@ -310,7 +331,10 @@ slice ended with an actual login form rather than just a working `/api/auth/logi
 
 - `Card` (used by `LoginPage`/`RegisterPage`) is hard-coded to `max-w-sm` — a deliberate choice
   for a centered auth form, but wrong for a dashboard list meant to fill the page's wider
-  content column. Overriding a Tailwind utility class by appending another one after it in the
+  content column. Overriding a Tailwind utility class (Tailwind is a CSS framework used here:
+  instead of writing custom CSS, you compose small pre-built classes like `max-w-sm` or
+  `rounded-2xl` directly in the markup, each doing one specific styling job) by appending another
+  one after it in the
   same `className` string (e.g. trying to cancel `max-w-sm` with a later `max-w-none`) isn't
   reliably safe — which of two conflicting utility classes "wins" depends on the order Tailwind
   itself emits them in the generated stylesheet, not the order they appear in the `className`
@@ -332,7 +356,9 @@ slice ended with an actual login form rather than just a working `/api/auth/logi
    than through an intermediate store.
 2. **`frontend/src/pages/DashboardPage.tsx` (rewritten).** Fetches the user's mood logs on
    mount (`GET /api/mood-logs`), shows a `+ Mood` button that reveals the form inline, prepends
-   newly-saved logs to the list, and lets each entry be deleted (optimistic removal from the
+   newly-saved logs to the list, and lets each entry be deleted (an "optimistic" update means changing the UI immediately,
+   assuming the server call will succeed, rather than waiting for its response first, and undoing
+   the change only if the call actually fails — this is optimistic removal from the
    list, rolled back if the `DELETE` request fails).
 3. **Tests (`MoodEntryForm.test.tsx`).** Requiring a mood selection before submit is possible;
    a full submission (mood + energy + notes) producing the exact expected request body and
@@ -343,8 +369,12 @@ slice ended with an actual login form rather than just a working `/api/auth/logi
 6. **Real browser verification**, per the project's UI-change testing rule — not just tests and
    a type-check. Started the actual compiled backend (`npm start`, working around the
    pre-existing, previously-documented `ts-node-dev` crash) and the frontend dev server, then
-   drove a real headless Chromium browser through the full flow with a throwaway Playwright
-   script: register → land on Dashboard → open the mood form → select "Good," energy 4, add a
+   drove a real headless Chromium browser ("headless" means it runs with no visible window — the
+   same rendering engine as a normal browser, just without a screen) through the full flow with a
+   throwaway Playwright script (Playwright is a browser-automation tool: it drives a real browser
+   through clicks, typing, and navigation the way a person would, so this exercises the actual
+   rendered page rather than just component code in isolation): register → land on Dashboard →
+   open the mood form → select "Good," energy 4, add a
    note → Save → confirm the entry actually appears in the list with the right emoji, values,
    note, and timestamp → delete it → confirm the list returns to its empty state. No browser
    console errors at any point. Screenshots taken at each step and visually reviewed, not just
@@ -401,18 +431,18 @@ energetic."
 #### Why a plain 1–5 number scale is ambiguous without labels
 
 - The mood scale right above it doesn't have this problem — each button already carries an
-  emoji *and* a word (`😞` "Bad" up to `😄` "Great"), so the direction is obvious without
+  emoji _and_ a word (`😞` "Bad" up to `😄` "Great"), so the direction is obvious without
   thinking about it. The energy/stress rows only ever showed bare digits, which carry no
   inherent direction on their own — nothing about the numeral `1` says whether it's the low end
   or the high end of the scale it's part of. This is exactly the kind of gap that's invisible
-  to whoever built the form (the direction was obvious *to me*, because I knew what I intended)
+  to whoever built the form (the direction was obvious _to me_, because I knew what I intended)
   but genuinely unclear to a first-time user with no other context — precisely why real user
   feedback caught it and automated testing/code review didn't.
 - **Energy and stress can't share one fixed label pair, either.** For energy, `5` (maximum) is
   the "good" end; for stress, `5` (maximum) is the "bad" end. A single generic caption like
   "1 = Low, 5 = High" would technically be accurate for both but wouldn't actually resolve the
   ambiguity the feedback was about — the fix needed to spell out what "low" and "high" concretely
-  *mean* for each specific scale.
+  _mean_ for each specific scale.
 
 #### The fix, and how it's wired for accessibility too
 
@@ -423,18 +453,20 @@ energetic."
 - That text isn't just visual. It's given an `id` (via React's `useId()`, which generates a
   unique, stable ID per component instance without hand-writing one) and wired to the
   radiogroup above it with `aria-describedby` — this is how a screen reader knows that
-  paragraph is *describing* the control above it, not just unrelated nearby text, so a
+  paragraph is _describing_ the control above it, not just unrelated nearby text, so a
   screen-reader user hears the same clarification a sighted user now sees.
 
 ### What was done
 
 1. **`frontend/src/components/MoodEntryForm.tsx`.** Added `lowLabel`/`highLabel` props to
    `RatingRow`; energy passes `"No energy"`/`"Maximum energy"`, stress passes `"No
-   stress"`/`"Maximum stress"`. Rendered as a `text-xs text-text-muted` line beneath each
+stress"`/`"Maximum stress"`. Rendered as a `text-xs text-text-muted` line beneath each
    button row, connected to the radiogroup via `aria-describedby`.
 2. **Test.** Added a case asserting both caption strings render.
 3. **`npm test`** — 19/19 passing (18 pre-existing, 1 new).
-4. **`npm run build`**, **`npm run lint`** (`oxlint` — clean, same one pre-existing unrelated
+4. **`npm run build`**, **`npm run lint`** (`oxlint` — a fast, Rust-based linter that plays the
+   same role for the frontend that ESLint plays for the backend — clean, same one pre-existing
+   unrelated
    `AuthContext.tsx` warning as before), **`npx prettier --check .`** — all clean.
 5. **Real browser check**, per this project's UI-change testing habit: started the actual
    backend and frontend dev servers, registered a fresh user with Playwright, opened the mood
@@ -486,7 +518,7 @@ on 1–7 specifically, rather than the originally-suggested 1–10.
 #### Why not just jump straight to 1–10, and why not a slider
 
 - **A slider was considered and rejected.** For a self-report health scale used on a phone,
-  a slider (`<input type="range">`) is generally a *worse* accessibility choice than discrete
+  a slider (`<input type="range">`) is generally a _worse_ accessibility choice than discrete
   buttons, not a better one: it's hard to land on an exact value with a fingertip (there's no
   natural "snap" to a specific number the way a button has a fixed, unambiguous hit target),
   and it's less immediately clear to a screen-reader user what's currently selected compared to
@@ -498,17 +530,19 @@ on 1–7 specifically, rather than the originally-suggested 1–10.
     comfortable tap-target size or wrap onto a second row on a narrow phone screen — working
     directly against the "large, easy-to-select" goal the extra resolution was meant to serve.
     7 buttons, by contrast, fit the same single-row layout at the same comfortable size
-    (confirmed directly — see *Verification*).
+    (confirmed directly — see _Verification_).
   - **A genuine midpoint.** This was the deciding factor, discussed directly before making the
-    change: an *odd*-sized scale has a true center value representing "neither low nor high" —
-    1–5's center is 3, 1–7's is 4. An *even*-sized scale (1–6, or 1–10 for that matter, doesn't
+    change: an _odd_-sized scale has a true center value representing "neither low nor high" —
+    1–5's center is 3, 1–7's is 4. An _even_-sized scale (1–6, or 1–10 for that matter, doesn't
     center cleanly either — its "middle" falls between two values, 5 and 6, with neither one
     truly representing "neutral") doesn't offer that, which would arguably make the scale
-    *harder* to use meaningfully, not easier, despite offering more raw options. 1–7 was chosen
+    _harder_ to use meaningfully, not easier, despite offering more raw options. 1–7 was chosen
     specifically because it keeps a clean midpoint while still resolving the original "not
     enough resolution" feedback — a well-established scale size for exactly this kind of
-    subjective self-rating (7-point Likert-style scales are a standard, validated choice in
-    survey design for this reason).
+    subjective self-rating (a Likert scale is a common survey-response format offering an odd
+    number of ordered options with a genuine neutral midpoint, e.g. Strongly Disagree ... Strongly
+    Agree; 7-point Likert-style scales are a standard, validated choice in survey design for this
+    reason).
 - **Mood itself stays at 1–5, unchanged.** The feedback and this whole discussion was
   specifically about energy/stress, which only ever had bare numbers. Mood already pairs each
   option with an emoji and a word (`😞` "Bad" through `😄` "Great"), so it doesn't have the
@@ -520,12 +554,12 @@ on 1–7 specifically, rather than the originally-suggested 1–10.
    `moodField` (unchanged, 1–5) and a new `energyStressField` (1–7), applied to `energy` and
    `stress` only.
 2. **Tests.** Updated the existing out-of-range test to also cover the new upper bound (`energy:
-   8` now correctly rejected, `energy: 0` still correctly rejected); added a case confirming
+8` now correctly rejected, `energy: 0` still correctly rejected); added a case confirming
    `energy: 7`/`stress: 6` are accepted — values that would have been rejected under the old
    1–5 range.
 3. **Frontend (`MoodEntryForm.tsx`).** Renamed and widened the shared rating-values array
    (`RATING_VALUES` → `ENERGY_STRESS_VALUES`, now `[1..7]`); the caption text ("`1 = No energy ·
-   7 = Maximum energy`") now reads its upper bound directly from that array instead of a
+7 = Maximum energy`") now reads its upper bound directly from that array instead of a
    hard-coded `5`, so the two can never silently drift apart again.
 4. **Tests.** Updated the caption-text assertions to expect `7` instead of `5`; added a test
    confirming all seven options render in order and that the new midpoint (4) is genuinely
@@ -545,7 +579,7 @@ on 1–7 specifically, rather than the originally-suggested 1–10.
 ### Why it's needed
 
 Directly addresses real, follow-up user feedback — the previous entry's fix (labeling what 1
-and 5 meant) made the existing scale *clearer*, but the actual complaint underneath it was that
+and 5 meant) made the existing scale _clearer_, but the actual complaint underneath it was that
 5 points didn't feel expressive enough. This closes that loop with a scale that's both more
 expressive and, thanks to the genuine midpoint, arguably easier to reason about than the
 naively-larger 1–10 alternative would have been.
@@ -586,11 +620,11 @@ scale — should those be updated to fit the new 1–7 scale, or left as origina
 #### The decision: rescale, not leave as-is
 
 - Both options were laid out plainly before doing either: leave old values untouched (honest,
-  but an old "5" — which meant *maximum* at the time — now silently reads as "5 of 7," no
+  but an old "5" — which meant _maximum_ at the time — now silently reads as "5 of 7," no
   longer the maximum, with nothing to indicate it was recorded under a different scale); or
-  proportionally rescale old values into the new range, preserving *relative* position even
+  proportionally rescale old values into the new range, preserving _relative_ position even
   though the exact numbers change. The choice made was to rescale — prioritizing that a
-  historical "maximum energy" entry should still *read* as maximum energy today, over
+  historical "maximum energy" entry should still _read_ as maximum energy today, over
   preserving the literal original digit.
 
 #### A real bug in this migration's own safety claim — caught by actually testing it twice
@@ -600,16 +634,16 @@ scale — should those be updated to fit the new 1–7 scale, or left as origina
   round-half-away-from-zero).
 - **The first version of this migration's own comment claimed it was safe to run more than
   once.** That claim was checked directly, not just assumed — the already-applied migration's
-  `UPDATE` was run a *second* time by hand against the freshly-migrated test data, and it
-  produced *wrong* results: a row already correctly migrated to `3` shifted to `4`; a row
-  already at `4` shifted to `6`. The reason: `3` and `4` are simultaneously valid *outputs* of
-  this mapping *and* valid *inputs* to it (they're still `<=5`), so a second pass reinterprets
+  `UPDATE` was run a _second_ time by hand against the freshly-migrated test data, and it
+  produced _wrong_ results: a row already correctly migrated to `3` shifted to `4`; a row
+  already at `4` shifted to `6`. The reason: `3` and `4` are simultaneously valid _outputs_ of
+  this mapping _and_ valid _inputs_ to it (they're still `<=5`), so a second pass reinterprets
   an already-migrated value as if it were still on the old scale and shifts it again.
 - **This is exactly why "add a migration" tasks in this project are always followed by
   actually running them against real inserted data and checking the result directly** (the
   same discipline used for every schema migration so far in this log) rather than trusting a
   migration file's SQL to be correct by inspection alone. The comment was corrected to state
-  plainly that this migration is *not* idempotent, and that what actually prevents it from
+  plainly that this migration is _not_ idempotent, and that what actually prevents it from
   running twice in practice is Prisma's own migration-tracking table
   (`_prisma_migrations`), which records a migration as applied and never re-runs it under
   normal `prisma migrate deploy`/`migrate dev` use — not any property of the SQL itself.
@@ -631,7 +665,7 @@ scale — should those be updated to fit the new 1–7 scale, or left as origina
 1. **`backend/prisma/migrations/20260816095258_rescale_energy_stress_to_1_7/migration.sql`
    (new).** Two `UPDATE` statements (one for `energy`, one for `stress`), each a `CASE`
    expression implementing the `1→1, 2→3, 3→4, 4→6, 5→7` mapping, `WHERE energy/stress IS NOT
-   NULL` (so rows that never recorded a value stay untouched rather than getting a fabricated
+NULL` (so rows that never recorded a value stay untouched rather than getting a fabricated
    one).
 2. **`frontend/src/pages/DashboardPage.tsx`.** Fixed a real, separate bug this whole change
    surfaced: the recent-entries list hard-coded `/5` after both the energy and stress values —
@@ -704,7 +738,7 @@ purely about wiring the frontend up to use them).
   deferred edit to this later, broader task, precisely so it could be built once for all four
   log types together instead of four separate one-off versions that might not agree with each
   other. Until this task, a mis-logged entry (wrong mood, forgot to note something, picked the
-  wrong medication) could only be *deleted and re-created from scratch* — losing the original
+  wrong medication) could only be _deleted and re-created from scratch_ — losing the original
   timestamp unless the user remembered and re-typed it, and generally more friction than fixing
   a typo warrants. For a wellness-tracking app where the whole point is an accurate history,
   that's a real usability gap, not just a missing convenience.
@@ -712,11 +746,11 @@ purely about wiring the frontend up to use them).
 #### "Reusing the same forms," concretely — one component, two modes
 
 - The core idea: `MoodEntryForm` (and its three siblings) gained one new optional prop,
-  `editingLog?: MoodLog | null`. When it's `null`/absent, the form behaves *exactly* as before —
+  `editingLog?: MoodLog | null`. When it's `null`/absent, the form behaves _exactly_ as before —
   every field starts empty/default, the submit button reads "Save Entry," and submitting sends a
   `POST` to create a brand-new log. When `editingLog` is a real log object, every field's
   `useState` initializer reads its starting value from that log instead (`useState(editingLog?.mood
-  ?? null)` instead of `useState(null)`, and so on for every field), the button reads "Save
+?? null)` instead of `useState(null)`, and so on for every field), the button reads "Save
   Changes," and submitting sends a `PATCH` to `/api/mood-logs/{editingLog.id}` instead of a `POST`
   to `/api/mood-logs`.
 - This is a **strict backward-compatibility requirement**, not just a nice-to-have: every
@@ -726,17 +760,17 @@ purely about wiring the frontend up to use them).
 #### Why the Section components needed a `key` on the form, not just a prop
 
 - `MoodSection` already had a `showForm` boolean controlling whether the create form or the `+
-  Mood` button is visible — reused as-is for edit, by adding one more piece of state,
+Mood` button is visible — reused as-is for edit, by adding one more piece of state,
   `editingLog: MoodLog | null`, alongside it. Clicking "Edit" on a list entry sets `editingLog`
   to that log and `showForm` to `true`; clicking `+ Mood` sets `editingLog` back to `null` before
   opening; saving or cancelling resets `editingLog` to `null` again.
-- The subtle bug this avoided: React only re-runs a component's `useState` *initializers* the
+- The subtle bug this avoided: React only re-runs a component's `useState` _initializers_ the
   first time it mounts — not every time its props change. If a user opened the create form,
   then (without closing it) clicked "Edit" on a list entry, `MoodEntryForm` would still be
   mounted at the same position in the tree, so React would just pass it the new `editingLog`
   prop without re-running `useState(editingLog?.mood ?? null)` — the form would keep showing
   stale, blank fields instead of the entry actually being edited. The fix: `<MoodEntryForm
-  key={editingLog?.id ?? "create"} .../>`. React treats a changed `key` as "this is now a
+key={editingLog?.id ?? "create"} .../>`. React treats a changed `key` as "this is now a
   different component instance," unmounting the old one and mounting a fresh one — which is
   exactly what's needed here, since switching from "create" to "edit log X" (or from editing log
   X to editing log Y) really is conceptually a different form each time, not the same one with
@@ -748,7 +782,7 @@ purely about wiring the frontend up to use them).
   (`setMoodLogs((prev) => [log, ...prev])`). For an edit, the requirement is different: replace
   the existing entry where it already sits, not add a second copy. Rather than threading through
   an extra "was this a create or an edit" flag, the save handler asks a simpler, self-contained
-  question of the data itself: *does a log with this exact id already exist in the list?*
+  question of the data itself: _does a log with this exact id already exist in the list?_
   ```ts
   function handleSaved(log: MoodLog) {
     setMoodLogs((prev) => {
@@ -770,7 +804,7 @@ purely about wiring the frontend up to use them).
    and `PATCH /api/mood-logs/{id}`; submit button reads "Save Changes" when editing.
 2. **`frontend/src/components/dashboard/MoodSection.tsx`.** Added `editingLog` state; an "Edit"
    button next to each entry's existing "Delete" button (same `aria-label` pattern, e.g. `Edit
-   mood entry from 8/17/2026, 9:00:00 AM`); the form's heading switches between "Log your mood"
+mood entry from 8/17/2026, 9:00:00 AM`); the form's heading switches between "Log your mood"
    and "Edit mood entry"; `key={editingLog?.id ?? "create"}` on the rendered form, for the
    remount-on-switch reason above; `handleSaved` does the replace-in-place-or-prepend check
    described above.
@@ -840,11 +874,11 @@ its own test suite and self-report.
 - Every entry form builds its save request the same way it always has: an optional field like
   `notes` gets sent as `notes.trim() || undefined` — if the field is empty, the key is left out
   of the request entirely (`JSON.stringify` drops `undefined`-valued properties). That's exactly
-  right for *creating* a new entry: "I didn't fill this in" and "leave it unset" mean the same
+  right for _creating_ a new entry: "I didn't fill this in" and "leave it unset" mean the same
   thing when there's nothing there yet.
-- **It's the wrong behavior for *editing* an entry that already has a value.** On the backend,
+- **It's the wrong behavior for _editing_ an entry that already has a value.** On the backend,
   every `PATCH` route (`moodLogs.ts`, `symptomLogs.ts`, `medicationLogs.ts`, `habitLogs.ts`)
-  spreads only whatever keys are actually *present* in the parsed request body into the Prisma
+  spreads only whatever keys are actually _present_ in the parsed request body into the Prisma
   `update` call — a key that's simply absent is treated as "don't touch this column," not "set it
   to nothing." So: open an entry that already has notes, delete the text, hit Save Changes — the
   request silently omits `notes` entirely, the database keeps the old text completely untouched,
@@ -859,7 +893,7 @@ its own test suite and self-report.
 
 - `energy`/`stress` were already declared `.nullable().optional()` in the Zod schema (they've
   always been allowed to be explicitly `null`, going all the way back to the original mood-log
-  entry). The only bug there was the *frontend* coercing a real `null` value into `undefined`
+  entry). The only bug there was the _frontend_ coercing a real `null` value into `undefined`
   before sending it — fixed by simply sending the raw `energy`/`stress` state (already typed
   `number | null`) instead of `energy ?? undefined`. No backend change needed for these two.
 - `notes` was declared `z.string().trim().min(1).optional()` — a real, non-empty string, or
@@ -873,7 +907,7 @@ its own test suite and self-report.
 
 1. **Backend** (`moodLogs.ts`, `symptomLogs.ts`, `medicationLogs.ts`, `habitLogs.ts`): widened
    each route's `updateSchema` so `notes` accepts an explicit `null` in addition to a real string
-   or absence. No route *handler* logic needed to change — every one of them already spreads
+   or absence. No route _handler_ logic needed to change — every one of them already spreads
    `parsed.data` (or a destructured subset of it) straight into the Prisma `update` call, so once
    the schema allows `null` through, an explicit `null` was already handled correctly; it just
    couldn't get past validation before.
@@ -881,7 +915,7 @@ its own test suite and self-report.
    `HabitEntryForm.tsx`): `energy`/`stress` (Mood only) now send their raw, already-nullable
    state directly. `notes` on all four now sends an explicit `null` when editing an entry and the
    field is empty, versus `undefined` (omitted) when creating one — `notes.trim() || (editingLog
-   ? null : undefined)`.
+? null : undefined)`.
 3. **Tests**: one new backend test per route (`clears notes when explicitly sent as null`, plus a
    combined `energy`/`stress`/`notes` version for mood-logs) and one new frontend test per form
    (submits explicit `null`s when every optional field is cleared during edit). Every one of
@@ -890,7 +924,7 @@ its own test suite and self-report.
    code, since the old code produced a request body with no `notes` key at all rather than one
    with `notes: null`.
 4. Re-ran the full verification cycle: `npm test` (both projects), `npm run build`, `npm run
-   lint`, `npx prettier --check .` — all clean — plus the real-browser reproduction described
+lint`, `npx prettier --check .` — all clean — plus the real-browser reproduction described
    above, run once against the fix to confirm the cleared fields now genuinely stay cleared after
    a fresh login and refetch.
 
@@ -898,7 +932,7 @@ its own test suite and self-report.
 
 A user who clears a field, sees it clear, and saves has every reason to believe it saved that
 way — silently keeping the old value is exactly the kind of quiet data-correctness bug that's
-easy to miss in a demo (everything *looks* right immediately after saving) and only surfaces
+easy to miss in a demo (everything _looks_ right immediately after saving) and only surfaces
 later, as confusing, seemingly random "why does my old note keep coming back" behavior.
 
 ### Decisions

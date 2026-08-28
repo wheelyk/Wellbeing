@@ -3,7 +3,7 @@
 ## 2026-08-15 — Hosting and domains, explained (ahead of actually deploying)
 
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — the user asked how to get the app
-published on the web to try it out. This entry covers the concepts *before* any actual
+published on the web to try it out. This entry covers the concepts _before_ any actual
 deployment work happens, since none of Phase 14 has been started yet and none of this has
 been explained in this log before.
 
@@ -12,14 +12,14 @@ been explained in this log before.
 #### Why "it runs on my laptop" isn't the same as "it's on the web"
 
 - Every server started in this log so far (`node dist/index.js`, `npm run dev`, `npm run
-  preview`) only listens on `localhost` — a special address that only means anything *on the
-  machine it's running on*. Nobody else, anywhere, can reach `http://localhost:4000` from
+preview`) only listens on `localhost` — a special address that only means anything _on the
+  machine it's running on_. Nobody else, anywhere, can reach `http://localhost:4000` from
   their own computer, no matter how it's phrased — it's not a privacy setting, it's what
   "localhost" fundamentally means (literally "this computer," not a real place on the
   internet). **Hosting** means running the exact same kind of server, but on a machine that
   (a) has a real, internet-reachable address, and (b) stays switched on and connected
   continuously, instead of only existing while this laptop happens to be open with a terminal
-  running. A hosting *platform* (Railway, Vercel, SmarterASP.NET, etc.) is a company that
+  running. A hosting _platform_ (Railway, Vercel, SmarterASP.NET, etc.) is a company that
   provides and manages those always-on machines so nobody has to buy, rack, and maintain
   physical server hardware themselves.
 
@@ -43,11 +43,11 @@ been explained in this log before.
   details with the registrar's own proxy contact instead — worth doing for a personal project
   unless there's a specific reason not to, since WHOIS data is scraped constantly (mostly by
   spammers).
-- **Critically: a registrar only sells the *name*. It has nothing to do with hosting.**
+- **Critically: a registrar only sells the _name_. It has nothing to do with hosting.**
   Owning `athirstycamel.com` today doesn't mean any web page exists there yet — right now it
   just points at nothing in particular. This is one of the most common points of confusion
   for someone hosting a project for the first time: the domain and the server the domain
-  eventually points *at* are typically two completely separate services, from two completely
+  eventually points _at_ are typically two completely separate services, from two completely
   separate companies, billed separately — exactly the situation here (domain at one
   registrar, app about to be hosted on Railway/Vercel).
 
@@ -59,18 +59,18 @@ been explained in this log before.
   host:
   - An **A record** maps a name directly to an IPv4 address (e.g. "the root domain
     `athirstycamel.com` → `76.76.21.21`").
-  - A **CNAME record** maps a name to *another name* instead of a raw address (e.g. "`app.
-    athirstycamel.com` → `cname.vercel-dns.com`") — used when the host's actual server address
+  - A **CNAME record** maps a name to _another name_ instead of a raw address (e.g. "`app.
+athirstycamel.com` → `cname.vercel-dns.com`") — used when the host's actual server address
     might change over time; the host keeps their own name up to date, so anything pointing at
     that name via CNAME automatically follows along without the domain owner ever touching
     DNS again.
-  - **Nameservers** are one level up from individual records — they're *who's in charge of
-    answering DNS questions for this domain at all*. Every domain has nameservers assigned at
+  - **Nameservers** are one level up from individual records — they're _who's in charge of
+    answering DNS questions for this domain at all_. Every domain has nameservers assigned at
     the registrar; by default they're the registrar's own.
 - **Two different ways to point a domain at a host that isn't the registrar**, both valid,
   with a real tradeoff:
   1. **Change the domain's nameservers** to the host's nameservers (or a dedicated DNS
-     provider like Cloudflare's). This hands over *all* DNS control for the domain to
+     provider like Cloudflare's). This hands over _all_ DNS control for the domain to
      whoever's nameservers are now set — simplest when the destination offers full,
      easy-to-use DNS management, but it means every other record the domain might need (e.g.
      `MX` records for email, seen as one of the registrar's own KB articles in the
@@ -92,18 +92,23 @@ been explained in this log before.
 - **HTTPS gets provisioned automatically, but only after DNS is actually correct.** Modern
   hosts like Vercel and Railway automatically obtain a free TLS/SSL certificate (via Let's
   Encrypt) for a custom domain once they can see it's correctly pointed at them — this isn't
-  a separate step to configure. This matters concretely for this project: the refresh-token
+  a separate step to configure. (TLS/SSL is the encryption layer behind `https://` — it
+  scrambles traffic between browser and server so nobody in between can read or tamper with
+  it, and is why browsers show a padlock icon next to the address.) This matters concretely for this project: the refresh-token
   cookie's `secure` flag (from the Phase 2.3 entry) is only set outside local development,
-  meaning it *requires* real HTTPS to work at all in production — one more reason "add the
+  meaning it _requires_ real HTTPS to work at all in production — one more reason "add the
   custom domain" and "get a working login" are linked, not independent steps.
 
 #### UK-specific considerations, since that's where this project's user is based
 
 - **This app stores health data — UK GDPR calls this "special category data,"** subject to
-  extra protection requirements beyond ordinary personal data, under both the UK GDPR and the
-  Data Protection Act 2018. Nothing about deploying a still-fake-data MVP to try it out
+  extra protection requirements beyond ordinary personal data, under both the UK GDPR
+  (General Data Protection Regulation — the UK/EU law governing how personal data must be
+  collected, stored, and protected) and the
+  Data Protection Act 2018. Nothing about deploying a still-fake-data MVP (Minimum Viable
+  Product — the smallest working version of the app worth actually trying out) to try it out
   triggers those obligations by itself (no real person's actual health information exists in
-  this system yet), but it's exactly the kind of thing to get right *before* any real user's
+  this system yet), but it's exactly the kind of thing to get right _before_ any real user's
   data is ever entered — consistent with requirements §14 ("Privacy Requirements"), which
   already exists in this project's own spec for this reason.
 - **Server region matters more here than for a typical hobby project.** Both Vercel and
@@ -115,7 +120,8 @@ been explained in this log before.
   now.
 - **Billing is in USD by default** on both Vercel and Railway — a UK card will still work
   fine, but expect the usual small foreign-currency conversion handled by the card network,
-  not by either platform. Neither platform charges UK VAT directly to an individual on their
+  not by either platform. Neither platform charges UK VAT (Value Added Tax — the UK's sales
+  tax, normally added to the price of goods and services) directly to an individual on their
   free/hobby tiers in the way a UK-based service might; this is worth re-checking on their
   own pricing pages if this ever moves from "personal project" to something billed as a real
   product.
@@ -126,7 +132,8 @@ been explained in this log before.
   in it for real.
 - **The existing `athirstycamel.com` domain is a `.com`, not a `.uk`/`.co.uk`.** No technical
   reason it needs to change — `.com` works identically for hosting purposes regardless of
-  where the site owner or its users are based; a UK-specific TLD is purely a branding choice,
+  where the site owner or its users are based; a UK-specific TLD (top-level domain — the
+  suffix after the last dot, like `.com` or `.uk`) is purely a branding choice,
   not a requirement.
 
 ### Why it's needed
@@ -156,8 +163,8 @@ how to sanity-check a hosting platform's signup/terms as a beginner without a la
 
 #### Why this project should be easy to move off Vercel/Railway later
 
-- **"Vendor lock-in" means a codebase becomes written *against* a specific platform's own
-  proprietary features**, not just *hosted on* it — e.g. calling a platform-specific database
+- **"Vendor lock-in" means a codebase becomes written _against_ a specific platform's own
+  proprietary features**, not just _hosted on_ it — e.g. calling a platform-specific database
   service's own SDK directly, or writing serverless functions in a format only that platform
   understands. Once that happens, leaving isn't just "redeploy elsewhere" — it means rewriting
   the parts of the app that only make sense on the platform being left.
@@ -165,14 +172,16 @@ how to sanity-check a hosting platform's signup/terms as a beginner without a la
   anti-lock-in decision made along the way, but as a natural consequence of building against
   plain, standard technology from the start: the backend is ordinary Express reading
   `process.env.DATABASE_URL` and talking to it via Prisma (which works identically against
-  *any* real PostgreSQL server, not a proprietary Railway-flavored one); the frontend is a
+  _any_ real PostgreSQL server, not a proprietary Railway-flavored one); the frontend is a
   plain Vite build producing ordinary static files, with zero calls to any Vercel-specific
-  API. Neither Railway nor Vercel is *needed* by anything in the source code — they're just
+  API. Neither Railway nor Vercel is _needed_ by anything in the source code — they're just
   where it happens to run right now.
 - **The one piece with real (but standard, not proprietary) migration work is the database.**
-  Moving the *code* to a different host is close to free — any Node host can run
-  `node dist/index.js`, any static host can serve a `dist/` folder. Moving the *data* means an
-  actual export/import step (`pg_dump` / `pg_restore`, or Prisma's own migration files
+  Moving the _code_ to a different host is close to free — any Node host can run
+  `node dist/index.js`, any static host can serve a `dist/` folder. Moving the _data_ means an
+  actual export/import step (`pg_dump` / `pg_restore` — Postgres's own built-in commands for
+  writing a database's entire contents out to a file, and reading that file back into a
+  different database, or Prisma's own migration files
   replayed fresh against a new empty database) — not because of anything Railway-specific,
   simply because databases hold state that has to be physically copied somewhere else,
   regardless of which two providers are involved.
@@ -189,14 +198,14 @@ how to sanity-check a hosting platform's signup/terms as a beginner without a la
     job is translating it into something Node.js does understand).
   - **Frontend artifact:** `npm run build` runs `tsc -b && vite build`, producing
     `frontend/dist` — but unlike the backend, this artifact is **pure static files**: one
-    `index.html`, a handful of `.js`/`.css` bundles, nothing else. Critically, *nothing* about
+    `index.html`, a handful of `.js`/`.css` bundles, nothing else. Critically, _nothing_ about
     running this artifact requires Node.js, or any server-side logic at all — a static file
     server just hands these exact bytes to whichever browser asks for them.
-- **This distinction is exactly why the two halves of this app need two different *kinds* of
+- **This distinction is exactly why the two halves of this app need two different _kinds_ of
   hosting**, not just two different hosting companies: the backend artifact is a program that
-  has to be *kept running continuously* (Railway's specialty — see the earlier entry
+  has to be _kept running continuously_ (Railway's specialty — see the earlier entry
   comparing Railway/Render/Fly.io); the frontend artifact is a pile of static files that just
-  need to be *served efficiently to lots of browsers*, ideally from servers physically close
+  need to be _served efficiently to lots of browsers_, ideally from servers physically close
   to each visitor (Vercel's specialty, via what's called a CDN — a network of servers in many
   locations all holding a copy of the same static files).
 
@@ -205,7 +214,7 @@ how to sanity-check a hosting platform's signup/terms as a beginner without a la
 - Every manual "build it, then run it" step throughout this entire log so far has been done
   by hand, on this one laptop. **Continuous Deployment (CD)** — the natural next step after
   the **Continuous Integration (CI)** already set up via GitHub Actions — means a hosting
-  platform does that same build-and-run sequence *automatically*, triggered by a `git push`,
+  platform does that same build-and-run sequence _automatically_, triggered by a `git push`,
   instead of a person doing it manually.
 - **The general mechanism, common to Railway, Vercel, and most modern hosting platforms:**
   connect the platform to a GitHub repository once; from then on, every push to a chosen
@@ -217,7 +226,7 @@ how to sanity-check a hosting platform's signup/terms as a beginner without a la
   conceptually the same idea as this project's own PR screenshot workflow, just done natively
   by the hosting platform itself rather than a custom GitHub Actions job.
 - **What's still left to configure, specific to this being a monorepo:** both platforms need
-  to be told *which subfolder* is the actual app to build, since `frontend/` and `backend/`
+  to be told _which subfolder_ is the actual app to build, since `frontend/` and `backend/`
   each have their own separate `package.json` rather than one at the repo root — this is a
   "root directory" setting on both Railway and Vercel, not something they can guess correctly
   on their own. Environment variables (`DATABASE_URL`, `JWT_ACCESS_SECRET`,
@@ -231,25 +240,28 @@ how to sanity-check a hosting platform's signup/terms as a beginner without a la
 - Legal text reads as alarming mostly because it's unfamiliar, not because it's usually
   unusual — most cloud hosting companies' terms cover the same handful of legally-required
   bases, in similar language, because they're responding to the same laws (e.g. DMCA
-  copyright-takedown compliance is a specific, standard requirement for US-based hosts to
+  (Digital Millennium Copyright Act — a US law) copyright-takedown compliance is a specific, standard requirement for US-based hosts to
   qualify for certain legal protections — it's not a company-specific choice).
 - **What's normal, seen directly in Railway's own signup summary:** an age requirement;
   "we'll email you" (account/billing notifications); "we can act on your behalf toward
-  services like GitHub" (this is just naming the OAuth connection itself — reading your repo,
+  services like GitHub" (this is just naming the OAuth connection itself — OAuth is the
+  standard way one service is granted limited, revocable access to your account on another
+  service, via a "Continue with GitHub"-style button, without ever seeing your actual
+  password — reading your repo,
   setting up the push-triggered deploy described above); "you grant us a license to what you
   host" (hosting fundamentally means copying and running your code on someone else's
-  computer — some form of license is *legally required* for them to be allowed to do that at
+  computer — some form of license is _legally required_ for them to be allowed to do that at
   all, and reputable platforms scope it narrowly to "what's needed to provide the hosting
   service," not an unrelated claim on the code itself); "you're responsible for what you
   host" and "provided as-is" (standard liability limitation, present in nearly every software
-  ToS ever written, this project's own MVP included implicitly); copyright-takedown
+  ToS (Terms of Service — the agreement you accept by using a service) ever written, this project's own MVP included implicitly); copyright-takedown
   compliance (the DMCA point above).
 - **What would actually be worth stopping over, for contrast** — none of it present in either
   Railway's or Vercel's flow, but worth knowing as genuine red flags on any future platform:
-  being asked for the actual *password* to another service (GitHub, Google) instead of a
+  being asked for the actual _password_ to another service (GitHub, Google) instead of a
   proper OAuth "Continue with X" button — legitimate integrations never need a raw password,
   only a scoped, revocable token; a content license that explicitly claims rights to use
-  uploaded content for the *platform's own* unrelated purposes, or that survives account
+  uploaded content for the _platform's own_ unrelated purposes, or that survives account
   deletion; requiring payment details before any pricing or free tier is even shown; no stated
   way to export or delete your own data.
 - **How much scrutiny is proportionate depends on what's actually at stake.** For this
@@ -296,7 +308,7 @@ running backend basically a console app that listens for requests?
 - The repo root has no `package.json` at all (only `frontend/package.json` and
   `backend/package.json`, in their own subfolders — a direct consequence of this being a
   monorepo, first explained back in the very first Phase 0 entry). Railpack's own error was
-  exactly this: *"Railpack could not determine how to build the app,"* followed by a list of
+  exactly this: _"Railpack could not determine how to build the app,"_ followed by a list of
   languages/frameworks it knows how to recognize (Node included) — it wasn't that Railway
   doesn't support Node.js, it's that it found **nothing recognizable at the location it looked**.
 - The fix — setting the service's **Root Directory** to `backend` — tells Railway "treat this
@@ -322,7 +334,7 @@ running backend basically a console app that listens for requests?
   specific to this project or to Railway — literally every Node tool, from a developer's own
   terminal to Railway's Railpack to Vercel's build system, treats "does a `package.json`
   exist, and what's in its `scripts` section" as the standard, first place to look for "how do
-  I build/run this." That's precisely *why* Railpack's error was about not finding a
+  I build/run this." That's precisely _why_ Railpack's error was about not finding a
   recognizable project, rather than some Railway-specific configuration file being missing —
   it's looking for the same file any Node developer would look for by hand.
 
@@ -339,11 +351,11 @@ running backend basically a console app that listens for requests?
      object and runs whatever shell command is written there. `npm run build` runs `tsc`
      (compiling TypeScript into the `dist/` artifact, per the previous entry); `npm start` runs
      `node dist/index.js` — note `start` (and `test`) are the two script names npm lets you run
-     *without* the word `run` (`npm start` instead of `npm run start`), a long-standing npm
+     _without_ the word `run` (`npm start` instead of `npm run start`), a long-standing npm
      convenience for these two especially common script names, not a difference in what's
      actually happening underneath.
 - **This is exactly the mechanism Railway (and virtually every similar platform) relies on to
-  deploy *any* Node project without needing project-specific instructions from a human**: run
+  deploy _any_ Node project without needing project-specific instructions from a human**: run
   `npm install` (or `npm ci`), then run whatever's in the `"build"` script if one exists, then
   run whatever's in the `"start"` script to actually launch it. Nothing about this is
   Railway-specific configuration — it's the exact same three commands used by hand, over and
@@ -353,8 +365,10 @@ running backend basically a console app that listens for requests?
 #### Is the running backend "like a console app listening for requests"? Yes — precisely that.
 
 - **`node dist/index.js` starts an ordinary command-line program.** `node` itself is a console
-  application, invoked from a terminal exactly like any other CLI tool — there is no hidden
-  "server mode" separate from just running a program. What makes it behave like a *server*
+  application, invoked from a terminal exactly like any other CLI tool (CLI = command-line
+  interface — a program controlled by typing commands, as opposed to clicking buttons in a
+  graphical app) — there is no hidden
+  "server mode" separate from just running a program. What makes it behave like a _server_
   specifically is one line of this project's own code, `app.listen(port, ...)` (present since
   the very first backend-scaffold entry) — that line tells the operating system "open a
   network listening socket on this port and hand me any data that arrives on it."
@@ -381,7 +395,7 @@ running backend basically a console app that listens for requests?
 
 ### Why it's needed
 
-Understanding *why* Railway looked where it looked, and *what* "build" and "start" actually
+Understanding _why_ Railway looked where it looked, and _what_ "build" and "start" actually
 mean, makes the fix (Root Directory) make sense as a consequence of how Node tooling works in
 general, rather than an arbitrary Railway setting to memorize. It also directly answers a
 question asked mid-deployment rather than leaving "is this basically a console app" as an
@@ -413,7 +427,7 @@ a new problem.
   CI entry: `backend/src/generated/prisma/` is **git-ignored** (it's reproducible output, the
   same reasoning as `dist/`), so it simply doesn't exist anywhere until something explicitly
   runs `npx prisma generate`. The GitHub Actions fix at the time was adding an explicit
-  "Generate Prisma client" *step* to that one workflow file — which fixed CI, but did nothing
+  "Generate Prisma client" _step_ to that one workflow file — which fixed CI, but did nothing
   for Railway, since Railway has no knowledge of `.github/workflows/pr-preview.yml` at all;
   each hosting platform runs its own, completely separate build process.
 - **This time, fixed it once, for every platform, instead of once per platform.** Rather than
@@ -421,7 +435,7 @@ a new problem.
   Railway-specific fix, the actual fix applied here is Prisma's own officially documented
   deployment pattern: add a `"postinstall"` script to `package.json`. npm automatically runs
   a package's `postinstall` script immediately after `npm install` (or `npm ci`) finishes,
-  *no matter which tool or platform invoked that install* — a person running `npm install` on
+  _no matter which tool or platform invoked that install_ — a person running `npm install` on
   their own laptop, Railway's build system, a hypothetical future platform, all trigger it
   identically. This guarantees `prisma generate` always runs as a direct consequence of
   installing dependencies, rather than depending on every single place this project ever gets
@@ -430,7 +444,7 @@ a new problem.
   lockfile itself, that this package now declares an install-time script — directly relevant
   to a separate warning glimpsed in Railway's build log about `npm approve-scripts`: newer npm
   versions added a security feature that can require explicit approval before running
-  install scripts *from third-party dependencies*, specifically to guard against a known
+  install scripts _from third-party dependencies_, specifically to guard against a known
   supply-chain attack pattern (a malicious package silently running arbitrary code the moment
   it's installed). That warning wasn't actually what caused this build to fail — the real
   failure was squarely the missing generated client — but the lockfile change is worth
@@ -460,7 +474,7 @@ level instead means it's simply already handled, everywhere, permanently.
 
 - **`postinstall` in `package.json`, not a Railway-specific build command override.** The
   Railway UI does offer a place to set a custom build command per-service, which would have
-  fixed *this one platform* — but the `postinstall` approach fixes local development, GitHub
+  fixed _this one platform_ — but the `postinstall` approach fixes local development, GitHub
   Actions CI, Railway, and any future platform simultaneously, with zero platform-specific
   configuration anywhere. Worth noting: the GitHub Actions workflow's own explicit
   "Generate Prisma client" step is now technically redundant (its `npm ci` step would trigger
@@ -487,7 +501,7 @@ branch merges and Railway's auto-deploy picks up the change.
 ## 2026-08-15 — The PR #16–#19 chain, actually walked through slowly
 
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — the earlier "stacked PRs" entry (back
-during #7/#8/#9) explained the general concept, but a *second*, unrelated four-PR pile-up
+during #7/#8/#9) explained the general concept, but a _second_, unrelated four-PR pile-up
 (#16 through #19) built up quickly during this deployment conversation, and asking "what does
 this actually mean" deserved a proper, concrete answer rather than a one-line "merge them in
 order" — which, as it turns out, wasn't even fully accurate.
@@ -500,30 +514,30 @@ The earlier chat message said "merge #16 → #17 → #18 → #19 in order," whic
 long chain of four. Checking each PR's actual base branch directly
 (`gh pr view <n> --json state,baseRefName`) shows something different:
 
-| PR | State | Branches into | What that means |
-| -- | ----- | -------------- | ---------------- |
-| #16 | **merged** | `main` | Already done. |
-| #17 | **merged** | #16's branch | Already done — and it turned out fine that #17 briefly depended on #16, since #16 was merged first. |
-| #18 | **open** | `main` | Independent. It was branched *after* #16 and #17 had already merged into `main`, so it already contains everything from both, and doesn't wait on anything. |
-| #19 | **open** | #18's branch | Depends on #18 specifically — it was branched from #18 *while #18 was still open*, to reuse code that only existed there so far. |
+| PR  | State      | Branches into | What that means                                                                                                                                             |
+| --- | ---------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #16 | **merged** | `main`        | Already done.                                                                                                                                               |
+| #17 | **merged** | #16's branch  | Already done — and it turned out fine that #17 briefly depended on #16, since #16 was merged first.                                                         |
+| #18 | **open**   | `main`        | Independent. It was branched _after_ #16 and #17 had already merged into `main`, so it already contains everything from both, and doesn't wait on anything. |
+| #19 | **open**   | #18's branch  | Depends on #18 specifically — it was branched from #18 _while #18 was still open_, to reuse code that only existed there so far.                            |
 
 So the real, current situation is much simpler than "four things in a row": **two PRs are
 already done, and of the two remaining, only one (#19) actually depends on the other (#18)**.
 The earlier advice to "merge in order" wasn't wrong exactly — merging #16 before #17 was
 genuinely required, and it already happened correctly — but stating it as one continuous
-four-step chain overstated how connected the *remaining* work actually is, which is exactly
+four-step chain overstated how connected the _remaining_ work actually is, which is exactly
 the kind of imprecision worth correcting rather than leaving as a beginner's mental model.
 
 #### Why this pile-up happened at all
 
-- Every one of these four PRs was written to explain a concept *while a live conversation was
-  actively happening* (hosting/domains, build artifacts, evaluating a signup's terms, the
+- Every one of these four PRs was written to explain a concept _while a live conversation was
+  actively happening_ (hosting/domains, build artifacts, evaluating a signup's terms, the
   Railway build failure, the `postinstall` fix) — each one was branched, written, and pushed
-  in the moment something needed explaining, without pausing to wait for the *previous* one to
+  in the moment something needed explaining, without pausing to wait for the _previous_ one to
   be reviewed and merged first. That's a reasonable way to keep a fast-moving conversation
   moving, but it's exactly the situation that produces exactly this kind of branch pile-up:
-  whichever branch happened to be `main`'s current tip *at the moment a new branch was
-  created* determined whether that new branch ended up standalone (like #18) or stacked on
+  whichever branch happened to be `main`'s current tip _at the moment a new branch was
+  created_ determined whether that new branch ended up standalone (like #18) or stacked on
   top of something still open (like #19, created while #18 was still unmerged).
 - This is the same underlying mechanism explained in the much earlier #7/#8/#9 entry — nothing
   new is happening here mechanically — but four PRs accumulating instead of three, across a
@@ -537,19 +551,19 @@ the kind of imprecision worth correcting rather than leaving as a beginner's men
   to `main`. Nothing unusual — it's a normal, independent PR at this point, indistinguishable
   from any single non-stacked PR merged earlier in this project.
 - **Merging #19 afterward** is where the stacked relationship actually matters. Per the
-  earlier stacked-PR entry's explanation of GitHub's *retargeting* behavior: the moment #18
+  earlier stacked-PR entry's explanation of GitHub's _retargeting_ behavior: the moment #18
   merges (and its branch is deleted), GitHub notices #19's base branch no longer exists and
   automatically repoints #19's base at `main` instead — so by the time you go to merge #19,
   its diff should already cleanly show just its own new commits (the `postinstall` fix + this
   very log entry) against the now-current `main`, the same clean outcome observed and directly
   confirmed back when #7/#8/#9 went through this same mechanism.
-- **If #19 were merged *before* #18** (technically possible — GitHub doesn't forbid it), it
-  would drag *all* of #18's commits in along with it, since #19's branch physically contains
+- **If #19 were merged _before_ #18** (technically possible — GitHub doesn't forbid it), it
+  would drag _all_ of #18's commits in along with it, since #19's branch physically contains
   them (it was built starting from #18's code). The result on `main` would likely still end up
   correct in this specific case (both PRs' content would land either way, nothing here
   conflicts), but the resulting commit history would misattribute #18's own changes as if they
   were part of #19's PR — worth avoiding for a clean, honest history, which is the actual
-  reason the *order* matters when it does, not because merging out of order would break
+  reason the _order_ matters when it does, not because merging out of order would break
   anything technically catastrophic.
 
 ### Why it's needed
@@ -579,7 +593,7 @@ on #16 or #17, which are already fully resolved). Correct next step: merge #18, 
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — a request to properly explain, for a
 beginner, everything actually going on in the `postinstall` fix from two entries ago: what
 `npm install` does step by step, what a lockfile ("the locking") actually is, what the
-generated Prisma client actually *is* as opposed to just "a folder that goes missing," and
+generated Prisma client actually _is_ as opposed to just "a folder that goes missing," and
 what an npm lifecycle hook is as a general mechanism, not just this one specific case.
 
 ### Background / concepts
@@ -591,10 +605,10 @@ log — has been treated as a single black-box step so far ("install the depende
 what's actually happening inside it:
 
 1. **Read `package.json`'s dependency lists.** `dependencies` and `devDependencies` each list
-   package names and a version *range* (e.g. `"express": "^5.2.1"` — the `^` means "this
+   package names and a version _range_ (e.g. `"express": "^5.2.1"` — the `^` means "this
    version or any newer compatible one," not necessarily that exact version).
 2. **Resolve exact versions.** Because ranges allow flexibility, and because installed
-   packages themselves depend on *other* packages (which depend on others, and so on — a real
+   packages themselves depend on _other_ packages (which depend on others, and so on — a real
    dependency tree, often hundreds of packages deep for a modest project), npm has to work out
    one single, consistent, exact version number for every package involved, resolving any
    conflicts where two different packages want incompatible versions of some shared
@@ -609,24 +623,24 @@ what's actually happening inside it:
 
 #### What a lockfile is, and why "the locking" matters
 
-- **The problem a lockfile solves:** version *ranges* in `package.json` (`^5.2.1`) are
+- **The problem a lockfile solves:** version _ranges_ in `package.json` (`^5.2.1`) are
   deliberately flexible — but that flexibility means two different `npm install` runs, on two
-  different days, could legitimately resolve to two *different* exact versions, even though
+  different days, could legitimately resolve to two _different_ exact versions, even though
   `package.json` itself never changed, simply because a newer compatible version of some
   package was published in between. For an application that needs to behave identically in
   development, in CI, and in production, that unpredictability is a real problem — subtle
   bugs from "well, it worked on my machine" often trace back to exactly this.
 - **`package-lock.json`** (present in this project — `backend/package-lock.json` and
   `frontend/package-lock.json`, both committed to git, unlike `node_modules/`) is npm's
-  solution: after resolving every package's exact version once, it writes the *entire*
+  solution: after resolving every package's exact version once, it writes the _entire_
   resolved dependency tree — every package, its exact version, and where it came from — into
   this one file. **This is "the locking":** as long as this file exists and matches
   `package.json`, `npm ci` (specifically — "clean install," used throughout this project's own
-  GitHub Actions workflows and recommended for any automated build) installs *exactly* those
+  GitHub Actions workflows and recommended for any automated build) installs _exactly_ those
   locked versions, every single time, on any machine, forever — not "whatever the ranges
   happen to resolve to today."
 - **This is why `package-lock.json` is committed to git but `node_modules/` isn't:** the
-  lockfile is a small, readable *description* of exactly what should be installed; deleting it
+  lockfile is a small, readable _description_ of exactly what should be installed; deleting it
   and running `npm install` again can regenerate `node_modules/` byte-for-byte reproducibly
   (well — reproducibly in terms of which package versions get installed; the lockfile is what
   makes that reproducible rather than left to chance), whereas the actual downloaded package
@@ -638,11 +652,11 @@ what's actually happening inside it:
   lifecycle script that will run automatically" — relevant to the tooling that decides whether
   those scripts are safe to run automatically, covered below.
 
-#### What the generated Prisma client actually *is*, concretely
+#### What the generated Prisma client actually _is_, concretely
 
 - This has been mentioned in passing since the original Phase 1/2 Prisma entry ("the generated
   client is code, not something you hand-write"), but worth being fully concrete now that a
-  bug specifically about its *absence* has come up twice: `backend/prisma/schema.prisma` is a
+  bug specifically about its _absence_ has come up twice: `backend/prisma/schema.prisma` is a
   human-written description of the data model (the `User` model, its fields, its types).
   `npx prisma generate` reads that file and **writes brand new TypeScript source files** —
   actual `.ts`/`.d.ts` files with real class and type definitions matching that schema exactly
@@ -650,12 +664,12 @@ what's actually happening inside it:
   mechanically produced from `schema.prisma`; nobody types it by hand, and it changes
   automatically the moment the schema changes and `generate` is re-run.
 - **This is exactly why it's git-ignored, and exactly why its absence broke two separate
-  builds.** Being reproducible-from-source is *why* it's excluded from git (the same rule as
+  builds.** Being reproducible-from-source is _why_ it's excluded from git (the same rule as
   `dist/` and `node_modules/`) — but that same fact means anywhere this project gets freshly
   cloned (a new laptop, a GitHub Actions runner, Railway's build machine) starts with **no**
   `backend/src/generated/prisma/` at all, and needs something to actually run
   `npx prisma generate` before any code that does `import { PrismaClient } from
-  "../generated/prisma/client"` can possibly compile. Both build failures fixed so far in this
+"../generated/prisma/client"` can possibly compile. Both build failures fixed so far in this
   log were precisely that missing step, on two different platforms, independently.
 
 #### npm lifecycle hooks, as a general mechanism (not just this one case)
@@ -673,25 +687,25 @@ what's actually happening inside it:
 - **Why this is the right fix, mechanically:** every single build environment this project has
   ever run in — a developer's laptop, a GitHub Actions runner, Railway's build machine — starts
   by running `npm install` or `npm ci` as an unavoidable first step (there is no way to get the
-  project's dependencies without it). Attaching the missing step to *that* moment, rather than
+  project's dependencies without it). Attaching the missing step to _that_ moment, rather than
   to `build` or to some platform's separate "build command" setting, guarantees it happens
   everywhere `npm install` happens — which is to say, guaranteed to happen absolutely
   everywhere this project could ever be built, present or future, without needing to remember
   to configure it again per platform.
 - **The `npm approve-scripts` warning glimpsed in Railway's build log** belongs to a genuinely
   separate npm feature worth knowing about, even though it wasn't what caused this particular
-  failure: newer npm versions can require a project to explicitly *approve* lifecycle scripts
+  failure: newer npm versions can require a project to explicitly _approve_ lifecycle scripts
   that come from **third-party dependencies** (not the project's own `package.json`) before
   running them automatically — a defense against a real, documented category of attack where a
   malicious package publishes a `postinstall` script that silently runs harmful code the
   moment anyone installs it. This project's own `postinstall` script (added in the previous
-  entry) is the project's *own* script, not a dependency's, so it isn't affected by that
+  entry) is the project's _own_ script, not a dependency's, so it isn't affected by that
   particular protection — but it's exactly why lifecycle scripts as a mechanism are treated
   with real caution industry-wide, not just an obscure npm setting.
 
 ### Why it's needed
 
-The previous entry explained *what* was fixed and *why the fix was chosen*, at the level of
+The previous entry explained _what_ was fixed and _why the fix was chosen_, at the level of
 "here's the bug, here's the fix, here's why this approach beats a platform-specific one." This
 entry exists to explain the actual mechanics underneath that fix in enough depth that none of
 `npm install`, lockfiles, generated code, or lifecycle hooks have to be taken on faith.
@@ -720,7 +734,7 @@ yet, and the mechanics of how merging a PR turned into a real deployment automat
 - **It does not yet mean the app is reachable from the internet, or fully working.** Two
   separate gaps, both visible directly in Railway's own UI:
   - **"Unexposed service"** — Railway services are **private by default**, reachable only from
-    other services *inside the same Railway project*, not from the public internet, unless
+    other services _inside the same Railway project_, not from the public internet, unless
     public networking is explicitly turned on for that service (generating a real
     `https://something.up.railway.app` URL, or a custom domain per the earlier hosting/DNS
     entry). Nothing about a successful build changes this — exposure is a separate,
@@ -751,12 +765,12 @@ yet, and the mechanics of how merging a PR turned into a real deployment automat
   "something was pushed to `main`" event as typing `git push origin main` by hand would have.
   Railway's webhook received that event within seconds, which is why the deployment log showed
   **"Merge pull request #21 from wheelyk/do..., 41 seconds ago"** as the direct cause of the
-  new build — the merge *was* the trigger, automatically, with nobody separately telling
+  new build — the merge _was_ the trigger, automatically, with nobody separately telling
   Railway "now go build this."
 - **This is the same mechanism, working correctly, that caused the earlier "docs-only PRs kept
   triggering unnecessary rebuilds" observation** a few entries back — every merge to `main`
   triggers this webhook indiscriminately, whether the change was app code or just a log entry.
-  Scoping *which* changes trigger a deploy (the same idea as the `paths:` filter added to the
+  Scoping _which_ changes trigger a deploy (the same idea as the `paths:` filter added to the
   GitHub Actions screenshot workflow) is possible on Railway too, but hasn't been set up yet —
   noted there as a "not urgent" cleanup, still true here.
 
@@ -791,7 +805,7 @@ end, via a real merge.
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — before actually adding the four required
 environment variables and a Postgres database to the Railway project, two questions asked
 directly deserve a proper answer first: where do secrets actually get stored for a deployed
-app (a password manager? somewhere else?), and how does a *hosted* database actually work,
+app (a password manager? somewhere else?), and how does a _hosted_ database actually work,
 given it's ultimately just files on a disk somewhere.
 
 ### Background / concepts
@@ -812,7 +826,7 @@ given it's ultimately just files on a disk somewhere.
 - **A password manager is a genuinely good idea, just for a different, complementary reason:
   a personal backup record, not a functional requirement.** Two of the four values
   (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`) are randomly generated once and then need to
-  stay *exactly* the same for as long as issued tokens should keep working — if that exact
+  stay _exactly_ the same for as long as issued tokens should keep working — if that exact
   value is ever lost with no record of it, the fix is simple (generate a new one, per the
   Phase 2 entry's `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
   command) but has a real consequence: every already-issued access/refresh token instantly
@@ -824,7 +838,7 @@ given it's ultimately just files on a disk somewhere.
   this project (see below) — it doesn't need to be manually composed the way the JWT secrets
   do. `FRONTEND_URL` isn't a secret at all (it's just a public web address, the frontend's own
   deployed URL, once that exists) — it lives in the same Variables tab purely because that's
-  the standard place for *all* of a service's configuration, not because it needs protecting.
+  the standard place for _all_ of a service's configuration, not because it needs protecting.
 
 #### How a hosted Postgres database actually works, given it's "ultimately just a file"
 
@@ -835,22 +849,24 @@ given it's ultimately just files on a disk somewhere.
   application opens directly. It starts up, binds to a network port (conventionally `5432`),
   and then sits waiting for connections — the exact same "console app that listens on a socket
   instead of reading the keyboard" shape as this project's own `node dist/index.js`. Nothing
-  in this backend's code — or in *any* application anywhere — opens Postgres's data files
+  in this backend's code — or in _any_ application anywhere — opens Postgres's data files
   directly; doing so would corrupt them. Every single interaction happens by sending commands
   over that network connection and getting results back, never by touching a file path.
 - **The "client" the backend uses is real, specific code, already present in this project.**
   `pg` (installed back in the Phase 1/2 Prisma entry) is a JavaScript library that knows how
-  to speak Postgres's specific network protocol — opening a TCP connection to the given host
+  to speak Postgres's specific network protocol — opening a TCP connection (TCP is the
+  reliable, ordered kind of network connection almost all normal internet traffic uses, as
+  opposed to connectionless protocols that don't guarantee delivery) to the given host
   and port, authenticating, and translating function calls into the actual bytes Postgres
   expects on the wire. Prisma's `@prisma/adapter-pg` sits on top of that, and the generated
-  Prisma Client sits on top of *that* — but underneath all three layers, it's still just
+  Prisma Client sits on top of _that_ — but underneath all three layers, it's still just
   `pg` making an ordinary network connection, the same fundamental kind of connection this
   project's own frontend makes to its own backend.
 - **Credentials work exactly the same way remotely as they already have locally.** The whole
   reason `DATABASE_URL` has always looked like
   `postgresql://username:password@host:port/databasename` (first introduced in the Phase 1/2
   entry, for the local Docker Compose Postgres) is that a connection string is nothing more
-  than "where to connect, and proof of who's allowed to." A hosted database changes *which*
+  than "where to connect, and proof of who's allowed to." A hosted database changes _which_
   host, port, username, and password appear in that string — nothing about the shape or
   meaning of the string itself changes. Locally, `welltrack`/`welltrack` was chosen by hand,
   for a database only reachable from this one laptop. On Railway, adding a Postgres database
@@ -871,7 +887,7 @@ given it's ultimately just files on a disk somewhere.
 
 Both questions asked directly — "where do secrets actually go" and "how does a database that's
 just files on disk let something else connect to it" — are exactly the kind of thing worth
-understanding *before* clicking through the actual Railway UI to add them, rather than
+understanding _before_ clicking through the actual Railway UI to add them, rather than
 copy-pasting values into fields without a clear picture of why they need to go there or what's
 happening underneath.
 
@@ -898,7 +914,7 @@ and if something goes wrong, will it be possible to downgrade?
   Phase 1/2 entry) used `npx prisma migrate dev` — and that command has always run against the
   local Docker Compose database only. `migrate dev` does two things at once: it works out what
   changed in `schema.prisma` since the last migration and **writes a brand-new migration
-  file** describing that change, *and* immediately applies it. That's exactly right for local
+  file** describing that change, _and_ immediately applies it. That's exactly right for local
   development, where new migration files are actually meant to be created — but it's the wrong
   tool for production, which should never be generating brand-new, unreviewed migration files
   on the fly.
@@ -907,13 +923,13 @@ and if something goes wrong, will it be possible to downgrade?
   never actually wired into the Railway deployment itself. It does the other half of the job:
   it looks at the `prisma/migrations/` folder — which **is** committed to git, unlike the
   generated client — and applies whichever migration files exist there but haven't been
-  applied to *this particular* database yet. It never generates a new migration file itself;
+  applied to _this particular_ database yet. It never generates a new migration file itself;
   it only replays ones that already exist, committed and reviewed ahead of time.
 - **This is genuinely "upgrading" the live database, mechanically:** the day a new model
   (e.g. `Symptom`) gets added, the actual steps will be: edit `schema.prisma`, run
   `prisma migrate dev` locally (creating a new migration file, applying it to the local
   database, confirming everything still works), commit that new migration file to git as part
-  of the PR — and then the *next* time `migrate deploy` runs in production (now wired into
+  of the PR — and then the _next_ time `migrate deploy` runs in production (now wired into
   `npm start`, see below), it finds that one new, not-yet-applied file and applies it
   automatically. No manual "log into the production database and run some SQL" step required.
 
@@ -938,24 +954,27 @@ and if something goes wrong, will it be possible to downgrade?
   automatically figures out how to undo it — and for good reason: not every schema change has
   an obvious, safe, automatic reverse (dropping a column, for instance, permanently discards
   whatever data was in it — there's no way to "undo" that by inspecting the SQL alone).
-- **Prisma's own recommended approach is to roll *forward*, not backward.** If a migration
-  turns out to be wrong, the fix is writing a *new* migration that corrects or reverses it —
+- **Prisma's own recommended approach is to roll _forward_, not backward.** If a migration
+  turns out to be wrong, the fix is writing a _new_ migration that corrects or reverses it —
   e.g. a follow-up migration that re-adds a column, or changes a type back — going through the
   exact same reviewed, committed, `migrate deploy`-applied path as any other change, rather
   than un-applying history. This keeps the migration history an honest, linear record of
   everything that actually happened to the database, including mistakes and their fixes,
   instead of a rewritten record pretending the mistake never occurred.
 - **The real safety net for anything migrations themselves can't safely undo (like discarded
-  data) is a database backup taken *before* the migration ran** — not a rollback command. This
+  data) is a database backup taken _before_ the migration ran** — not a rollback command. This
   is a genuine, current gap worth naming plainly: no backup strategy exists yet for whatever
   Postgres database is about to be added to Railway. Whether Railway's own tier includes
   automatic backups, and what a manual `pg_dump`-based backup habit before risky migrations
   should look like, is worth checking once the database actually exists — flagged here rather
   than silently assumed to be handled.
 - **The lower-risk habit that avoids needing rollbacks as often:** preferring additive,
-  backward-compatible schema changes where reasonable — e.g. adding a new *nullable* column
+  backward-compatible schema changes where reasonable — e.g. adding a new _nullable_ column
   rather than changing an existing one's type, so that even a brief window where old and new
-  application code run side by side (a real possibility during a rolling deploy) doesn't
+  application code run side by side (a real possibility during a rolling deploy — a way of
+  deploying that replaces old server instances with new ones gradually rather than all at
+  once, specifically so the app stays reachable throughout, at the cost of old and new code
+  briefly serving requests against the same database at the same time) doesn't
   produce errors either version can't handle. Not always possible, but worth defaulting to
   when it is.
 
@@ -1022,7 +1041,7 @@ this entry records what the actual deploy log proves versus what was only inferr
   running process that actually reads `process.env.*`. Variables sitting on the database
   service are simply never seen by the backend code at all; they'd have sat there, inert,
   looking correctly configured while doing nothing.
-- **How this was caught:** rather than assuming the setup was correct because *some* Variables
+- **How this was caught:** rather than assuming the setup was correct because _some_ Variables
   tab had the right-looking entries, the actual mixed contents of that tab were checked
   directly — it contained the four manually-added variables sitting alongside a long list of
   Postgres's own auto-generated ones (`PGHOST`, `PGUSER`, `PGPASSWORD`, `POSTGRES_*`, etc.),
@@ -1035,13 +1054,13 @@ this entry records what the actual deploy log proves versus what was only inferr
 #### What the deploy log actually proves, versus what a green checkmark alone would only suggest
 
 - A successful build/deploy status is good evidence something works, but the deploy log's
-  actual text is direct, first-hand proof of *what specifically* worked, worth reading
+  actual text is direct, first-hand proof of _what specifically_ worked, worth reading
   carefully rather than trusting the checkmark alone:
   - `Datasource "db": PostgreSQL database "railway"...` — the backend genuinely opened a real
     network connection to the real hosted database, using the `DATABASE_URL` variable
     reference — not a guess, an actual successful connection.
   - `1 migration found in prisma/migrations` → `Applying migration
-    '20260814155859_init_user'` → `All migrations have been successfully applied.` — this is
+'20260814155859_init_user'` → `All migrations have been successfully applied.` — this is
     the automatic `prisma migrate deploy` step (wired into `start` two entries ago) genuinely
     doing its job for the first time against a brand-new, empty production database: creating
     the `users` table for real, from the migration file that's been sitting committed in git
@@ -1069,8 +1088,8 @@ this entry records what the actual deploy log proves versus what was only inferr
 
 ### Why it's needed
 
-This is the first point in the whole deployment effort where the backend is *provably*, not
-just *believably*, doing its real job on real infrastructure: connecting to a real database,
+This is the first point in the whole deployment effort where the backend is _provably_, not
+just _believably_, doing its real job on real infrastructure: connecting to a real database,
 correctly evolving that database's schema from committed migration files, and serving
 requests — the entire point of everything built since the Phase 1 Prisma entry, now actually
 running somewhere other than this laptop.
@@ -1098,7 +1117,7 @@ public networking is the next step.
 - Read the actual Railway deploy log text directly: confirmed the real Postgres connection,
   the successful migration application (creating `users` for the first time in production),
   and the server successfully starting and listening.
-- Confirmed the wrong-service mistake by inspecting the *contents* of the Postgres service's
+- Confirmed the wrong-service mistake by inspecting the _contents_ of the Postgres service's
   Variables tab directly (finding it mixed with Postgres's own auto-generated variables) rather
   than assuming from the tab's mere existence that it was the correct one.
 
@@ -1116,7 +1135,7 @@ have the DNS side handled?
 #### The short answer: same underlying idea, but Railway owns the whole namespace already
 
 - The earlier hosting/domains entry explained DNS as "a name resolves to wherever the actual
-  server is," and covered the two ways to point a domain *you* own at a host you don't run
+  server is," and covered the two ways to point a domain _you_ own at a host you don't run
   yourself. Clicking **"Generate Domain"** on a Railway service is a related but meaningfully
   simpler case: Railway hands out a subdomain under **their own domain**
   (something shaped like `<something>.up.railway.app`), not a domain the user owns at all.
@@ -1124,10 +1143,10 @@ have the DNS side handled?
   is needed **on their own servers, instantly**, the moment the button is clicked — none of
   the "add this record at your registrar, then wait for propagation" process from the earlier
   entry applies here, precisely because there's no separate registrar involved at all in this
-  path. That whole process only becomes relevant again if a *custom* domain (like
+  path. That whole process only becomes relevant again if a _custom_ domain (like
   `athirstycamel.com`) is later pointed at this same service.
 - **HTTPS comes for free here too, for the same reason.** A certificate for a brand-new custom
-  domain has to be issued *after* DNS proves the domain really is pointed at the right place —
+  domain has to be issued _after_ DNS proves the domain really is pointed at the right place —
   which takes a little time. A certificate covering Railway's own domain can be prepared ahead
   of time, since Railway isn't waiting on anyone else's DNS to change — so a generated domain
   is reachable over `https://` immediately, with nothing extra to configure or wait for.
@@ -1137,7 +1156,10 @@ have the DNS side handled?
 - Locally, `docker-compose.yml`'s `ports: ["5432:5432"]` is a literal, direct mapping: traffic
   to this laptop's port 5432 goes straight to the Postgres container. **Railway's generated
   domain doesn't work that way.** The domain resolves to **Railway's own shared edge
-  infrastructure** — a reverse proxy/router they operate — which then forwards the request
+  infrastructure** — a reverse proxy/router they operate (a reverse proxy is a server that
+  sits in front of many other servers, receiving every incoming request and forwarding each
+  one to whichever actual backend should handle it, so the outside world only ever sees the
+  proxy's address, never the real ones behind it) — which then forwards the request
   internally, over Railway's private network, to wherever this specific container actually
   happens to be running at that moment. The backend never gets hold of a dedicated public IP
   address and port the way a hand-run server would; Railway's routing layer is what actually
@@ -1155,7 +1177,7 @@ have the DNS side handled?
 
 Clicking a button labeled "Generate Domain" is easy to treat as a black box — understanding
 that it's DNS-plus-routing already fully controlled by Railway, rather than some new mechanism
-unrelated to everything explained about DNS so far, means the *next* time a custom domain gets
+unrelated to everything explained about DNS so far, means the _next_ time a custom domain gets
 pointed at this same service, the difference between "this was instant" (today) and "this
 needs a DNS record and a short wait" (later) makes sense as the same underlying system, just
 missing the "Railway already owns the namespace" shortcut.
@@ -1172,7 +1194,7 @@ clicking "Generate Domain" on the Wellbeing service.
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — while actually clicking "Generate
 Domain," two more direct questions: which port number belongs in that field, and — slowly,
 because this genuinely is one of the more confusing parts of deploying anything for the first
-time — how would someone set up their *own* hostname instead of Railway's, and how do DNS and
+time — how would someone set up their _own_ hostname instead of Railway's, and how do DNS and
 SSL actually differ between the two paths.
 
 ### Background / concepts
@@ -1180,7 +1202,7 @@ SSL actually differ between the two paths.
 #### Which port number goes in that field, worked through one step at a time
 
 Railway's "Generate Service Domain" screen asked for a port, and pre-filled `8080`. Here is
-*why* that specific number, traced all the way through, one link at a time:
+_why_ that specific number, traced all the way through, one link at a time:
 
 1. When the container starts, Railway itself decides which port the app should listen on, and
    tells the app by setting an environment variable called `PORT` — the app doesn't choose
@@ -1198,7 +1220,7 @@ Railway's "Generate Service Domain" screen asked for a port, and pre-filled `808
    through to reach the app that's actually running?" That number has to be `8080` — the exact
    port the app is genuinely listening on right now — or the request would arrive at the
    container and find no one answering at whichever wrong door it was sent to, even though the
-   app itself is running perfectly fine on the *correct* port the whole time.
+   app itself is running perfectly fine on the _correct_ port the whole time.
 5. **This is exactly why Railway pre-filled `8080` rather than leaving it blank or defaulting
    to something generic like `80`:** it isn't guessing — it can see, from the running
    container, which port the process is actually bound to, and offers that back. Confirming
@@ -1228,7 +1250,7 @@ This is the other button on the same screen — worth understanding fully now, e
 generated domain is what's actually being used today, since a custom domain (`athirstycamel.com`,
 from the earlier hosting entry) is a realistic future step.
 
-1. **Type the desired hostname into Railway** — e.g. `app.athirstycamel.com`, a *subdomain* of
+1. **Type the desired hostname into Railway** — e.g. `app.athirstycamel.com`, a _subdomain_ of
    the already-owned `athirstycamel.com`, rather than the bare root domain (a common, sensible
    choice: it leaves the root domain free for something else later, like a marketing page, and
    keeps the app clearly separated).
@@ -1237,7 +1259,7 @@ from the earlier hosting entry) is a realistic future step.
    another name for that name") pointing `app.athirstycamel.com` at some Railway-provided
    target address.
 3. **That record has to be added at the domain's actual registrar** — wherever
-   `athirstycamel.com` itself is registered, *not* inside Railway anywhere, since Railway
+   `athirstycamel.com` itself is registered, _not_ inside Railway anywhere, since Railway
    doesn't control that domain's DNS at all. This is the direct, real-world version of the
    "keep the registrar's nameservers, just add one specific record there" option explained
    generally in the earlier hosting entry.
@@ -1250,7 +1272,7 @@ from the earlier hosting entry) is a realistic future step.
    change is actually visible.
 5. **Only once Railway can see the DNS correctly pointing at them does it request an SSL
    certificate for that domain** (via Let's Encrypt, the same free, automated certificate
-   authority almost every modern host uses) — this can only happen *after* step 4 succeeds,
+   authority almost every modern host uses) — this can only happen _after_ step 4 succeeds,
    since issuing a certificate for a domain requires proving control over it, and DNS pointing
    correctly is exactly that proof. This step is usually fast (seconds to a couple of minutes)
    once DNS is confirmed, but it is a genuinely separate, sequential step — not simultaneous
@@ -1258,19 +1280,20 @@ from the earlier hosting entry) is a realistic future step.
 
 #### The two paths, side by side
 
-| | Generate Domain (used today) | Custom Domain (future option) |
-| - | - | - |
-| **Who controls the DNS** | Railway, entirely | The domain's own registrar (outside Railway) |
-| **DNS setup needed** | None — Railway creates its own record instantly | A CNAME record, added by hand, at the registrar |
-| **Wait time** | None | Minutes (occasionally longer) for DNS propagation |
-| **SSL certificate** | Pre-provisioned, works immediately | Requested automatically, but only *after* DNS is confirmed — a real, sequential extra step |
-| **What you type** | Nothing — Railway generates the name | The exact hostname you want (e.g. a subdomain of an owned domain) |
+|                          | Generate Domain (used today)                    | Custom Domain (future option)                                                              |
+| ------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| **Who controls the DNS** | Railway, entirely                               | The domain's own registrar (outside Railway)                                               |
+| **DNS setup needed**     | None — Railway creates its own record instantly | A CNAME record, added by hand, at the registrar                                            |
+| **Wait time**            | None                                            | Minutes (occasionally longer) for DNS propagation                                          |
+| **SSL certificate**      | Pre-provisioned, works immediately              | Requested automatically, but only _after_ DNS is confirmed — a real, sequential extra step |
+| **What you type**        | Nothing — Railway generates the name            | The exact hostname you want (e.g. a subdomain of an owned domain)                          |
 
 ### Why it's needed
 
 "Which port" and "how would a custom domain even work" are exactly the kind of details that
 are easy to click through without understanding, and exactly the kind that turn into confusing
-mysteries later (a 502 error from a wrong port; a custom domain stuck "pending" for what looks
+mysteries later (a 502 error — the standard HTTP status code meaning "I'm a working proxy,
+but the server I tried to forward your request to didn't answer" — from a wrong port; a custom domain stuck "pending" for what looks
 like no reason) if the underlying mechanism was never actually understood the first time.
 
 ### State at end of this step
@@ -1301,9 +1324,9 @@ networking.
 - **Public networking** means reachable from the internet at large — literally any device,
   anywhere, that can make an HTTP request can reach `wellbeing-production-0b8f.up.railway.app`
   now that it's been generated. This is the exact thing "Unexposed service" was warning was
-  *not* yet true, several entries back.
+  _not_ yet true, several entries back.
 - **Private networking** (`wellbeing.railway.internal`, visible in the same Networking screen)
-  is the opposite: reachable *only* from other services inside this same Railway project —
+  is the opposite: reachable _only_ from other services inside this same Railway project —
   invisible to the public internet entirely, and invisible even to a different Railway project.
   This is the mechanism that should keep the Postgres database itself safe: the backend reaches
   it privately (over the `DATABASE_URL` variable reference set up two entries ago), and the
@@ -1316,7 +1339,9 @@ networking.
 
 - Every previous "is it actually working" check in this log has followed the same discipline:
   don't trust a status badge or a UI label alone when a real, independent test is possible. The
-  generated domain was tested with a plain `curl` request from this laptop — a genuinely
+  generated domain was tested with a plain `curl` request (`curl` is a command-line tool for
+  sending an HTTP request and showing exactly what comes back — the same kind of request a
+  browser makes, but typed directly and with nothing hidden) from this laptop — a genuinely
   separate machine, on the open internet, with no special access to Railway's own internal
   view of things — specifically because that's the same vantage point any real future user
   (or, eventually, the deployed frontend) would have. Railway's dashboard showing a domain as
@@ -1357,7 +1382,7 @@ convenience.
 
 ### Background / concepts
 
-#### The monorepo detection wrinkle: Vercel wanted to deploy *two* services
+#### The monorepo detection wrinkle: Vercel wanted to deploy _two_ services
 
 - Vercel's newer project-import flow auto-scans a connected repository and, seeing both
   `frontend/package.json` and `backend/package.json`, offered to deploy **both** as separate
@@ -1366,10 +1391,18 @@ convenience.
 - **This had to be declined, for a concrete reason, not just "we don't need it."** The backend
   already has a complete, tested, working home on Railway — a persistent, always-running
   process, connected to the real Postgres database, with migrations already applied. Vercel
-  runs backend "services" as short-lived serverless functions instead — a fundamentally
+  runs backend "services" as short-lived serverless functions instead (a serverless function
+  is code that only starts running when a request actually arrives, and shuts back down soon
+  after — the opposite of this project's own `node dist/index.js`, which starts once and then
+  stays running, idling between requests, as explained back in the "is this a console app"
+  entry) — a fundamentally
   different execution model than the always-on process this project's backend was built and
-  tested against (e.g. the shared Prisma client singleton, `lib/prisma.ts`, assumes one
-  long-lived connection pool — a pattern that doesn't translate cleanly to a function that
+  tested against (e.g. the shared Prisma client singleton — "singleton" meaning one single
+  shared instance reused everywhere, rather than a fresh one created per request —
+  `lib/prisma.ts`, assumes one
+  long-lived connection pool — a small set of already-open database connections kept around
+  and reused, since opening a brand-new database connection for every single request would be
+  slow — a pattern that doesn't translate cleanly to a function that
   spins up fresh for each request). Accepting Vercel's offer would have meant a second,
   differently-behaved copy of the backend, not a helpful addition.
 - **The fix:** switching the "Application Preset" dropdown from the auto-detected "Services"
@@ -1399,7 +1432,7 @@ frontend is involved, since that's the situation CORS actually exists to guard.
   all, a browser **refuses by default** to let JavaScript running on one website read the
   response from a request to a different website — imagine if any website you visited could
   silently make your browser send requests to your bank, your email, anywhere you happened to
-  be logged in, and read the results. CORS is the mechanism that lets a *server* explicitly
+  be logged in, and read the results. CORS is the mechanism that lets a _server_ explicitly
   say "no really, it's fine, requests from this specific other website are allowed" — and
   `FRONTEND_URL`, read by `backend/src/app.ts`'s `cors({ origin: FRONTEND_URL, credentials: true })`
   (added back in the frontend vertical-slice entry), is exactly that explicit allow-list,
@@ -1413,7 +1446,7 @@ frontend is involved, since that's the situation CORS actually exists to guard.
   optional cleanup.
 - **What it would look like if this step were skipped.** Not a clear, obvious error message —
   something more confusing: the register/login forms would appear to "hang" or fail with a
-  generic network error in the browser's console, because the *browser itself* blocks the
+  generic network error in the browser's console, because the _browser itself_ blocks the
   response before the frontend's own code ever gets to see it or show a useful message. This
   is a common, genuinely confusing first-time deployment trap, worth naming explicitly rather
   than only discovering it by hitting it.
@@ -1427,7 +1460,7 @@ frontend is involved, since that's the situation CORS actually exists to guard.
 
 ### Why it's needed
 
-Without updating `FRONTEND_URL`, the deployment would *look* complete — both halves live,
+Without updating `FRONTEND_URL`, the deployment would _look_ complete — both halves live,
 both individually responding — while actually being unusable together, for a reason that
 wouldn't show up as an obvious server error anywhere, only as a confusing failure inside the
 browser itself.
@@ -1449,30 +1482,33 @@ exactly as explained above.
 
 ### Follow-up verification, once `FRONTEND_URL` was actually updated on Railway
 
-The explanation above was written *before* the Railway variable was changed, to make the
+The explanation above was written _before_ the Railway variable was changed, to make the
 reasoning clear ahead of time. Once it was updated to `https://wellbeing-blue.vercel.app` and
 Railway redeployed, the fix was verified directly against the live services — not just
 assumed from a "Deployment successful" badge, consistent with how every other deployment
 claim in this log has been checked:
 
-- **A CORS preflight request** (`curl -X OPTIONS .../api/auth/login` with
+- **A CORS preflight request** — before actually sending certain cross-origin requests, a
+  browser first sends its own automatic check using the HTTP `OPTIONS` method, asking "would
+  you actually allow this?" before risking the real request; that check is called a
+  "preflight" — (`curl -X OPTIONS .../api/auth/login` with
   `Origin: https://wellbeing-blue.vercel.app`) sent to the real Railway URL. Before the
   variable was updated, the response's `access-control-allow-origin` header came back as the
   old `http://localhost:5173` — proof the fix hadn't taken effect yet. After Railway finished
   redeploying, the same request returned `access-control-allow-origin:
-  https://wellbeing-blue.vercel.app` — the backend now explicitly trusts the real frontend.
+https://wellbeing-blue.vercel.app` — the backend now explicitly trusts the real frontend.
 - **The full auth flow, driven with `curl` against production, using the real `Origin`
   header a browser would send:**
   1. `POST /api/auth/register` — `201 Created`, new user row returned.
   2. `POST /api/auth/login` — `200 OK`, with a `Set-Cookie: refreshToken=...; HttpOnly;
-     Secure; SameSite=Lax` header, exactly as designed back in the refresh-token entry.
+Secure; SameSite=Lax` header, exactly as designed back in the refresh-token entry.
   3. `POST /api/auth/refresh`, sending that cookie back — `200 OK`, a fresh access token
      returned and the refresh cookie rotated (a new `Set-Cookie` with a different token
      value), matching the rotation behavior built and tested earlier.
   4. `POST /api/auth/logout` — `200 OK`, with `Set-Cookie: refreshToken=...; Expires=Thu, 01
-     Jan 1970...` — the standard way a server tells a browser "delete this cookie now."
+Jan 1970...` — the standard way a server tells a browser "delete this cookie now."
   - Every one of these four responses carried `access-control-allow-origin:
-    https://wellbeing-blue.vercel.app` — confirming the *entire* auth flow, not just one
+https://wellbeing-blue.vercel.app` — confirming the _entire_ auth flow, not just one
     endpoint, is reachable from the real deployed frontend now.
 - **Caveat, noted honestly:** this test created one real user row in the production database
   (an obviously-labeled test address). There's no account-deletion endpoint yet — that's
@@ -1486,7 +1522,7 @@ independently return `200` while silently unable to talk to each other.
 
 ### The access token + refresh token flow, explained step by step
 
-The refresh-token entry earlier in this log explains *why* each design choice was made
+The refresh-token entry earlier in this log explains _why_ each design choice was made
 (`HttpOnly`, rotation, separate secrets). What's missing so far is a plain walkthrough of how
 the two tokens actually work together over the lifetime of a single visit — worth spelling
 out now, using the exact production trace captured above as the concrete example.
@@ -1497,12 +1533,12 @@ that's dangerous if it leaks should be used as rarely as possible. One token can
 both, so this app uses two:
 
 1. **Register or log in.** The server checks the email/password, and if they're correct,
-   hands back *two* different tokens at once, each with a very different job:
+   hands back _two_ different tokens at once, each with a very different job:
    - An **access token** — a short-lived pass (15 minutes) that proves "this request really
      is from a logged-in user." It comes back in the JSON response body, and from here on the
      frontend attaches it to every API request it makes (in an `Authorization` header). Any
      endpoint that needs to know who's asking checks this token.
-   - A **refresh token** — a long-lived pass (7 days) whose *only* job is to be exchanged
+   - A **refresh token** — a long-lived pass (7 days) whose _only_ job is to be exchanged
      later for a brand-new access token, so the user isn't forced to type their password again
      every 15 minutes. Crucially, this one is never handed to the page's JavaScript at all —
      it arrives only as the `HttpOnly` cookie seen in the trace above
@@ -1514,13 +1550,13 @@ both, so this app uses two:
    is the whole point of a JWT (JSON Web Token): it's cryptographically signed, so verifying it
    is just checking a signature, not a database lookup.
 3. **The access token expires.** After 15 minutes, requests carrying it start failing with
-   `401 Unauthorized`. This is expected and is *not* meant to log the user out — it's meant to
+   `401 Unauthorized`. This is expected and is _not_ meant to log the user out — it's meant to
    trigger step 4 automatically, invisibly to the user.
 4. **The frontend calls `POST /api/auth/refresh`.** No body is needed — the browser has
    already attached the `refreshToken` cookie automatically, because the browser handles
    cookies itself, unlike the access token, which the frontend has to attach manually. As seen
    in the trace above, the backend reads that cookie, verifies it, and responds with a brand
-   new access token — *and* silently overwrites the cookie with a brand new refresh token too
+   new access token — _and_ silently overwrites the cookie with a brand new refresh token too
    (rotation: a different token value than the one that was just sent in). The frontend swaps
    in the new access token and retries whatever request originally got the `401`, and the user
    never sees any of this happen.
@@ -1535,7 +1571,7 @@ both, so this app uses two:
    new one can be minted, because there's no refresh token left to redeem.
 
 One thing worth naming plainly: this frontend/backend wiring for automatic refresh-on-401
-(the frontend piece of steps 3–4 above) is still a *later*, not-yet-built Tasks.md item —
+(the frontend piece of steps 3–4 above) is still a _later_, not-yet-built Tasks.md item —
 Phase 5/6's API client. Everything demonstrated in this entry was driven directly against the
 backend with `curl`, standing in for what that future frontend code will do automatically.
 
@@ -1567,23 +1603,25 @@ works completely fine in every other form of testing done so far.
   `/login`, `/register`, and `/dashboard` — real, working routes inside the app — each return a
   genuine `404` **from Vercel's own server**, before the app's own code ever runs at all.
 - **Why:** this is a single-page application (an "SPA") — React Router (`BrowserRouter` in
-  `App.tsx`) decides what to show entirely with JavaScript running *in the browser*, by reading
+  `App.tsx`) decides what to show entirely with JavaScript running _in the browser_, by reading
   the current URL and rendering the matching page, without ever asking the server for a new
   page. That only works once the JavaScript has already loaded, though. The very first request
   for a page — someone typing a URL directly, opening a bookmark, clicking a shared link, or
   even just refreshing the browser while already on `/dashboard` — is a real HTTP request the
-  *server* has to answer, before any of this app's own JavaScript is involved at all. Vercel,
+  _server_ has to answer, before any of this app's own JavaScript is involved at all. Vercel,
   hosting this as a set of static files, looked for an actual file at `/dashboard` (there isn't
   one — only `index.html` exists), found nothing, and correctly reported `404` by its own
   reasonable logic. The fix has to tell Vercel "for any path that doesn't match a real file,
   just serve `index.html` anyway" — at which point the app's own JavaScript loads, sees the URL
   is `/dashboard`, and React Router takes it from there correctly.
 - **Why every previous check missed this — a real gap, not a fluke.** Every earlier
-  browser-based check in this log (the Playwright walkthroughs) ran against the **local Vite
+  browser-based check in this log (the Playwright walkthroughs — Playwright is a tool that
+  drives a real browser under program control, clicking and typing exactly as a person would,
+  so these checks are testing the actual rendered app rather than just its source code) ran against the **local Vite
   dev server**, which has this exact fallback behavior built in automatically — `vite dev`
   always serves `index.html` for any unrecognized path, precisely so SPA routing "just works"
   during development without anyone having to think about it. That convenience quietly hid the
-  fact that *production* hosting doesn't do this by default at all. Meanwhile, every direct
+  fact that _production_ hosting doesn't do this by default at all. Meanwhile, every direct
   `curl` check against the real Vercel deployment only ever tested `/` (the homepage) — never a
   deeper route — so the gap had no chance to surface. The bug was found by a real person
   clicking around for real, not by any of this project's automated or manual verification,
@@ -1593,11 +1631,11 @@ works completely fine in every other form of testing done so far.
 
 - `frontend/vercel.json` (new) — a config file Vercel reads automatically for a project rooted
   at `frontend` — adds one **rewrite** rule: `{ "source": "/(.*)", "destination":
-  "/index.html" }`. A rewrite (different from a *redirect*) serves different content at the
+"/index.html" }`. A rewrite (different from a _redirect_) serves different content at the
   same URL the browser asked for, invisibly — the browser's address bar still shows
   `/dashboard`, but the actual file served is `index.html`. This is exactly what's needed:
   the URL must stay whatever the user typed (React Router reads it to decide what to render),
-  while the *content* served needs to be the app's shell regardless of which path was
+  while the _content_ served needs to be the app's shell regardless of which path was
   requested.
 - This is a standard, well-known requirement for hosting any client-side-routed SPA as static
   files — not specific to Vercel, React, or this project; the same underlying problem (and the
@@ -1615,7 +1653,7 @@ significant real-world usability bug, not a cosmetic one.
 
 - **A `rewrites` rule in `vercel.json`, not a change to the React app itself.** The React
   app's own routing code is already correct — `BrowserRouter` and its routes work fine once
-  the JavaScript loads. The gap was entirely on the hosting side (what happens *before* that
+  the JavaScript loads. The gap was entirely on the hosting side (what happens _before_ that
   JavaScript ever runs), which is exactly what `vercel.json` configures.
 
 ### State at end of this step
@@ -1655,7 +1693,7 @@ why it was never actually a broken deployment of the real app, and the slightly 
   branch** — deliberately created with no shared history with `main` and no application code
   in it at all, just image files organized by PR number (`pr-31/after/*.png`, etc.).
 - **Vercel's GitHub integration doesn't know or care that this branch is "special."** By
-  default it tries to create a deployment for *every* branch pushed to a connected repository —
+  default it tries to create a deployment for _every_ branch pushed to a connected repository —
   including this one. Since this project's Vercel project is configured with Root Directory
   `frontend` (because the real app lives in `/frontend`, per the original Vercel deployment
   entry), and the `pr-screenshots` branch has no `frontend` folder at all, Vercel's very first
@@ -1684,16 +1722,16 @@ why it was never actually a broken deployment of the real app, and the slightly 
   `frontend/vercel.json` containing `{"ignoreCommand": "exit 0"}` — nothing else, no real app
   code. This breaks the chicken-and-egg problem: the `frontend` directory now genuinely exists
   (satisfying Vercel's Root Directory requirement), Vercel can enter it and run the ignore
-  check, and that check *always* returns "skip" (exit `0`), since this branch should never
+  check, and that check _always_ returns "skip" (exit `0`), since this branch should never
   actually be built, ever, unconditionally.
 - **The practical difference this makes:** instead of a red "Build Failed" (which looks like a
   real problem, and would reasonably worry anyone glancing at the deployments list), the
   outcome becomes a deliberate, clean "Canceled by Ignored Build Step" — confirmed directly
   afterward via `gh api repos/.../commits/<sha>/status`, which returned exactly that as
   Vercel's own status description.
-- **Applied in two places**, both necessary: the CI workflow file itself (so every *future*
+- **Applied in two places**, both necessary: the CI workflow file itself (so every _future_
   push to this branch includes the stub automatically), and a one-off manual push of the same
-  stub onto the branch as it exists *right now* (so the fix takes effect immediately, rather
+  stub onto the branch as it exists _right now_ (so the fix takes effect immediately, rather
   than waiting for the next PR that happens to touch `frontend/**` to trigger the workflow
   again).
 
@@ -1705,7 +1743,8 @@ why it was never actually a broken deployment of the real app, and the slightly 
    branch's worktree is set up, and included it in the `git add` alongside the screenshot
    files.
 2. **Applied the same fix directly to the live `pr-screenshots` branch**, using the identical
-   `git worktree` technique the CI workflow itself uses, so the existing failed-deployment
+   `git worktree` technique the CI workflow itself uses (see the Glossary's "Git worktree"
+   entry), so the existing failed-deployment
    pattern stops immediately rather than only for future pushes.
 3. **Verified directly, not assumed:** `gh api repos/wheelyk/Wellbeing/commits/<sha>/status`
    against the manually-pushed commit confirmed Vercel's own response —
@@ -1716,7 +1755,7 @@ why it was never actually a broken deployment of the real app, and the slightly 
 
 A red "Build Failed" in a project's deployment history is the kind of thing that erodes trust
 in "is my app actually working right now" at a glance, even when — as here — it's completely
-unrelated to the real application. Fixing the noise, and writing down *why* it happened, keeps
+unrelated to the real application. Fixing the noise, and writing down _why_ it happened, keeps
 Vercel's dashboard trustworthy as a signal rather than something to learn to ignore.
 
 ### Decisions
@@ -1726,7 +1765,7 @@ Vercel's dashboard trustworthy as a signal rather than something to learn to ign
   Directory" limitation, so it wouldn't have solved this either; the fix has to make the
   directory exist in the first place.
 - **Fixed both the workflow and the already-existing branch.** Fixing only the workflow would
-  have left the *current* state of `pr-screenshots` (and its next few historical commits)
+  have left the _current_ state of `pr-screenshots` (and its next few historical commits)
   still triggering the old failure until a fresh PR happened to touch `frontend/**` again.
 
 ### State at end of this step
@@ -1754,7 +1793,7 @@ again — made seeding a permanent, automatic part of every production deploy.
 #### Diagnosing "I can't select anything" as an empty list, not a broken control
 
 - The symptom picker (`SymptomEntryForm.tsx`) is an ordinary HTML `<select>`. A `<select>` with
-  only one, disabled option (`<option value="" disabled>Select a symptom…</option>`) *looks*
+  only one, disabled option (`<option value="" disabled>Select a symptom…</option>`) _looks_
   broken to a user — clicking it opens a dropdown with nothing real to choose — but it's
   functioning exactly as written; it just has nothing to show. Telling those two failure modes
   apart (a genuinely broken control vs. a correctly-rendered empty one) matters, because they
@@ -1776,10 +1815,10 @@ again — made seeding a permanent, automatic part of every production deploy.
   screenshot work), and — as of the previous entry — inside `pr-preview.yml`'s CI job, which
   seeds its own throwaway database on every run.
 - **Production was never one of those places.** Nothing in the actual deploy path — `npm run
-  build` then `npm start`, exactly what Railway runs on every push to `main` — ever invoked the
+build` then `npm start`, exactly what Railway runs on every push to `main` — ever invoked the
   seed script. It's easy to lose track of a step that only needs to happen once (unlike
   migrations, which Railway's `start` script already does run automatically via `prisma migrate
-  deploy`) — and that's exactly what happened here: the seed script existed, worked, and was
+deploy`) — and that's exactly what happened here: the seed script existed, worked, and was
   proven working in three different places, while production quietly never received it.
 
 #### The exact same fork this project already hit once before, with the same right answer
@@ -1792,8 +1831,8 @@ again — made seeding a permanent, automatic part of every production deploy.
   the one Railway actually runs, unattended, on every deploy. So the fix is the same shape as
   before: fold the missing step directly into `start`, not a lifecycle hook or a note-to-self to
   remember manually.
-- **Why this is safe to run on *every* deploy, not just the first one:** `seed.ts` was written
-  idempotently from the start (`findFirst` before each `create`, skipping any symptom that
+- **Why this is safe to run on _every_ deploy, not just the first one:** `seed.ts` was written
+  idempotently (see the Glossary's "Idempotent" entry) from the start (`findFirst` before each `create`, skipping any symptom that
   already exists — see the original Symptom Logging entry) specifically so it's safe to re-run.
   That property, decided for an unrelated reason back then, is exactly what makes "just always
   run it" the right call here instead of something more elaborate like a one-time migration flag.
@@ -1802,7 +1841,9 @@ again — made seeding a permanent, automatic part of every production deploy.
 
 1. Diagnosed the live bug against the real production API, as described above — no guessing,
    confirmed via a real registered account and a real authenticated request.
-2. Generated SQL by hand (client-side UUIDs via Node's `crypto.randomUUID()`, since the
+2. Generated SQL by hand (client-side UUIDs — Universally Unique Identifiers, long random
+   values like `f47ac10b-...` used as IDs precisely because two different machines generating
+   one independently will essentially never collide — via Node's `crypto.randomUUID()`, since the
    `symptoms.id` column has no database-level default — confirmed by reading the actual
    migration SQL, `"id" TEXT NOT NULL` with no `DEFAULT` clause) and gave it to the user to run
    directly in Railway's Postgres **Data tab**, the same manual-recovery path used for the
@@ -1820,7 +1861,7 @@ again — made seeding a permanent, automatic part of every production deploy.
    - Created a brand-new, genuinely empty Postgres database inside the same local Docker
      container (`CREATE DATABASE welltrack_fresh_deploy_test`), pointed `DATABASE_URL` at it, and
      ran `npm start` against it from a clean slate — all six migrations applied, all six system
-     symptoms were seeded fresh (this time *with* the `Seeded system symptom: ...` lines
+     symptoms were seeded fresh (this time _with_ the `Seeded system symptom: ...` lines
      printing), and the server started and answered `/api/health` normally. This is the specific
      scenario production is actually in right now — confirming it end to end, not just trusting
      the idempotent case generalizes to it — then dropped the throwaway database.
@@ -1829,7 +1870,7 @@ again — made seeding a permanent, automatic part of every production deploy.
 
 ### Why it's needed
 
-The immediate fix (manual SQL) only repairs production as it exists *right now*. Without the
+The immediate fix (manual SQL) only repairs production as it exists _right now_. Without the
 `start` script change, the exact same gap reopens the moment anyone provisions a new environment,
 resets the database, or (worse) a future schema change makes hand-seeding via the Data tab
 impractical — silently, with no error anywhere, since an empty symptom list isn't a crash, just a
@@ -1848,10 +1889,10 @@ actually runs" — can't recur here again.
   older versions — rather than assuming which the production instance has, generating literal
   UUID values up front removes that uncertainty entirely from SQL the user would be pasting
   directly into a production database.
-- **Fixed the immediate gap by hand *and* shipped the permanent fix**, rather than either alone.
+- **Fixed the immediate gap by hand _and_ shipped the permanent fix**, rather than either alone.
   Manual SQL alone would leave the underlying gap to reopen later; the code fix alone would leave
   the live site broken until the next deploy happens to occur. Doing both here means the fix
-  actually merging (auto-deploying via Railway, per the earlier deploy entries) will *also*
+  actually merging (auto-deploying via Railway, per the earlier deploy entries) will _also_
   correctly re-seed production on its own — so the manual SQL step turns out to be optional
   once this PR is merged, not strictly required, but still the faster path if an immediate fix
   is wanted before that deploy happens.
@@ -1907,7 +1948,10 @@ items alongside it.
    failed with a generic "Please check the highlighted fields" — every brand-new account
    (including the smoke-test one) starts with `timezone: "UTC"` (the schema default), and
    `PATCH /api/users/me`'s validation rejected exactly that value. Root cause:
-   `Intl.supportedValuesOf("timeZone")` doesn't enumerate `"UTC"` on this Node/ICU version, even
+   `Intl.supportedValuesOf("timeZone")` doesn't enumerate `"UTC"` on this Node/ICU version
+   (ICU — International Components for Unicode — is the underlying library Node.js relies on
+   for locale/timezone-aware behavior like this; its data can differ slightly between builds
+   and versions, which is exactly what bit here), even
    though `new Intl.DateTimeFormat(undefined, { timeZone: "UTC" })` — the actual call
    `backend/src/lib/timezone.ts` makes for real — accepts it without complaint. Confirmed
    directly: `node -e "console.log(Intl.supportedValuesOf('timeZone').includes('UTC'))"` prints
@@ -1937,7 +1981,7 @@ items alongside it.
 
 This is exactly the class of bug the "smoke-test against the deployed environment" checklist
 item exists to catch — every unit and integration test in this project's suite (Phase 13)
-exercises `PATCH /api/users/me` with *other* timezone strings, never the one value every real
+exercises `PATCH /api/users/me` with _other_ timezone strings, never the one value every real
 account actually starts with, so nothing in CI ever exercised this exact path. It only surfaced
 by actually using the deployed app the way a real user would.
 

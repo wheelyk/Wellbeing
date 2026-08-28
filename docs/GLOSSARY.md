@@ -79,6 +79,22 @@ different address unless the target server explicitly allows it. Explained first
 project hit covered in [docs/log/02-auth-frontend.md](log/02-auth-frontend.md), _"The CORS bug
 this step actually found (not just fixed defensively)."_
 
+### CRUD
+
+Create, Read, Update, Delete — the standard shorthand for the four basic operations almost every
+resource in this API supports (e.g. `POST`/`GET`/`PATCH`/`DELETE` on `/api/mood-logs`), and the
+template every later log type in this project (symptoms, medications, habits, categories) repeats.
+See [docs/log/03-mood-logging.md](log/03-mood-logging.md), _"Phase 3:
+`GET/POST/PATCH/DELETE /api/mood-logs`."_
+
+### `curl`
+
+A command-line tool for sending an HTTP request and reading the raw response directly — used
+throughout this project's own manual verification steps to call the API the same way a browser or
+the frontend's code would, without a UI in the way. See
+[docs/log/01-auth-backend.md](log/01-auth-backend.md), _"Phase 1 + Phase 2: PostgreSQL, Prisma,
+the `User` model, and `POST /api/auth/register`."_
+
 ### Declaration merging (TypeScript)
 
 TypeScript's mechanism for adding a property to a type defined by a third-party library (e.g.
@@ -123,6 +139,23 @@ that runs on a request before it reaches its final route handler (e.g. `requireA
 checks the access token on every protected route). See [docs/log/01-auth-backend.md](log/01-auth-backend.md),
 _"How Node.js and Express actually work, end to end"_ and _"What 'middleware' means in Express."_
 
+### Foreign key / Restrict / `SetNull`
+
+A foreign key is a column that points at another table's row (e.g. `Reminder.categoryId` points
+at a `Category`). What happens when the row it points at is deleted is a per-relation choice:
+`Restrict` blocks the delete outright while any row still points at it; `Cascade` deletes the
+dependent row too (see this glossary's own "Cascading delete" entry); `SetNull` instead blanks the
+foreign key column to `NULL`, leaving the dependent row in place but pointing at nothing. See
+[docs/log/16-reminders-and-category-toggles.md](log/16-reminders-and-category-toggles.md),
+_"Task 1: built-in category toggles."_
+
+### `gh` (GitHub CLI)
+
+GitHub's own command-line tool for creating pull requests, checking CI status, and other GitHub
+operations without leaving the terminal or opening a browser — used constantly throughout this
+project's own workflow. See [docs/log/00-project-setup.md](log/00-project-setup.md),
+_"Tooling: install and authenticate the GitHub CLI, switch to Claude opening PRs."_
+
 ### Git worktree
 
 A way to have more than one branch of the same repository checked out into separate folders at
@@ -130,6 +163,16 @@ the same time, sharing one underlying `.git` history — used in this project to
 agents build different features simultaneously without colliding. See
 [docs/log/08-git-github-workflow.md](log/08-git-github-workflow.md), _"The isolation mechanism:
 git worktrees, explained from scratch."_
+
+### HTTP status codes (2xx/4xx/5xx)
+
+Grouped by their first digit: 2xx means success (`200 OK` for an ordinary successful request,
+`201 Created` specifically for a `POST` that made a new resource); 4xx means the _client_ did
+something wrong (`400 Bad Request` is a generic catch-all, `401` means not authenticated, `404`
+means not found, `409 Conflict` means the request is well-formed but clashes with existing data);
+5xx means the _server_ itself failed. These ranges recur throughout this project's own log. See
+[docs/log/01-auth-backend.md](log/01-auth-backend.md), _"Phase 1 + Phase 2: PostgreSQL, Prisma,
+the `User` model, and `POST /api/auth/register`."_
 
 ### HttpOnly cookie
 
@@ -198,6 +241,14 @@ generated client"_ and [docs/log/07-deployment.md](log/07-deployment.md), _"Prod
 migrations: how 'upgrading' the live schema actually works, and the honest truth about
 rollbacks."_
 
+### "Optimistic" UI update
+
+Updating the screen immediately, before the server has actually confirmed the change, then rolling
+back only if the request turns out to have failed - makes the app feel instant rather than waiting
+on a round trip for every click, at the cost of needing an explicit "undo" path for the rare
+failure case. See [docs/log/03-mood-logging.md](log/03-mood-logging.md), _"Phase 7: Mood entry
+form, wired into the Dashboard."_
+
 ### ORM (Object-Relational Mapper) / Prisma Client
 
 A layer that lets code query a database using regular function calls and objects instead of
@@ -206,12 +257,29 @@ _generates_ a fully-typed client from the schema file, so TypeScript catches a t
 at compile time instead of a runtime SQL error. See [docs/log/01-auth-backend.md](log/01-auth-backend.md),
 _"Prisma: schema, migrations, and the generated client."_
 
+### Playwright
+
+A browser-automation library — it drives a real browser (usually Chromium) to click, type, and
+navigate the way a person would, then lets a test or script assert on what actually rendered. Used
+throughout this project for both its automated e2e suite and one-off manual verification scripts
+against the real running app. See [docs/log/01-auth-backend.md](log/01-auth-backend.md),
+_"A real production bug: refreshing the app on mobile logged users out, and what `SameSite`
+actually gates."_
+
 ### Prisma `enum`
 
 A column type restricted to a fixed, named set of values (e.g. a `Habit`'s `type` can only ever
 be `BOOLEAN`, `NUMERIC`, or `DURATION`) — enforced by the database itself, not just application
 code. See [docs/log/06-habit-logging.md](log/06-habit-logging.md), _"`HabitType` as a Prisma
 `enum`, not a plain `String`."_
+
+### `Promise.all`
+
+Runs several promises (e.g. two independent `fetch` calls) at the same time and waits for all of
+them to finish, rather than awaiting one, then the other, in sequence - faster when the requests
+don't depend on each other's results. See
+[docs/log/10-dashboard-and-trends.md](log/10-dashboard-and-trends.md), _"Phase 4 + Phase 8:
+`GET /api/dashboard` and the real Dashboard summary card."_
 
 ### React `key` prop / reconciliation
 
@@ -233,6 +301,14 @@ two histories together side by side; a rebase rewrites a branch's commits to loo
 started from a different point all along. See [docs/log/08-git-github-workflow.md](log/08-git-github-workflow.md),
 _"Rebasing: why the *local* copy of these branches may still need one."_
 
+### REST
+
+A widely-used style for designing HTTP APIs around resources and standard verbs (`GET` to read,
+`POST` to create, `PATCH` to update, `DELETE` to remove) rather than one endpoint per action - the
+convention this project's own API follows throughout. See
+[docs/log/03-mood-logging.md](log/03-mood-logging.md), _"Phase 3:
+`GET/POST/PATCH/DELETE /api/mood-logs`."_
+
 ### Same-origin / same-site / cross-site
 
 Three different comparisons, easy to conflate: **origin** is scheme + host + port compared
@@ -252,6 +328,15 @@ cookie on any cross-site `fetch`/XHR, which silently broke this app's own legiti
 cross-site session-restore call in production. See
 [docs/log/01-auth-backend.md](log/01-auth-backend.md), _"`SameSite` — the gate CORS doesn't cover,
 and the part the earlier refresh-token entry only told half of."_
+
+### SHA / commit hash
+
+The unique identifier Git gives every commit, generated from its content and its parent commit -
+which is why rewriting a commit (a rebase, a cherry-pick, an amend) always produces a brand-new SHA
+even when the actual code change is identical, and why two branches can hold "the same" change as
+genuinely different commits. See
+[docs/log/08-git-github-workflow.md](log/08-git-github-workflow.md), _"A bug fix stranded by
+outage timing, and how `git cherry-pick` recovered it."_
 
 ### Stacked PR
 
@@ -276,6 +361,32 @@ Issuing a brand new refresh token every time the old one is used to get a fresh 
 invalidating the old one — so a leaked-but-unused refresh token becomes worthless the next time
 the legitimate user refreshes. See [docs/log/01-auth-backend.md](log/01-auth-backend.md), _"What
 'rotation' means and why it's worth doing."_
+
+### UUID
+
+A Universally Unique Identifier - a randomly generated 128-bit id, used as this project's primary
+key on nearly every table, chosen so an id can be generated anywhere (not just by the database)
+with the practical guarantee that two different rows will never collide on one. See
+[docs/log/04-symptom-logging.md](log/04-symptom-logging.md), _"Phase 1: `Symptom` and
+`SymptomLog` models + migration + seed."_
+
+### Vitest / Supertest
+
+Vitest is the JavaScript/TypeScript test framework this project uses to run test files, check
+assertions, and report pass/fail; Supertest is a companion library specifically for testing HTTP
+servers, letting a test send a real request straight into the Express app in-process and inspect
+the response, without a separate running server or an actual network call. See
+[docs/log/01-auth-backend.md](log/01-auth-backend.md), _"Phase 1 + Phase 2: PostgreSQL, Prisma,
+the `User` model, and `POST /api/auth/register`."_
+
+### XSS (Cross-Site Scripting)
+
+An attack where malicious script an attacker manages to get running on your page can act with the
+full trust and access of the real site - e.g. reading anything client-side JavaScript can reach,
+including a token sitting in `localStorage`. Part of why this project keeps its refresh token in
+an [HttpOnly cookie](#httponly-cookie) instead. See
+[docs/log/02-auth-frontend.md](log/02-auth-frontend.md), _"Phase 5 + Phase 6: wiring the frontend
+to auth — and why a vertical slice."_
 
 ### Zod
 

@@ -7,7 +7,7 @@ layout"
 
 ### Background / concepts
 
-- **Git** is a *version control system*. It takes snapshots ("commits") of your code over
+- **Git** is a _version control system_. It takes snapshots ("commits") of your code over
   time, so you can see history, undo mistakes, and work on changes safely without losing
   earlier versions. Almost every professional software project uses it. Running `git init`
   turns an ordinary folder into a git-tracked project by creating a hidden `.git` folder
@@ -23,7 +23,7 @@ layout"
 - **Frontend** = the part of the application that runs in the user's browser (what they see
   and click). **Backend** = the part that runs on a server, handles requests, talks to the
   database, and enforces rules like "you can only see your own data."
-- A **`.gitignore`** file tells git which files/folders to *never* track — e.g. dependency
+- A **`.gitignore`** file tells git which files/folders to _never_ track — e.g. dependency
   folders that can be regenerated (`node_modules/`), build output (`dist/`), and secrets
   (`.env` files containing passwords/keys). Without this, it's easy to accidentally commit
   a secret key to git history, which is hard to fully undo later.
@@ -79,27 +79,30 @@ TypeScript project"
 - **Node.js** is a program that lets JavaScript run outside a web browser — e.g. as a
   server on a computer, listening for requests. Our backend is a Node.js program.
 - **npm** ("Node Package Manager") is the tool that comes with Node.js for installing
-  reusable code written by other people (called *packages* or *dependencies*), and for
+  reusable code written by other people (called _packages_ or _dependencies_), and for
   running project scripts. `npm init -y` creates a `package.json` file, which is the
   "identity card" of a Node project: its name, version, dependency list, and the commands
   (`scripts`) you can run against it (like `npm run dev`).
 - **Dependencies vs. devDependencies**, both listed in `package.json`:
-  - *Dependencies* are packages the app needs to actually run in production (e.g.
+  - _Dependencies_ are packages the app needs to actually run in production (e.g.
     `express`, the web server library itself).
-  - *devDependencies* are packages only needed while developing (e.g. TypeScript's compiler,
+  - _devDependencies_ are packages only needed while developing (e.g. TypeScript's compiler,
     or a tool that auto-restarts the server on file changes) — they aren't needed once the
     app is built and running for real users.
 - **Express** is a small, very widely used library for building web servers in Node.js. It
-  lets you define *routes* — "when a request comes in for this URL and this HTTP method, run
-  this function and send back a response." Almost every backend endpoint in this project
-  (login, save a symptom log, fetch trends, etc.) will be an Express route.
-- **TypeScript** is JavaScript with an added *type system*. Plain JavaScript lets you write
+  lets you define _routes_ — "when a request comes in for this URL and this HTTP method, run
+  this function and send back a response." (**HTTP**, HyperText Transfer Protocol, is the
+  standard way a browser and a server exchange requests and responses over the internet; an
+  **HTTP method** — sometimes called a "verb" — labels what kind of action a request wants,
+  e.g. `GET` to fetch data or `POST` to create something new.) Almost every backend endpoint
+  in this project (login, save a symptom log, fetch trends, etc.) will be an Express route.
+- **TypeScript** is JavaScript with an added _type system_. Plain JavaScript lets you write
   `user.emial` (typo) and it will only fail when that exact line runs, maybe in production
-  in front of a real user. TypeScript checks these kinds of mistakes *before* the code ever
+  in front of a real user. TypeScript checks these kinds of mistakes _before_ the code ever
   runs, while you're still writing it, which catches a large class of bugs early — especially
   valuable in a health-data app where a silent bug could mean a user's data is recorded
   wrong. Because browsers and Node.js don't understand TypeScript directly, it has to be
-  *compiled* ("transpiled") into plain JavaScript first.
+  _compiled_ ("transpiled") into plain JavaScript first.
 - **`tsconfig.json`** configures the TypeScript compiler: which JavaScript version to target,
   how strict the type checking should be, where source files live (`src`), and where
   compiled output should go (`dist`). We turned on `"strict": true`, which enables the
@@ -113,7 +116,7 @@ TypeScript project"
 - **`dotenv`** loads configuration values (like a port number, or later, database
   passwords and secret keys) from a local `.env` file into the running program, instead of
   hard-coding them in the source code. This matters because `.env` is git-ignored — secrets
-  never get committed — while an example file, **`.env.example`**, *is* committed, listing
+  never get committed — while an example file, **`.env.example`**, _is_ committed, listing
   which variables are needed (with placeholder/blank values) so anyone setting up the
   project knows what to configure.
 - **`ts-node-dev`** runs a TypeScript project directly (compiling on the fly) and
@@ -166,7 +169,7 @@ loop — makes every later step faster and less error-prone.
 - **Split `app.ts` from `index.ts`.** `app.ts` only builds and configures the Express app
   object; `index.ts` is the only file that actually starts listening on a network port.
   Reason: later, in Phase 13 (automated testing), test code needs to send fake requests
-  directly into the app *without* starting a real server on a real port. Keeping the "build
+  directly into the app _without_ starting a real server on a real port. Keeping the "build
   the app" logic separate from the "start listening" logic makes that possible, and is a
   common, well-understood pattern in Express projects.
 - **`moduleResolution: "Bundler"` in `tsconfig.json`.** The version of TypeScript installed
@@ -189,7 +192,7 @@ pass:
 
 1. **`npm run build`** — compiled the TypeScript with no errors, producing
    `backend/dist/app.js` and `backend/dist/index.js`.
-2. **`node dist/index.js`** — ran the *compiled* server (the same thing that would happen
+2. **`node dist/index.js`** — ran the _compiled_ server (the same thing that would happen
    in production) and confirmed it printed `Backend listening on port 4000`.
 3. **`curl http://localhost:4000/api/health`** — sent a real HTTP request to the running
    server and got back `{"status":"ok"}`, confirming the route works end-to-end.
@@ -201,7 +204,7 @@ pass:
 ## 2026-08-14 — Phase 0: Push the initial commit to GitHub, and adopt a branch strategy
 
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item directly — this is the "get the code
-onto GitHub" step that naturally follows scaffolding, and it sets up how *every future task*
+onto GitHub" step that naturally follows scaffolding, and it sets up how _every future task_
 will be delivered from here on.
 
 ### Background / concepts
@@ -218,12 +221,12 @@ will be delivered from here on.
   knows where to send commits.
 - A **branch** is an independent line of development inside a repository. Every repository
   starts with one default branch (by convention now usually called **`main``**, historically
-  `master`). Creating an additional branch lets you make changes *without* touching `main`
+`master`). Creating an additional branch lets you make changes *without* touching `main`
   until you're ready — the two branches only "merge" back together when you explicitly ask
   git to do so.
 - A **pull request** (PR) is a GitHub feature, not a raw git feature: it's a request to merge
   one branch into another (usually a feature branch into `main`), shown as a page where the
-  proposed changes (the "diff") can be reviewed, commented on, and approved *before* they
+  proposed changes (the "diff") can be reviewed, commented on, and approved _before_ they
   become part of `main`. Even solo developers commonly use PRs against their own repos,
   because it gives a deliberate "review, then merge" checkpoint instead of code landing on
   `main` the instant it's written.
@@ -231,10 +234,12 @@ will be delivered from here on.
 ### What was done
 
 1. Attempted to publish the repo to GitHub via VS Code's built-in "Publish to GitHub"
-   button. VS Code picked an organization the user belongs to, `wheelyk-collab`, and tried
+   button. VS Code picked an organization (a shared GitHub account that multiple people can
+   belong to and jointly control, as opposed to one person's individual account — see the
+   walkthrough below for more) the user belongs to, `wheelyk-collab`, and tried
    to create/push to `wheelyk-collab/Wellbeing` — but the signed-in GitHub account didn't
    have push permission there, so VS Code offered to fork it instead. That fork offer was
-   correctly declined (forking would have created a *copy* of someone else's repo, not the
+   correctly declined (forking would have created a _copy_ of someone else's repo, not the
    intended destination), but by that point GitHub had already created an empty
    `wheelyk-collab/Wellbeing` repository as the first step of the publish flow.
 2. Confirmed the intended destination was actually the user's own personal account,
@@ -255,21 +260,21 @@ will be delivered from here on.
 
 ### The fiasco, walked through slowly (for git beginners)
 
-It's worth slowing down on this because it's a *very* common way to trip up early on, and
+It's worth slowing down on this because it's a _very_ common way to trip up early on, and
 none of it broke anything permanently.
 
 Think of it in three layers:
 
 - **Your computer** has the actual project folder and, inside it, a `.git` folder recording
   history. This is "local."
-- **GitHub** hosts *copies* of repositories on their servers, under an *owner* — either a
-  person's account (like `wheelyk`) or an *organization* shared by multiple people (like
+- **GitHub** hosts _copies_ of repositories on their servers, under an _owner_ — either a
+  person's account (like `wheelyk`) or an _organization_ shared by multiple people (like
   `wheelyk-collab`). Anyone can host as many repos as they like; ownership is what controls
   who's allowed to push changes to a given one.
 - **VS Code's "Publish to GitHub" button** is a shortcut that does two GitHub-related steps
   for you in one click: (1) create a brand-new empty repo on GitHub under some owner, then
   (2) push your local commits into it. The problem was entirely in step (1): VS Code guessed
-  the wrong *owner*.
+  the wrong _owner_.
 
 Here's the sequence of events:
 
@@ -277,15 +282,15 @@ Here's the sequence of events:
 2. VS Code asked GitHub to create a new repo called `Wellbeing`, but under the
    `wheelyk-collab` organization rather than your personal `wheelyk` account — likely because
    that org was offered as an option and got picked, whether by default or by selection.
-   GitHub happily created it, since *creating* a repo under an org you belong to is allowed
+   GitHub happily created it, since _creating_ a repo under an org you belong to is allowed
    even if you don't have full write/push permissions to repos there afterward (permissions
    for an org can be scoped per-repo by an admin, separately from "is a member").
 3. VS Code then tried step (2), pushing your commits into that freshly created repo, and
-   *that* failed — the account didn't have push rights there. GitHub/VS Code's response to a
+   _that_ failed — the account didn't have push rights there. GitHub/VS Code's response to a
    failed push due to missing permissions is to offer a fork ("make your own copy elsewhere
    and push there instead").
 4. You clicked **Cancel**, correctly, because forking is the wrong fix here — forking would
-   have created yet another repo (`your-account/Wellbeing`, a copy *of* `wheelyk-collab`'s
+   have created yet another repo (`your-account/Wellbeing`, a copy _of_ `wheelyk-collab`'s
    now-empty repo) rather than simply using the personal repo you actually wanted.
 5. Net result of the failed attempt: an empty, unused repo now exists at
    `wheelyk-collab/Wellbeing` on GitHub (harmless — it has no code in it, and deleting it is
@@ -293,7 +298,7 @@ Here's the sequence of events:
    local project already had a remote called `origin` recorded, pointing at that wrong repo**,
    even though nothing had actually been pushed there. VS Code sets up the remote as part of
    step (1), before step (2) (the push) even runs.
-6. Once you created the *correct* empty repo yourself, `wheelyk/Wellbeing`, the local project
+6. Once you created the _correct_ empty repo yourself, `wheelyk/Wellbeing`, the local project
    still had that leftover, wrongly-pointed `origin` — which is exactly what the "repoint"
    step below fixed.
 
@@ -302,7 +307,7 @@ the only actual side effect was one harmless empty repo sitting unused on GitHub
 
 ### What the "repoint" command actually did
 
-Recall from *Background / concepts* above: `origin` is just a **nickname** your local git
+Recall from _Background / concepts_ above: `origin` is just a **nickname** your local git
 config stores for a remote URL — like a saved contact in a phone. VS Code had already saved
 a contact named "origin" with the wrong phone number (`wheelyk-collab/Wellbeing`).
 
@@ -325,7 +330,7 @@ This changed what `origin` points to — from `wheelyk-collab/Wellbeing` to
 `wheelyk/Wellbeing` — without needing to delete and recreate the remote, and without
 touching any of the actual commit history. Running `git remote -v` afterward (which lists
 all saved remotes and their URLs) confirmed `origin` now pointed at the right repo before
-anything was pushed to it, which is why it was checked as part of *Verification* below.
+anything was pushed to it, which is why it was checked as part of _Verification_ below.
 
 ### Why it's needed
 
@@ -403,7 +408,7 @@ will arrive via feature branches and pull requests rather than direct commits to
 **Task:** [Tasks.md](../../Tasks.md) → Phase 0 → "Scaffold frontend: React + TypeScript project
 (Vite recommended) with Tailwind CSS configured."
 
-**Delivered via branch:** `frontend/scaffold` (see *Branch & PR* section below — this is the
+**Delivered via branch:** `frontend/scaffold` (see _Branch & PR_ section below — this is the
 first task done under the new branch-per-task workflow).
 
 ### Background / concepts
@@ -426,7 +431,7 @@ first task done under the new branch-per-task workflow).
   `npm init` did for the backend, just with a lot more starter files because a UI project
   has more moving parts (HTML entry point, component files, build config) than a bare
   Node script.
-- **Tailwind CSS** is a *utility-first* CSS framework. Instead of writing custom CSS class
+- **Tailwind CSS** is a _utility-first_ CSS framework. Instead of writing custom CSS class
   names and rules in a separate stylesheet (e.g. `.hero-button { padding: 8px; ... }`),
   you compose small, single-purpose utility classes directly in your markup — e.g.
   `className="flex min-h-screen items-center justify-center"` means "use flexbox, make this
@@ -437,7 +442,9 @@ first task done under the new branch-per-task workflow).
   CSS file by hand.
 - **Tailwind v4** (the version installed here) works differently from older Tailwind
   versions beginners may see in tutorials: earlier versions needed a separate `tailwind.config.js`
-  plus a PostCSS setup step (`npx tailwindcss init -p`). Version 4 instead ships a Vite
+  plus a PostCSS setup step (`npx tailwindcss init -p`) — PostCSS is a separate tool that
+  transforms CSS by running it through a pipeline of plugins; older Tailwind versions worked as
+  one such plugin, which is the setup step Tailwind v4 no longer needs. Version 4 instead ships a Vite
   plugin (`@tailwindcss/vite`) that hooks directly into Vite's build pipeline, and is turned
   on with a single line in the main CSS file (`@import "tailwindcss";`) — no separate config
   file required to get started.
@@ -484,7 +491,7 @@ retrofitting styling once dozens of components already exist.
 - **Removed the Vite/React demo content rather than leaving it in place.** A freshly
   scaffolded Vite project includes a full demo page (logos, a counter button, links to Vite
   docs) meant to show off features, not to be shipped. Leaving it in would mean the very
-  first real screen written later has to *replace* a working page rather than fill an empty
+  first real screen written later has to _replace_ a working page rather than fill an empty
   one, and it isn't representative of the calm/minimal interface the requirements describe.
   Removed the matching now-unused asset files at the same time, rather than leaving dead
   files behind.
@@ -535,13 +542,13 @@ through the `frontend/scaffold` task, updating how pull requests get created fro
 
 - A **CLI** (Command Line Interface) tool is a program you control by typing commands into a
   terminal, rather than clicking around a graphical app. `git` itself is a CLI tool; **`gh`**
-  is GitHub's *official* CLI — it can do things a normal `git` command can't, because `git`
+  is GitHub's _official_ CLI — it can do things a normal `git` command can't, because `git`
   only knows about raw repository history (commits, branches), while `gh` knows about
   GitHub-specific concepts layered on top, like pull requests, issues, and repo settings.
   `gh pr create` is the command-line equivalent of clicking "New pull request" on
   github.com.
 - Before now, the plan (from the earlier "adopt a branch strategy" entry) was: Claude pushes
-  a branch, and *the user* opens the actual pull request by visiting the link GitHub prints
+  a branch, and _the user_ opens the actual pull request by visiting the link GitHub prints
   after a push. That link only pre-fills a form — someone still has to click the final
   "Create pull request" button on the website. The user asked to skip that manual step and
   have Claude create the PR directly instead, which requires the `gh` tool to be installed
@@ -561,8 +568,8 @@ through the `frontend/scaffold` task, updating how pull requests get created fro
     scoped, revocable password — "prove you're allowed to act as this GitHub account,"
     without using the account's actual login password.
   - When both are possible, `gh` prefers the environment variable if one is present — which
-    is exactly why running `gh auth login` printed *"The value of the `GITHUB_TOKEN`
-    environment variable is being used for authentication"* and then exited immediately,
+    is exactly why running `gh auth login` printed _"The value of the `GITHUB_TOKEN`
+    environment variable is being used for authentication"_ and then exited immediately,
     instead of walking through the interactive browser flow. This looked like the login had
     failed or gotten stuck, but it was actually `gh` reporting "no need, you're already
     authenticated via this token" — confirmed by running `gh auth status` separately, which
@@ -591,7 +598,7 @@ This removes a manual step from every future task: instead of Claude handing ove
 "pre-filled form" link and waiting for the user to visit it and click a button, Claude can
 now open the pull request itself as the final step of finishing a task, the moment its
 branch is pushed. The user still reviews and merges every PR on github.com — only the
-*creation* step moved.
+_creation_ step moved.
 
 ### Decisions
 
@@ -601,7 +608,7 @@ branch is pushed. The user still reviews and merges every PR on github.com — o
   perform on someone's behalf.
 - **Claude will create PRs going forward but will not merge them.** This matches the
   boundary agreed earlier in the "adopt a branch strategy" entry — automation is allowed to
-  *propose* changes (branch, commit, push, open PR) but a human still makes the final call
+  _propose_ changes (branch, commit, push, open PR) but a human still makes the final call
   to bring them into `main`.
 
 ### State at end of this step
@@ -657,7 +664,7 @@ through the project's normal branch/PR workflow rather than as a stray uncommitt
   commits your local branch doesn't have — usually because someone merged something on
   GitHub's website directly, without your local copy being told about it yet. This is
   informational, not an error: your local copy is just temporarily out of date until you run
-  `git fetch` (download the new history) or `git pull`/`git merge` (download *and* apply it).
+  `git fetch` (download the new history) or `git pull`/`git merge` (download _and_ apply it).
 - **Fast-forward merge.** When the branch you're merging in is simply "ahead" with no
   conflicting changes of its own, git can update your branch by just moving its pointer
   forward to match — no new "merge commit" needs to be created, and nothing about the
@@ -697,7 +704,7 @@ here." Handling the git side carefully (stash → branch → pop, then verifying
 it's exactly the kind of moment — moving a file between branches — where someone new to git
 often worries something got silently lost; walking through the verification explicitly
 demonstrates that git's stash mechanism is safe when used deliberately, and shows the actual
-commands used to *prove* nothing was lost rather than just asserting it.
+commands used to _prove_ nothing was lost rather than just asserting it.
 
 ### Decisions
 
@@ -746,7 +753,8 @@ commands used to *prove* nothing was lost rather than just asserting it.
   hope it matches what teammates or a production server have. **Docker** is the tool that
   builds, runs, and manages containers. **Docker Desktop** is the Windows/Mac application
   that provides Docker's engine (the background service actually running containers) plus a
-  GUI for managing them.
+  GUI (Graphical User Interface — windows and buttons you click, as opposed to typing commands
+  into a CLI) for managing them.
 - **Why Docker needs WSL2 on Windows.** Containers, as built by Docker, are fundamentally a
   Linux technology — the isolation tricks they rely on are part of the Linux kernel. Windows
   doesn't have that kernel, so Docker Desktop runs a lightweight virtualized Linux
@@ -758,8 +766,8 @@ commands used to *prove* nothing was lost rather than just asserting it.
 - **A WSL "distribution."** WSL can host one or more Linux **distributions** ("distros" —
   a specific Linux operating system, e.g. Ubuntu, Debian) side by side, similar to how you
   could dual-boot different operating systems, except they run simultaneously and
-  lightweight. Running `wsl -l -v` after installing WSL reported *"has no installed
-  distributions"* — that sounded alarming, but turned out to be irrelevant here: Docker
+  lightweight. Running `wsl -l -v` after installing WSL reported _"has no installed
+  distributions"_ — that sounded alarming, but turned out to be irrelevant here: Docker
   Desktop doesn't need a user-visible distro like Ubuntu at all. It quietly creates and
   manages its own internal utility distros (named `docker-desktop` and
   `docker-desktop-data`) purely to run containers in — those aren't meant to show up as
@@ -767,7 +775,7 @@ commands used to *prove* nothing was lost rather than just asserting it.
   problem.
 - **Docker's optional sign-in.** Docker Desktop's UI offers to sign in with a Docker Hub
   account on first launch. This is unrelated to whether Docker actually works — the Docker
-  *engine* (what actually runs containers) functions fully without being signed in, for
+  _engine_ (what actually runs containers) functions fully without being signed in, for
   personal/local development use. Signing in mainly matters for things this project doesn't
   need yet, like publishing your own container images to Docker Hub. Confirmed working
   without any sign-in by running `docker ps` successfully (with an empty result, since no
@@ -784,15 +792,17 @@ commands used to *prove* nothing was lost rather than just asserting it.
    restart** (this varies: whether a restart is needed depends on what Windows features/
    virtualization support were already enabled on the specific machine; it's not guaranteed
    either way, so it's worth always checking rather than assuming).
-4. Re-checked `docker --version` from a *fresh* command — it now worked, whereas it hadn't
+4. Re-checked `docker --version` from a _fresh_ command — it now worked, whereas it hadn't
    immediately after install. This is the same category of issue seen earlier with the GitHub
    CLI: installers update the system's PATH (the list of folders the OS searches for
-   programs), but a terminal session that was already open keeps its own *copy* of the PATH
+   programs), but a terminal session that was already open keeps its own _copy_ of the PATH
    from when it started, so it doesn't notice the update until that value is explicitly
    re-read (or a new terminal is opened).
 5. `docker ps` still failed at this point with a "cannot connect... is the daemon running?"
-   error — installing Docker Desktop and having its `docker` command available isn't the
-   same as the background engine actually being started. Launched the Docker Desktop
+   error (a **daemon** is a background program that keeps running without any visible window,
+   waiting to handle requests — here, the actual Docker engine) — installing Docker Desktop and
+   having its `docker` command available isn't the same as the background engine actually being
+   started. Launched the Docker Desktop
    application itself (`Docker Desktop.exe`), which is what actually starts that background
    engine, and is a normal one-time step the first time it's installed.
 6. Waited briefly for Docker Desktop's first-run startup, then confirmed `docker ps`
@@ -855,10 +865,10 @@ the root rather than work around it.
   different questions of it. The two tools are complementary, not competing — this project
   already runs `tsc` on every build; today's task adds the second layer on top.
 
-#### Why Prettier is a *third*, separate tool from either of those
+#### Why Prettier is a _third_, separate tool from either of those
 
 - **Prettier formats code — indentation, line-wrapping, quote style — it has zero opinion on
-  whether the code is *correct*.** A linter could theoretically also enforce formatting rules
+  whether the code is _correct_.** A linter could theoretically also enforce formatting rules
   (many older ESLint setups did exactly that), but mixing "is this code correct" with "is this
   code formatted consistently" tends to produce noisy, argument-inducing rule conflicts. The
   modern convention (used here) is to let Prettier own 100% of formatting and have the linter
@@ -867,7 +877,7 @@ the root rather than work around it.
   fight with Prettier over formatting, so the two tools never disagree.
 - Running `npx prettier --write .` for the first time on an existing codebase reformats
   whatever wasn't already in Prettier's preferred style — expected, one-time noise. Every
-  affected file was reviewed by hand before committing (see *What was done*) to confirm the
+  affected file was reviewed by hand before committing (see _What was done_) to confirm the
   changes were genuinely just whitespace/quote-style, not anything that changed behavior.
 
 #### The real blocker: `typescript-eslint` flatly refuses to run on TypeScript 7
@@ -878,15 +888,18 @@ the root rather than work around it.
 - **Why:** `backend/package.json` had `"typescript": "^7.0.2"` — not because anything in this
   codebase deliberately needs a TypeScript-7-only feature, but simply because TypeScript 7 is
   what `npm install typescript` installs today (confirmed directly: `npm view typescript
-  dist-tags` shows `latest: 7.0.2`). TypeScript 7 is a genuinely new major version — a rewritten,
+dist-tags` — `dist-tags` are npm's named pointers to specific versions of a package; `latest`
+  is the one `npm install` uses by default when no version is specified — shows `latest: 7.0.2`). TypeScript 7 is a genuinely new major version — a rewritten,
   much faster compiler — and `typescript-eslint` (a separate, independently-maintained project)
   hasn't been updated to support it yet. This is openly, currently tracked as unresolved on
   `typescript-eslint`'s own GitHub issue tracker (#10940) — a real, external, not-yet-closed gap
   in the ecosystem, not a bug specific to this project or something fixable with a config tweak.
 - **The tempting-but-wrong fix:** TypeScript's own team publishes an official workaround for
   this exact situation — alias the `typescript` package to a TypeScript-6.0-compatible shim
-  package, so tools like `typescript-eslint` (which resolve `typescript` as a normal
-  dependency) transparently get version 6 instead, while a *separate* alias
+  package (a **shim** is a small stand-in package that mimics another package's interface, so
+  tools expecting the original keep working unmodified), so tools like `typescript-eslint`
+  (which resolve `typescript` as a normal
+  dependency) transparently get version 6 instead, while a _separate_ alias
   (`@typescript/native`) gives access to the real TypeScript 7 compiler for actual builds. This
   was seriously considered and rejected: it means the project runs **two different TypeScript
   installs simultaneously** — one used by `tsc`/`vitest`/`ts-node-dev`, another used only by
@@ -914,7 +927,7 @@ the root rather than work around it.
 - **Why `oxlint` stays, instead of also adding ESLint to the frontend.** Tasks.md's wording says
   "ESLint," but the frontend already had a working, modern linter in place before this task
   started — `oxlint` is a newer tool built to do the same job (catch likely-mistake patterns)
-  much faster, since it's written in Rust rather than JavaScript. Installing ESLint *as well*
+  much faster, since it's written in Rust rather than JavaScript. Installing ESLint _as well_
   would mean two linters arguing over the same code, for no real gain — the spirit of this
   task ("consistent code style tooling exists") is already satisfied by the existing choice.
   Prettier is the genuinely missing piece on the frontend side, and is what this task adds.
@@ -922,18 +935,19 @@ the root rather than work around it.
 #### One real lint finding, and why it was suppressed rather than "fixed"
 
 - ESLint's `@typescript-eslint/no-namespace` rule flagged `requireAuth.ts`'s `declare global {
-  namespace Express { ... } }` block (from the auth-middleware entry — the code that lets
+namespace Express { ... } }` block (from the auth-middleware entry — the code that lets
   `req.userId` be a properly typed property). The rule exists because `namespace` was
-  TypeScript's *original*, now-outdated way to organize code into modules, before ES2015
-  modules (`import`/`export`) became standard — for ordinary code organization, the rule is
-  right to discourage it.
+  TypeScript's _original_, now-outdated way to organize code into modules, before ES2015
+  modules (`import`/`export`) became standard (ES2015, also called ES6, is the JavaScript
+  language version that introduced `import`/`export` as a built-in feature) — for ordinary code
+  organization, the rule is right to discourage it.
 - **This isn't that case.** "Augment a type that already exists in a third-party library" (here,
   Express's own `Request` interface) is a different, still-current use of `namespace` — it's
   TypeScript's own required syntax for that specific job; there genuinely is no ES2015-module
   equivalent for it. Rewriting working, correct code just to satisfy a rule that doesn't apply
   to this situation would make the code worse, not better. Instead, a single targeted
   `// eslint-disable-next-line` comment suppresses the rule for that one line, with a comment
-  explaining *why* — narrow enough that a genuine, accidental `namespace` used for ordinary code
+  explaining _why_ — narrow enough that a genuine, accidental `namespace` used for ordinary code
   organization elsewhere would still be caught.
 
 ### What was done
@@ -960,8 +974,8 @@ the root rather than work around it.
 4. **Fixed the one real ESLint finding** (`requireAuth.ts`'s namespace declaration) with a
    targeted, explained suppression rather than rewriting correct code, per the reasoning above.
 5. **Full verification, both projects:** backend — `npm run build` (compiled cleanly), `npm
-   test` (33/33 passing, unchanged), `npx eslint .` (zero errors/warnings), `npx prettier
-   --check .` (all files compliant); frontend — `npm run build` (compiled cleanly), `npm test`
+test` (33/33 passing, unchanged), `npx eslint .` (zero errors/warnings), `npx prettier
+--check .` (all files compliant); frontend — `npm run build` (compiled cleanly), `npm test`
    (18/18 passing, unchanged), `npm run lint` (one pre-existing `oxlint` warning on
    `AuthContext.tsx`, unrelated to this task and not newly introduced), `npx prettier --check .`
    (all files compliant). Also manually started `npm run dev` in the backend to directly confirm
@@ -1000,7 +1014,7 @@ every file's diff in this task is either new config/tooling or a pure reformat.
 ### Verification
 
 - Backend: `npm run build` (clean), `npm test` (33/33), `npx eslint .` (clean), `npx prettier
-  --check .` (clean), `npm run dev` manually started and confirmed working (previously broken).
+--check .` (clean), `npm run dev` manually started and confirmed working (previously broken).
 - Frontend: `npm run build` (clean), `npm test` (18/18), `npm run lint` (one pre-existing,
   unrelated warning), `npx prettier --check .` (clean).
 - Every file Prettier reformatted was reviewed by hand via `git diff` to confirm the changes
@@ -1010,22 +1024,25 @@ every file's diff in this task is either new config/tooling or a pure reformat.
 
 The backend is on TypeScript 6.0.3 now, not forever — TypeScript 7 is a genuinely faster
 compiler, and re-upgrading once the ecosystem catches up is a reasonable thing to want later.
-Worth writing down *how* to judge that moment, rather than just guessing or trying again
+Worth writing down _how_ to judge that moment, rather than just guessing or trying again
 speculatively every so often.
 
 #### The signal that actually matters: does every tool that touches TypeScript support it?
 
 - This project's TypeScript version isn't used by one tool — it's used by `tsc` (the compiler
   itself), `typescript-eslint` (today's blocker), `vitest` (runs `.ts` test files directly),
-  and `ts-node`/`ts-node-dev` (the dev server). **An upgrade is only actually safe once *all*
+  and `ts-node`/`ts-node-dev` (the dev server). **An upgrade is only actually safe once _all_
   of them support the new version — not just the one you happen to be testing.** It's easy to
   check the one tool that broke loudly (`typescript-eslint`, here) and miss that another tool
   would have failed just as hard, only more quietly (e.g. producing subtly wrong output instead
   of refusing to run).
 - **Where to check, concretely, for a package like `typescript-eslint`:**
-  - `npm view typescript-eslint peerDependencies` — shows the exact version range it currently
-    declares support for (this is what caught the problem today: it printed `typescript:
-    ">=4.8.4 <6.1.0"`, an explicit, honest statement of "I don't support anything past this").
+  - `npm view typescript-eslint peerDependencies` — a **peer dependency** is a package's own
+    declaration of which versions of some _other_ package (usually one it doesn't install
+    itself) it's actually been built and tested against; this command shows the exact version
+    range it currently declares support for (this is what caught the problem today: it printed
+    `typescript:
+">=4.8.4 <6.1.0"`, an explicit, honest statement of "I don't support anything past this").
     Re-running this same command in the future and seeing the upper bound move past `7.0.0` is
     the actual, concrete signal an upgrade might be safe — not a changelog claim, not a blog
     post, the package's own declared compatibility range.
@@ -1040,7 +1057,7 @@ speculatively every so often.
 
 - **Never upgrade a core dependency like this directly on `main`.** The right shape is exactly
   what a normal Tasks.md-style task already looks like: a dedicated branch (e.g.
-  `chore/upgrade-typescript-7`), bump the version, and then run the *entire* verification
+  `chore/upgrade-typescript-7`), bump the version, and then run the _entire_ verification
   suite this project already relies on before ever proposing it as a PR — `npm run build`,
   `npm test`, `npm run lint`, `npm run format:check`, and (per this project's standing
   practice) actually starting the dev server and hitting a real endpoint, not just trusting
@@ -1050,7 +1067,7 @@ speculatively every so often.
   try again later, the same low-drama way today's TS 6 downgrade was reached: prove it broken,
   choose the simplest fix, verify the fix directly, move on.
 - **A useful middle-ground check that costs nothing:** periodically running just `npm view
-  typescript-eslint peerDependencies` (or the equivalent for any pinned-down tool) doesn't
+typescript-eslint peerDependencies` (or the equivalent for any pinned-down tool) doesn't
   require touching the codebase at all — it's a single, free command that tells you whether
   it's even worth spending time on a real upgrade attempt yet.
 

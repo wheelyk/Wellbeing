@@ -21,9 +21,9 @@ place.
 #### Two tables, not one — why "medication" and "medication log" are different things
 
 - Requirements §6.3 describes recording "whether a medication was taken" — but a medication
-  itself (e.g. "Ibuprofen") is a *thing a user takes repeatedly*, while each taken/not-taken
+  itself (e.g. "Ibuprofen") is a _thing a user takes repeatedly_, while each taken/not-taken
   record is a separate event in time. Collapsing these into one table (say, a `taken` column
-  directly on a `medications` row) would only be able to represent the *most recent* status,
+  directly on a `medications` row) would only be able to represent the _most recent_ status,
   losing all history — the same one-to-many relationship reasoning as `User` → `MoodLog` from
   the earlier entry, just one level deeper here: `User` has many `Medication`s, and each
   `Medication` has many `MedicationLog`s.
@@ -32,14 +32,16 @@ place.
 
 - Every `MedicationLog` already reaches its owning user indirectly, by following
   `medicationId` → `Medication.userId`. Storing `userId` directly on `MedicationLog` too is a
-  deliberate denormalization, copying the same shape `MoodLog` already uses (a direct `userId`
+  deliberate denormalization (intentionally duplicating data that could otherwise be derived
+  through a join, trading a bit of redundancy for simpler/faster reads), copying the same shape
+  `MoodLog` already uses (a direct `userId`
   column on every log table, not just on the "parent" record) — it's what lets `GET
-  /api/medication-logs` filter and index directly on `[userId, loggedAt]` without an extra join
+/api/medication-logs` filter and index directly on `[userId, loggedAt]` without an extra join
   through `Medication` on every read, exactly like `MoodLog`'s existing composite index.
 - **This column is not, on its own, a security boundary.** Nothing at the database level stops
   a row's `userId` from disagreeing with its `medication.userId` — that would require a check
   constraint spanning two tables, which Postgres doesn't support directly. The actual defense
-  against a user submitting *another* user's `medicationId` (the ID-tampering concern Tasks.md's
+  against a user submitting _another_ user's `medicationId` (the ID-tampering concern Tasks.md's
   Phase 3 cross-cutting item calls out) has to live in the application layer, in the next task's
   route: before creating or updating a `MedicationLog`, the code must look up the referenced
   `Medication` scoped to `req.userId` and reject the request if it's not found or not theirs.
@@ -50,7 +52,7 @@ place.
 
 - `Medication.user @relation(..., onDelete: Cascade)` means deleting a `User` also deletes all
   of their `Medication` rows. `MedicationLog.medication @relation(..., onDelete: Cascade)` means
-  deleting a `Medication` also deletes all of *its* `MedicationLog` rows. Together, these chain:
+  deleting a `Medication` also deletes all of _its_ `MedicationLog` rows. Together, these chain:
   deleting a `User` cascades to their `Medication`s, which cascades again to every
   `MedicationLog` referencing those medications — satisfying Phase 1's "removing a `User`
   removes all associated logs" requirement without the application needing to manually delete
@@ -130,16 +132,16 @@ that's the next task.
 
 **Delivered via branch:** `feature/3.6-medication-endpoints` (stacked on
 `feature/1.5-medication-models`) — the same "model → scoped CRUD route" pattern the mood-logs
-endpoint established, applied here for the first time to a domain with *two* related tables
+endpoint established, applied here for the first time to a domain with _two_ related tables
 instead of one.
 
 ### Background / concepts
 
 #### Two routers, because there are genuinely two resources
 
-- `medications.ts` manages the user's medication *list* (create "Ibuprofen" once, rename or
+- `medications.ts` manages the user's medication _list_ (create "Ibuprofen" once, rename or
   delete it later) — a small, low-frequency resource. `medicationLogs.ts` manages the
-  taken/not-taken *events* against that list (potentially several per day, per medication) — a
+  taken/not-taken _events_ against that list (potentially several per day, per medication) — a
   high-frequency resource, same shape as `MoodLog`. Splitting these into two route files
   (mounted separately in `app.ts`, at `/api/medications` and `/api/medication-logs`) keeps each
   file focused on one resource's CRUD, rather than one file juggling two different validation
@@ -147,12 +149,12 @@ instead of one.
 
 #### The ID-tampering defense, concretely — not just "scope the query," but "verify the reference"
 
-- Every route already scopes its *own* table's queries by `req.userId` (`findFirst({ where: {
-  id, userId } })`), the same pattern `MoodLog` uses. But `MedicationLog` also carries a
-  *second* foreign key — `medicationId`, pointing at a different table the caller doesn't own
+- Every route already scopes its _own_ table's queries by `req.userId` (`findFirst({ where: {
+id, userId } })`), the same pattern `MoodLog` uses. But `MedicationLog` also carries a
+  _second_ foreign key — `medicationId`, pointing at a different table the caller doesn't own
   outright, they only own indirectly through their own `Medication` rows. A client can put
   **any** string in the `medicationId` field of a `POST /api/medication-logs` body, including
-  another user's real medication ID copied or guessed from elsewhere. Scoping the *log's own*
+  another user's real medication ID copied or guessed from elsewhere. Scoping the _log's own_
   query by `userId` does nothing to stop that, because the log doesn't exist yet — there's
   nothing to scope. This is exactly the ID-tampering scenario Tasks.md's Phase 3 cross-cutting
   item warns about, and it needs its own explicit check, separate from ownership-scoping a
@@ -166,7 +168,7 @@ instead of one.
   404-not-403 pattern elsewhere in this codebase, just applied to a body field instead of a URL
   param.
 - **This check runs on both `POST` and `PATCH`.** It would be easy to add it only to `POST`
-  (where a new `medicationId` is always supplied) and miss that `PATCH` can *also* supply a new
+  (where a new `medicationId` is always supplied) and miss that `PATCH` can _also_ supply a new
   `medicationId`, re-pointing an existing, legitimately-owned log at a different medication —
   including someone else's. `medicationLogs.ts`'s `PATCH /:id` handler explicitly re-runs the
   same check whenever the update body includes `medicationId`, and a test
@@ -184,7 +186,7 @@ instead of one.
 ### What was done
 
 1. **`backend/src/routes/medications.ts` (new).** `GET /` (list the caller's medications), `POST
-   /` (create, `name` required non-empty string), `PATCH /:id` / `DELETE /:id` (ownership-scoped
+/` (create, `name` required non-empty string), `PATCH /:id` / `DELETE /:id` (ownership-scoped
    via `findFirst`, `404 MEDICATION_NOT_FOUND` if missing or not owned).
 2. **`backend/src/routes/medicationLogs.ts` (new).** `GET /` (list the caller's medication logs,
    most recent first), `POST /` (validates `medicationId` + `taken` required, `notes` optional,
@@ -206,7 +208,7 @@ instead of one.
 6. **`npm run build`** — compiled cleanly.
 7. **Lint/format** — `npx eslint .` clean; `npx prettier --check .` initially flagged the two new
    test files (long single-line `request(app)...` chains it wanted wrapped), fixed with `npx
-   prettier --write`, then re-ran the full suite to confirm the reformatting changed no behavior
+prettier --write`, then re-ran the full suite to confirm the reformatting changed no behavior
    (still 53/53).
 8. **Manual end-to-end verification against the compiled, running server** (`npm start` on this
    worktree's isolated port, `4102`), via `curl`: registered and logged in a real user, confirmed
@@ -233,8 +235,8 @@ habits) once those slices land.
   "not found" a given 404 refers to.
 - **`404`, not `400`, for a `medicationId` that doesn't belong to the caller.** The field itself
   is present and well-formed (a non-empty string, satisfying Zod) — the problem is what it
-  *refers to*, which is a lookup failure, not a shape failure. This mirrors how `PATCH
-  /api/mood-logs/:id` already distinguishes "malformed body" (`400 VALIDATION_ERROR`) from "body
+  _refers to_, which is a lookup failure, not a shape failure. This mirrors how `PATCH
+/api/mood-logs/:id` already distinguishes "malformed body" (`400 VALIDATION_ERROR`) from "body
   well-formed but the referenced row isn't yours" (`404`) for the URL param; applied here to a
   body field pointing at a different resource instead.
 - **No `MEDICATION_NOT_FOUND` vs. a more specific "not yours" code.** Same reasoning as the
@@ -260,7 +262,7 @@ against a real running server. Nothing on the frontend calls it yet — that's t
 - Manual `curl` round-trip against the compiled, running server (port `4102`): unauthenticated
   request → `401`; full lifecycle for both resources; and a live cross-user attempt to create a
   medication log against another real user's `medicationId` → confirmed `404
-  MEDICATION_NOT_FOUND` against the actual running server, not just the automated test.
+MEDICATION_NOT_FOUND` against the actual running server, not just the automated test.
 
 ---
 
@@ -283,7 +285,7 @@ person can see and use.
   record whether a medication was taken," with the dashboard summary shown as a plain
   "Medications: 1/2 taken" — the emphasis throughout is on speed (tap to record a status), not
   on a heavy data-entry form. But the API underneath needs a real `medicationId` on every log —
-  there has to be *some* mechanism for choosing which medication a log is about. The form
+  there has to be _some_ mechanism for choosing which medication a log is about. The form
   reconciles these by keeping medication selection itself as large, single-tap buttons (a
   `role="radiogroup"` of medication names, the same accessible-custom-control pattern
   `MoodEntryForm`'s emoji buttons already established) rather than a `<select>` dropdown or a
@@ -291,7 +293,7 @@ person can see and use.
   a checkbox buried in a longer form.
 - **The bootstrap problem, and how it's resolved without a separate "manage medications"
   screen.** A brand-new user has zero medications — Tasks.md's Phase 7 item only calls for the
-  entry *form*, not a separate medication-management page (that's implied by the `/api/medications`
+  entry _form_, not a separate medication-management page (that's implied by the `/api/medications`
   CRUD endpoints existing, but building a dedicated management UI isn't this task's scope). The
   form solves this inline: if the user has no medications yet, it skips straight to a small
   "add a medication" field instead of showing an empty, useless picker; once at least one
@@ -306,7 +308,7 @@ person can see and use.
   every save, but that's an unnecessary round-trip: the form, at the moment it submits, already
   has the full `Medication` object in memory (either from its initial fetch, or from having just
   created it inline seconds earlier). `MedicationEntryForm`'s `onSaved: (log, medication) =>
-  void` callback signature hands both back to the Dashboard in one step, which folds the
+void` callback signature hands both back to the Dashboard in one step, which folds the
   medication into its own local list (skipping the add if it's already there, to avoid
   duplicates when logging a second entry against an existing medication) without a second
   network request.
@@ -314,7 +316,7 @@ person can see and use.
 #### Why medications and medication logs are fetched together on the Dashboard
 
 - `DashboardPage`'s new `useEffect` calls `Promise.all([apiFetch("/api/medications"),
-  apiFetch("/api/medication-logs")])` rather than two independent, unrelated effects — both
+apiFetch("/api/medication-logs")])` rather than two independent, unrelated effects — both
   results are needed together before the log list can render anything meaningful (a log with no
   matching medication name to show), so tying their loading/error state together avoids a flash
   of "Medication" placeholder text while the medications list is still in flight separately.
@@ -329,10 +331,10 @@ person can see and use.
    field defaulting to now (same `toDateTimeLocalValue` helper `MoodEntryForm` uses, duplicated
    locally rather than shared - neither component has a shared utils module yet). Submits via
    `apiFetch("/api/medication-logs", { method: "POST", ... })` and calls `onSaved(log,
-   medication)` on success.
+medication)` on success.
 2. **`frontend/src/pages/DashboardPage.tsx` (extended).** Added medication state (medications,
    medication logs, loading/error, form-visibility) alongside the existing mood state; a `+
-   Medication` button that reveals the form inline (same pattern as `+ Mood`); a "Recent
+Medication` button that reveals the form inline (same pattern as `+ Mood`); a "Recent
    medications" list showing each log's medication name (looked up from the fetched medications
    list), taken/not-taken status and icon, optional notes, timestamp, and a working delete
    (optimistic removal, rolled back on failure) - directly mirroring the mood section's
@@ -356,7 +358,7 @@ person can see and use.
    Playwright script: register → land on Dashboard → open the medication form → add a first
    medication ("Ibuprofen") inline, since none existed yet → mark it Taken with a note → Save →
    confirm it appears in the list with the right name, status, note, and timestamp → open the
-   form again, this time picking the *existing* medication from the picker rather than adding a
+   form again, this time picking the _existing_ medication from the picker rather than adding a
    new one → mark it Not taken → Save → confirm both entries are listed → delete both → confirm
    the list returns to its empty state. No browser console errors at any point. Screenshots
    taken at each step and visually reviewed, not just asserted programmatically. Cleaned up the
@@ -422,9 +424,11 @@ together — into the single `name` field.
 #### Where the new field belongs: on `Medication`, not `MedicationLog` — the same place Habit's `type` lives
 
 - Discussed with the user directly before building anything (this was an exploratory "could we"
-  question first): the real design choice is whether dosage is a property of *which medication
-  this is* (fixed once, like `Habit.type`) or a property of *this particular occasion* (re-entered
-  every log, for doses that vary - titrating, PRN). Went with the former, matching what the user
+  question first): the real design choice is whether dosage is a property of _which medication
+  this is_ (fixed once, like `Habit.type`) or a property of _this particular occasion_ (re-entered
+  every log, for doses that vary - titrating [gradually adjusting a dose over time], PRN [Latin
+  "pro re nata" — medical shorthand for "as needed," e.g. an inhaler taken only when symptoms
+  occur rather than on a fixed schedule]). Went with the former, matching what the user
   described and what `Habit.type` already established as this project's pattern for "a
   once-per-definition detail every log against it inherits" - a field on the parent record, read
   by every log through the relation, rather than duplicated onto every individual log row.
@@ -445,7 +449,7 @@ together — into the single `name` field.
 ### What was done
 
 1. **`schema.prisma` + migration.** Added `dosage String?` to `Medication`. `npx prisma migrate
-   dev --name add_medication_dosage` generated a single additive `ALTER TABLE ... ADD COLUMN`
+dev --name add_medication_dosage` generated a single additive `ALTER TABLE ... ADD COLUMN`
    statement - no data migration needed, per the nullable design above.
 2. **`backend/src/routes/medications.ts`.** Added `dosage: z.string().trim().min(1).optional()`
    to `createSchema` (rejects a dosage that's present but empty/whitespace-only, same pattern as
@@ -470,9 +474,11 @@ together — into the single `name` field.
    (the recent-entries list including the dosage in its label). Existing `Medication`-typed test
    fixtures across both files needed `dosage: null` added to satisfy the now-widened interface.
 6. **A test-writing detail worth remembering:** an early version of the two new picker tests
-   asserted the radio button's accessible name as the *exact* string `"Diazepam — 2mg"` and failed
+   asserted the radio button's accessible name as the _exact_ string `"Diazepam — 2mg"` and failed
    even though the rendered markup was visibly correct (`Diazepam` then a `<span>— 2mg</span>`) -
-   the accessible-name algorithm concatenates the button's own text and its child span's text in a
+   the accessible-name algorithm (the browser/spec-defined procedure for computing the text a
+   screen reader announces for an element) concatenates the button's own text and its child
+   span's text in a
    way that didn't exactly match a hand-typed literal string (extra/different whitespace around
    the JSX-inserted text node). Switched both assertions to a partial regex
    (`/diazepam.*2mg/i`) instead of over-specifying the exact accessible-name string byte-for-byte -
@@ -541,7 +547,7 @@ Habit edit work — one PR covering all four log types).
 
 ### What's specific to Medication
 
-- `MedicationEntryForm`'s `onSaved` callback has always taken *two* arguments —
+- `MedicationEntryForm`'s `onSaved` callback has always taken _two_ arguments —
   `(log: MedicationLog, medication: Medication) => void` — because a newly-created log might
   reference a medication that was itself just created inline, moments earlier, in the same form
   (the "no medications yet, add one" flow from the original entry form task). That two-argument
@@ -563,7 +569,7 @@ Habit edit work — one PR covering all four log types).
 
 1. **`frontend/src/components/MedicationEntryForm.tsx`.** Added the `editingLog` prop; pre-fills
    `selectedMedicationId`/`taken`/`notes`/`loggedAt`; submits `PATCH
-   /api/medication-logs/{id}` instead of `POST /api/medication-logs` when editing; "Save
+/api/medication-logs/{id}` instead of `POST /api/medication-logs` when editing; "Save
    Changes" button label.
 2. **`frontend/src/components/dashboard/MedicationSection.tsx`.** Added `editingLog` state, an
    "Edit" button per entry, the "Log a medication" / "Edit medication entry" heading switch, the

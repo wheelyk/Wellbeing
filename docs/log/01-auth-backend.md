@@ -16,21 +16,21 @@ can't create an account without a database to put it in: "Set up PostgreSQL loca
 - **Node.js runs one JavaScript program that never "restarts" per request.** Unlike some
   older server technologies (PHP, classic CGI) that re-run a script from scratch for every
   request, a Node.js server is a single long-running program: `node dist/index.js` starts it
-  once, it stays in memory, and it just *reacts* to incoming network connections for as long
+  once, it stays in memory, and it just _reacts_ to incoming network connections for as long
   as it keeps running. This is why `backend/src/index.ts` calls `app.listen(port, ...)` —
   that call doesn't return; it hands control to Node's event loop, which sits there waiting
   for HTTP requests to arrive.
 - **Express is a request router.** At its core, Express keeps an ordered list of "if a
   request matches this method + path, run this function" rules. `app.get("/api/health", handler)`
   registers one such rule. `app.use("/api/auth", authRouter)` (added in this step) registers
-  a whole *group* of rules at once — every route defined inside `authRouter` (currently just
+  a whole _group_ of rules at once — every route defined inside `authRouter` (currently just
   `POST /register`) effectively gets the `/api/auth` prefix glued onto it, so
   `authRouter.post("/register", ...)` becomes reachable at `POST /api/auth/register`. This
   is why the code is organized as one `Router` per feature area (`routes/auth.ts` now;
   `routes/symptoms.ts`, `routes/mood.ts` etc. will follow the same pattern in later phases)
   instead of piling every route directly into `app.ts`.
 - **Middleware runs before your route handler, for every matching request.**
-  `app.use(express.json())` (added back in the backend-scaffold entry) is *middleware*: a
+  `app.use(express.json())` (added back in the backend-scaffold entry) is _middleware_: a
   function that runs on the way in, before Express even looks for a matching route. Its job
   is to read the raw request body (which arrives as raw bytes) and parse it as JSON,
   attaching the result to `req.body` — which is exactly what makes `req.body.email` and
@@ -80,7 +80,7 @@ can't create an account without a database to put it in: "Set up PostgreSQL loca
   rather than raw SQL. Field names use `camelCase` (`passwordHash`) to feel natural in
   TypeScript, while `@map("password_hash")` tells Prisma to actually store that column as
   `password_hash` in Postgres — matching the `snake_case` naming the requirements doc uses —
-  so the *database* and the *TypeScript code* can each use the naming convention that's
+  so the _database_ and the _TypeScript code_ can each use the naming convention that's
   idiomatic for them, without a mismatch. `@@map("users")` does the same for the table name.
 - **A migration is a recorded, ordered change to the database's structure.** Running
   `npx prisma migrate dev --name init_user` did two things: (1) compared the schema file
@@ -89,7 +89,7 @@ can't create an account without a database to put it in: "Set up PostgreSQL loca
   `prisma/migrations/20260814155859_init_user/migration.sql`), and (2) actually ran that SQL
   against the running Postgres container. Every future schema change (adding `Symptom`,
   `MoodLog`, etc. in later Phase 1 work) will generate its own migration file, and the whole
-  sequence of migration files is what lets *any* copy of this database — a teammate's
+  sequence of migration files is what lets _any_ copy of this database — a teammate's
   laptop, a CI test database, production — be brought to the exact same structure by
   replaying them in order.
 - **The generated client is code, not something you hand-write.** `npx prisma generate`
@@ -104,7 +104,7 @@ can't create an account without a database to put it in: "Set up PostgreSQL loca
   "just worked" once `DATABASE_URL` was set. Prisma 7's new client generator
   (`provider = "prisma-client"` in the schema, as opposed to the older `"prisma-client-js"`)
   instead expects you to explicitly supply a **driver adapter** — a small package
-  (`@prisma/adapter-pg` here) that wraps a *native* Postgres driver for Node
+  (`@prisma/adapter-pg` here) that wraps a _native_ Postgres driver for Node
   (`pg`, also installed) and hands it to Prisma. Concretely, this is why
   `backend/src/lib/prisma.ts` constructs `new PrismaPg({ connectionString: ... })` and passes
   it into `new PrismaClient({ adapter })`, rather than just calling `new PrismaClient()` with
@@ -113,7 +113,7 @@ can't create an account without a database to put it in: "Set up PostgreSQL loca
 
 #### Password hashing: why it matters and how it works here
 
-- **Hashing is one-way; encryption is two-way.** Encrypting data means it can be *decrypted*
+- **Hashing is one-way; encryption is two-way.** Encrypting data means it can be _decrypted_
   back to the original if you have the right key — appropriate for data you need to read
   again later. **Hashing** runs data through a function that's deliberately impossible to
   reverse: there is no key or process that turns a password hash back into the original
@@ -121,19 +121,19 @@ can't create an account without a database to put it in: "Set up PostgreSQL loca
   password, never the password itself — confirmed directly by requirements §5.2 ("must
   never store a user's plain-text password") and §13. This is why `backend/src/lib/prisma.ts`'s
   `User` model has a `passwordHash` field and nothing called `password`.
-- **Why hashing specifically protects against a database leak.** If the *hashes* leak (e.g.
+- **Why hashing specifically protects against a database leak.** If the _hashes_ leak (e.g.
   a future data breach), an attacker still can't log in as anyone or recover the real
   passwords directly from what leaked — they'd have to separately guess passwords and check
   each guess against the hash, which is exactly what the next two points make slow and
   per-password-expensive on purpose.
 - **`bcrypt` — and specifically, salted, deliberately slow hashing.** A generic hash function
-  like SHA-256 is built to be *fast*, which is actually bad for passwords: it lets an
+  like SHA-256 is built to be _fast_, which is actually bad for passwords: it lets an
   attacker who obtains a batch of hashes try billions of guesses per second against them.
   **bcrypt** (used here via the `bcryptjs` package — a pure-JavaScript implementation, chosen
   specifically to avoid needing native C++ build tools on Windows during `npm install`, which
   the original `bcrypt` package requires) is intentionally slow, and its cost is tunable via
   a **salt rounds** parameter (`SALT_ROUNDS = 12` in `routes/auth.ts`) — each increment
-  roughly *doubles* the work required per hash. It also automatically generates a random
+  roughly _doubles_ the work required per hash. It also automatically generates a random
   **salt** (extra random data mixed into each password before hashing) per password, so two
   users with the identical password `"Sup3rSecret"` end up with two completely different
   stored hashes — this defeats precomputed "rainbow table" lookup attacks, since an attacker
@@ -151,14 +151,14 @@ can't create an account without a database to put it in: "Set up PostgreSQL loca
   database (`welltrack`), and login credentials (`welltrack`/`welltrack`) into one value.
   Connection strings are secrets in general, since anyone with one for a production database
   could read/write everything in it.
-- **Why this specific value was still put in `backend/.env.example`** (a file that *is*
+- **Why this specific value was still put in `backend/.env.example`** (a file that _is_
   committed to git, unlike `.env` itself): the username/password `welltrack`/`welltrack` are
-  already sitting in plain text in `docker-compose.yml` — which is *also* committed, by
+  already sitting in plain text in `docker-compose.yml` — which is _also_ committed, by
   design, so that anyone cloning the repo can start an identical local database with one
   command. Since it's already fully visible in a file meant to be public, repeating the same
   non-secret local value in `.env.example` doesn't expose anything new, and it means
   `cp .env.example .env` immediately works with zero manual editing.
-- **This reasoning does *not* extend to real secrets that don't exist yet.** Once a JWT
+- **This reasoning does _not_ extend to real secrets that don't exist yet.** Once a JWT
   signing secret (Phase 2, upcoming) or a production `DATABASE_URL` (Phase 14, pointing at a
   real hosted database with a real, non-throwaway password) are introduced, those must never
   appear as real values in any committed file, `.env.example` included — only as a clearly
@@ -173,12 +173,12 @@ can't create an account without a database to put it in: "Set up PostgreSQL loca
 
 #### Validating input with Zod
 
-- **Zod** is a schema-validation library: you describe the *shape* data should have
+- **Zod** is a schema-validation library: you describe the _shape_ data should have
   (`z.object({ email: z.string().email(), password: z.string().min(8)... })`), and it checks
   arbitrary incoming data against that shape, returning either "valid, here's the
   type-checked data" or a structured list of what's wrong. This is what enforces requirements
   §17's rules for registration (valid email format; a password strength policy — here, at
-  least 8 characters, containing at least one letter and one number) *before* anything touches
+  least 8 characters, containing at least one letter and one number) _before_ anything touches
   the database, and is the same library flagged back in Phase 3's task list
   ("centralized request validation... `zod` or `express-validator`") — using it here first
   establishes the pattern the rest of the API will follow.
@@ -190,17 +190,23 @@ can't create an account without a database to put it in: "Set up PostgreSQL loca
    `welltrack`, exposed on the standard port `5432`, backed by a named volume so data
    survives container restarts). Started it with `docker compose up -d postgres` and
    confirmed it was accepting connections via `docker compose exec postgres pg_isready`.
-2. **Prisma setup.** Installed `prisma` (CLI, dev dependency) and `@prisma/client` in
+2. **Prisma setup.** Installed `prisma` (CLI, dev dependency — a package needed only while
+   developing/building the app, e.g. to generate code and run migrations, not something the
+   running app itself needs in production, unlike a regular dependency such as
+   `@prisma/client` below) and `@prisma/client` in
    `/backend`, then ran `npx prisma init --datasource-provider postgresql`. This generated
    `prisma/schema.prisma`, `prisma.config.ts` (Prisma's newer config file — it's what
    actually loads `backend/.env` and hands `DATABASE_URL` to the Prisma CLI, via
-   `import "dotenv/config"` inside it), an initial `backend/.env`, and `backend/.gitignore`.
+   `import "dotenv/config"` inside it — **dotenv** is a small, widely-used library that reads
+   a `.env` file's `KEY=value` lines and copies them into `process.env`, the object Node.js
+   code normally reads environment variables from; that's the actual mechanism that makes
+   `DATABASE_URL` available at runtime), an initial `backend/.env`, and `backend/.gitignore`.
    It also installed some AI-coding-tool "skill" scaffolding for tools this project doesn't
    use (`.windsurf/`, `.agents/`, `skills-lock.json`, plus a `.claude/skills` folder already
    covered by the repo's existing root `.gitignore`) — removed those to keep the repo focused
    on the project itself.
 3. **The `User` model.** Wrote it into `prisma/schema.prisma` per requirements §11.1 (see
-   *Background* above for the `@map`/`@@map` naming translation). Filled in real values for
+   _Background_ above for the `@map`/`@@map` naming translation). Filled in real values for
    `backend/.env` and `backend/.env.example`'s `DATABASE_URL`, pointing at the Docker Compose
    Postgres instance.
 4. **Migration + client generation.** Ran `npx prisma migrate dev --name init_user`, which
@@ -209,7 +215,7 @@ can't create an account without a database to put it in: "Set up PostgreSQL loca
    TypeScript client code in `backend/src/generated/prisma/` (this didn't happen
    automatically as part of `migrate dev` in this version, so it was run as its own step).
 5. **Driver adapter.** Installed `@prisma/adapter-pg` and `pg` (plus `@types/pg`) — required
-   by Prisma 7's new client generator, per *Background* above. Wrote
+   by Prisma 7's new client generator, per _Background_ above. Wrote
    `backend/src/lib/prisma.ts`: a single shared `PrismaClient` instance (constructed with the
    `pg` adapter), so the rest of the app always imports and reuses the same client rather
    than each file creating its own (creating many separate clients would open many separate
@@ -217,16 +223,32 @@ can't create an account without a database to put it in: "Set up PostgreSQL loca
 6. **The register route.** Installed `bcryptjs` and `zod`. Wrote
    `backend/src/routes/auth.ts`: a Zod schema validating `email`/`password`/optional
    `displayName`; on success, hashes the password with bcrypt (12 salt rounds), creates the
-   user via Prisma, and returns 201 with the safe, hash-excluded fields. Duplicate emails are
+   user via Prisma, and returns 201 with the safe, hash-excluded fields. (HTTP status codes
+   are grouped by their first digit: 2xx means success — `200 OK` for an ordinary successful
+   request, `201 Created` specifically for a `POST` that successfully made a new resource;
+   4xx means the _client_ did something wrong — `400 Bad Request` is a generic catch-all,
+   `409 Conflict` means the request is well-formed but clashes with existing data, like a
+   duplicate email; 5xx means the _server_ itself failed. These ranges recur throughout this
+   log, so this is the one place they're explained in full.) Duplicate emails are
    caught via Prisma's `P2002` "unique constraint violation" error code and turned into a
    409 response; validation failures return 400 with per-field error details. Mounted it in
    `app.ts` via `app.use("/api/auth", authRouter)`.
 7. **Manual end-to-end check.** Built (`npm run build`) and ran the compiled server, then
-   used `curl` to exercise all four cases directly against the real running Postgres
+   used `curl` (a command-line tool for sending HTTP requests directly — it's used throughout
+   this project's manual verification steps to call the API the same way a browser or the
+   frontend's own code would, without needing a UI) to exercise all four cases directly
+   against the real running Postgres
    container: successful registration (201), duplicate email (409), weak password (400),
    and invalid email (400) — all behaved as intended. Cleaned up the manually-created test
-   row afterward via `docker compose exec postgres psql`.
+   row afterward via `docker compose exec postgres psql` (**psql** is PostgreSQL's own
+   command-line client, used here to run SQL directly against the database to inspect or
+   clean up rows, bypassing the application entirely).
 8. **Automated tests — and a real bug they caught.** Installed `vitest` and `supertest`
+   (**Vitest** is a JavaScript/TypeScript test framework — it runs test files, checks the
+   assertions inside them, and reports which passed/failed; **Supertest** is a companion
+   library specifically for testing HTTP servers, letting a test send a real request straight
+   into the Express app in-process and inspect the response, without needing a separate
+   running server or an actual network call)
    (plus `@types/supertest`) as dev dependencies, set the backend's `npm test` script to
    `vitest run` (replacing the placeholder stub script), and wrote
    `backend/src/routes/auth.test.ts` covering: successful registration (and that the
@@ -236,27 +258,34 @@ can't create an account without a database to put it in: "Set up PostgreSQL loca
    is neither the plain-text password nor anything resembling it (only that it starts with
    bcrypt's `$2` hash-format prefix, without asserting the exact hash, since bcrypt
    intentionally produces a different hash every time even for the same input — see
-   *Background* above).
+   _Background_ above).
 
    Running this suite for the first time immediately failed 4 of 6 tests with a database
-   connection error (`SASL: ... client password must be a string`) — a genuine bug, not a
+   connection error (`SASL: ... client password must be a string`) — (SASL is the
+   authentication protocol Postgres uses to check a client's username/password when
+   connecting; the specific protocol name isn't important here, just that the error was
+   coming from the database driver failing to authenticate, not a bug in the app's own
+   logic) — a genuine bug, not a
    flaky test: `backend/src/lib/prisma.ts` read `process.env.DATABASE_URL` directly, but
    only `index.ts` ever explicitly loaded `.env` (via its own `import "dotenv/config"`)
    before that code ran. The manual `curl` testing above always went through `index.ts`
    first (`node dist/index.js`), so it never hit this. The automated tests import `app.ts`
    directly (deliberately — see the very first backend-scaffold entry for why `app.ts` and
    `index.ts` are split), which meant `DATABASE_URL` was still `undefined` at the moment
-   Prisma tried to connect. Per this project's *Testing Requirements* (`CLAUDE.md`) — fix
+   Prisma tried to connect. Per this project's _Testing Requirements_ (`CLAUDE.md`) — fix
    the code, don't fix the test, unless the test itself is wrong — the actual fix was moving
    `import "dotenv/config"` into `lib/prisma.ts` itself, so loading the environment no longer
    silently depends on which file happens to import it first. Re-ran the suite: all 6 tests
    passed.
+
 9. Test data cleanup happens automatically: the test file tracks every email it creates and
-   deletes those rows in an `afterAll` hook, then disconnects Prisma — confirmed via a direct
+   deletes those rows in an `afterAll` hook (a Vitest/Jest-style test lifecycle hook — a
+   function that runs once after every test in the file has finished, commonly used for
+   cleanup like this), then disconnects Prisma — confirmed via a direct
    `SELECT count(*) FROM users` against the container afterward (`0`), so re-running the
    suite repeatedly never collides with leftover data from a previous run.
 10. Re-ran `npm run build` after the `prisma.ts` fix (still compiles cleanly) and did one
-    final full round-trip against the *compiled* server (`node dist/index.js` → `curl` a real
+    final full round-trip against the _compiled_ server (`node dist/index.js` → `curl` a real
     registration → 201), then stopped the server and deleted that last manual test row.
 
 ### Why it's needed
@@ -336,11 +365,11 @@ credentials, issue short-lived JWT access token + longer-lived refresh token."
 
 - **A JWT (JSON Web Token) is a signed, self-contained claim, not a lookup key.** A database
   session ID means nothing on its own — the server has to look it up in a table to know who
-  it belongs to. A JWT instead directly *contains* the claim (here, just `{ sub: userId }`,
+  it belongs to. A JWT instead directly _contains_ the claim (here, just `{ sub: userId }`,
   `sub` being the JWT standard's name for "subject" — whose token this is) plus an expiry
   (`exp`), and is cryptographically **signed** with a secret only the server knows. Anyone can
-  *read* a JWT's contents (it's just base64-encoded JSON, not encrypted — this is why nothing
-  sensitive like a password ever goes in one), but nobody can *forge* or *alter* one without
+  _read_ a JWT's contents (it's just base64-encoded JSON, not encrypted — this is why nothing
+  sensitive like a password ever goes in one), but nobody can _forge_ or _alter_ one without
   the signing secret, because the server recomputes the signature on every request and
   rejects the token if it doesn't match. This is what lets the backend verify "yes, this
   really is user X, and this token hasn't expired or been tampered with" without a database
@@ -355,7 +384,7 @@ credentials, issue short-lived JWT access token + longer-lived refresh token."
   doesn't have to re-enter their password every 15 minutes just because the access token
   expired.
 - **Separate signing secrets per token type** (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` —
-  new entries in `.env`/`.env.example`). If the two used the *same* secret, anyone who
+  new entries in `.env`/`.env.example`). If the two used the _same_ secret, anyone who
   obtained it (e.g. via a leaked short-lived access token secret, if it were shared) could
   forge the other kind of token too. Separate secrets mean the two blast radii stay
   independent — this also sets up task 2.3's refresh-rotation logic to only ever verify
@@ -370,17 +399,19 @@ credentials, issue short-lived JWT access token + longer-lived refresh token."
 #### Defending login against timing-based user enumeration
 
 - **The register endpoint's 409 "Email is already registered" is an intentional, explicit
-  signal** (see the previous entry's *Decisions*) — but *login* is a different situation: a
+  signal** (see the previous entry's _Decisions_) — but _login_ is a different situation: a
   wrong password and a nonexistent account should look identical to an outside observer,
-  because leaking "that email doesn't have an account" from the *login* screen specifically
+  because leaking "that email doesn't have an account" from the _login_ screen specifically
   would let an attacker cheaply enumerate real user emails at scale (unlike registration,
   where they'd have to actually attempt one registration per guess). This is why both cases
-  return the exact same `401 { code: "INVALID_CREDENTIALS" }` response in `routes/auth.ts`.
-- **Matching response *time*, not just response *body*, is what actually closes the gap.**
+  return the exact same `401 { code: "INVALID_CREDENTIALS" }` response in `routes/auth.ts`
+  (`401 Unauthorized` is the HTTP status code — see the register entry above for the general
+  status-code ranges — meaning "the request needs valid credentials and doesn't have them").
+- **Matching response _time_, not just response _body_, is what actually closes the gap.**
   bcrypt's comparison (`bcrypt.compare`) is deliberately slow (see the previous entry on
   `SALT_ROUNDS`). If the login handler only ran `bcrypt.compare` when a matching user was
   found — and returned immediately for a nonexistent email — a nonexistent-email request
-  would come back measurably *faster* than a wrong-password request, and that timing
+  would come back measurably _faster_ than a wrong-password request, and that timing
   difference alone would leak which emails are registered even though the JSON bodies match.
   The fix: `DUMMY_PASSWORD_HASH` is a real, precomputed bcrypt hash of an arbitrary value that
   matches no real password. `bcrypt.compare(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH)`
@@ -403,7 +434,7 @@ credentials, issue short-lived JWT access token + longer-lived refresh token."
 3. **The login route.** Added `loginSchema` (email + non-empty password) and
    `authRouter.post("/login", ...)` to `routes/auth.ts`: looks the user up by email,
    `bcrypt.compare`s the password against either the real hash or `DUMMY_PASSWORD_HASH` (see
-   *Background*), and on success returns `200` with the same safe user fields the register
+   _Background_), and on success returns `200` with the same safe user fields the register
    route returns (id/email/displayName/timezone/createdAt — never `passwordHash`) plus
    `accessToken` and `refreshToken`. Any failure — unknown email or wrong password — returns
    a uniform `401 { error: { message: "Invalid email or password", code: "INVALID_CREDENTIALS" } }`.
@@ -411,18 +442,24 @@ credentials, issue short-lived JWT access token + longer-lived refresh token."
    (asserts both tokens verify with `jwt.verify` against the real secrets, decode to the
    correct `sub`, and that the refresh token's `exp` is later than the access token's — i.e.
    actually longer-lived, not just differently labeled), wrong password → 401, unknown email
-   → 401 (same code as wrong password), invalid email format → 400, and missing password →
-   400.
+   → 401 (same code as wrong password), invalid email format → 400, and missing password → 400.
 5. **Ran into an environment problem unrelated to the new code, and fixed the environment,
    not the code.** Docker Desktop wasn't running when tests were first re-run in this step
    (`docker compose ps` failed to reach the Docker engine at all), so every test touching the
-   database — including the *existing*, previously-passing register tests — failed with a
-   generic `500`. Started Docker Desktop, waited for its engine to come up, then
+   database — including the _existing_, previously-passing register tests — failed with a
+   generic `500` (`500 Internal Server Error` — the 5xx status code for "something broke on
+   the server's own side," as opposed to the 4xx codes above which mean the client's request
+   itself was the problem). Started Docker Desktop, waited for its engine to come up, then
    `docker compose up -d postgres` and confirmed `pg_isready`. Also deleted a stale
    `backend/dist/` from an earlier manual build while debugging — it's git-ignored,
    reproducible output, but a leftover `dist/routes/auth.test.js` was confusing Vitest's file
    discovery (Vitest imports the compiled CommonJS version too, which errors, since Vitest
-   itself is ESM-only) — a good reminder that stale build output can occasionally interfere
+   itself is ESM-only — **CommonJS** and **ESM** are two different, incompatible systems
+   JavaScript has used for importing/exporting code between files: CommonJS is the older
+   `require()`/`module.exports` style Node.js originally used, while **ESM** ("ECMAScript
+   Modules") is the newer, standard `import`/`export` syntax this project's own source uses.
+   Modern tools like Vitest are built to work only with ESM, so a leftover compiled CommonJS
+   file trips it up) — a good reminder that stale build output can occasionally interfere
    with the very tests meant to verify the source.
 6. **`npm test`** — all 11 tests passed (the original 6 register tests, unchanged, plus 5 new
    login tests).
@@ -438,7 +475,7 @@ credentials, issue short-lived JWT access token + longer-lived refresh token."
 
 ### Why it's needed
 
-Registration alone only gets a user *into* the database — login is what lets that same user
+Registration alone only gets a user _into_ the database — login is what lets that same user
 prove who they are on a later visit and get back the credentials (the access/refresh tokens)
 that every other protected endpoint in Phase 2 onward will require. It's also the first place
 tokens are minted at all, so the signing infrastructure built here (`lib/jwt.ts`, the two
@@ -449,13 +486,13 @@ and `POST /api/auth/refresh` (task 2.3) will both build on directly.
 
 - **Login and register return uniform-looking failures for different reasons, on purpose.**
   Register's 409 is deliberately specific (see the previous entry); login's 401 is
-  deliberately generic, *and* timing-matched via `DUMMY_PASSWORD_HASH` — because the two
+  deliberately generic, _and_ timing-matched via `DUMMY_PASSWORD_HASH` — because the two
   endpoints have different attack surfaces (an attacker "guessing" during registration has to
   create real accounts to test each email; an attacker guessing during login can test emails
   for free and, without the timing fix, would only need a stopwatch — not even a full
   password-guessing attempt — to enumerate them).
 - **Access and refresh tokens use separate secrets** rather than one shared `JWT_SECRET`,
-  even though nothing *forces* that split yet — it costs nothing today and avoids a shared
+  even though nothing _forces_ that split yet — it costs nothing today and avoids a shared
   blast radius later once refresh-token rotation (task 2.3) starts trusting refresh tokens
   for a more sensitive operation (minting new access tokens).
 - **Refresh tokens are returned in the JSON body for now, not yet as an HTTP-only cookie.**
@@ -503,20 +540,23 @@ strategy (e.g. HTTP-only secure cookie for the refresh token) and `POST /api/aut
 
 **Delivered via branch:** `feature/2.3-auth-refresh` (branched from `feature/2.2-auth-login`,
 since this task builds directly on `lib/jwt.ts` and the login endpoint from that branch,
-which wasn't merged to `main` yet — see *Decisions*).
+which wasn't merged to `main` yet — see _Decisions_).
 
 ### Background / concepts
 
 #### Why a cookie instead of just leaving the refresh token in the JSON body
 
 - **A refresh token is more dangerous to leak than an access token.** The previous entry's
-  access token expires in 15 minutes; a leaked refresh token is valid for 7 days *and* can
+  access token expires in 15 minutes; a leaked refresh token is valid for 7 days _and_ can
   mint new access tokens on demand. That makes it a much higher-value target for anything
-  that can read the page's JavaScript — a malicious browser extension, an XSS bug, a
+  that can read the page's JavaScript — a malicious browser extension, an XSS bug (**XSS**,
+  Cross-Site Scripting — a vulnerability where an attacker manages to get their own malicious
+  JavaScript to run inside a legitimate page, e.g. by injecting it through an unescaped
+  user-input field, letting that script act as if it were the site's own code), a
   dependency that turns hostile.
 - **This is exactly the class of attack an `HttpOnly` cookie is designed to block.** A cookie
   marked `HttpOnly` is attached automatically by the browser on requests to the matching
-  path, but is *invisible to JavaScript* (`document.cookie` simply won't show it). So even if
+  path, but is _invisible to JavaScript_ (`document.cookie` simply won't show it). So even if
   an attacker manages to run arbitrary JS on the page, they still can't read the refresh
   token out of it — the previous body-based approach had no such protection; any JS on the
   page could read `response.body.refreshToken` directly. This is why the login response body
@@ -524,16 +564,19 @@ which wasn't merged to `main` yet — see *Decisions*).
 - **The other three cookie flags set alongside `HttpOnly`** (`lib/cookies.ts`):
   - `Secure` — tells the browser to only ever send the cookie over `https`, never plain
     `http`, so it can't be sniffed on the wire. Skipped in non-production (`NODE_ENV !==
-    "production"`) because local dev runs over plain `http`, where a `Secure` cookie would
+"production"`) because local dev runs over plain `http`, where a `Secure` cookie would
     silently just never be sent at all — not a security relaxation so much as making the
     cookie work at all locally, with production still getting the real protection.
   - `SameSite=Lax` — tells the browser not to attach this cookie on cross-site requests
     (e.g. a `<form>` on some other website submitting to this API), which is what makes
-    cookies resistant to CSRF in the first place. `Lax` (rather than `Strict`) still allows
+    cookies resistant to CSRF in the first place (**CSRF**, Cross-Site Request Forgery — an
+    attack where a malicious website tricks a victim's browser into making a request to a
+    _different_ site the victim happens to already be logged into, riding on the victim's own
+    cookies without their knowledge or consent). `Lax` (rather than `Strict`) still allows
     the cookie on top-level navigation, which doesn't matter yet for an API-only backend but
     is the conventional safe default.
   - `Path=/api/auth` — scopes the cookie so the browser only attaches it on requests to
-    `/api/auth/*` (i.e. login, refresh, and future logout/reset endpoints), not on *every*
+    `/api/auth/*` (i.e. login, refresh, and future logout/reset endpoints), not on _every_
     request to the backend. Once Phase 3's data endpoints exist, none of them will see this
     cookie at all — smaller blast radius if anything downstream ever mishandled cookies.
 
@@ -545,7 +588,7 @@ which wasn't merged to `main` yet — see *Decisions*).
 - **Why bother, if the old one hasn't expired yet?** Without rotation, a single refresh token
   is valid, unchanged, for its entire 7-day lifetime — if it ever leaked once (e.g. copied
   from a debugger, logged somewhere by accident), it stays usable for the attacker the whole
-  time, with zero indication anything is wrong. With rotation, the *legitimate* browser is
+  time, with zero indication anything is wrong. With rotation, the _legitimate_ browser is
   continuously exchanging its refresh token for a fresh one, so a leaked-and-unused token
   becomes stale relatively quickly in normal usage. This implementation is deliberately the
   simple, stateless version — verify-and-reissue, no server-side record of which refresh
@@ -556,13 +599,14 @@ which wasn't merged to `main` yet — see *Decisions*).
 
 ### What was done
 
-1. **`backend/src/lib/jwt.ts`.** Renamed the TTL constants to be second-based
+1. **`backend/src/lib/jwt.ts`.** Renamed the TTL (**T**ime **T**o **L**ive — how long a token
+   stays valid before expiring) constants to be second-based
    (`ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`) instead of the string form
    (`"15m"`/`"7d"`) so the refresh token's lifetime is defined in exactly one place and can be
    reused as a number for the cookie's `maxAge` (which needs milliseconds, not a string) —
    avoids the two ever silently drifting apart. Added `verifyRefreshToken(token)`, wrapping
    `jwt.verify` against `JWT_REFRESH_SECRET` specifically (never `JWT_ACCESS_SECRET` — see
-   the previous entry's *separate secrets* reasoning).
+   the previous entry's _separate secrets_ reasoning).
 2. **`backend/src/lib/cookies.ts` (new).** `setRefreshTokenCookie(res, token)` and
    `clearRefreshTokenCookie(res)`, centralizing the cookie name (`refreshToken`) and all four
    flags described above in one place, so login, refresh, and the future logout endpoint
@@ -574,7 +618,7 @@ which wasn't merged to `main` yet — see *Decisions*).
    `undefined`.
 4. **Updated the login route.** Now calls `setRefreshTokenCookie` and no longer returns
    `refreshToken` in the JSON body — the response shape is now `{ user, accessToken }`,
-   exactly the change flagged as expected in the previous entry's *Decisions*.
+   exactly the change flagged as expected in the previous entry's _Decisions_.
 5. **New `POST /api/auth/refresh` route.** Reads `req.cookies.refreshToken`; if missing,
    `401 MISSING_REFRESH_TOKEN`. Otherwise `verifyRefreshToken`s it (catching a bad signature
    or expiry) and looks the user up by the token's `sub`; either failure — bad token or a
@@ -588,8 +632,8 @@ which wasn't merged to `main` yet — see *Decisions*).
    `Set-Cookie` header, since supertest doesn't expose cookies as a friendlier object). Added
    a `POST /api/auth/refresh` block: valid cookie → 200 with a new access token and a rotated
    cookie; no cookie → 401 `MISSING_REFRESH_TOKEN`; a garbage/malformed token → 401
-   `INVALID_REFRESH_TOKEN` with the cookie cleared; a token *correctly signed but with the
-   wrong secret* (`JWT_ACCESS_SECRET` instead of `JWT_REFRESH_SECRET`) → 401, confirming the
+   `INVALID_REFRESH_TOKEN` with the cookie cleared; a token _correctly signed but with the
+   wrong secret_ (`JWT_ACCESS_SECRET` instead of `JWT_REFRESH_SECRET`) → 401, confirming the
    two token types genuinely can't be swapped; and a well-formed token for a user deleted
    after login → 401.
 7. **`npm test`** — 16/16 passing (11 pre-existing register/login tests, 5 new refresh tests)
@@ -611,7 +655,7 @@ which wasn't merged to `main` yet — see *Decisions*).
     `MISSING_REFRESH_TOKEN`), and with a garbage cookie value (401 `INVALID_REFRESH_TOKEN`,
     and the response's `Set-Cookie` showed the cookie being cleared, i.e. `Max-Age=0`/epoch
     expiry). Cleaned up the manually-created user afterward directly via `psql` (`DELETE FROM
-    users WHERE email LIKE 'manual-verify-%'`) and stopped the manually-started server.
+users WHERE email LIKE 'manual-verify-%'`) and stopped the manually-started server.
 
 ### Why it's needed
 
@@ -630,7 +674,7 @@ attempts a token refresh before retrying once") will call.
   for review — not yet merged to `main` — when this task started. Branching off `main` would
   have meant working without the very code being extended. This branch will need a rebase
   onto `main` once #7 is merged, which is expected and normal for stacked work like this.
-- **Stateless rotation, not full reuse-detection.** Covered under *Background* above — chosen
+- **Stateless rotation, not full reuse-detection.** Covered under _Background_ above — chosen
   as the right amount of complexity for this MVP's threat model; a database-backed
   "token family" revocation system is a reasonable future hardening step, not a gap being
   silently ignored.
@@ -685,33 +729,37 @@ for the same reason as that branch was stacked on `feature/2.2-auth-login` — i
 - **There's no server-side session record to delete.** A traditional session-based login
   stores a session ID in a database table, and logging out means deleting that row — after
   that, the session ID is provably useless even if someone still has it. This app's tokens
-  are stateless JWTs instead (see the 2.2 entry's *Background*): the server never stores
+  are stateless JWTs instead (see the 2.2 entry's _Background_): the server never stores
   "which tokens are currently valid" anywhere, it just verifies signatures on demand. That
-  means there is no row to delete, and by extension no way to make a *specific* already-issued
+  means there is no row to delete, and by extension no way to make a _specific_ already-issued
   refresh token stop working before its natural 7-day expiry — the server has no record of it
   existing in the first place.
 - **So what does logout actually do here?** It clears the `HttpOnly` refresh cookie via
   `Set-Cookie: refreshToken=; Expires=<epoch>` (`clearRefreshTokenCookie`, already built in
-  2.3). The *browser* then stops attaching the cookie to future requests, which in practice is
+  2.3). The _browser_ then stops attaching the cookie to future requests, which in practice is
   what "being logged out" means for the legitimate user on that device — they can no longer
   reach `/api/auth/refresh` without logging in again. This is a real, meaningful action (the
   same-device, same-browser case that "click logout" is actually for), just not the same
-  *kind* of guarantee a server-side session deletion gives (which would also stop a copied,
-  still-cookied token from working on a *different* device). That gap is a known, accepted
+  _kind_ of guarantee a server-side session deletion gives (which would also stop a copied,
+  still-cookied token from working on a _different_ device). That gap is a known, accepted
   consequence of the stateless design chosen in 2.2/2.3, not something this task was expected
   to close — closing it would mean building the server-side revocation list explicitly
-  deferred in 2.3's *Decisions*.
+  deferred in 2.3's _Decisions_.
 
 ### What was done
 
 1. **`POST /api/auth/logout` route**, added to `routes/auth.ts`: calls
    `clearRefreshTokenCookie(res)` and returns `200 { message: "Logged out" }`. No request body,
-   no auth requirement (per *Background*, above — there's no session to check, so there's
+   no auth requirement (per _Background_, above — there's no session to check, so there's
    nothing to reject even from a request with no cookie at all; calling it is always safe).
 2. **Tests.** Added a `POST /api/auth/logout` block to `routes/auth.test.ts`:
-   - The main case uses `request.agent(app)` (supertest/superagent's cookie-jar-aware client)
+   - The main case uses `request.agent(app)` (supertest/superagent's cookie-jar-aware client —
+     a **cookie jar** is just a stored collection of a site's cookies, the same thing a real
+     browser keeps and automatically attaches to later requests; here it's a small in-test
+     equivalent, since a plain, one-off request doesn't remember any cookie from a previous
+     call)
      instead of the plain `request(app)` the other tests use, specifically because this is the
-     first test where the thing being verified — "the *next* request from the same client
+     first test where the thing being verified — "the _next_ request from the same client
      no longer carries the cookie" — depends on a real cookie jar reacting to a `Set-Cookie`
      header, not just inspecting one response in isolation. The agent registers, logs in,
      calls logout, then calls `/api/auth/refresh` again with no manual cookie handling — and
@@ -733,7 +781,7 @@ for the same reason as that branch was stacked on `feature/2.2-auth-login` — i
 
 ### Why it's needed
 
-Registration, login, and refresh (2.1–2.3) only ever *start or extend* a session — logout is
+Registration, login, and refresh (2.1–2.3) only ever _start or extend_ a session — logout is
 the first endpoint that lets a user deliberately end one, which requirements §5 and the
 Definition of Done checklist ("Register, log in, log out, ... all work end-to-end") both call
 out as a baseline expectation. It also directly unblocks Phase 6's frontend "Logout action
@@ -784,19 +832,19 @@ protected routes."
 first piece of a new "vertical slice" — the same full-stack, one-feature-at-a-time approach
 used to get login working end to end — this time aimed at the app's first real wellness-
 tracking feature (mood logging), rather than auth itself. This task is the necessary first
-step: every log-type endpoint (mood, symptoms, medications, habits) needs to know *which
-user* is making the request before it can safely read or write that user's data, and nothing
+step: every log-type endpoint (mood, symptoms, medications, habits) needs to know _which
+user_ is making the request before it can safely read or write that user's data, and nothing
 in the codebase does that yet.
 
 ### Background / concepts
 
 #### What "middleware" means in Express
 
-- Express handles a request by running it through a *chain* of functions in order — each one
+- Express handles a request by running it through a _chain_ of functions in order — each one
   called "middleware" — before it reaches the actual route handler. `cors()`, `express.json()`,
   and `cookieParser()` in `app.ts` are all middleware already in use: each one looks at the
   request, does something (parses the body, reads cookies), and calls `next()` to pass control
-  along to whatever comes after it. A middleware that *doesn't* call `next()` — because it
+  along to whatever comes after it. A middleware that _doesn't_ call `next()` — because it
   decides the request shouldn't proceed — stops the chain right there, which is exactly how
   authentication gets enforced: `requireAuth` either calls `next()` (proceed) or sends a `401`
   response itself (stop), and nothing after it in the chain ever runs for a rejected request.
@@ -811,12 +859,12 @@ in the codebase does that yet.
 - This app already has one place tokens travel automatically: the refresh token, sent as an
   `HttpOnly` cookie the browser attaches by itself (see the Phase 2.3 refresh-token entry). The
   access token works differently, **on purpose**: it's read from an `Authorization: Bearer
-  <token>` request header, which the *frontend's own code* has to attach explicitly (already
+<token>` request header, which the _frontend's own code_ has to attach explicitly (already
   built — see `frontend/src/api/client.ts`'s `apiFetch`, from the Phase 5 API client task).
 - **Why not just use a cookie for the access token too?** Because the two tokens have
   deliberately different jobs and different lifetimes. The refresh token's whole point is to
   sit quietly and be sent automatically without any frontend code touching it (that's what
-  makes it safe from XSS — see the 2.3 entry). The access token, by contrast, is *supposed* to
+  makes it safe from XSS — see the 2.3 entry). The access token, by contrast, is _supposed_ to
   be handled by frontend JavaScript — the API client needs to be able to hold it in memory,
   swap it out the moment a refresh returns a new one, and decide per-request whether to attach
   it at all. A `Bearer` header is simply the standard, conventional way to send a token that
@@ -830,7 +878,7 @@ in the codebase does that yet.
 
 #### Attaching the user to the request: TypeScript declaration merging
 
-- Once `requireAuth` verifies a token, the route handler that runs next needs to know *whose*
+- Once `requireAuth` verifies a token, the route handler that runs next needs to know _whose_
   request this is. The convention is to attach it directly onto the `req` object
   (`req.userId = payload.sub`), since Express passes that same object through the whole chain.
 - Plain JavaScript would let any code just read `req.userId` back out with no fuss. TypeScript,
@@ -861,7 +909,7 @@ in the codebase does that yet.
    for this test — exactly the shape a real protected route will have. Covers: a valid token
    (200, correct `req.userId` attached), no `Authorization` header (401
    `MISSING_ACCESS_TOKEN`), a non-Bearer `Authorization` header (401, same code), an expired
-   token, a token signed with the *refresh* secret instead of the access secret (401
+   token, a token signed with the _refresh_ secret instead of the access secret (401
    `INVALID_ACCESS_TOKEN` in both cases — proving the two token types can't be swapped, the
    same property already tested for the refresh endpoint in the 2.3 entry), and a garbage
    token string.
@@ -880,15 +928,15 @@ built to catch) or would need to be reimplemented inline in every single route.
 ### Decisions
 
 - **`req.userId` (a string) rather than `req.user` (a full user object).** The token only ever
-  proves *who* the request is from, not any other detail about them — fetching the full `User`
+  proves _who_ the request is from, not any other detail about them — fetching the full `User`
   row is a separate, deliberate database call that individual routes can make if and when they
   actually need more than the ID (e.g. the future `GET /api/users/me`). Attaching a full user
-  object here would mean either a database query on *every single request* whether the route
+  object here would mean either a database query on _every single request_ whether the route
   needs it or not, or attaching stale/incomplete data — neither is worth it for the common case
   of "just tell me whose mood log to create."
 - **Tested against a throwaway route rather than waiting for a real one.** Blocking this task on
   the mood-logs endpoint existing first would invert the dependency the wrong way — the
-  endpoint needs the middleware to exist and be correct *first*. Testing the middleware in
+  endpoint needs the middleware to exist and be correct _first_. Testing the middleware in
   isolation, the same way `lib/jwt.ts`'s functions are unit-tested directly rather than only
   through the routes that use them, keeps this task genuinely finished on its own.
 
@@ -919,14 +967,14 @@ Settings-page form is next.
 #### Why this route needs `requireAuth`, and why it re-checks the password anyway
 
 - This is the first route in `auth.ts` itself to use `requireAuth` — every route in this file
-  before now (register, login, refresh, logout) is deliberately reachable *without* being
+  before now (register, login, refresh, logout) is deliberately reachable _without_ being
   logged in, since their whole job is establishing or ending a session. Change-password is
   different: it only makes sense for someone who already has a session, so it's mounted behind
   `requireAuth` like the mood-logs routes are.
 - **Being logged in isn't the same as proving you should be allowed to change the password,
   though** — an access token only proves "a request came from whoever holds this token," which
   could be a browser someone left signed in, or a stolen (but not yet expired) token. Requiring
-  the *current* password as well as a valid session is a second, independent factor — someone
+  the _current_ password as well as a valid session is a second, independent factor — someone
   with just the access token, but not the actual password, still can't take over the account by
   changing its password out from under the real owner.
 
@@ -937,9 +985,9 @@ Settings-page form is next.
   of which ones are "still good." That means changing a password can't retroactively invalidate
   some other device's already-issued access token, or force that device to know a change even
   happened — a genuine, previously-documented limitation, not new here.
-- **What *can* be done: clear the refresh cookie on the browser making the change**, the exact
+- **What _can_ be done: clear the refresh cookie on the browser making the change**, the exact
   same mechanism `logout` already uses. This doesn't revoke anything happening elsewhere, but it
-  does mean *this* browser session ends the moment the password changes, forcing a fresh login
+  does mean _this_ browser session ends the moment the password changes, forcing a fresh login
   with the new password — a reasonable, standard expectation after a password change, achieved
   with a function this route already had available rather than any new mechanism.
 
@@ -959,13 +1007,16 @@ Settings-page form is next.
    (`currentPassword`, `newPassword`); added `POST /change-password` behind `requireAuth` —
    verifies `currentPassword` against the stored hash (`401 INVALID_CURRENT_PASSWORD` if it
    doesn't match, reusing the same constant-time-comparison-via-dummy-hash trick already used by
-   login for the "no such user" case, here covering the theoretical case of the token's user
+   login for the "no such user" case (this is the formal name for the pattern the 2.2 entry
+   above walked through: running the same expensive, fixed-duration comparison regardless of
+   which branch is taken, so an attacker watching _how long_ a response takes can't tell which
+   case actually occurred), here covering the theoretical case of the token's user
    having been deleted mid-session), hashes and stores `newPassword` on success, clears the
    refresh cookie, returns `200 { message: "Password updated" }`.
 2. **Tests.** No access token → `401 MISSING_ACCESS_TOKEN`; wrong current password → `401
-   INVALID_CURRENT_PASSWORD`; a new password failing the strength rules → `400
-   VALIDATION_ERROR`; full success path — asserts the refresh cookie is cleared in the response,
-   that a subsequent login with the *old* password now fails, that a login with the *new*
+INVALID_CURRENT_PASSWORD`; a new password failing the strength rules → `400
+VALIDATION_ERROR`; full success path — asserts the refresh cookie is cleared in the response,
+   that a subsequent login with the _old_ password now fails, that a login with the _new_
    password succeeds, and that the stored hash is neither the plaintext new password nor
    unchanged (a real bcrypt hash).
 3. **`npm test`** — 38/38 passing (34 pre-existing, 4 new).
@@ -1012,8 +1063,8 @@ actually makes this reachable by a real user rather than only `curl`.
 **Task:** Not a [Tasks.md](../../Tasks.md) checklist item — this app's auth system has been built
 piece by piece across many earlier entries (register, login, refresh tokens, the backend
 `requireAuth` middleware, the frontend `RequireAuth` guard, the API client's automatic
-refresh-on-401). Each entry explained its own piece well, but none of them lay out the *whole
-shape* in one place. This entry does that deliberately, as a standalone reference — the goal is
+refresh-on-401). Each entry explained its own piece well, but none of them lay out the _whole
+shape_ in one place. This entry does that deliberately, as a standalone reference — the goal is
 that this specific pattern (not just this specific app) is something a beginner could recognize
 and re-implement in a completely different project later.
 
@@ -1034,14 +1085,14 @@ answer one question on every single request: **who is this, and are they allowed
   if it leaked, the damage window is small.
 - **The refresh token** is longer-lived (7 days) and exists for exactly one purpose: trading
   itself in for a new access token, so the user isn't forced to re-enter their password every
-  15 minutes. It's deliberately kept *out* of JavaScript's reach entirely — delivered only as an
+  15 minutes. It's deliberately kept _out_ of JavaScript's reach entirely — delivered only as an
   `HttpOnly` cookie, which the browser attaches automatically but which `document.cookie` (and
   therefore any malicious script that ends up running on the page) simply cannot read.
 - **The general principle this demonstrates:** the token that's riskier to leak (longer-lived,
   more powerful) is the one given the stronger protection (invisible to JavaScript), even though
   that makes it slightly less convenient to work with. The token that's cheaper to leak (short
   lifespan) is the one handed to the more flexible but less protected mechanism. This trade-off
-  — matching the *protection* to the *risk*, not applying the same protection uniformly
+  — matching the _protection_ to the _risk_, not applying the same protection uniformly
   everywhere — is a pattern worth recognizing in other security decisions generally, not just
   this one.
 
@@ -1079,10 +1130,14 @@ export function RequireAuth() {
 }
 ```
 
+- `useAuth` and `useLocation` in the code above are **React hooks** — functions whose names
+  start with `use` that let a function component tap into shared state or browser/router
+  information rather than tracking it itself; `useLocation` specifically comes from React
+  Router and returns the current URL.
 - This is a **route guard**, the frontend's equivalent of the backend's `requireAuth`
   middleware — but it has to work completely differently, because there's no request/response
   chain on the frontend to hook into. Instead, it's just an ordinary React component, placed as
-  a *wrapping* route in `App.tsx`:
+  a _wrapping_ route in `App.tsx`:
   ```tsx
   <Route element={<RequireAuth />}>
     <Route path="/dashboard" element={<DashboardPage />} />
@@ -1096,17 +1151,17 @@ export function RequireAuth() {
   Router then fills in with `<SettingsPage />`. When `isAuthenticated` is `false`, `RequireAuth`
   never renders `<Outlet />` at all — it renders `<Navigate>` instead, which redirects before
   the protected page's component is ever mounted. The protected page's own code doesn't need to
-  know or check anything about auth itself; simply being nested inside this wrapping route *is*
+  know or check anything about auth itself; simply being nested inside this wrapping route _is_
   the protection.
 - **`state={{ from: location }}`** carries "where the user was trying to go" along with the
   redirect, so `LoginPage` can send them back to that exact page after a successful login
   instead of always dumping them on the dashboard regardless of what they actually clicked.
 - **This is also exactly the mechanism that caused the real race-condition bug in the previous
-  entry**, worth restating here as a caution: because `RequireAuth` re-evaluates on *every*
+  entry**, worth restating here as a caution: because `RequireAuth` re-evaluates on _every_
   render, the instant `isAuthenticated` becomes `false` while a guarded route is still current,
-  it fires its own redirect — regardless of whether some *other* code is also trying to
+  it fires its own redirect — regardless of whether some _other_ code is also trying to
   navigate away at that same moment. Any code that logs a user out should navigate to an
-  unguarded route *first*, then clear auth state, to avoid competing with `RequireAuth`'s own
+  unguarded route _first_, then clear auth state, to avoid competing with `RequireAuth`'s own
   redirect over what `/login` ends up showing.
 
 ### A full walkthrough: one user, from cold page load to logging out
@@ -1114,10 +1169,10 @@ export function RequireAuth() {
 Tying every piece together as a single continuous story, in order:
 
 1. **Cold load, not yet logged in.** `AuthProvider` initializes `{ user: null, accessToken:
-   null }`. Visiting `/dashboard` — a guarded route — `RequireAuth` sees `isAuthenticated:
-   false` and redirects to `/login`, remembering `/dashboard` as `state.from`.
+null }`. Visiting `/dashboard` — a guarded route — `RequireAuth` sees `isAuthenticated:
+false` and redirects to `/login`, remembering `/dashboard` as `state.from`.
 2. **Logging in.** `LoginPage` calls `POST /api/auth/login`. The server verifies the password,
-   and responds with a fresh access token in the JSON body *and* sets the refresh token as an
+   and responds with a fresh access token in the JSON body _and_ sets the refresh token as an
    `HttpOnly` cookie via `Set-Cookie` — the browser stores that cookie automatically; nothing in
    the frontend's own code ever touches it directly. `AuthContext` stores the access token in
    memory and updates `user`. `LoginPage` reads `state.from` and navigates there — back to
@@ -1128,7 +1183,7 @@ Tying every piece together as a single continuous story, in order:
 4. **15 minutes pass; the access token expires.** The next API call gets back a `401`.
    `apiFetch` (not the calling code, not the component) notices this itself, and automatically
    calls `POST /api/auth/refresh` — which reads the still-valid refresh cookie the browser has
-   been quietly holding onto, verifies it, and returns a *new* access token (while also rotating
+   been quietly holding onto, verifies it, and returns a _new_ access token (while also rotating
    the refresh cookie to a new value — see the Phase 2.3 entry for why). `apiFetch` retries the
    original request once with the new token. **None of this is visible to the user or to
    whatever page triggered the original request** — it just looks like the request quietly
@@ -1137,7 +1192,7 @@ Tying every piece together as a single continuous story, in order:
    refresh attempt now fails for real (`401 MISSING_REFRESH_TOKEN` or `INVALID_REFRESH_TOKEN`).
    `apiFetch` reports this via `onAuthFailure` — `AuthContext` is listening for exactly that
    signal, and clears its state (`user: null, accessToken: null`) the moment it fires. On the
-   *next* render, `RequireAuth` (wrapping whatever protected page the user still happens to be
+   _next_ render, `RequireAuth` (wrapping whatever protected page the user still happens to be
    looking at) notices `isAuthenticated` is now `false` and redirects to `/login` — even though
    the user never explicitly clicked anything. This is the same mechanism from step 1, just
    triggered by session expiry instead of a fresh page load.
@@ -1151,10 +1206,10 @@ Tying every piece together as a single continuous story, in order:
 - One shared client-side wrapper component that every protected page is nested inside, rather
   than each page checking auth itself.
 - One central place (the API client) that knows how to retry a request after silently
-  refreshing an expired token — so *no other code in the entire app* needs to know or care that
+  refreshing an expired token — so _no other code in the entire app_ needs to know or care that
   tokens expire at all.
 - One shared "the session just ended" signal that the auth store listens for, so expiry
-  discovered *anywhere* (a background request, an explicit logout, a failed refresh) all funnel
+  discovered _anywhere_ (a background request, an explicit logout, a failed refresh) all funnel
   through the exact same "log the user out" code path.
 
 ### An honest, current limitation, not glossed over
@@ -1177,7 +1232,7 @@ itself fails.
 password via the new Settings page, then couldn't log back in with it. With no self-service
 recovery path built yet (forgot-password is still on the checklist, unbuilt), the only way back
 in was a direct, manual database edit. Worth documenting both the recovery itself and, properly
-this time, exactly why the *real* fix for this situation is a bigger piece of work than it might
+this time, exactly why the _real_ fix for this situation is a bigger piece of work than it might
 first appear.
 
 ### Background / concepts
@@ -1192,7 +1247,7 @@ first appear.
   not plain text. Setting the column to literal `Password123` would make login **always fail**,
   since `bcrypt.compare("Password123", "Password123")` treats the second argument as an
   (invalid) hash to check against, not a password to match directly.
-- **The fix:** generate the *hash* locally, using the exact same library and cost factor the
+- **The fix:** generate the _hash_ locally, using the exact same library and cost factor the
   app itself uses (`bcryptjs`, 12 rounds — matching `SALT_ROUNDS` in `routes/auth.ts`), then
   write that hash into the database directly:
   ```js
@@ -1217,7 +1272,7 @@ first appear.
 #### What "forgot password" actually requires, and why it can't be built the same way `change-password` was
 
 - `change-password` (built two entries ago) proves identity using something the user already
-  has: their *current* password. `forgot-password` starts from the opposite situation — the
+  has: their _current_ password. `forgot-password` starts from the opposite situation — the
   user doesn't have a working password at all, which is the entire reason the feature needs to
   exist. Something else has to stand in as proof of identity instead.
 - **The standard answer: prove control of the email address on file**, via a one-time,
@@ -1277,13 +1332,13 @@ could perform. That is precisely the situation `forgot-password` exists to make 
 
 The locked-out account is recovered and working again with a known temporary password.
 `forgot-password`/`reset-password` remain unbuilt, tracked in `Tasks.md` (Phase 2) as before —
-this entry adds the *reasoning* for why they need a real email provider, as context for
+this entry adds the _reasoning_ for why they need a real email provider, as context for
 whenever that decision gets made.
 
 ### Verification
 
 - The generated bcrypt hash was verified locally (`bcrypt.compareSync("Password123", hash) ===
-  true`) before being written to production, so the recovery's correctness was confirmed before
+true`) before being written to production, so the recovery's correctness was confirmed before
   the user ever attempted to log in with it — not discovered by trial and error against the
   live account.
 - Confirmed directly by the user successfully logging back in with the temporary password
@@ -1309,9 +1364,9 @@ raises an obvious question: what happens to a `mood_logs` row whose `user_id` po
 just got deleted? Left unhandled, the database would refuse the deletion outright (a "foreign key
 violation") rather than allow an orphaned row to exist.
 
-`onDelete: Cascade`, declared on the *relation* in `schema.prisma` (e.g. `user User @relation(...,
+`onDelete: Cascade`, declared on the _relation_ in `schema.prisma` (e.g. `user User @relation(...,
 onDelete: Cascade)` on `MoodLog`), tells Postgres exactly how to resolve that: when the referenced
-`User` row is deleted, automatically delete every row that points at it too, as part of the *same*
+`User` row is deleted, automatically delete every row that points at it too, as part of the _same_
 database operation — not as separate application code issuing a `DELETE FROM mood_logs WHERE
 user_id = ...` first. This is why the actual route handler for `DELETE /api/users/me` is one line:
 
@@ -1321,42 +1376,44 @@ await prisma.user.delete({ where: { id: req.userId } });
 
 #### The one subtlety worth understanding: two different paths to the same table
 
-`SymptomLog` is the interesting case, because there are actually *two* routes by which deleting a
+`SymptomLog` is the interesting case, because there are actually _two_ routes by which deleting a
 `User` reaches it:
 
 1. `SymptomLog.user` → `User`, declared `onDelete: Cascade` directly.
 2. `SymptomLog.symptom` → `Symptom` → `Symptom.user` → `User`. This second hop is declared
    `onDelete: Restrict` (Prisma's default when nothing is specified) — deliberately, so that
-   deleting a *symptom* that still has logged history against it fails loudly (see
+   deleting a _symptom_ that still has logged history against it fails loudly (see
    [Symptom Logging](04-symptom-logging.md)) rather than silently destroying that history. A
    symptom log with real severity data logged against a symptom the user hasn't deleted shouldn't
-   ever quietly disappear just because *that symptom* got removed.
+   ever quietly disappear just because _that symptom_ got removed.
 
-So does deleting a *user* (which cascades to their `Symptom` rows too) trip that `Restrict` and
+So does deleting a _user_ (which cascades to their `Symptom` rows too) trip that `Restrict` and
 fail? No — and the reason is worth spelling out rather than taking on faith: Postgres resolves
 every cascade path triggered by a single `DELETE` statement together, and only checks a `Restrict`/
-`NO ACTION` foreign key constraint against the *final* state after all of them have run. Because
+`NO ACTION` foreign key constraint against the _final_ state after all of them have run. Because
 path 1 above already removes every one of this user's `symptom_logs` rows (directly, via their own
 `user_id`) in the same statement that path 2 removes their `symptoms` rows, there's never a moment
 where a `symptom_logs` row is left pointing at an already-deleted `symptoms` row — the constraint
-that blocks *"delete a symptom that still has logs"* has nothing left to object to. This was
+that blocks _"delete a symptom that still has logs"_ has nothing left to object to. This was
 confirmed directly, not just reasoned through on paper — see Verification below.
 
 **The practical upshot:** every relation from `User` in `schema.prisma` already had `onDelete:
 Cascade` set, for every one of the tables Tasks.md calls out by name — this task's schema
 prerequisite was already satisfied by earlier work (Phases 1 and 3), not something that needed a
 new migration. Tasks.md's "(or explicitly delete in a transaction)" phrasing exists to cover
-exactly the case where cascade *isn't* already configured; here, it already was.
+exactly the case where cascade _isn't_ already configured; here, it already was.
 
 #### Validating a timezone string server-side, and why it can't just accept anything
 
 `PATCH /api/users/me` lets a user change their stored `timezone` — but every dashboard/streak
 calculation in this app (`backend/src/lib/timezone.ts`) trusts that value completely, feeding it
 straight into `Intl.DateTimeFormat`. An invalid string (a typo, or garbage) wouldn't fail at save
-time — it would fail *later*, the next time that user's dashboard tries to resolve "what day is
+time — it would fail _later_, the next time that user's dashboard tries to resolve "what day is
 it," in code far away from where the bad value was ever accepted. The fix is `Intl.supportedValuesOf
 ("timeZone")` — a built-in Node/browser API that returns every IANA timezone name the JavaScript
-engine actually recognizes (currently ~418 of them), checked with a plain `.includes()`:
+engine actually recognizes (**IANA** timezone names are the standard identifiers like
+`America/New_York` or `Europe/London`, maintained by a public registry, that most programming
+languages and databases use to represent timezones consistently) (currently ~418 of them), checked with a plain `.includes()`:
 
 ```ts
 function isValidTimeZone(timeZone: string): boolean {
@@ -1380,7 +1437,7 @@ One small build wrinkle from adding this: TypeScript didn't recognize `Intl.supp
 first, even though Node itself supports it — its type declarations live in a separate `lib` file
 (`ES2022.Intl`) that this project's `tsconfig.json` wasn't including yet (it targets `ES2021`, an
 intentionally conservative choice made early on — see [Project Setup](00-project-setup.md)).
-Rather than bumping the whole `target`/`lib` forward (which would silently make *other* newer
+Rather than bumping the whole `target`/`lib` forward (which would silently make _other_ newer
 JS features type-check as available too, a much bigger change than intended), `"ES2022.Intl"` was
 added to the existing `"lib"` array on its own — the narrowest fix that unblocks exactly this one
 API.
@@ -1402,7 +1459,7 @@ API.
 2. Added `backend/src/routes/users.test.ts` covering: the happy path for all three routes; PATCH's
    partial-update behavior (only the provided field changes); PATCH rejecting an invalid timezone
    and an empty body; DELETE's cookie-clearing; and — most importantly — a test that logs one real
-   entry of *all four* log types plus a custom symptom, deletes the account, and then queries every
+   entry of _all four_ log types plus a custom symptom, deletes the account, and then queries every
    one of those tables directly by `userId` to confirm zero rows remain, rather than just trusting
    the `200` response. Also covers that neither PATCH nor DELETE can ever touch another user's row.
 3. Real, running-server verification beyond the automated tests (see Verification below).
@@ -1412,7 +1469,7 @@ API.
 Without `GET`/`PATCH /api/users/me`, the Settings page (the frontend half of this task, in
 [Authentication — Frontend](02-auth-frontend.md)) would have nowhere to read or save a display
 name and timezone. Without a working `DELETE /api/users/me` — and without confidence that it
-*genuinely* removes every trace of a user's health data, not just their login — the account
+_genuinely_ removes every trace of a user's health data, not just their login — the account
 deletion requirement in requirements §15 (a real, working way to leave and take your data with
 you) wouldn't actually be true, just something the UI claimed.
 
@@ -1432,7 +1489,7 @@ you) wouldn't actually be true, just something the UI claimed.
 
 ### Verification
 
-- Full backend test suite (`npm test`, 183 tests across 17 files, all passing) run *after* adding
+- Full backend test suite (`npm test`, 183 tests across 17 files, all passing) run _after_ adding
   `users.test.ts` — not just the new tests in isolation.
 - Real, running-server verification, not just the test suite: started the real dev server against
   the real local Postgres container, then — via direct HTTP calls, not mocks — registered a
@@ -1453,7 +1510,7 @@ you) wouldn't actually be true, just something the UI claimed.
 generate a time-limited reset token and send a reset email (use a placeholder/mock email
 provider for local dev)" and "Implement `POST /api/auth/reset-password` — validate the reset
 token and update the password hash." Picks up exactly where the previous entry in this file left
-off: that entry worked out *why* this pair of endpoints needs a "prove you control the email"
+off: that entry worked out _why_ this pair of endpoints needs a "prove you control the email"
 flow instead of the "prove you know the current password" pattern `change-password` uses, and
 explicitly left the real email-provider choice open. This entry builds the endpoints themselves,
 using the placeholder mailer Tasks.md explicitly allows for local dev in the meantime.
@@ -1464,11 +1521,11 @@ using the placeholder mailer Tasks.md explicitly allows for local dev in the mea
 
 #### The placeholder mailer: `backend/src/lib/mail.ts`
 
-- The previous entry explained why a *real* send needs an actual transactional email provider
+- The previous entry explained why a _real_ send needs an actual transactional email provider
   (Resend, Postmark, SendGrid, SES, etc.) — none of which is wired up yet, deliberately, since
   picking one is a product/infra decision, not something to bolt on while building this
   endpoint. `sendPasswordResetEmail(to, resetLink)` exists purely so `forgot-password` has
-  *something* to call in the meantime: instead of delivering anything, it just logs the link to
+  _something_ to call in the meantime: instead of delivering anything, it just logs the link to
   the server's own console, clearly labeled `[mail:placeholder]` so nobody later mistakes that
   console line for a real delivered email once a real provider is eventually wired in.
 - The function is declared `async` even though this implementation never actually awaits
@@ -1495,10 +1552,10 @@ using the placeholder mailer Tasks.md explicitly allows for local dev in the mea
 - This is the concrete implementation of the leak the previous log entry named: an anonymous
   `POST /forgot-password` caller must not be able to tell "this email has an account here" apart
   from "it doesn't," the same way `login`'s `401 INVALID_CREDENTIALS` deliberately doesn't say
-  which of email/password was wrong. Concretely, that meant writing the handler so the *only*
-  branching happens *before* the response is built (whether to actually generate a token and
-  call the mailer), never *in* the response itself — both branches return the exact same `200 {
-  message: "If that email is registered, a reset link has been sent." }`.
+  which of email/password was wrong. Concretely, that meant writing the handler so the _only_
+  branching happens _before_ the response is built (whether to actually generate a token and
+  call the mailer), never _in_ the response itself — both branches return the exact same `200 {
+message: "If that email is registered, a reset link has been sent." }`.
 - This matters more than usual for a wellness/health app specifically: confirming an email is
   registered here would let an attacker learn someone is a user of a health-tracking product at
   all, which is itself sensitive.
@@ -1510,7 +1567,7 @@ using the placeholder mailer Tasks.md explicitly allows for local dev in the mea
   single-use the simple way: on a successful reset, `resetTokenHash` and `resetTokenExpiresAt`
   are both cleared back to `null` in the same database write that updates `passwordHash`. A
   second request with the same raw token hashes to the same `resetTokenHash` value as before, but
-  that value no longer matches *any* user row — it fails exactly like a token that was never
+  that value no longer matches _any_ user row — it fails exactly like a token that was never
   issued, or one that already expired. No separate "used" flag was needed; clearing the fields
   that make a token findable is what makes it unusable.
 
@@ -1533,7 +1590,10 @@ using the placeholder mailer Tasks.md explicitly allows for local dev in the mea
    sitting unused in an old inbox stops being a meaningful risk fairly quickly) and a local
    `FRONTEND_URL` fallback constant (same value/fallback `app.ts` already uses for CORS, kept as
    its own local constant rather than importing across files for one string).
-   - `POST /forgot-password` (rate-limited via the existing `authRateLimiter`): looks up the
+   - `POST /forgot-password` (rate-limited via the existing `authRateLimiter` — **rate
+     limiting** caps how many requests a single client can make in a given time window, e.g.
+     "at most 5 attempts per 15 minutes from the same IP," which makes brute-force guessing
+     attacks impractically slow even though no individual guess is blocked outright): looks up the
      user by email; if found, generates a raw token, stores only its hash + expiry, and calls the
      placeholder mailer with a link of the form `${FRONTEND_URL}/reset-password?token=<rawToken>`;
      always returns the same generic `200` regardless of whether a user was found.
@@ -1547,8 +1607,10 @@ using the placeholder mailer Tasks.md explicitly allows for local dev in the mea
      — a password reset is often prompted by the old password having leaked in the first place),
      and returns `200 { message: "Password updated" }`.
 4. **Tests (`auth.test.ts`).** `forgot-password`: generates a token and logs a reset link for a
-   real account (spying on `console.log`, since that's what the placeholder mailer calls,
-   without needing to mock the whole `mail` module — reading the spy's captured calls *before*
+   real account (spying on `console.log` — a **spy**, in testing, wraps a real function so a
+   test can observe/record how it was called, while the original behavior still runs
+   underneath, unlike a full mock which replaces the behavior entirely; since that's what the placeholder mailer calls,
+   without needing to mock the whole `mail` module — reading the spy's captured calls _before_
    `mockRestore()`, since restoring also clears them); returns the identical generic response,
    and never calls the mailer at all, for an email with no matching account; rejects a malformed
    email with `400 VALIDATION_ERROR`. `reset-password`: full success path (refresh cookie
@@ -1588,7 +1650,7 @@ self-service for the first time, without needing a real email provider to exist 
   could try to guess or brute-force the same way a password can be, so it gets the same
   protection `login`/`register`/`change-password` already have.
 - **Caught and fixed a real test-authoring bug while writing this entry's own tests**: an early
-  version of the `forgot-password` "success" test called `logSpy.mockRestore()` *before* reading
+  version of the `forgot-password` "success" test called `logSpy.mockRestore()` _before_ reading
   `logSpy.mock.calls`, which silently discarded the very thing the test needed to assert on —
   `mockRestore()` doesn't just restore the original `console.log`, it clears recorded calls too,
   the same as `mockReset()`. The fix was ordering, not logic: read whatever the spy captured
@@ -1620,11 +1682,11 @@ users relying on it.
 deployed app ("refreshing the app on mobile Android sends me back to the login page"),
 investigated and fixed the same way any other bug in this log has been: read the real code,
 reproduce it for real, confirm the actual cause, then fix it and prove the fix. This entry also
-answers two follow-up questions asked directly once the fix was proposed: *is the fix actually
-safe from a security standpoint*, and *don't tokens need to expire — isn't that the whole point of
-a refresh token?* Both are covered in full below, not just asserted.
+answers two follow-up questions asked directly once the fix was proposed: _is the fix actually
+safe from a security standpoint_, and _don't tokens need to expire — isn't that the whole point of
+a refresh token?_ Both are covered in full below, not just asserted.
 
-This entry assumes everything the *"full authentication pattern, explained end to end"* entry
+This entry assumes everything the _"full authentication pattern, explained end to end"_ entry
 above already covers — the two tokens, why there are two, `HttpOnly` cookies, `requireAuth`,
 `RequireAuth`, the refresh-on-401 flow. None of that is repeated here. What follows is the one
 piece that pattern didn't need yet at the time it was written: what actually happens once the
@@ -1639,37 +1701,37 @@ These sound interchangeable and aren't; mixing them up is exactly what let this 
 
 - **Origin** = scheme + host + port, compared exactly. `https://wellbeing-blue.vercel.app` and
   `https://api.up.railway.app` are different origins. So are `http://localhost:5173` and
-  `http://localhost:4000` — different *port*, so different origin, even on the same machine. This
+  `http://localhost:4000` — different _port_, so different origin, even on the same machine. This
   is the comparison CORS cares about (recap just below).
 - **Site** = the **registrable domain** (informally, "the part of the domain you'd actually have to
   buy" — `vercel.app` and `up.railway.app` are each their own registrable domain; `wellbeing-blue`
-  and `api` are just subdomains *within* those). Two different subdomains of the *same*
+  and `api` are just subdomains _within_ those). Two different subdomains of the _same_
   registrable domain (`app.example.com` and `api.example.com`) are **same-site** even though
   they're different origins. Two different registrable domains are **cross-site**, full stop — no
   amount of subdomain naming closes that gap. Critically: an IP literal like `127.0.0.1` is never
   same-site with a hostname like `localhost`, even on one machine — this is what made a fully
-  local, no-real-deployment reproduction of this bug possible (see *What was done* below).
+  local, no-real-deployment reproduction of this bug possible (see _What was done_ below).
 - **This project's actual deployment is cross-site, not just cross-origin.** The frontend lives on
   `*.vercel.app`, the backend on `*.up.railway.app` — two different registrable domains. Every
   single request between them, no matter what it's carrying, is a cross-site request. This wasn't
-  a mistake; it's just what "frontend on Vercel, backend on Railway" *is*, architecturally. The gap
+  a mistake; it's just what "frontend on Vercel, backend on Railway" _is_, architecturally. The gap
   was that one specific cookie setting hadn't been chosen with that fact in mind yet.
 
-#### CORS, recap — and what it *doesn't* cover
+#### CORS, recap — and what it _doesn't_ cover
 
 CORS is already explained in full in the root [IMPLEMENTATION_LOG.md](../../IMPLEMENTATION_LOG.md)
 and the real bug entry in `docs/log/02-auth-frontend.md`. The one-line recap that matters here:
-**CORS controls whether the browser lets the page's own JavaScript *read the response*** of a
-cross-origin request. It says nothing at all about whether a *cookie* gets attached to the
-*request* in the first place — that's a completely separate gate, covered next.
+**CORS controls whether the browser lets the page's own JavaScript _read the response_** of a
+cross-origin request. It says nothing at all about whether a _cookie_ gets attached to the
+_request_ in the first place — that's a completely separate gate, covered next.
 
 #### `SameSite` — the gate CORS doesn't cover, and the part the earlier refresh-token entry only told half of
 
-The Phase 2.3 entry above (*"refresh token cookie storage/rotation"*) already introduced
-`SameSite=Lax`, but only from one angle: *"tells the browser not to attach this cookie on
-cross-site requests... which is what makes cookies resistant to CSRF."* True, but incomplete — the
-same restriction that blocks a *malicious* cross-site request from carrying the cookie also blocks
-a *legitimate* one, and this app's own frontend calling its own backend is, per the definitions
+The Phase 2.3 entry above (_"refresh token cookie storage/rotation"_) already introduced
+`SameSite=Lax`, but only from one angle: _"tells the browser not to attach this cookie on
+cross-site requests... which is what makes cookies resistant to CSRF."_ True, but incomplete — the
+same restriction that blocks a _malicious_ cross-site request from carrying the cookie also blocks
+a _legitimate_ one, and this app's own frontend calling its own backend is, per the definitions
 above, exactly that: a cross-site request, from the browser's point of view, with no way to tell
 "our own frontend" apart from "some other website" just by looking at the site relationship alone.
 
@@ -1677,7 +1739,10 @@ The precise rule for `SameSite=Lax` (the default in every modern browser even wh
 cookie is sent on **same-site requests always**, and on **cross-site top-level navigations using a
 "safe" method** (essentially: GET, and only when the browser is actually changing the address bar
 to a new page — following a link, typing a URL) — and **never on a cross-site subresource
-request**, which is precisely what every `fetch()`/`XHR` call is, including every single
+request**, which is precisely what every `fetch()`/`XHR` call is (**XHR**, short for
+`XMLHttpRequest` — the original, older browser API for making HTTP requests from JavaScript,
+mostly superseded by `fetch()` today but still what some libraries use under the hood),
+including every single
 `apiFetch` call this frontend makes and, specifically, the `rehydrateSession()` call added in the
 Phase 5 entry (`docs/log/02-auth-frontend.md`) to restore a session after a page reload. That call
 is a `POST` via `fetch()` — cross-site, not a top-level navigation, not "safe" — so under `Lax`, in
@@ -1685,9 +1750,9 @@ this app's actual cross-site deployment, the browser was never going to attach t
 to it at all. Not "sometimes fails" — structurally, definitionally, never.
 
 **Two independent gates, and a cross-site cookie-authenticated request needs to pass both:**
-CORS decides whether the *response* can be read; `SameSite` decides whether the *cookie* is even
-sent on the *request*. Configuring one correctly (this project's CORS was already correct — see
-the Phase 2.3 entry's own *Decisions*) does nothing at all to fix the other being wrong. This is
+CORS decides whether the _response_ can be read; `SameSite` decides whether the _cookie_ is even
+sent on the _request_. Configuring one correctly (this project's CORS was already correct — see
+the Phase 2.3 entry's own _Decisions_) does nothing at all to fix the other being wrong. This is
 the mistake worth carrying forward: "I set up CORS, cross-origin should just work" is a genuinely
 common and reasonable-sounding assumption that misses an entire second gate.
 
@@ -1705,11 +1770,15 @@ common and reasonable-sounding assumption that misses an entire second gate.
    local frontend dev server bound to `http://127.0.0.1:5173` instead of its usual
    `http://localhost:5173`, pointed at a backend on `http://localhost:4000` with `FRONTEND_URL`
    (the CORS allow-list) updated to match. `127.0.0.1` and `localhost` are never same-site (see
-   *Background* above) — this reproduces the real deployment's cross-site relationship completely
+   _Background_ above) — this reproduces the real deployment's cross-site relationship completely
    locally, with zero risk to the real production database.
 4. **What the reproduction showed, before any fix:** registered and logged in through a real
-   Chromium browser (Playwright) — landed on `/dashboard` successfully (the *login* response
-   itself doesn't depend on the cookie being *sent back* yet, only on it being *set*). Inspecting
+   Chromium browser (**Playwright** is a browser-automation library — it drives a real browser
+   programmatically, letting a test or script click, navigate, and inspect cookies exactly as
+   a real user's browser would, rather than simulating raw HTTP requests directly; **Chromium**
+   is the open-source browser engine that Google Chrome itself is built on) — landed on
+   `/dashboard` successfully (the _login_ response
+   itself doesn't depend on the cookie being _sent back_ yet, only on it being _set_). Inspecting
    the browser's actual cookie jar (`page.context().cookies()`) immediately after: **empty** — the
    `Set-Cookie` header had been sent, but between `SameSite=Lax` and the response also lacking
    `Secure` (skipped in non-production, per the original design), the browser hadn't kept it at
@@ -1721,7 +1790,11 @@ common and reasonable-sounding assumption that misses an entire second gate.
    attributes aren't independent; a browser rejects a `None` cookie outright if it isn't also
    marked `Secure`, regardless of environment. Local dev still works over plain `http` despite
    this: Chrome (and Chromium, what the reproduction above actually used) specifically treats
-   `localhost` and `127.0.0.1` as secure contexts regardless of scheme, so the `Secure` requirement
+   `localhost` and `127.0.0.1` as secure contexts regardless of scheme (a **secure context** is
+   a browser concept meaning "this page was loaded safely enough to trust with
+   sensitive/powerful browser APIs" — normally that means HTTPS, with an explicit carve-out
+   for `localhost`/`127.0.0.1` specifically so local development doesn't need a real HTTPS
+   certificate just to test features that require one), so the `Secure` requirement
    doesn't block local development the way it would for any other plain-`http` host.
 6. **Re-verified the same reproduction with the fix applied**, confirming the actual mechanism, not
    just "the code looks right": cookie now present in the jar after login (`sameSite: "None"`,
@@ -1740,7 +1813,7 @@ Without this fix, **every** logged-in user's session was fragile in production, 
 first. The reason it showed up on mobile specifically isn't a different root cause; it's that
 mobile browsers reclaim and fully reload backgrounded tabs far more eagerly than desktop browsers
 tend to (a desktop tab can sit open, still holding its in-memory access token, for a very long
-session without ever truly reloading). The moment *any* browser on *any* platform did a real full
+session without ever truly reloading). The moment _any_ browser on _any_ platform did a real full
 reload against the real deployed app, it would have hit this same wall — the Android report was
 simply the first time that happened to someone paying attention to the result.
 
@@ -1759,15 +1832,15 @@ simply the first time that happened to someone paying attention to the result.
   thing this project's own working practices warn against. Noted here as a legitimate future
   hardening step, not a gap being silently ignored.
 - **Is `SameSite=None` actually safe here? Reviewed directly, not just assumed:**
-  `SameSite=Lax`'s *other* job (besides "works cross-site at all") is CSRF protection — stopping
-  some *other* website from silently making a request that carries this cookie. Switching to
+  `SameSite=Lax`'s _other_ job (besides "works cross-site at all") is CSRF protection — stopping
+  some _other_ website from silently making a request that carries this cookie. Switching to
   `None` genuinely removes that specific layer for this cookie. Tracing through what a
   cross-site-forced request against each cookie-reading endpoint could actually accomplish:
   - **`POST /api/auth/refresh`** reads the cookie, rotates it, and returns `{ user, accessToken }`
-    in the response body. A forced request would rotate the *victim's own* cookie in the
-    *victim's own* browser — harmless to them, their session keeps working normally — and the
-    attacker's page still can't *read* that response body at all, because CORS (a separate,
-    already-correct gate — see *Background* above) only allows this project's real frontend
+    in the response body. A forced request would rotate the _victim's own_ cookie in the
+    _victim's own_ browser — harmless to them, their session keeps working normally — and the
+    attacker's page still can't _read_ that response body at all, because CORS (a separate,
+    already-correct gate — see _Background_ above) only allows this project's real frontend
     origin, not an attacker's. Net effect of a forced refresh: nothing an attacker can use.
   - **`POST /api/auth/logout`** just clears the cookie unconditionally (see the route above —
     no auth check at all, by design, since a stateless JWT can't be individually revoked
@@ -1779,16 +1852,16 @@ simply the first time that happened to someone paying attention to the result.
     only the `Authorization: Bearer <token>` header (see `middleware/requireAuth.ts`) — **never**
     the cookie. An attacker's cross-site page has no way to read or forge that header, because the
     access token it would need never leaves this app's own frontend's JavaScript memory. These
-    endpoints were never protected *by* `SameSite` in the first place, so relaxing it here doesn't
+    endpoints were never protected _by_ `SameSite` in the first place, so relaxing it here doesn't
     touch their security at all.
   - **Conclusion:** the cookie's blast radius is deliberately narrow — scoped to `/api/auth` only,
     and read by exactly two routes whose worst forced-request outcomes are "nothing useful to the
-    attacker" and "an inconvenient forced logout." Trading away CSRF protection *specifically for
-    this cookie* is a reasonable, bounded cost for making the session work at all in this app's
+    attacker" and "an inconvenient forced logout." Trading away CSRF protection _specifically for
+    this cookie_ is a reasonable, bounded cost for making the session work at all in this app's
     real deployment topology.
 - **`secure: true` unconditionally, not gated by `NODE_ENV` anymore.** The original code skipped
   `Secure` outside production specifically so local `http` development wouldn't silently break.
-  That reasoning doesn't apply the same way to `SameSite=None`, which *requires* `Secure`
+  That reasoning doesn't apply the same way to `SameSite=None`, which _requires_ `Secure`
   regardless of environment — and, as covered above, Chrome's `localhost`/`127.0.0.1` exemption
   means local dev doesn't actually need that skip anymore anyway.
 
@@ -1803,7 +1876,7 @@ simply the first time that happened to someone paying attention to the result.
   **rotates** on every use (Phase 2.3, above) — so a legitimately-used session's refresh token
   keeps renewing its own 7-day window continuously, while a stolen-but-unused one still hits a
   hard 7-day ceiling regardless. This is the two-token pattern's entire reason for existing,
-  covered in full in the *"full authentication pattern"* entry above: short-lived token the
+  covered in full in the _"full authentication pattern"_ entry above: short-lived token the
   frontend actively handles, longer-lived token the browser handles automatically and JavaScript
   never touches, each expiring on its own independent clock.
 - **"Is this OK from a security perspective?"** See the CSRF walkthrough directly above — yes,
@@ -1814,13 +1887,13 @@ simply the first time that happened to someone paying attention to the result.
 
 - Reproduced the actual bug locally, in a real browser, under conditions matching the real
   deployment's cross-site relationship (`127.0.0.1` vs `localhost`) — not just read about it or
-  inferred it from the `Set-Cookie` header in isolation. See *What was done* steps 3–4.
+  inferred it from the `Set-Cookie` header in isolation. See _What was done_ steps 3–4.
 - Re-ran the identical reproduction after the fix and confirmed it now succeeds (cookie stored,
   `200` from `/refresh`, session survives a full reload) — see step 6.
 - Re-confirmed the normal, everyday local dev setup is unaffected — see step 7.
 - `npm test` (backend) — 191/191 passing.
 - `npm run build` (backend) — compiles cleanly.
 - Traced every route that reads the refresh cookie, and confirmed every route that touches real
-  user data does not — see *Decisions* above.
+  user data does not — see _Decisions_ above.
 
 ---
