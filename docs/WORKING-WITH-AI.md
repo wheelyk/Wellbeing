@@ -277,6 +277,29 @@ task in this repo followed the same sequence — branch off `main`, atomic commi
 for real, tick the task list, write the log entry, open a PR but never merge it — not because it
 was re-explained each session, but because it's written down there once.
 
+### Start with the technology stack and your preferences
+
+The first thing a fresh session needs is orientation: **what am I working with, and how does this
+person want it done?** Put that at the very top, before workflow rules or architecture notes —
+it's the highest-value, most-referenced information in the file, and everything else is
+situational by comparison.
+
+Concretely, a strong opening is a few lines covering:
+
+- **The stack and versions that matter.** "React 19 + TypeScript + Vite 8, Tailwind CSS v4,
+  Express + Prisma + PostgreSQL." Versions are worth naming wherever a major version genuinely
+  changed how something works — Tailwind v4 and v3 are configured completely differently, and an
+  assistant working from v3-era habits will confidently add a `tailwind.config.js` this project
+  deliberately doesn't have.
+- **Package manager and runtime**, if there's any ambiguity (npm vs. pnpm vs. yarn).
+- **Your standing preferences** — the things you'd otherwise have to repeat every session.
+  "Explain concepts the first time they appear." "Never merge PRs, I review them myself." "Ask
+  before adding a dependency." These are cheap to write and save a correction every single time.
+
+The reason this goes first is practical: everything else in the file is conditional on it. A rule
+about how to write tests means something different depending on whether the stack is Vitest or
+Jest, and an assistant that reads the stack first interprets the rest correctly.
+
 ### What belongs in it
 
 Things that are **true across sessions** and **not derivable from the code**:
@@ -330,14 +353,42 @@ that.
 prevents a class of confidently-wrong behaviour in every session afterward. Treat outdated
 instructions as a bug, because functionally that's what they are.
 
-### Related: user-level and personal memory
+### `CLAUDE.md` is a hierarchy, not a single file
 
-Alongside the project's `CLAUDE.md`, there's usually a personal one (`~/.claude/CLAUDE.md`) that
-applies across _all_ your projects — a reasonable home for personal preferences ("explain
-unfamiliar concepts as you go") that shouldn't be imposed on everyone who clones this repo. The
-rule of thumb: **if it's true for this project regardless of who's working on it, it belongs in the
-repo's `CLAUDE.md` (and gets committed and reviewed like any other file). If it's true for you
-regardless of which project you're in, it belongs in your personal one.**
+This is the part most people miss at first: `CLAUDE.md` isn't one file in one place. Several can
+apply at once, at different levels, and they **combine** — a session working in this repo loads
+all the ones that apply to it, not just the nearest. From broadest to narrowest:
+
+| Level            | Where it lives                 | Applies to                         | Committed?              |
+| ---------------- | ------------------------------ | ---------------------------------- | ----------------------- |
+| **Enterprise**   | a managed system-wide location | everyone in an organisation        | by IT, not you          |
+| **User**         | `~/.claude/CLAUDE.md`          | every project _you_ work on        | no — it's yours         |
+| **Project**      | `<repo>/CLAUDE.md`             | anyone working in this repo        | **yes** — like any file |
+| **Subdirectory** | `<repo>/frontend/CLAUDE.md`    | work happening inside that subtree | **yes**                 |
+
+The narrower the level, the more specific it should be. Broader levels set defaults; narrower ones
+add detail or override for their scope. A personal preference ("explain concepts as you go") lives
+at the user level so it follows you between projects without being imposed on everyone who clones
+the repo. A project convention ("never merge your own PR") lives in the repo, gets committed, and
+gets reviewed like any other file — because it applies to whoever is working, not just you.
+
+**The rule of thumb:** if it's true for this project regardless of _who_ is working on it → repo.
+If it's true for you regardless of _which project_ you're in → user level.
+
+**Where the subdirectory level earns its keep: monorepos.** This repository is a good example of
+the problem it solves. Everything currently lives in one root `CLAUDE.md`, including
+backend-specific gotchas (Prisma, `moduleResolution: "Bundler"`, the app/index split) and
+frontend-specific ones (Tailwind v4 has no config file, only `VITE_`-prefixed env vars reach the
+browser). A session working purely on frontend styling loads all the backend detail too, and vice
+versa — it's all standing context cost, paid on every turn, for information that isn't relevant to
+the task at hand.
+
+Splitting it — a lean root `CLAUDE.md` for what's true project-wide (workflow, git conventions,
+definition of done), plus `frontend/CLAUDE.md` and `backend/CLAUDE.md` for their own stack detail —
+means each session only carries what its actual work needs. That's a worthwhile refactor for this
+repo, and a good default for any monorepo where the two halves have genuinely different toolchains.
+It's noted here rather than done, since it's a change to how the project is set up rather than a
+documentation fix.
 
 ---
 
@@ -425,6 +476,8 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | A task changed how the project is built, run, or tested  | Check `CLAUDE.md` is still true; fix it in that PR    |
 | A convention true for everyone on the project            | Project `CLAUDE.md` (committed, reviewed)             |
 | A preference true for you across all projects            | Personal `~/.claude/CLAUDE.md`                        |
+| Stack detail only relevant inside one part of a monorepo | A `CLAUDE.md` in that subdirectory                    |
+| Writing a `CLAUDE.md` from scratch                       | Open with the stack, versions, and your preferences   |
 | An open-ended search across unfamiliar code              | Delegate to `Explore`                                 |
 | A task that will produce a lot of disposable raw output  | Delegate to a subagent                                |
 | A single known file/symbol lookup                        | Just do it directly — don't delegate                  |
