@@ -387,6 +387,76 @@ of **eighty-plus tool definitions** loaded into every single session, for a proj
 never send an email, read a calendar, or post to Slack. GitHub genuinely earns its place (PRs get
 opened constantly). The rest were pure carrying cost.
 
+### How MCP servers connect: stdio vs. HTTP, local vs. remote
+
+An MCP server is a **program that has to run somewhere**, and the assistant has to talk to it
+somehow. That "somehow" is the **transport**, and there are two — worth understanding, because they
+differ in where your data goes, what the server can reach, and how they fail.
+
+#### `stdio` — a local program, no network involved
+
+The server is launched **on your own machine** as a child process, and the two talk over pipes
+(standard input and output — hence `stdio`). Configuration is a command to run:
+
+```json
+{ "command": "npx", "args": ["-y", "@example/postgres-mcp-server"] }
+```
+
+What follows from that:
+
+- **It's local by definition.** Nothing listens on a port; nothing leaves your machine.
+- **It runs as you**, with your file permissions and your credentials. That's what makes it capable
+  — and what makes it worth knowing exactly what you're installing, since `npx` will happily
+  download and execute someone else's code with your access.
+- **It lives and dies with your session**, started when the client starts.
+- **Secrets are usually environment variables** in the config.
+- **It fails at launch** — "command not found", a wrong path, a missing runtime.
+
+Good fit for: filesystem access, a local database, local git — anything genuinely on your machine.
+
+#### HTTP — a server reached at a URL
+
+The server is reachable over the network, and configuration is a URL rather than a command. The
+current standard is **streamable HTTP**; you may still meet **SSE** (Server-Sent Events), the
+earlier transport it replaced.
+
+- **Usually remote** — run by a vendor, so there's nothing to install and it updates without you.
+- **Can also be local**, if you run something yourself listening on `localhost`.
+- **Authentication is a real step**, typically OAuth or a token, rather than an env var.
+- **It fails over the network** — timeouts, `401 Unauthorized`, an expired login.
+
+Good fit for: SaaS APIs — GitHub, Slack, Google Drive — where there's no sensible local equivalent.
+
+#### The two axes are separate
+
+"stdio vs. HTTP" is _how_ it's reached; "local vs. remote" is _where it runs_. They're related but
+not the same question:
+
+|           | Local                               | Remote                       |
+| --------- | ----------------------------------- | ---------------------------- |
+| **stdio** | Always — this is the normal case    | Not possible                 |
+| **HTTP**  | Possible — something on `localhost` | Typical — a hosted connector |
+
+#### Why the difference actually matters
+
+- **Where your data goes.** A stdio server keeps everything on your machine. A remote HTTP server
+  means whatever you send it leaves your machine and reaches a third party. For a project handling
+  real user health data, that's a decision worth making deliberately rather than by default.
+- **What it can reach.** A stdio server has your local access — which is exactly why a filesystem
+  or database server is useful, and exactly why you should know what you're running.
+- **Setup burden.** stdio needs the runtime installed (Node, Python, Docker). Remote HTTP needs
+  only credentials — but needs them to be valid.
+- **Auth can block you outright, and it did here.** This project's own connectors (GitHub, Gmail,
+  Drive, Calendar, Slack) are account-level remote ones, authorised through claude.ai rather than
+  anything in this repo. During one session, Slack reported that it needed authorisation before its
+  tools could be used — and because that session was non-interactive, the OAuth flow simply couldn't
+  be completed there. That's a purely remote-transport failure mode: a stdio server reading an env
+  var has nothing equivalent to get stuck on.
+
+**The context cost is the same either way** — tool schemas load regardless of transport, so the
+"turn off what you don't need" advice below applies to both. What changes with transport is the
+_risk_ profile, not the price.
+
 ### How to actually turn them off
 
 MCP servers are configured at three different levels, and which one you edit depends on where the
@@ -931,6 +1001,8 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | A single known file/symbol lookup                        | Just do it directly — don't delegate                     |
 | Two genuinely independent checks (e.g. two test suites)  | Launch both as parallel subagents                        |
 | Starting a long session on a focused codebase            | Check `/mcp`, disable connectors the work can't touch    |
+| An MCP server touching sensitive data                    | Prefer stdio (local) over remote — data never leaves     |
+| An MCP server that won't connect                         | stdio fails at launch; HTTP fails on network/auth        |
 | A capability one documented shell command already covers | Write a skill, don't add an MCP server                   |
 | A capability with no CLI equivalent / complex auth       | An MCP server genuinely earns its place                  |
 | A claim with no tool call behind it                      | Not verified — ask what was actually run                 |
