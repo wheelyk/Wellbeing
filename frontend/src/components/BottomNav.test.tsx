@@ -47,7 +47,7 @@ describe("BottomNav", () => {
     expect(nav.className).toContain("md:hidden");
   });
 
-  it("renders all four links plus a centerAction when one is passed, in link/link/action/link/link order", () => {
+  it("renders all five links plus a centerAction when one is passed, with the action docked after the second", () => {
     render(
       <MemoryRouter initialEntries={["/dashboard"]}>
         <BottomNav centerAction={<button>Quick add</button>} />
@@ -58,7 +58,14 @@ describe("BottomNav", () => {
     const itemNames = Array.from(nav.children).map((child) =>
       child.textContent?.replace(/\s+/g, " ").trim(),
     );
-    expect(itemNames).toEqual(["🏠Home", "🕘History", "Quick add", "📈Trends", "⚙️Settings"]);
+    expect(itemNames).toEqual([
+      "🏠Home",
+      "🕘History",
+      "Quick add",
+      "📈Trends",
+      "🗂️Categories",
+      "⚙️Settings",
+    ]);
   });
 
   it("omits the centerAction slot entirely when none is passed", () => {

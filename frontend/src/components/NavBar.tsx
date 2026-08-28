@@ -6,6 +6,7 @@ const links = [
   { to: "/dashboard", label: "Home" },
   { to: "/history", label: "History" },
   { to: "/trends", label: "Trends" },
+  { to: "/categories", label: "Categories" },
   { to: "/settings", label: "Settings" },
 ];
 

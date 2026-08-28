@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
-// Same four routes/labels as NavBar's own desktop nav (kept as a separate literal, not a shared
+// Same five routes/labels as NavBar's own desktop nav (kept as a separate literal, not a shared
 // import, since the two components' markup - a horizontal row of text links vs. a bottom tab bar
 // with stacked icon+label buttons - is different enough that sharing the array wouldn't save much
 // and would couple two independently-styled components together).
@@ -9,6 +9,7 @@ const links = [
   { to: "/dashboard", label: "Home", icon: "🏠" },
   { to: "/history", label: "History", icon: "🕘" },
   { to: "/trends", label: "Trends", icon: "📈" },
+  { to: "/categories", label: "Categories", icon: "🗂️" },
   { to: "/settings", label: "Settings", icon: "⚙️" },
 ];
 
