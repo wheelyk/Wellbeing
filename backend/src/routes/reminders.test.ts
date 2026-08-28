@@ -43,7 +43,7 @@ describe("reminders routes", () => {
 
     const postRes = await request(app)
       .post("/api/reminders")
-      .send({ target: "general", times: ["20:00"] });
+      .send({ target: "general", schedules: ["0 20 * * *"] });
     expect(postRes.status).toBe(401);
   });
 
@@ -53,41 +53,105 @@ describe("reminders routes", () => {
     const res = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "general", times: ["20:00"] });
+      .send({ target: "general", schedules: ["0 20 * * *"] });
 
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ userId, target: "general", times: ["20:00"], enabled: true });
+    expect(res.body).toMatchObject({
+      userId,
+      target: "general",
+      schedules: ["0 20 * * *"],
+      enabled: true,
+    });
   });
 
-  it("dedupes and sorts times", async () => {
-    const { accessToken } = await registerAndLogin("dedupe-sort");
+  it("dedupes schedules while preserving the order they were given in", async () => {
+    const { accessToken } = await registerAndLogin("dedupe");
 
     const res = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "general", times: ["15:00", "09:00", "15:00"] });
+      .send({ target: "general", schedules: ["0 15 * * *", "0 9 * * *", "0 15 * * *"] });
 
     expect(res.status).toBe(201);
-    expect(res.body.times).toEqual(["09:00", "15:00"]);
+    // Note the order: 15:00 first, because that's how it was sent. Cron expressions have no
+    // meaningful lexicographic order, so unlike the "HH:mm" times this replaced they aren't
+    // sorted - see the schedulesSchema comment in reminders.ts.
+    expect(res.body.schedules).toEqual(["0 15 * * *", "0 9 * * *"]);
   });
 
-  it("rejects an invalid time and more than the maximum number of times", async () => {
-    const { accessToken } = await registerAndLogin("bad-times");
+  it("rejects a malformed expression and more than the maximum number of schedules", async () => {
+    const { accessToken } = await registerAndLogin("bad-schedules");
 
     const badFormat = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "general", times: ["8:00pm"] });
+      .send({ target: "general", schedules: ["8:00pm"] });
     expect(badFormat.status).toBe(400);
+
+    // The old "HH:mm" shape is now simply an invalid expression, not a special case - worth
+    // asserting explicitly so a client still sending the pre-cron format fails loudly rather than
+    // being silently reinterpreted (see docs/log/25-cron-reminder-schedules.md).
+    const oldFormat = await request(app)
+      .post("/api/reminders")
+      .set(authed(accessToken))
+      .send({ target: "general", schedules: ["09:00"] });
+    expect(oldFormat.status).toBe(400);
+
+    // Valid syntax, but it would fire far more often than the per-expression cap allows.
+    const tooOften = await request(app)
+      .post("/api/reminders")
+      .set(authed(accessToken))
+      .send({ target: "general", schedules: ["* * * * *"] });
+    expect(tooOften.status).toBe(400);
 
     const tooMany = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
       .send({
         target: "general",
-        times: ["01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00"],
+        schedules: [
+          "0 1 * * *",
+          "0 2 * * *",
+          "0 3 * * *",
+          "0 4 * * *",
+          "0 5 * * *",
+          "0 6 * * *",
+          "0 7 * * *",
+        ],
       });
     expect(tooMany.status).toBe(400);
+  });
+
+  // The whole point of moving off fixed "HH:mm" times: schedules that simply couldn't be
+  // expressed before. Each of these round-trips through validation and comes back unchanged.
+  it("accepts recurring and day-restricted schedules, storing them verbatim", async () => {
+    const { accessToken } = await registerAndLogin("expressive");
+    // One reminder, re-scheduled repeatedly, rather than one per expression: a user may only have
+    // a single GENERAL reminder (see the 409 test below), and PATCH exercises the same
+    // schedulesSchema the create path does.
+    const created = await request(app)
+      .post("/api/reminders")
+      .set(authed(accessToken))
+      .send({ target: "general", schedules: ["0 9 * * *"] });
+    expect(created.status).toBe(201);
+
+    for (const expression of [
+      "0 * * * *", // every hour
+      "0 8 * * 1-5", // weekdays only
+      "30 10 * * 0,6", // weekends only
+      "30 18 * * 1,3,5", // Mon/Wed/Fri
+      "0 7 1,15 * *", // 1st and 15th of the month
+    ]) {
+      const res = await request(app)
+        .patch(`/api/reminders/${created.body.id}`)
+        .set(authed(accessToken))
+        .send({ schedules: [expression] });
+
+      expect(res.status).toBe(200);
+      // Stored exactly as written - never normalised into some other equivalent form, so what the
+      // user typed is what they see when they come back to edit it.
+      expect(res.body.schedules).toEqual([expression]);
+    }
   });
 
   it("rejects a CATEGORY reminder with no categoryId, or one not visible to the caller", async () => {
@@ -98,13 +162,13 @@ describe("reminders routes", () => {
     const missing = await request(app)
       .post("/api/reminders")
       .set(authed(owner.accessToken))
-      .send({ target: "category", times: ["10:00"] });
+      .send({ target: "category", schedules: ["0 10 * * *"] });
     expect(missing.status).toBe(400);
 
     const wrongOwner = await request(app)
       .post("/api/reminders")
       .set(authed(intruder.accessToken))
-      .send({ target: "category", categoryId, times: ["10:00"] });
+      .send({ target: "category", categoryId, schedules: ["0 10 * * *"] });
     expect(wrongOwner.status).toBe(404);
     expect(wrongOwner.body.error.code).toBe("CATEGORY_NOT_FOUND");
   });
@@ -116,7 +180,7 @@ describe("reminders routes", () => {
     const res = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "category", categoryId, times: ["09:00"] });
+      .send({ target: "category", categoryId, schedules: ["0 9 * * *"] });
 
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ target: "category", categoryId });
@@ -130,7 +194,7 @@ describe("reminders routes", () => {
     const generalWithCategory = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "general", categoryId, times: ["09:00"] });
+      .send({ target: "general", categoryId, schedules: ["0 9 * * *"] });
     expect(generalWithCategory.status).toBe(400);
   });
 
@@ -140,13 +204,13 @@ describe("reminders routes", () => {
     const first = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "general", times: ["09:00"] });
+      .send({ target: "general", schedules: ["0 9 * * *"] });
     expect(first.status).toBe(201);
 
     const second = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "general", times: ["15:00"] });
+      .send({ target: "general", schedules: ["0 15 * * *"] });
     expect(second.status).toBe(409);
     expect(second.body.error.code).toBe("REMINDER_ALREADY_EXISTS");
   });
@@ -159,11 +223,11 @@ describe("reminders routes", () => {
     const first = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "category", categoryId: diazepam, times: ["10:00"] });
+      .send({ target: "category", categoryId: diazepam, schedules: ["0 10 * * *"] });
     const second = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "category", categoryId: sertraline, times: ["08:30"] });
+      .send({ target: "category", categoryId: sertraline, schedules: ["30 8 * * *"] });
 
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
@@ -175,11 +239,11 @@ describe("reminders routes", () => {
     await request(app)
       .post("/api/reminders")
       .set(authed(userA.accessToken))
-      .send({ target: "general", times: ["20:00"] });
+      .send({ target: "general", schedules: ["0 20 * * *"] });
     await request(app)
       .post("/api/reminders")
       .set(authed(userB.accessToken))
-      .send({ target: "general", times: ["21:00"] });
+      .send({ target: "general", schedules: ["0 21 * * *"] });
 
     const res = await request(app).get("/api/reminders").set(authed(userA.accessToken));
 
@@ -188,22 +252,22 @@ describe("reminders routes", () => {
     expect(res.body[0].userId).toBe(userA.userId);
   });
 
-  it("updates times and enabled, but not target/categoryId", async () => {
+  it("updates schedules and enabled, but not target/categoryId", async () => {
     const { accessToken } = await registerAndLogin("update");
     const created = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "general", times: ["09:00"] });
+      .send({ target: "general", schedules: ["0 9 * * *"] });
 
     const res = await request(app)
       .patch(`/api/reminders/${created.body.id}`)
       .set(authed(accessToken))
-      .send({ times: ["09:00", "15:00"], enabled: false });
+      .send({ schedules: ["0 9 * * *", "0 15 * * *"], enabled: false });
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       target: "general",
-      times: ["09:00", "15:00"],
+      schedules: ["0 9 * * *", "0 15 * * *"],
       enabled: false,
     });
   });
@@ -214,7 +278,7 @@ describe("reminders routes", () => {
     const created = await request(app)
       .post("/api/reminders")
       .set(authed(owner.accessToken))
-      .send({ target: "general", times: ["20:00"] });
+      .send({ target: "general", schedules: ["0 20 * * *"] });
 
     const missing = await request(app)
       .patch("/api/reminders/00000000-0000-0000-0000-000000000000")
@@ -240,7 +304,7 @@ describe("reminders routes", () => {
     const created = await request(app)
       .post("/api/reminders")
       .set(authed(accessToken))
-      .send({ target: "general", times: ["20:00"] });
+      .send({ target: "general", schedules: ["0 20 * * *"] });
 
     const res = await request(app)
       .delete(`/api/reminders/${created.body.id}`)
@@ -259,7 +323,7 @@ describe("reminders routes", () => {
     const ownerReminder = await request(app)
       .post("/api/reminders")
       .set(authed(owner.accessToken))
-      .send({ target: "category", categoryId, times: ["09:00"] });
+      .send({ target: "category", categoryId, schedules: ["0 9 * * *"] });
     expect(ownerReminder.status).toBe(201);
 
     // A second user's own reminder against the same category, created directly via Prisma (not
@@ -269,7 +333,7 @@ describe("reminders routes", () => {
     // referencing the category id regardless of how it was created, so this still exercises the
     // "across users" part of the behavior directly.
     const otherReminder = await prisma.reminder.create({
-      data: { userId: other.userId, target: "CATEGORY", categoryId, times: ["10:00"] },
+      data: { userId: other.userId, target: "CATEGORY", categoryId, schedules: ["0 10 * * *"] },
     });
 
     await request(app).delete(`/api/categories/${categoryId}`).set(authed(owner.accessToken));

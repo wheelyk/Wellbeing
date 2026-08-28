@@ -7,27 +7,44 @@ import {
   toApiReminderTarget,
   toPrismaReminderTarget,
 } from "../lib/reminderTarget";
+import { cronValidationError } from "../lib/cron";
 
-const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 // A generous cap, not a real limit anyone should hit - guards against a runaway request rather
-// than a genuine product constraint (see routes/categories.ts's icon length cap for the same
-// kind of defensive-not-restrictive bound).
-const MAX_TIMES = 6;
+// than a genuine product constraint (see routes/categories.ts's icon length cap for the same kind
+// of defensive-not-restrictive bound). This bounds the number of *expressions*; cron.ts's own
+// MAX_SLOTS_PER_EXPRESSION separately bounds how often any single one of them may fire.
+const MAX_SCHEDULES = 6;
 
-const timesSchema = z
-  .array(z.string().regex(TIME_REGEX, "Must be a valid 24-hour HH:mm time"))
-  .min(1, "At least one time is required")
-  .max(MAX_TIMES, `At most ${MAX_TIMES} times are allowed`)
-  // Deduped and sorted server-side - the frontend's own repeatable time-input list doesn't need
-  // to enforce either itself, and a stable order makes the reminders list read sensibly without
-  // the frontend re-sorting what it gets back.
-  .transform((times) => [...new Set(times)].sort());
+const schedulesSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .min(1, "A schedule can't be empty")
+      // Validated with the same parser the scheduler itself uses (see lib/cron.ts), so anything
+      // accepted here is guaranteed to be something the scheduler can expand later - there is
+      // deliberately no second, looser notion of "valid" anywhere. The parser's own message is
+      // surfaced rather than a generic "invalid schedule", so the user is told which field is
+      // wrong and why.
+      .superRefine((expression, ctx) => {
+        const error = cronValidationError(expression);
+        if (error) ctx.addIssue({ code: "custom", message: error });
+      }),
+  )
+  .min(1, "At least one schedule is required")
+  .max(MAX_SCHEDULES, `At most ${MAX_SCHEDULES} schedules are allowed`)
+  // Deduped, but deliberately *not* sorted - unlike the times[] this replaced. Sorting "HH:mm"
+  // strings happened to produce chronological order, which is why the old schema did it; sorting
+  // cron expressions lexicographically produces nothing meaningful ("0 15 * * *" lands before
+  // "0 9 * * *"), so it would reorder the user's list for no benefit. Input order is preserved
+  // instead, so what someone entered is the order they see when they come back.
+  .transform((schedules) => [...new Set(schedules)]);
 
 const createSchema = z
   .object({
     target: z.enum(API_REMINDER_TARGETS),
     categoryId: z.string().trim().min(1).optional(),
-    times: timesSchema,
+    schedules: schedulesSchema,
   })
   .refine(
     (data) => {
@@ -46,7 +63,7 @@ const createSchema = z
 // makes sense to change after the fact, only whether it's on and when it fires.
 const updateSchema = z
   .object({
-    times: timesSchema.optional(),
+    schedules: schedulesSchema.optional(),
     enabled: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
@@ -92,7 +109,7 @@ remindersRouter.post("/", async (req, res) => {
     });
   }
 
-  const { target, categoryId, times } = parsed.data;
+  const { target, categoryId, schedules } = parsed.data;
   const prismaTarget = toPrismaReminderTarget(target);
 
   // ID-tampering defense - the same pattern every other route with a foreign reference already
@@ -129,7 +146,7 @@ remindersRouter.post("/", async (req, res) => {
       userId: req.userId as string,
       target: prismaTarget,
       categoryId: categoryId ?? null,
-      times,
+      schedules,
     },
     include: REMINDER_INCLUDE,
   });

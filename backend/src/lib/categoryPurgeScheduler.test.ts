@@ -127,7 +127,7 @@ describe("runCategoryPurgeTick", () => {
         userId,
         target: "CATEGORY",
         categoryId: created.body.id,
-        times: ["09:00"],
+        schedules: ["0 9 * * *"],
         enabled: false,
       },
     });

@@ -52,7 +52,7 @@ async function createReminder(
   overrides: {
     target?: "GENERAL" | "CATEGORY";
     categoryId?: string;
-    times?: string[];
+    schedules?: string[];
     enabled?: boolean;
   } = {},
 ) {
@@ -61,7 +61,7 @@ async function createReminder(
       userId,
       target: overrides.target ?? "GENERAL",
       categoryId: overrides.categoryId,
-      times: overrides.times ?? ["20:00"],
+      schedules: overrides.schedules ?? ["0 20 * * *"],
       enabled: overrides.enabled ?? true,
     },
   });
@@ -136,27 +136,69 @@ describe("runReminderTick", () => {
   it("does not send before the time has arrived", async () => {
     const user = await registerUser("too-early");
     await addSubscription(user.id, "too-early");
-    await createReminder(user.id, { times: ["23:00"] });
+    await createReminder(user.id, { schedules: ["0 23 * * *"] });
 
     await runReminderTick();
 
     expect(sendNotification).not.toHaveBeenCalled();
   });
 
-  it("fires each independent time on the same reminder separately", async () => {
+  // Behaviour change, made deliberately alongside cron schedules rather than discovered by a
+  // failing test: several *missed* slots on one reminder now produce a single notification for the
+  // most recent one, not one per slot. Sending two identical "time to log X" pushes back-to-back
+  // was already odd when a reminder could hold at most six hand-typed times; with `0 * * * *` and
+  // a process that was down until the afternoon it would have been fifteen. Every superseded slot
+  // is still recorded, so none of them can fire again later. See
+  // docs/log/25-cron-reminder-schedules.md.
+  it("sends once for the most recent due slot, and records the superseded ones as handled", async () => {
     const user = await registerUser("two-times");
     await addSubscription(user.id, "two-times");
-    // Both "09:00" and "20:00" are due (system time is 20:05); "23:00" is not.
-    const reminder = await createReminder(user.id, { times: ["09:00", "20:00", "23:00"] });
+    // "09:00" and "20:00" are both due (system time is 20:05); "23:00" is not.
+    const reminder = await createReminder(user.id, {
+      schedules: ["0 9 * * *", "0 20 * * *", "0 23 * * *"],
+    });
 
     await runReminderTick();
 
-    expect(sendNotification).toHaveBeenCalledTimes(2);
+    expect(sendNotification).toHaveBeenCalledTimes(1);
     const sends = await prisma.reminderSend.findMany({
       where: { reminderId: reminder.id },
       orderBy: { time: "asc" },
     });
+    // Both due slots are marked handled - 20:00 because it actually notified, 09:00 because it was
+    // superseded - so neither can fire again on a later tick today. 23:00 is untouched.
     expect(sends.map((s) => s.time)).toEqual(["09:00", "20:00"]);
+  });
+
+  it("expands a recurring expression into every slot it produces, firing once for the latest due", async () => {
+    const user = await registerUser("hourly");
+    await addSubscription(user.id, "hourly");
+    // Every hour on the hour. At 20:05 that means 00:00-20:00 are all due, 21:00-23:00 are not.
+    const reminder = await createReminder(user.id, { schedules: ["0 * * * *"] });
+
+    await runReminderTick();
+
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+    const sends = await prisma.reminderSend.findMany({
+      where: { reminderId: reminder.id },
+      orderBy: { time: "asc" },
+    });
+    expect(sends).toHaveLength(21);
+    expect(sends[0].time).toBe("00:00");
+    expect(sends.at(-1)?.time).toBe("20:00");
+  });
+
+  it("does not fire at all on a day the expression excludes", async () => {
+    const user = await registerUser("weekday-only");
+    await addSubscription(user.id, "weekday-only");
+    // The suite's fake clock is pinned to a Saturday (see the setSystemTime call above), so a
+    // weekdays-only expression must produce no slots at all - the day-of-week case that simply
+    // could not exist when schedules were bare "HH:mm" strings.
+    await createReminder(user.id, { schedules: ["0 9 * * 1-5"] });
+
+    await runReminderTick();
+
+    expect(sendNotification).not.toHaveBeenCalled();
   });
 
   // A former Medication reminder is just a CATEGORY reminder now (see

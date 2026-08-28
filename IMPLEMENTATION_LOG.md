@@ -341,3 +341,7 @@ project's own sessions.
 ### [Admin Group Assignment, and a Best-Guess Backfill for Existing Categories](docs/log/24-admin-group-assignment-and-backfill.md)
 
 - 2026-08-28 — Exposing group assignment on AdminCategoriesPage, and backfilling groups for categories that predate them
+
+### [Cron Reminder Schedules](docs/log/25-cron-reminder-schedules.md)
+
+- 2026-08-28 — Replacing fixed "HH:mm" reminder times with cron expressions
