@@ -18,6 +18,83 @@ engineer who has no memory between sessions unless you give it one.
 
 ---
 
+## What makes it "agentic": the tool loop
+
+Everything else in this document rests on this, so it's worth understanding first.
+
+A plain chatbot only produces **text**. You paste your code in, it suggests something back, you
+copy the result out and run it yourself. It never sees whether its suggestion actually worked.
+
+An **agentic** assistant has **tools** — it can read files, edit them, run commands, search the
+web — and it works in a loop:
+
+```
+goal → pick a tool → use it → look at what came back → adjust → repeat → report
+```
+
+That loop is the entire difference. It's what separates _suggesting_ a fix from _making_ one,
+running the tests, seeing them fail, and fixing it again before you ever see the result.
+
+### Why tools matter more than the model's knowledge
+
+Three things follow from having tools, and each one changes how you should work:
+
+**1. Grounding — it can check instead of guessing.** Without tools, an assistant answers about your
+codebase from memory and inference, which is a polite way of saying it guesses. With tools it opens
+the actual file. Nearly every failure described later in this document traces back to acting on a
+guess when a tool call was available.
+
+Real example from this project: while documenting the `CLAUDE.md` commands, the choice was between
+writing what the scripts _probably_ were and reading `package.json`. Reading it revealed the project
+has `npm run format:check` and `npm run test:e2e` scripts — so the documentation names the real
+commands rather than clumsier `npx` equivalents that would have looked plausible and been subtly
+wrong.
+
+**2. Feedback — it finds out it was wrong, instead of you finding out later.** Running the test
+suite means a mistake surfaces immediately, inside the loop, while the assistant is still working.
+Without that, errors surface days later, in your lap.
+
+Real example: after a large refactor here, running the frontend suite returned 12 failing tests. That
+failure _was_ the useful information — it led to diagnosing a missing mock, fixing it, and re-running
+to confirm all 205 passed. None of that is possible in a suggest-only workflow.
+
+**3. Completion — the work actually gets done.** Editing the files, running the migration, opening
+the PR. Not a description of the change: the change.
+
+### What this means for you
+
+- **Tool results are evidence. Model claims are not.** "The tests pass" alongside real output you
+  can read is a fact. The same sentence with nothing behind it is a prediction. This distinction is
+  the foundation of _Verify, don't trust_ below.
+- **If nothing was run, nothing was verified.** When an assistant says it fixed something but never
+  executed anything, it has asserted a fix, not demonstrated one. Ask what it ran.
+- **The loop is only as good as the feedback available to it.** A project with fast, meaningful
+  tests lets an assistant catch its own mistakes; a project without them can only produce
+  confident-looking code that nobody has checked. Investing in tests and lint isn't just good
+  practice — it's what makes agentic work self-correcting.
+- **Approvals are the safety boundary.** Tools that modify files or run commands are exactly why
+  permission prompts exist. They're the point at which you decide what this thing is allowed to do,
+  so they deserve reading rather than reflexive approval.
+- **Better tool access produces better work.** An assistant that can run your test suite will fix
+  its own errors. One that can't will hand them to you, phrased just as confidently.
+
+### The categories of tool
+
+| Kind                 | Examples                       | What it buys                                     |
+| -------------------- | ------------------------------ | ------------------------------------------------ |
+| **Read / search**    | reading a file, grep, glob     | Grounding — working from the real code           |
+| **Write / edit**     | editing or creating files      | The change itself                                |
+| **Execute**          | running tests, git, migrations | Feedback, and real completion                    |
+| **Web**              | search, fetching a page        | Current information beyond training data         |
+| **Delegate**         | subagents (see below)          | Isolating big or uncertain work in its own space |
+| **External systems** | MCP servers (see below)        | Reaching things outside the codebase entirely    |
+
+The rest of this document is, in one way or another, about using these well: keeping the loop's
+context clean, delegating the noisy parts, not carrying tools you don't need, and treating what
+comes back as evidence to check rather than conclusions to accept.
+
+---
+
 ## Managing context: `/clear` and `/compact`
 
 An AI coding session has a limited "context window" — everything said and done in the
@@ -856,6 +933,7 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | Starting a long session on a focused codebase            | Check `/mcp`, disable connectors the work can't touch    |
 | A capability one documented shell command already covers | Write a skill, don't add an MCP server                   |
 | A capability with no CLI equivalent / complex auth       | An MCP server genuinely earns its place                  |
+| A claim with no tool call behind it                      | Not verified — ask what was actually run                 |
 | Tests pass / build succeeds / PR shows "Merged"          | Verify the actual state before trusting it               |
 | A script or test behaves unexpectedly                    | Read the real source before iterating blindly            |
 | A product decision with more than one reasonable answer  | Ask explicitly, don't guess silently                     |
