@@ -558,6 +558,77 @@ The cost of not having done that isn't dramatic — the documentation got writte
 cost is that its quality depended on the same instructions being given again each time, which means
 it depended on the person remembering to give them. That's the fragile part.
 
+### What a skill actually is: a folder, not a file
+
+Worth being concrete, because "skill" sounds more abstract than it is. **A skill is a folder** —
+one required file plus whatever supporting material the procedure needs:
+
+```
+.claude/skills/
+  documentation-entry/
+    SKILL.md            ← required: the instructions
+    template.md         ← a file to copy and fill in
+    reference.md        ← detail needed only occasionally
+    examples/
+      good-entry.md     ← a worked example of the output
+    scripts/
+      check-links.sh    ← code to run, not read
+```
+
+`SKILL.md` is the only required file. It opens with a small frontmatter block — the **name** and
+the all-important **description** — followed by the instructions themselves:
+
+```markdown
+---
+name: documentation-entry
+description:
+  Use when writing or updating an entry in docs/log/ or IMPLEMENTATION_LOG.md — the
+  required structure, depth of explanation, and beginner-facing conventions for this project.
+---
+
+When writing a log entry for a completed task, follow this structure…
+```
+
+#### Why the folder matters: things load in three stages
+
+This is the mechanic that makes the whole arrangement efficient. Not everything loads at once:
+
+| Stage | What loads              | When                                               |
+| ----- | ----------------------- | -------------------------------------------------- |
+| 1     | Name + description only | Always — this is the near-zero standing cost       |
+| 2     | The `SKILL.md` body     | When the skill is actually used                    |
+| 3     | The supporting files    | Only when `SKILL.md` points at one and it's needed |
+
+So a skill can carry a large amount of material while costing almost nothing most of the time.
+**The practical consequence: keep `SKILL.md` itself tight, and push bulk into supporting files**,
+because `SKILL.md` loads in full every time the skill is used, while a reference file it links to
+loads only when that detail is genuinely required.
+
+#### What goes in which file
+
+- **`SKILL.md`** — the procedure: when this applies, the steps, the rules, the checklist. If it's
+  needed _every_ time the skill runs, it belongs here.
+- **Reference files** (`reference.md`, `conventions.md`) — detail needed only sometimes. Link them
+  from `SKILL.md` with a note about when to read them ("for the full list of section headings, see
+  `reference.md`").
+- **Templates** — a file meant to be copied and filled in. Better as its own file than pasted into
+  `SKILL.md`: it can be copied literally, and it doesn't inflate what loads on every use.
+- **Scripts** — code that gets **run rather than read**, and the most context-efficient thing a
+  skill can contain. A validation script costs you its _output_ ("3 links broken"), not its source.
+  Anything deterministic and checkable is better as a script than as prose instructions asking for
+  the same check to be performed by hand.
+- **Examples** — worked samples of good output. Genuinely useful for a "match this style" task, and
+  exactly the sort of bulky material that should sit in its own file rather than inline.
+
+#### Where skills live
+
+The same project-vs-personal split as `CLAUDE.md` (see the hierarchy above):
+
+- **`.claude/skills/<name>/`** in the repo — committed, reviewed, shared with everyone working on
+  the project. This is where a project convention belongs.
+- **`~/.claude/skills/<name>/`** — yours, across every project you work on.
+- Plugins can also bundle skills, which is how an installed marketplace plugin adds commands.
+
 ### How a skill gets used _without_ you asking
 
 This is the part that makes skills worth the effort, and it's easy to miss: **you don't have to
@@ -698,6 +769,8 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | A short rule that's always true                          | `CLAUDE.md` (loaded every session, so keep it brief)     |
 | A longer procedure — steps, template, checklist          | A skill (costs nothing until invoked, so it can be full) |
 | Writing a skill's description                            | Describe _when it applies_ — that's what makes it fire   |
+| Bulky material a skill needs only sometimes              | A supporting file it links to, not `SKILL.md` itself     |
+| A check that's deterministic and repeatable              | A script in the skill — costs its output, not its source |
 | A skill you wrote never seems to get used                | Fix the description, not the body — it was never reached |
 | A non-negotiable guardrail, not just a procedure         | `CLAUDE.md` — always applies, never depends on matching  |
 | A convention true for everyone on the project            | Project `CLAUDE.md` (committed, reviewed)                |
