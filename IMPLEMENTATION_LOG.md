@@ -113,13 +113,17 @@ without opening every file. The actual entries live in the linked files, in chro
 within each one, following exactly the same Background/What was done/Why/Decisions/
 Verification format used throughout this whole project.
 
-**Two more ways into the same material, for different purposes:** the
+**Three more ways into the same material, for different purposes:** the
 [Glossary](docs/GLOSSARY.md) is a fast lookup table for terms and tools used throughout this log
 (JWT, CORS, migrations, and so on), each pointing back to the topic file that explains it in
 full — useful when you know _what_ you're looking for and just need to find where it's covered.
 [Lessons Learned](docs/LESSONS-LEARNED.md) instead collects every real bug found during this
 project's build in one place — what happened, the actual root cause, and the general lesson —
 useful for browsing what's gone wrong before, rather than looking something specific up.
+[Working With AI](docs/WORKING-WITH-AI.md) steps back from the code entirely and covers the
+_process_ this project was built by: managing context (`/clear` and `/compact`), delegating to
+subagents, turning off irrelevant MCP servers, skills vs. MCP, and verifying rather than trusting
+— a living checklist of habits, with real examples from this project's own sessions.
 
 ### [Project Setup & Tooling](docs/log/00-project-setup.md)
 
