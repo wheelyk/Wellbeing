@@ -488,6 +488,45 @@ gets reviewed like any other file — because it applies to whoever is working, 
 **The rule of thumb:** if it's true for this project regardless of _who_ is working on it → repo.
 If it's true for you regardless of _which project_ you're in → user level.
 
+#### What wins when two levels disagree
+
+Precedence runs top-down in one direction and bottom-up in the other, which sounds contradictory
+until you separate the two things it's doing:
+
+- **Enterprise/managed policy sits at the top and is not yours to override.** It exists so an
+  organisation can enforce security and compliance rules that hold no matter what any individual
+  or project prefers. If it forbids something, nothing further down re-permits it.
+- **Below that, the more specific level wins for its own scope.** A `frontend/CLAUDE.md` rule beats
+  the root `CLAUDE.md` for work inside `frontend/`; a project convention beats your personal
+  preference while you're in that project. That's what makes the arrangement useful — a repo can
+  say "this project uses tabs" without you having to change your own defaults everywhere else.
+
+**But treat that override behaviour as a safety net, not a design tool.** If two levels actively
+contradict each other, someone reading either file in isolation is being told something untrue, and
+you're now relying on a resolution rule to save you. It's much better to write rules that don't
+collide in the first place — keep personal preferences about _how you like to work_ at the user
+level, and project facts about _how this codebase works_ in the repo, and the two rarely have
+anything to argue about.
+
+#### Choosing a level: put it at the broadest level where it's still universally true
+
+That single principle answers most placement questions:
+
+| Level            | Put here                                                                | Because                                                               |
+| ---------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| **Enterprise**   | Security and compliance rules that must hold everywhere                 | They can't be left to individual discretion                           |
+| **User**         | How _you_ like to work — tone, explanation depth, "always ask before X" | True across all your projects; nobody else should inherit it          |
+| **Project**      | Workflow, definition of done, architecture rules, the stack             | True for anyone touching this repo, so it gets committed and reviewed |
+| **Subdirectory** | Stack detail specific to one area of a monorepo                         | Only relevant to work in that subtree — and only loaded there         |
+
+The two failure modes are symmetrical. **Too broad** and the rule is wrong somewhere: a personal
+"always explain concepts in detail" pushed into a project file imposes your learning preference on
+teammates who don't want it. **Too narrow** and it doesn't apply where it should: a git convention
+buried in `frontend/CLAUDE.md` silently stops applying the moment someone works on the backend.
+
+When you're unsure, ask _"where is the widest circle of situations in which this is still
+unambiguously true?"_ — and put it there.
+
 **Where the subdirectory level earns its keep: monorepos.** This repository is a good example of
 the problem it solves. Everything currently lives in one root `CLAUDE.md`, including
 backend-specific gotchas (Prisma, `moduleResolution: "Bundler"`, the app/index split) and
@@ -622,12 +661,23 @@ loads only when that detail is genuinely required.
 
 #### Where skills live
 
-The same project-vs-personal split as `CLAUDE.md` (see the hierarchy above):
+Skills follow the same hierarchy as `CLAUDE.md`, and the same placement principle — **put it at the
+broadest level where it's still universally true**:
 
-- **`.claude/skills/<name>/`** in the repo — committed, reviewed, shared with everyone working on
-  the project. This is where a project convention belongs.
-- **`~/.claude/skills/<name>/`** — yours, across every project you work on.
-- Plugins can also bundle skills, which is how an installed marketplace plugin adds commands.
+| Where                      | Scope                             | Put here                                                      |
+| -------------------------- | --------------------------------- | ------------------------------------------------------------- |
+| `.claude/skills/<name>/`   | This repo, everyone working on it | Project procedures — how _this_ codebase wants something done |
+| `~/.claude/skills/<name>/` | Every project you work on         | Your own reusable workflows, not tied to any one codebase     |
+| Bundled in a plugin        | Wherever the plugin is enabled    | Someone else's published workflow you've installed            |
+
+The precedence works the same way too: **the more specific level wins for its scope.** If a project
+skill and a personal skill share a name, the project's copy is the one that applies while you're in
+that repo — which is what you want, since the project's version was written for that codebase and
+reviewed by whoever works on it.
+
+And the same caution applies: don't lean on that. Two same-named skills doing different things is
+confusing to everyone including you. If a project genuinely needs a different procedure, give it a
+name that says so rather than shadowing a personal one.
 
 ### How a skill gets used _without_ you asking
 
@@ -640,9 +690,12 @@ what the assistant itself reads. When a task in front of it looks like one a lis
 it loads that skill and follows it, unprompted. Typing `/skill-name` yourself is the manual
 override, not the normal path.
 
-Which leads to the single highest-leverage fact about writing a skill:
+Specifically, it's the **`description:` field in `SKILL.md`'s frontmatter** doing that work — not
+the folder name, not a heading in the body, not anything else. Which leads to the single
+highest-leverage fact about writing a skill:
 
-> **The description is not a label. It's the matching rule.**
+> **The `description:` is not a label. It's the matching rule — it states _when_ to use the skill,
+> and that sentence is the whole reason the skill ever gets picked up.**
 
 A skill described as _"Documentation helper"_ will sit there unused, because nothing about a
 request like "write up what we just built" obviously matches it. The same skill described as _"Use
@@ -773,6 +826,8 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | A check that's deterministic and repeatable              | A script in the skill — costs its output, not its source |
 | A skill you wrote never seems to get used                | Fix the description, not the body — it was never reached |
 | A non-negotiable guardrail, not just a procedure         | `CLAUDE.md` — always applies, never depends on matching  |
+| Deciding which level a rule or skill belongs at          | The broadest level where it's still universally true     |
+| Two levels contradicting each other                      | Rewrite so they don't — don't rely on override order     |
 | A convention true for everyone on the project            | Project `CLAUDE.md` (committed, reviewed)                |
 | A preference true for you across all projects            | Personal `~/.claude/CLAUDE.md`                           |
 | Stack detail only relevant inside one part of a monorepo | A `CLAUDE.md` in that subdirectory                       |
