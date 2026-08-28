@@ -328,3 +328,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 ### [Category Groups](docs/log/23-category-groups.md)
 
 - 2026-08-28 — Organizing categories into collapsible groups, with hide/rename for groups themselves
+
+### [Admin Group Assignment, and a Best-Guess Backfill for Existing Categories](docs/log/24-admin-group-assignment-and-backfill.md)
+
+- 2026-08-28 — Exposing group assignment on AdminCategoriesPage, and backfilling groups for categories that predate them
