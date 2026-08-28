@@ -13,6 +13,22 @@ export interface Category {
   scaleMax: number | null;
   archivedAt: string | null;
   createdAt: string;
+  // Optional (see backend's schema.prisma Category.groupId comment) - null means "Uncategorized,"
+  // a normal, supported state, not a category that's missing something. See
+  // docs/log/23-category-groups.md.
+  groupId: string | null;
+}
+
+// The shape GET /api/category-groups returns - see backend/src/routes/categoryGroups.ts. Kept
+// here, next to Category, since this form's own group picker (below) is the one place that needs
+// it; SettingsPage.tsx's own management UI imports this same type rather than redeclaring it.
+export interface CategoryGroup {
+  id: string;
+  userId: string | null;
+  name: string;
+  icon: string | null;
+  hidden: boolean;
+  createdAt: string;
 }
 
 const TYPE_OPTIONS: Array<{ value: Category["valueType"]; label: string; hint: string }> = [
@@ -30,6 +46,12 @@ interface CategoryCreateFormProps {
   // target endpoint, since the two routes accept an identical request shape (see
   // backend/src/routes/categories.ts and adminCategories.ts).
   createEndpoint?: string;
+  // Groups the new category can be assigned to (already excludes hidden ones - a caller
+  // shouldn't be steered toward putting a fresh category somewhere they've chosen not to see).
+  // Defaults to none, in which case the picker below simply doesn't render (rather than showing
+  // an empty, useless dropdown) - a caller that hasn't been updated to fetch groups yet still
+  // works exactly as before.
+  groups?: CategoryGroup[];
 }
 
 // A small, focused "define a category" form, supporting four value types (including "scale", a
@@ -43,12 +65,16 @@ export function CategoryCreateForm({
   onCreated,
   onCancel,
   createEndpoint = "/api/categories",
+  groups = [],
 }: CategoryCreateFormProps) {
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("");
   const [type, setType] = useState<Category["valueType"] | null>(null);
   const [scaleMin, setScaleMin] = useState("1");
   const [scaleMax, setScaleMax] = useState("7");
+  // "" means Uncategorized (sent as groupId: undefined, not a real group id) - a plain <select>
+  // needs a string value for every option, including the "no real value" one.
+  const [groupId, setGroupId] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
   const [typeError, setTypeError] = useState<string | null>(null);
   const [scaleError, setScaleError] = useState<string | null>(null);
@@ -101,6 +127,7 @@ export function CategoryCreateForm({
           name: name.trim(),
           valueType: type,
           icon: icon.trim() || undefined,
+          groupId: groupId || undefined,
           ...scaleFields,
         }),
       });
@@ -129,6 +156,28 @@ export function CategoryCreateForm({
         placeholder="e.g. 💧"
         maxLength={8}
       />
+
+      {groups.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <label htmlFor="category-group-picker" className="text-sm font-medium text-text">
+            Group (optional)
+          </label>
+          <select
+            id="category-group-picker"
+            value={groupId}
+            onChange={(e) => setGroupId(e.target.value)}
+            className="rounded-lg border border-border px-3 py-3 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+          >
+            <option value="">Uncategorized</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.icon ? `${group.icon} ` : ""}
+                {group.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <fieldset>
         <legend className="text-sm font-medium text-text">How is it tracked?</legend>

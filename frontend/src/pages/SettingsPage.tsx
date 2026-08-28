@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type HTMLAttributes } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type HTMLAttributes } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { apiFetch, apiFetchFile, ApiError } from "../api/client";
@@ -8,13 +8,18 @@ import { Button } from "../components/Button";
 import { TextField } from "../components/TextField";
 import { CollapsibleSection } from "../components/CollapsibleSection";
 import { useThemePreference, type ThemePreference } from "../hooks/useThemePreference";
+import { useCollapsedState } from "../hooks/useCollapsedState";
 import {
   isPushSupported,
   subscribeToPush,
   unsubscribeFromPush,
   PushPermissionDeniedError,
 } from "../lib/pushNotifications";
-import { CategoryCreateForm, type Category } from "../components/CategoryCreateForm";
+import {
+  CategoryCreateForm,
+  type Category,
+  type CategoryGroup,
+} from "../components/CategoryCreateForm";
 import { ConfirmDeleteModal } from "../components/ConfirmDeleteModal";
 import {
   ReminderCreateForm,
@@ -689,16 +694,353 @@ function describeValueType(category: Category): string {
 // Dashboard/Quick Add's own fetch deliberately doesn't - a hidden system category still has to
 // show up here (with an Unhide action), or hiding it would be a one-way trip with no way back.
 type ManagedCategory = Category & { hidden: boolean };
+type ManagedGroup = CategoryGroup & { hidden: boolean };
+
+// Bundled rather than nine separate props on GroupSection/CategoryRow below (see
+// docs/log/23-category-groups.md) - one category can be mid-edit at a time across the whole
+// grouped list, so this state genuinely lives in the parent (CategoriesSection), not per-row.
+interface CategoryEditState {
+  editingId: string | null;
+  name: string;
+  icon: string;
+  groupId: string;
+  error: string | null;
+  saving: boolean;
+}
+
+interface CategoryRowHandlers {
+  onStartEdit: (category: ManagedCategory) => void;
+  onNameChange: (value: string) => void;
+  onIconChange: (value: string) => void;
+  onGroupIdChange: (value: string) => void;
+  onSaveEdit: (id: string) => void;
+  onCancelEdit: () => void;
+  onDeleteClick: (id: string) => void;
+  onHide: (id: string) => void;
+  onUnhide: (id: string) => void;
+}
+
+function CategoryRow({
+  category,
+  isOwn,
+  editState,
+  handlers,
+  pickerGroups,
+}: {
+  category: ManagedCategory;
+  isOwn: boolean;
+  editState: CategoryEditState;
+  handlers: CategoryRowHandlers;
+  // Visible (non-hidden) groups, offered as options when moving this category to a different
+  // group - a category can still be reassigned away from a hidden group even though the group
+  // that put it there no longer shows as a choice here, but it can't be moved back /into/ one
+  // through this picker (matching how a hidden category itself doesn't clutter other pickers).
+  pickerGroups: CategoryGroup[];
+}) {
+  const isEditing = editState.editingId === category.id;
+
+  if (isEditing) {
+    return (
+      <li className="rounded-xl border border-border bg-surface-muted p-3">
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <TextField
+              label="Name"
+              value={editState.name}
+              onChange={(e) => handlers.onNameChange(e.target.value)}
+            />
+            <TextField
+              label="Icon"
+              value={editState.icon}
+              onChange={(e) => handlers.onIconChange(e.target.value)}
+              maxLength={8}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor={`edit-category-group-${category.id}`}
+              className="text-sm font-medium text-text"
+            >
+              Group
+            </label>
+            <select
+              id={`edit-category-group-${category.id}`}
+              value={editState.groupId}
+              onChange={(e) => handlers.onGroupIdChange(e.target.value)}
+              className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            >
+              <option value="">Uncategorized</option>
+              {pickerGroups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.icon ? `${group.icon} ` : ""}
+                  {group.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {editState.error && (
+            <p role="alert" className="text-sm text-danger">
+              {editState.error}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              onClick={() => handlers.onSaveEdit(category.id)}
+              disabled={editState.saving}
+            >
+              {editState.saving ? "Saving…" : "Save"}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handlers.onCancelEdit}
+              disabled={editState.saving}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </li>
+    );
+  }
+
+  return (
+    <li className="rounded-xl border border-border bg-surface-muted p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-text">
+            {category.icon ? `${category.icon} ` : ""}
+            {category.name}
+            {!isOwn && (
+              <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+                Built-in
+              </span>
+            )}
+            {category.hidden && (
+              <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+                Hidden
+              </span>
+            )}
+          </p>
+          <p className="text-xs text-text-muted">{describeValueType(category)}</p>
+        </div>
+        {isOwn ? (
+          <div className="flex shrink-0 gap-2">
+            <Button variant="secondary" onClick={() => handlers.onStartEdit(category)}>
+              Edit
+            </Button>
+            <Button
+              variant="secondary"
+              aria-label={`Delete ${category.name}`}
+              onClick={() => handlers.onDeleteClick(category.id)}
+            >
+              Delete
+            </Button>
+          </div>
+        ) : (
+          <div className="flex shrink-0 gap-2">
+            {category.hidden ? (
+              <Button variant="secondary" onClick={() => handlers.onUnhide(category.id)}>
+                Unhide
+              </Button>
+            ) : (
+              <Button variant="secondary" onClick={() => handlers.onHide(category.id)}>
+                Hide
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+interface GroupEditState {
+  editingGroupId: string | null;
+  name: string;
+  icon: string;
+  error: string | null;
+  saving: boolean;
+}
+
+interface GroupSectionHandlers {
+  onStartEditGroup: (group: CategoryGroup) => void;
+  onGroupNameChange: (value: string) => void;
+  onGroupIconChange: (value: string) => void;
+  onSaveGroupEdit: (id: string) => void;
+  onCancelGroupEdit: () => void;
+  onHideGroup: (id: string) => void;
+  onUnhideGroup: (id: string) => void;
+}
+
+// One collapsible section per group (or, when `group` is null, the synthetic "Uncategorized"
+// bucket for any category with no group at all). Not built from CollapsibleSection - that
+// component's entire header is one toggle <button>, with no room for a second, independent
+// Hide/Rename action beside it without nesting a <button> inside a <button> (invalid HTML, and
+// clicking it would also toggle the section). useCollapsedState directly, the same hook
+// CollapsibleSection itself is built on, is what SectionPanel.tsx's own toggle-plus-action header
+// already does for exactly this reason.
+function GroupSection({
+  group,
+  categories,
+  currentUserId,
+  groupEditState,
+  groupHandlers,
+  categoryEditState,
+  categoryHandlers,
+  pickerGroups,
+}: {
+  group: ManagedGroup | null;
+  categories: ManagedCategory[];
+  currentUserId: string | undefined;
+  groupEditState: GroupEditState;
+  groupHandlers: GroupSectionHandlers;
+  categoryEditState: CategoryEditState;
+  categoryHandlers: CategoryRowHandlers;
+  pickerGroups: CategoryGroup[];
+}) {
+  const storageKey = group
+    ? `settings.categories.group.${group.id}`
+    : "settings.categories.group.uncategorized";
+  const { collapsed, toggle } = useCollapsedState(storageKey);
+  const contentId = `${storageKey}-content`;
+  const isOwnGroup = group !== null && group.userId === currentUserId;
+  const isEditingGroup = group !== null && groupEditState.editingGroupId === group.id;
+
+  return (
+    <div className="rounded-xl border border-border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={!collapsed}
+          aria-controls={contentId}
+          className="flex flex-1 items-center gap-2 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        >
+          <span className="flex-1 font-medium text-text">
+            {group ? (group.icon ? `${group.icon} ` : "") : "🗂️ "}
+            {group ? group.name : "Uncategorized"}
+            {group && group.userId === null && (
+              <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+                Built-in
+              </span>
+            )}
+            {group?.hidden && (
+              <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+                Hidden
+              </span>
+            )}
+          </span>
+          <span className="text-xs text-text-muted">{categories.length}</span>
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`h-4 w-4 shrink-0 text-text-muted transition-transform ${collapsed ? "" : "rotate-180"}`}
+          >
+            <path d="M5 7.5 10 12.5 15 7.5" />
+          </svg>
+        </button>
+        {group && (
+          <div className="flex shrink-0 gap-2">
+            {isOwnGroup && (
+              <Button variant="secondary" onClick={() => groupHandlers.onStartEditGroup(group)}>
+                Rename
+              </Button>
+            )}
+            {group.hidden ? (
+              <Button variant="secondary" onClick={() => groupHandlers.onUnhideGroup(group.id)}>
+                Unhide
+              </Button>
+            ) : (
+              <Button variant="secondary" onClick={() => groupHandlers.onHideGroup(group.id)}>
+                Hide
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+      {!collapsed && (
+        <div id={contentId} className="mt-3">
+          {isEditingGroup ? (
+            <div className="mb-3 flex flex-col gap-2 rounded-lg border border-border bg-surface-muted p-3">
+              <div className="flex gap-2">
+                <TextField
+                  label="Group name"
+                  value={groupEditState.name}
+                  onChange={(e) => groupHandlers.onGroupNameChange(e.target.value)}
+                />
+                <TextField
+                  label="Icon"
+                  value={groupEditState.icon}
+                  onChange={(e) => groupHandlers.onGroupIconChange(e.target.value)}
+                  maxLength={8}
+                />
+              </div>
+              {groupEditState.error && (
+                <p role="alert" className="text-sm text-danger">
+                  {groupEditState.error}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  onClick={() => groupHandlers.onSaveGroupEdit(group.id)}
+                  disabled={groupEditState.saving}
+                >
+                  {groupEditState.saving ? "Saving…" : "Save"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={groupHandlers.onCancelGroupEdit}
+                  disabled={groupEditState.saving}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          {categories.length === 0 ? (
+            <p className="text-sm text-text-muted">
+              Nothing here yet - a category can be assigned to this group from its own Edit form.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {categories.map((category) => (
+                <CategoryRow
+                  key={category.id}
+                  category={category}
+                  isOwn={category.userId === currentUserId}
+                  editState={categoryEditState}
+                  handlers={categoryHandlers}
+                  pickerGroups={pickerGroups}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function CategoriesSection() {
   const { user } = useAuth();
   const [categories, setCategories] = useState<ManagedCategory[]>([]);
+  const [groups, setGroups] = useState<ManagedGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editIcon, setEditIcon] = useState("");
+  const [editCategoryGroupId, setEditCategoryGroupId] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -707,11 +1049,27 @@ function CategoriesSection() {
   // window.confirm() here too, matching History's own precedent.
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
+  const [showCreateGroupForm, setShowCreateGroupForm] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupIcon, setNewGroupIcon] = useState("");
+  const [groupFormError, setGroupFormError] = useState<string | null>(null);
+  const [groupFormSaving, setGroupFormSaving] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editGroupNameValue, setEditGroupNameValue] = useState("");
+  const [editGroupIconValue, setEditGroupIconValue] = useState("");
+  const [editGroupError, setEditGroupError] = useState<string | null>(null);
+  const [editGroupSaving, setEditGroupSaving] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
-    apiFetch<ManagedCategory[]>("/api/categories?includeHidden=true")
-      .then((res) => {
-        if (!cancelled) setCategories(res);
+    Promise.all([
+      apiFetch<ManagedCategory[]>("/api/categories?includeHidden=true"),
+      apiFetch<ManagedGroup[]>("/api/category-groups?includeHidden=true"),
+    ])
+      .then(([categoriesRes, groupsRes]) => {
+        if (cancelled) return;
+        setCategories(categoriesRes);
+        setGroups(groupsRes);
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -724,6 +1082,39 @@ function CategoriesSection() {
     };
   }, []);
 
+  // Groups this session actually offers as a destination when creating/moving a category -
+  // steering toward an already-hidden group would just recreate the exact clutter hiding it was
+  // meant to avoid.
+  const pickerGroups = useMemo(() => groups.filter((g) => !g.hidden), [groups]);
+
+  // System groups first (in their original seeded order - see categoryGroups.ts's own comment on
+  // why that's a client-side partition, not something the backend's own orderBy can express),
+  // then the caller's own custom groups by name, then a final "Uncategorized" bucket only if
+  // anything actually needs it - an empty Uncategorized section would just be noise.
+  const sections = useMemo(() => {
+    const byGroupId = new Map<string, ManagedCategory[]>();
+    const uncategorized: ManagedCategory[] = [];
+    for (const category of categories) {
+      if (category.groupId) {
+        const list = byGroupId.get(category.groupId) ?? [];
+        list.push(category);
+        byGroupId.set(category.groupId, list);
+      } else {
+        uncategorized.push(category);
+      }
+    }
+    const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+    const systemGroups = groups.filter((g) => g.userId === null);
+    const personalGroups = groups.filter((g) => g.userId !== null).sort(byName);
+    const groupSections = [...systemGroups, ...personalGroups].map((group) => ({
+      group,
+      categories: (byGroupId.get(group.id) ?? []).sort(byName),
+    }));
+    return uncategorized.length > 0
+      ? [...groupSections, { group: null, categories: uncategorized.sort(byName) }]
+      : groupSections;
+  }, [categories, groups]);
+
   function handleCreated(category: Category) {
     setCategories((prev) =>
       [...prev, { ...category, hidden: false }].sort((a, b) => a.name.localeCompare(b.name)),
@@ -732,10 +1123,11 @@ function CategoriesSection() {
     setActionMessage("Category created.");
   }
 
-  function startEdit(category: Category) {
+  function startEdit(category: ManagedCategory) {
     setEditingId(category.id);
     setEditName(category.name);
     setEditIcon(category.icon ?? "");
+    setEditCategoryGroupId(category.groupId ?? "");
     setEditError(null);
   }
 
@@ -749,7 +1141,11 @@ function CategoriesSection() {
     try {
       const updated = await apiFetch<Category>(`/api/categories/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ name: editName.trim(), icon: editIcon.trim() || null }),
+        body: JSON.stringify({
+          name: editName.trim(),
+          icon: editIcon.trim() || null,
+          groupId: editCategoryGroupId || null,
+        }),
       });
       // PATCH's response has no `hidden` field of its own (editing never changes it) - preserved
       // from the existing row rather than defaulting to false.
@@ -825,15 +1221,132 @@ function CategoriesSection() {
     }
   }
 
+  const categoryHandlers: CategoryRowHandlers = {
+    onStartEdit: startEdit,
+    onNameChange: setEditName,
+    onIconChange: setEditIcon,
+    onGroupIdChange: setEditCategoryGroupId,
+    onSaveEdit: handleEditSave,
+    onCancelEdit: () => setEditingId(null),
+    onDeleteClick: handleDeleteClick,
+    onHide: handleHide,
+    onUnhide: handleUnhide,
+  };
+  const categoryEditState: CategoryEditState = {
+    editingId,
+    name: editName,
+    icon: editIcon,
+    groupId: editCategoryGroupId,
+    error: editError,
+    saving: editSaving,
+  };
+
+  async function handleCreateGroupSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!newGroupName.trim()) {
+      setGroupFormError("Give this group a name.");
+      return;
+    }
+    setGroupFormSaving(true);
+    setGroupFormError(null);
+    try {
+      const group = await apiFetch<CategoryGroup>("/api/category-groups", {
+        method: "POST",
+        body: JSON.stringify({ name: newGroupName.trim(), icon: newGroupIcon.trim() || undefined }),
+      });
+      setGroups((prev) => [...prev, { ...group, hidden: false }]);
+      setShowCreateGroupForm(false);
+      setNewGroupName("");
+      setNewGroupIcon("");
+      setActionMessage("Group created.");
+    } catch {
+      setGroupFormError("Something went wrong creating this group. Please try again.");
+    } finally {
+      setGroupFormSaving(false);
+    }
+  }
+
+  function startEditGroup(group: CategoryGroup) {
+    setEditingGroupId(group.id);
+    setEditGroupNameValue(group.name);
+    setEditGroupIconValue(group.icon ?? "");
+    setEditGroupError(null);
+  }
+
+  async function handleEditGroupSave(id: string) {
+    if (!editGroupNameValue.trim()) {
+      setEditGroupError("Give this group a name.");
+      return;
+    }
+    setEditGroupSaving(true);
+    setEditGroupError(null);
+    try {
+      const updated = await apiFetch<CategoryGroup>(`/api/category-groups/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: editGroupNameValue.trim(),
+          icon: editGroupIconValue.trim() || null,
+        }),
+      });
+      setGroups((prev) => prev.map((g) => (g.id === id ? { ...updated, hidden: g.hidden } : g)));
+      setEditingGroupId(null);
+    } catch {
+      setEditGroupError("Something went wrong saving this group. Please try again.");
+    } finally {
+      setEditGroupSaving(false);
+    }
+  }
+
+  async function handleHideGroup(id: string) {
+    const previous = groups;
+    setGroups((prev) => prev.map((g) => (g.id === id ? { ...g, hidden: true } : g)));
+    try {
+      await apiFetch(`/api/category-groups/${id}/hide`, { method: "POST" });
+      setActionMessage("Group hidden.");
+    } catch {
+      setGroups(previous);
+      setActionMessage(null);
+    }
+  }
+
+  async function handleUnhideGroup(id: string) {
+    const previous = groups;
+    setGroups((prev) => prev.map((g) => (g.id === id ? { ...g, hidden: false } : g)));
+    try {
+      await apiFetch(`/api/category-groups/${id}/hide`, { method: "DELETE" });
+      setActionMessage("Group unhidden.");
+    } catch {
+      setGroups(previous);
+      setActionMessage(null);
+    }
+  }
+
+  const groupHandlers: GroupSectionHandlers = {
+    onStartEditGroup: startEditGroup,
+    onGroupNameChange: setEditGroupNameValue,
+    onGroupIconChange: setEditGroupIconValue,
+    onSaveGroupEdit: handleEditGroupSave,
+    onCancelGroupEdit: () => setEditingGroupId(null),
+    onHideGroup: handleHideGroup,
+    onUnhideGroup: handleUnhideGroup,
+  };
+  const groupEditState: GroupEditState = {
+    editingGroupId,
+    name: editGroupNameValue,
+    icon: editGroupIconValue,
+    error: editGroupError,
+    saving: editGroupSaving,
+  };
+
   return (
     <SectionCard>
       <CollapsibleSection title="Categories" storageKey="settings.categories">
         <p className="mb-4 text-sm text-text-muted">
           Create your own trackable categories - medications included - alongside any an admin has
           added for everyone (including Mood, Energy, Stress, and every default symptom, like
-          Headache or Fatigue). Hide a built-in one you don&apos;t use instead of deleting it - your
-          own categories can be deleted instead, from the same list, with a 30-day window to restore
-          one if you change your mind.
+          Headache or Fatigue), organized into groups. Hide a built-in category or group you
+          don&apos;t use instead of deleting it - your own categories can be deleted instead, with a
+          30-day window to restore one if you change your mind.
         </p>
         {user?.isAdmin && (
           <Link
@@ -856,116 +1369,80 @@ function CategoriesSection() {
                 {actionMessage}
               </p>
             )}
-            {categories.length === 0 ? (
+            {categories.length === 0 && groups.length === 0 ? (
               <p className="text-sm text-text-muted">No categories yet.</p>
             ) : (
-              <ul className="flex flex-col gap-2">
-                {categories.map((category) => {
-                  const isOwn = category.userId === user?.id;
-                  const isEditing = editingId === category.id;
-                  return (
-                    <li
-                      key={category.id}
-                      className="rounded-xl border border-border bg-surface-muted p-3"
-                    >
-                      {isEditing ? (
-                        <div className="flex flex-col gap-2">
-                          <div className="flex gap-2">
-                            <TextField
-                              label="Name"
-                              value={editName}
-                              onChange={(e) => setEditName(e.target.value)}
-                            />
-                            <TextField
-                              label="Icon"
-                              value={editIcon}
-                              onChange={(e) => setEditIcon(e.target.value)}
-                              maxLength={8}
-                            />
-                          </div>
-                          {editError && (
-                            <p role="alert" className="text-sm text-danger">
-                              {editError}
-                            </p>
-                          )}
-                          <div className="flex gap-2">
-                            <Button
-                              type="button"
-                              onClick={() => handleEditSave(category.id)}
-                              disabled={editSaving}
-                            >
-                              {editSaving ? "Saving…" : "Save"}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              onClick={() => setEditingId(null)}
-                              disabled={editSaving}
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-text">
-                              {category.icon ? `${category.icon} ` : ""}
-                              {category.name}
-                              {!isOwn && (
-                                <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
-                                  Built-in
-                                </span>
-                              )}
-                              {category.hidden && (
-                                <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
-                                  Hidden
-                                </span>
-                              )}
-                            </p>
-                            <p className="text-xs text-text-muted">{describeValueType(category)}</p>
-                          </div>
-                          {isOwn ? (
-                            <div className="flex shrink-0 gap-2">
-                              <Button variant="secondary" onClick={() => startEdit(category)}>
-                                Edit
-                              </Button>
-                              <Button
-                                variant="secondary"
-                                aria-label={`Delete ${category.name}`}
-                                onClick={() => handleDeleteClick(category.id)}
-                              >
-                                Delete
-                              </Button>
-                            </div>
-                          ) : (
-                            <div className="flex shrink-0 gap-2">
-                              {category.hidden ? (
-                                <Button
-                                  variant="secondary"
-                                  onClick={() => handleUnhide(category.id)}
-                                >
-                                  Unhide
-                                </Button>
-                              ) : (
-                                <Button variant="secondary" onClick={() => handleHide(category.id)}>
-                                  Hide
-                                </Button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+              <div className="flex flex-col gap-2">
+                {sections.map(({ group, categories: sectionCategories }) => (
+                  <GroupSection
+                    key={group?.id ?? "uncategorized"}
+                    group={group}
+                    categories={sectionCategories}
+                    currentUserId={user?.id}
+                    groupEditState={groupEditState}
+                    groupHandlers={groupHandlers}
+                    categoryEditState={categoryEditState}
+                    categoryHandlers={categoryHandlers}
+                    pickerGroups={pickerGroups}
+                  />
+                ))}
+              </div>
+            )}
+            {showCreateGroupForm ? (
+              <form
+                onSubmit={handleCreateGroupSubmit}
+                className="mt-4 flex flex-col gap-2 rounded-lg border border-border bg-surface-muted p-3"
+              >
+                <div className="flex gap-2">
+                  <TextField
+                    label="Group name"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    placeholder="e.g. Work Stress"
+                  />
+                  <TextField
+                    label="Icon (optional)"
+                    value={newGroupIcon}
+                    onChange={(e) => setNewGroupIcon(e.target.value)}
+                    placeholder="e.g. 💼"
+                    maxLength={8}
+                  />
+                </div>
+                {groupFormError && (
+                  <p role="alert" className="text-sm text-danger">
+                    {groupFormError}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <Button type="submit" disabled={groupFormSaving}>
+                    {groupFormSaving ? "Creating…" : "Create group"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setShowCreateGroupForm(false)}
+                    disabled={groupFormSaving}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowCreateGroupForm(true)}
+                className="mt-4 self-start"
+              >
+                + New group
+              </Button>
             )}
             {showCreateForm ? (
               <div className="mt-4 border-t border-border pt-4">
                 <CategoryCreateForm
                   onCreated={handleCreated}
                   onCancel={() => setShowCreateForm(false)}
+                  groups={pickerGroups}
                 />
               </div>
             ) : (

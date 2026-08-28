@@ -35,9 +35,11 @@ model User {
 
   pushSubscriptions PushSubscription[]
   categories        Category[]
+  categoryGroups    CategoryGroup[]
   categoryLogs      CategoryLog[]
   reminders         Reminder[]
   hiddenCategories  HiddenCategory[]
+  hiddenGroups      HiddenGroup[]
 
   @@map("users")
 }
@@ -79,6 +81,50 @@ enum CategoryValueType {
   @@map("category_value_type")
 }
 
+// An organizational bucket a Category can optionally belong to (see Category.groupId below) -
+// purely a display/navigation grouping, with no logged history of its own the way a Category has
+// (a CategoryLog always points at a Category, never directly at a Group), which is what makes
+// this a much lower-stakes model than Category: hiding one (see HiddenGroup) can never lose data,
+// since the categories inside it are completely unaffected and still reachable on their own.
+// `userId` follows the identical nullable convention Category itself already uses: null = a
+// built-in group visible to everyone (seeded directly - there's no admin-route equivalent yet,
+// unlike Category's own admin-managed system rows), set = a user's own custom group, visible only
+// to them. See docs/log/23-category-groups.md.
+model CategoryGroup {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  name      String
+  icon      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user       User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categories Category[]
+  hiddenBy   HiddenGroup[]
+
+  @@index([userId])
+  @@map("category_groups")
+}
+
+// A per-user "don't show me this group" preference - deliberately available for a built-in group
+// *and* a user's own custom one alike, unlike HiddenCategory below (which only ever applies to a
+// system category, since a personal category already has Delete for that). A group can't be
+// deleted yet (see docs/log/23-category-groups.md - reordering/drag-and-drop and group deletion
+// are both explicitly deferred follow-on work), so hiding is currently the *only* way to get a
+// regretted custom group out of view, which is exactly why it isn't restricted to built-in groups
+// the way category hiding is.
+model HiddenGroup {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  groupId   String   @map("group_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group CategoryGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@map("hidden_groups")
+}
+
 // A user-extensible trackable category - every loggable thing in this app is one of these now
 // that Habit, Symptom, Mood, and Medication have all unified into it (see
 // docs/log/17-unify-mood-symptom-habit.md and docs/log/19-medication-to-category.md). `userId`
@@ -113,7 +159,16 @@ model Category {
   archivedAt  DateTime?         @map("archived_at")
   createdAt   DateTime          @default(now()) @map("created_at")
 
+  // Optional - a category with no group shows under a synthetic "Uncategorized" bucket in the UI
+  // (not a real CategoryGroup row), rather than forcing every existing or newly-created category
+  // to pick a group up front. SetNull rather than Restrict: a category's group membership is
+  // organizational metadata, not something that should ever block or cascade a real change to the
+  // group itself - if a group a category belongs to is ever removed, the category should simply
+  // fall back to Uncategorized, never disappear or block the group's own removal.
+  groupId String? @map("group_id")
+
   user      User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group     CategoryGroup?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
   logs      CategoryLog[]
   reminders Reminder[]
   hiddenBy  HiddenCategory[]
@@ -122,6 +177,8 @@ model Category {
   // NULL case for system categories), so this index keeps that lookup fast as the category
   // list grows across many users.
   @@index([userId])
+  // Supports "every category in this group" lookups (rendering one group's own section).
+  @@index([groupId])
   @@map("categories")
 }
 
@@ -223,7 +280,7 @@ model Reminder {
   enabled    Boolean        @default(true)
   createdAt  DateTime       @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Restrict, not Cascade - and not left as the bare default either: for an *optional* scalar
   // relation like this one (categoryId is nullable), Prisma's actual unspecified-onDelete default
   // is SetNull, not Restrict (Restrict is only the implicit default for a *required* relation,

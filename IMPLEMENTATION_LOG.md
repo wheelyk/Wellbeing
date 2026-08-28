@@ -324,3 +324,7 @@ useful for browsing what's gone wrong before, rather than looking something spec
 ### [Category Soft-Delete With Undo](docs/log/22-category-soft-delete-with-undo.md)
 
 - 2026-08-27 — Replacing Archive with a 30-day soft-delete, restore, and a real confirmation dialog
+
+### [Category Groups](docs/log/23-category-groups.md)
+
+- 2026-08-28 — Organizing categories into collapsible groups, with hide/rename for groups themselves

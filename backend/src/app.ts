@@ -10,6 +10,7 @@ import { trendsRouter } from "./routes/trends";
 import { exportRouter } from "./routes/export";
 import { pushRouter } from "./routes/push";
 import { categoriesRouter } from "./routes/categories";
+import { categoryGroupsRouter } from "./routes/categoryGroups";
 import { categoryLogsRouter } from "./routes/categoryLogs";
 import { adminCategoriesRouter } from "./routes/adminCategories";
 import { remindersRouter } from "./routes/reminders";
@@ -60,6 +61,7 @@ export function createApp(): Express {
   app.use("/api/export", requireAuth, exportRouter);
   app.use("/api/push", requireAuth, pushRouter);
   app.use("/api/categories", requireAuth, categoriesRouter);
+  app.use("/api/category-groups", requireAuth, categoryGroupsRouter);
   app.use("/api/category-logs", requireAuth, categoryLogsRouter);
   app.use("/api/admin/categories", requireAuth, requireAdmin, adminCategoriesRouter);
   app.use("/api/reminders", requireAuth, remindersRouter);

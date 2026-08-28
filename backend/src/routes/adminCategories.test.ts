@@ -87,6 +87,37 @@ describe.skipIf(!ADMIN_EMAIL)("admin categories routes", () => {
     expect(patchRes.status).toBe(404);
   });
 
+  it("creates a system category already assigned to a built-in group, but rejects a regular user's own private group", async () => {
+    const admin = await registerAndLogin(ADMIN_EMAIL as string);
+    const other = await registerAndLogin(uniqueEmail("group-owner"));
+
+    const groupsRes = await request(app).get("/api/category-groups").set(authed(admin.accessToken));
+    const medicineId = groupsRes.body.find((g: { name: string }) => g.name === "Medicine").id;
+
+    const created = await request(app)
+      .post("/api/admin/categories")
+      .set(authed(admin.accessToken))
+      .send({ name: "Ibuprofen (system)", valueType: "boolean", groupId: medicineId });
+    expect(created.status).toBe(201);
+    expect(created.body.groupId).toBe(medicineId);
+    createdSystemCategoryIds.push(created.body.id);
+
+    const privateGroup = await request(app)
+      .post("/api/category-groups")
+      .set(authed(other.accessToken))
+      .send({ name: "Someone's private group" });
+    const rejected = await request(app)
+      .post("/api/admin/categories")
+      .set(authed(admin.accessToken))
+      .send({
+        name: "Should fail",
+        valueType: "boolean",
+        groupId: privateGroup.body.id,
+      });
+    expect(rejected.status).toBe(404);
+    expect(rejected.body.error.code).toBe("GROUP_NOT_FOUND");
+  });
+
   it("rejects a scale category with no bounds, same validation as the regular categories route", async () => {
     const admin = await registerAndLogin(ADMIN_EMAIL as string);
 

@@ -15,6 +15,7 @@ const createSchema = z
     valueType: z.enum(API_CATEGORY_VALUE_TYPES),
     scaleMin: z.number().int().optional(),
     scaleMax: z.number().int().optional(),
+    groupId: z.string().trim().min(1).optional(),
   })
   .refine(
     (data) =>
@@ -31,7 +32,18 @@ const updateSchema = z.object({
   name: z.string().trim().min(1).optional(),
   icon: z.string().trim().min(1).max(8).optional().nullable(),
   description: z.string().trim().min(1).max(2000).optional().nullable(),
+  groupId: z.string().trim().min(1).optional().nullable(),
 });
+
+// A system category may only ever be grouped under a system group (userId: null) - never a
+// regular user's own private group, which an admin has no business reaching into or exposing the
+// existence of. Same ID-tampering defense shape as categories.ts's own isGroupIdValid, just scoped
+// tighter, since this route only ever operates on system-wide data in the first place.
+async function isSystemGroupIdValid(groupId: string | null | undefined): Promise<boolean> {
+  if (groupId === undefined || groupId === null) return true;
+  const group = await prisma.categoryGroup.findFirst({ where: { id: groupId, userId: null } });
+  return group !== null;
+}
 
 // Every route here is already gated by requireAuth + requireAdmin at the app.ts mount point -
 // these handlers only ever run for the one hardcoded admin account, and only ever operate on
@@ -58,7 +70,14 @@ adminCategoriesRouter.post("/", async (req, res) => {
     });
   }
 
-  const { name, icon, description, valueType, scaleMin, scaleMax } = parsed.data;
+  const { name, icon, description, valueType, scaleMin, scaleMax, groupId } = parsed.data;
+
+  if (!(await isSystemGroupIdValid(groupId))) {
+    return res.status(404).json({
+      error: { message: "Group not found", code: "GROUP_NOT_FOUND" },
+    });
+  }
+
   // userId left unset (null) - this is precisely what makes a category system-wide/built-in for
   // every user, mirroring Symptom's own system-symptom convention.
   const category = await prisma.category.create({
@@ -69,6 +88,7 @@ adminCategoriesRouter.post("/", async (req, res) => {
       valueType: toPrismaCategoryValueType(valueType),
       scaleMin: valueType === "scale" ? scaleMin : null,
       scaleMax: valueType === "scale" ? scaleMax : null,
+      groupId,
     },
   });
 
@@ -93,6 +113,12 @@ adminCategoriesRouter.patch("/:id", async (req, res) => {
   if (!existing) {
     return res.status(404).json({
       error: { message: "Category not found", code: "CATEGORY_NOT_FOUND" },
+    });
+  }
+
+  if (!(await isSystemGroupIdValid(parsed.data.groupId))) {
+    return res.status(404).json({
+      error: { message: "Group not found", code: "GROUP_NOT_FOUND" },
     });
   }
 

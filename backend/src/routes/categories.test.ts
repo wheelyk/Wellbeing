@@ -257,6 +257,101 @@ describe("categories routes", () => {
   });
 });
 
+describe("categories routes — groups", () => {
+  async function findGroupId(accessToken: string, name: string): Promise<string> {
+    const res = await request(app).get("/api/category-groups").set(authed(accessToken));
+    return res.body.find((g: { name: string }) => g.name === name).id;
+  }
+
+  it("creates a category already assigned to a built-in group, and GET / returns its groupId", async () => {
+    const { accessToken } = await registerAndLogin("create-with-group");
+    const drinkId = await findGroupId(accessToken, "Drink");
+
+    const created = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Coffee", valueType: "numeric", groupId: drinkId });
+    expect(created.status).toBe(201);
+    expect(created.body.groupId).toBe(drinkId);
+
+    const listRes = await request(app).get("/api/categories").set(authed(accessToken));
+    const entry = listRes.body.find((c: { name: string }) => c.name === "Coffee");
+    expect(entry.groupId).toBe(drinkId);
+  });
+
+  it("creates a category with no group at all - groupId is null, not required", async () => {
+    const { accessToken } = await registerAndLogin("create-no-group");
+    const created = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Reading", valueType: "boolean" });
+    expect(created.status).toBe(201);
+    expect(created.body.groupId).toBeNull();
+  });
+
+  it("rejects creating or editing a category with a groupId that doesn't exist", async () => {
+    const { accessToken } = await registerAndLogin("bad-group");
+    const created = await request(app).post("/api/categories").set(authed(accessToken)).send({
+      name: "Bad",
+      valueType: "boolean",
+      groupId: "00000000-0000-0000-0000-000000000000",
+    });
+    expect(created.status).toBe(404);
+    expect(created.body.error.code).toBe("GROUP_NOT_FOUND");
+
+    const real = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Fine", valueType: "boolean" });
+    const badEdit = await request(app)
+      .patch(`/api/categories/${real.body.id}`)
+      .set(authed(accessToken))
+      .send({ groupId: "00000000-0000-0000-0000-000000000000" });
+    expect(badEdit.status).toBe(404);
+    expect(badEdit.body.error.code).toBe("GROUP_NOT_FOUND");
+  });
+
+  it("rejects assigning a category to another user's private group", async () => {
+    const owner = await registerAndLogin("group-owner");
+    const intruder = await registerAndLogin("group-intruder");
+    const privateGroup = await request(app)
+      .post("/api/category-groups")
+      .set(authed(owner.accessToken))
+      .send({ name: "Owner's private group" });
+
+    const res = await request(app)
+      .post("/api/categories")
+      .set(authed(intruder.accessToken))
+      .send({ name: "Sneaky", valueType: "boolean", groupId: privateGroup.body.id });
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe("GROUP_NOT_FOUND");
+  });
+
+  it("moves a category between groups, and back to Uncategorized with an explicit null", async () => {
+    const { accessToken } = await registerAndLogin("move-group");
+    const foodId = await findGroupId(accessToken, "Food");
+    const drinkId = await findGroupId(accessToken, "Drink");
+    const created = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Smoothie", valueType: "numeric", groupId: foodId });
+
+    const moved = await request(app)
+      .patch(`/api/categories/${created.body.id}`)
+      .set(authed(accessToken))
+      .send({ groupId: drinkId });
+    expect(moved.status).toBe(200);
+    expect(moved.body.groupId).toBe(drinkId);
+
+    const uncategorized = await request(app)
+      .patch(`/api/categories/${created.body.id}`)
+      .set(authed(accessToken))
+      .send({ groupId: null });
+    expect(uncategorized.status).toBe(200);
+    expect(uncategorized.body.groupId).toBeNull();
+  });
+});
+
 describe("categories routes — soft-delete, restore, and the deleted list", () => {
   it("a deleted category appears in GET /deleted with a purgeEligibleAt 30 days out and hasLogs: false", async () => {
     const { accessToken } = await registerAndLogin("deleted-list");
