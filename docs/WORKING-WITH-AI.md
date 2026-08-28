@@ -505,6 +505,69 @@ documentation fix.
 
 ---
 
+## If you're repeating yourself, you're missing an artifact
+
+This is the habit that's easiest to miss, because repeating an instruction doesn't _feel_ like a
+problem. It feels like normal conversation. But the third time you type some version of the same
+sentence, you've stopped giving an instruction and started **doing a job that a file should be
+doing for you**.
+
+The tell is simple: **you're explaining the same expectation again in a new session or a new task.**
+Not clarifying something specific to this task — restating a standing preference that was equally
+true last time.
+
+### Where a repeated instruction should live
+
+There are three homes, and picking the right one matters:
+
+| Home                | Loaded                       | Best for                                                        |
+| ------------------- | ---------------------------- | --------------------------------------------------------------- |
+| **`CLAUDE.md`**     | Every session, automatically | Short, always-true **rules**. "Never merge your own PR."        |
+| **A skill**         | Only when invoked            | Longer **procedures** — steps, templates, checklists, examples. |
+| **A slash command** | When you type it             | Something you want to trigger deliberately, on demand.          |
+
+The `CLAUDE.md`-vs-skill split is the one people get wrong. Because `CLAUDE.md` loads into every
+session, it has to stay short — which means it's good at stating **what** to do and bad at
+specifying **how**. A skill has the opposite shape: it costs almost nothing until invoked, so it can
+carry a full template, a worked example, and a checklist without taxing every conversation.
+
+So: **a rule goes in `CLAUDE.md`; a procedure goes in a skill.** And when you find yourself
+repeatedly correcting the _how_ rather than the _what_, the rule isn't the problem — the missing
+procedure is.
+
+### The worked example: this document's own history
+
+This project's `CLAUDE.md` already says every task must add a log entry, "written as a training
+manual for someone new to web development: explain tools/concepts the first time they appear."
+That's a good rule, correctly placed. It's genuinely been followed.
+
+And yet, across the sessions that produced this very document, the same guidance kept being
+re-issued by hand — write this for beginners; explain the concepts, not just the steps; cover the
+alternative approach too, not only what we chose; ground it in real examples from this codebase
+rather than generic advice. None of that contradicted `CLAUDE.md`. All of it was _elaborating_ it,
+because the one-line rule doesn't carry enough specificity to produce consistent output on its own.
+
+That is exactly the signature of a missing skill. The rule ("write beginner-facing documentation")
+belongs in `CLAUDE.md` and is already there. The **procedure** — what sections a good entry has,
+how deep to explain a concept, the expectation to name the realistic alternative and say why it
+wasn't chosen, the requirement to cite real code from this repo instead of inventing examples —
+is too long for `CLAUDE.md` and shouldn't be paid for on every unrelated session. It belongs in a
+skill, invoked when documentation is actually being written.
+
+The cost of not having done that isn't dramatic — the documentation got written, and it's good. The
+cost is that its quality depended on the same instructions being given again each time, which means
+it depended on the person remembering to give them. That's the fragile part.
+
+### The practical rule
+
+**Said it twice? Notice. Said it three times? Write it down.**
+
+And when you do, write it where it'll actually be found: a rule in `CLAUDE.md`, a procedure in a
+skill. Then the next session starts from your standard instead of rediscovering it — which is the
+whole point of everything else in this document.
+
+---
+
 ## Verify, don't trust — especially with AI
 
 An AI assistant can be fluent and confident while being wrong, which makes the habit of verifying
@@ -587,6 +650,9 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | Baseline already high before you've typed anything       | Standing cost — trim MCP servers and `CLAUDE.md`         |
 | You need part of a big file, or part of a long output    | Read a line range / `grep` / `head` — don't dump it      |
 | A task changed how the project is built, run, or tested  | Check `CLAUDE.md` is still true; fix it in that PR       |
+| You've given the same instruction three times            | Stop and write it down — that's a missing artifact       |
+| A short rule that's always true                          | `CLAUDE.md` (loaded every session, so keep it brief)     |
+| A longer procedure — steps, template, checklist          | A skill (costs nothing until invoked, so it can be full) |
 | A convention true for everyone on the project            | Project `CLAUDE.md` (committed, reviewed)                |
 | A preference true for you across all projects            | Personal `~/.claude/CLAUDE.md`                           |
 | Stack detail only relevant inside one part of a monorepo | A `CLAUDE.md` in that subdirectory                       |
@@ -628,6 +694,13 @@ Nothing here was a serious mistake — the actual features shipped correctly, ve
 but the session was noisier and more expensive than it needed to be. Written up here so the next
 session (human or AI) starts from an explicit checklist instead of re-learning the same pattern
 from scratch.
+
+The document then produced an observation about its own creation, which became the "If you're
+repeating yourself" section: the guidance for _how_ to write this project's beginner-facing
+documentation had been given by hand, session after session, on top of the one-line rule already in
+`CLAUDE.md`. The rule was right and correctly placed; what was missing was the longer procedure
+underneath it, which belongs in a skill. Worth noticing that the signal was there for a while
+before anyone named it — repetition doesn't announce itself.
 
 Writing the `CLAUDE.md` section then turned up a live example of the staleness trap it describes:
 this repo's own `CLAUDE.md` still claimed neither project had a test runner or a linter
