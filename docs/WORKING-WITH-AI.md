@@ -47,6 +47,59 @@ back to _how_ the current thing got built — only to _what_ got built — that'
 
 ---
 
+## Check what's actually using your context window
+
+The advice above ("clear at a clean boundary") is hard to follow if you have no idea how full the
+context window actually is, or what's filling it. Most people only find out when the assistant
+suddenly announces it's compacting, or when a usage warning appears at the bottom of the screen —
+both of which are the _symptom_, arriving too late to do much about the _cause_.
+
+**`/context` shows the breakdown**: how much of the window is currently consumed, and by what.
+It's worth running at two moments in particular:
+
+- **Early in a session, before you've done anything.** This shows your _baseline_ — the cost you
+  pay before typing a single word. That number is not zero, and it's often surprisingly large.
+- **When a session starts feeling sluggish, or before starting a big task.** Knowing you're at 40%
+  vs. 85% completely changes whether you should start that task here or in a fresh session.
+
+### What's actually taking up the space
+
+Roughly, in order of how often people are surprised by it:
+
+1. **Tool definitions — especially from MCP servers.** Loaded up front, every session, used or
+   not. This is the single biggest "invisible" cost, and the reason the MCP section below matters.
+2. **`CLAUDE.md` and other memory files.** Loaded into every session automatically (see the
+   `CLAUDE.md` section below). Useful — but it's a standing cost, so a bloated one is a tax on
+   every conversation.
+3. **The conversation itself** — every message, every file read, every tool result. This is the
+   part that grows as you work, and the part `/clear` and `/compact` address.
+4. **Large individual tool outputs.** A single unbounded command can cost more than an hour of
+   conversation. The 126-row database dump described below is a small example; a full build log,
+   an unfiltered `git log`, or reading a 2,000-line file wholesale are bigger ones.
+
+### Why this matters more than it sounds
+
+Checking is what turns context from something that happens _to_ you into something you manage.
+Concretely, the fix is different depending on what the breakdown actually shows:
+
+- Baseline already high before you start? → the problem is **standing cost**: disable MCP servers
+  you don't need, trim `CLAUDE.md`. Clearing won't help — it's there again on the next session.
+- Baseline fine, but it filled up fast during work? → the problem is **flow**: you're reading whole
+  files instead of ranges, or pulling large outputs inline instead of delegating them.
+- Filled up because you did three unrelated tasks in one sitting? → the problem is **boundaries**:
+  `/clear` between them.
+
+Three habits that keep the growth slow, once you know where it's coming from:
+
+- **Read line ranges, not whole files**, when you already know roughly where the relevant code is.
+- **Filter before you print.** `grep` for the thing you need rather than dumping the file; pipe
+  long command output through `head`/`tail`; add `--stat` or `-n 5` to git commands rather than
+  printing everything.
+- **Delegate high-output work** (see below) so the raw output lands in a subagent's context, not
+  yours.
+
+---
+
 ## Delegating to subagents
 
 A subagent (`Explore`, `general-purpose`, etc.) runs its own investigation in its own context and
@@ -208,6 +261,86 @@ covers.**
 
 ---
 
+## `CLAUDE.md` — the project's memory between sessions
+
+An AI assistant starts every session knowing nothing about your project's conventions. It can
+_read_ the code, but it can't infer the things that aren't in the code: that you never commit
+straight to `main`, that every task ends with a documented log entry, that "done" here means
+"actually ran it in a browser," not "it compiles."
+
+`CLAUDE.md` is a file at the repository root that gets loaded into **every** session
+automatically, before you say anything. It's how those conventions survive between sessions — the
+project's persistent memory, written once and applied every time.
+
+**This project's own `CLAUDE.md` is the reason the work has a consistent shape at all.** Every
+task in this repo followed the same sequence — branch off `main`, atomic commits, build and run it
+for real, tick the task list, write the log entry, open a PR but never merge it — not because it
+was re-explained each session, but because it's written down there once.
+
+### What belongs in it
+
+Things that are **true across sessions** and **not derivable from the code**:
+
+- **Workflow rules** — branch naming, commit prefixes, "never merge your own PR," what a PR body
+  must contain.
+- **Definition of done** — this project's "build it and run it to prove it works, not just that it
+  compiles" is a genuine instruction, not a platitude, and it changed how every task was verified.
+- **Commands** — how to run, build, test, and lint each project, since these are rarely guessable
+  and constantly needed.
+- **Architecture direction and boundaries** — which layer may depend on which, naming conventions
+  for folders, what _not_ to create.
+- **Hard-won gotchas** — this repo's note that Tailwind v4 deliberately has no `tailwind.config.js`
+  (so don't "helpfully" add one), and that only `VITE_`-prefixed env vars reach browser code, are
+  both there because getting them wrong is easy and costly.
+
+### What doesn't belong
+
+- **Anything the code already says.** Don't list every file and its purpose — that's what reading
+  the code is for, and it goes stale instantly.
+- **One-off task detail.** "Currently working on the category groups feature" belongs in a task
+  list or a branch, not in a file loaded into every future session forever.
+- **Long explanations.** It's loaded every session, so it's a standing context cost (see the
+  context-window section above). Aim for dense and rule-shaped, not essay-shaped. Detail belongs
+  in the implementation log, linked from `CLAUDE.md` rather than inlined into it.
+
+### The staleness trap — a real example from this repo
+
+This is the failure mode to actually watch for, because it's silent and it gets worse over time:
+`CLAUDE.md` is written early, the project moves on, and the file quietly starts describing a
+project that no longer exists. Nothing errors. The assistant simply believes it and acts on it.
+
+**Found while writing this document**, this repo's own `CLAUDE.md` still says:
+
+> No test runner is configured yet (Phase 13 in `Tasks.md` adds backend tests, likely Jest/Vitest
+>
+> - Supertest). No linter is configured yet either (a later Phase 0 task adds ESLint/Prettier).
+
+...and the same for the frontend. Both statements are now simply wrong: the backend has a full
+Vitest suite (229 tests across 21 files) plus ESLint, and the frontend has 205 tests across 30
+files plus oxlint. All of them have been run routinely for many tasks.
+
+That's not a harmless typo. A fresh session reading that file is being told, authoritatively, that
+this project has no tests — which could lead it to skip running them, or to "helpfully" start
+setting up test tooling that already exists. It happened to cause no damage here only because each
+session independently discovered the real `npm test` script; nothing about the setup guaranteed
+that.
+
+**The habit:** when a task changes how the project is built, run, or verified, ask whether
+`CLAUDE.md` still tells the truth — and fix it in the same PR. It's a five-second check that
+prevents a class of confidently-wrong behaviour in every session afterward. Treat outdated
+instructions as a bug, because functionally that's what they are.
+
+### Related: user-level and personal memory
+
+Alongside the project's `CLAUDE.md`, there's usually a personal one (`~/.claude/CLAUDE.md`) that
+applies across _all_ your projects — a reasonable home for personal preferences ("explain
+unfamiliar concepts as you go") that shouldn't be imposed on everyone who clones this repo. The
+rule of thumb: **if it's true for this project regardless of who's working on it, it belongs in the
+repo's `CLAUDE.md` (and gets committed and reviewed like any other file). If it's true for you
+regardless of which project you're in, it belongs in your personal one.**
+
+---
+
 ## Verify, don't trust — especially with AI
 
 An AI assistant can be fluent and confident while being wrong, which makes the habit of verifying
@@ -286,6 +419,12 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | -------------------------------------------------------- | ----------------------------------------------------- |
 | A task is done, merged, and the next task is unrelated   | `/clear`                                              |
 | Mid-task, transcript is noisy but you need continuity    | `/compact`                                            |
+| Starting a session, or about to start something big      | `/context` — learn your baseline and what's eating it |
+| Baseline already high before you've typed anything       | Standing cost — trim MCP servers and `CLAUDE.md`      |
+| You need part of a big file, or part of a long output    | Read a line range / `grep` / `head` — don't dump it   |
+| A task changed how the project is built, run, or tested  | Check `CLAUDE.md` is still true; fix it in that PR    |
+| A convention true for everyone on the project            | Project `CLAUDE.md` (committed, reviewed)             |
+| A preference true for you across all projects            | Personal `~/.claude/CLAUDE.md`                        |
 | An open-ended search across unfamiliar code              | Delegate to `Explore`                                 |
 | A task that will produce a lot of disposable raw output  | Delegate to a subagent                                |
 | A single known file/symbol lookup                        | Just do it directly — don't delegate                  |
@@ -319,3 +458,9 @@ Nothing here was a serious mistake — the actual features shipped correctly, ve
 but the session was noisier and more expensive than it needed to be. Written up here so the next
 session (human or AI) starts from an explicit checklist instead of re-learning the same pattern
 from scratch.
+
+Writing the `CLAUDE.md` section then turned up a live example of the staleness trap it describes:
+this repo's own `CLAUDE.md` still claimed neither project had a test runner or a linter
+configured, long after both had full Vitest suites and working linters that were being run on
+every task. Fixed in the same PR as this document — and a reminder that the check is worth making
+deliberately, since nothing surfaces it on its own.
