@@ -165,6 +165,43 @@ Concretely, replaying the two missed opportunities above as if they'd been deleg
   only "script passes, verified A/B/C, zero console errors" — the same conclusion, at a fraction
   of the token cost.
 
+### The different kinds of subagent
+
+"Subagent" isn't one generic thing — there are several types, and they differ in **what tools they
+have** and therefore **what they're safe and sensible to use for**. The names vary a little by
+setup, but the shape is consistent:
+
+| Agent               | Can it change files? | Best for                                                                        |
+| ------------------- | -------------------- | ------------------------------------------------------------------------------- |
+| **Explore**         | No — read-only       | Finding things. "Where is X defined?", "What calls Y?", "Which files handle Z?" |
+| **Plan**            | No — read-only       | Deciding things. Designing an approach before you build it                      |
+| **general-purpose** | **Yes** — full tools | Doing things. Multi-step work carried through to a finished result              |
+| Specialised agents  | Varies               | Narrow jobs (e.g. answering questions about the tooling itself)                 |
+
+The read-only/read-write split is the important one. `Explore` and `Plan` **cannot modify your
+repository**, which makes them safe to launch speculatively — worst case you've spent some time and
+learned nothing. `general-purpose` can edit files and run commands, so it deserves a clearer brief
+and more attention to what it reports back.
+
+**The multi-step case specifically.** `general-purpose` is the one that handles a whole task
+end-to-end rather than answering a single question. Given a goal, it runs its own loop: read the
+relevant code, make a change, run the tests, read the failure, adjust, run again — as many rounds
+as it takes — and only then reports back. That's why it suits exactly the work described above (the
+iterative script-debugging loop): the value isn't just fewer tokens in your context, it's that the
+whole grind of converging on a working result happens somewhere else, and you get the outcome
+rather than every intermediate step.
+
+**Pick the narrowest agent that can do the job.** Use `Explore` when you only need to _find_
+something, `Plan` when you need to _decide_ something, and `general-purpose` when you need
+something actually _done_. Reaching for the most capable one by default gives up the safety of the
+read-only ones for no benefit.
+
+**Brief them properly — they start cold.** A subagent has none of your conversation's context. A
+good brief states the goal, the constraints that matter (conventions to follow, things not to
+touch), and explicitly what to report back. "Find where categories are validated" gets a worse
+answer than "Find every place a category's `groupId` is validated on the backend, and report the
+file, function, and what each one rejects."
+
 Because a briefed subagent runs independently, genuinely **independent** pieces of work can also
 run in parallel rather than one after another — e.g., "run the backend test suite" and "run the
 frontend test suite" don't depend on each other's outcome, so both could be launched as separate
@@ -466,29 +503,31 @@ Small, easy-to-ignore habits that compound over a long-running project:
 
 ## Quick reference
 
-| Situation                                                | What to do                                            |
-| -------------------------------------------------------- | ----------------------------------------------------- |
-| A task is done, merged, and the next task is unrelated   | `/clear`                                              |
-| Mid-task, transcript is noisy but you need continuity    | `/compact`                                            |
-| Starting a session, or about to start something big      | `/context` — learn your baseline and what's eating it |
-| Baseline already high before you've typed anything       | Standing cost — trim MCP servers and `CLAUDE.md`      |
-| You need part of a big file, or part of a long output    | Read a line range / `grep` / `head` — don't dump it   |
-| A task changed how the project is built, run, or tested  | Check `CLAUDE.md` is still true; fix it in that PR    |
-| A convention true for everyone on the project            | Project `CLAUDE.md` (committed, reviewed)             |
-| A preference true for you across all projects            | Personal `~/.claude/CLAUDE.md`                        |
-| Stack detail only relevant inside one part of a monorepo | A `CLAUDE.md` in that subdirectory                    |
-| Writing a `CLAUDE.md` from scratch                       | Open with the stack, versions, and your preferences   |
-| An open-ended search across unfamiliar code              | Delegate to `Explore`                                 |
-| A task that will produce a lot of disposable raw output  | Delegate to a subagent                                |
-| A single known file/symbol lookup                        | Just do it directly — don't delegate                  |
-| Two genuinely independent checks (e.g. two test suites)  | Launch both as parallel subagents                     |
-| Starting a long session on a focused codebase            | Check `/mcp`, disable connectors the work can't touch |
-| A capability one documented shell command already covers | Write a skill, don't add an MCP server                |
-| A capability with no CLI equivalent / complex auth       | An MCP server genuinely earns its place               |
-| Tests pass / build succeeds / PR shows "Merged"          | Verify the actual state before trusting it            |
-| A script or test behaves unexpectedly                    | Read the real source before iterating blindly         |
-| A product decision with more than one reasonable answer  | Ask explicitly, don't guess silently                  |
-| Finished with a dev server / background process          | Stop it, don't leave it running                       |
+| Situation                                                | What to do                                               |
+| -------------------------------------------------------- | -------------------------------------------------------- |
+| A task is done, merged, and the next task is unrelated   | `/clear`                                                 |
+| Mid-task, transcript is noisy but you need continuity    | `/compact`                                               |
+| Starting a session, or about to start something big      | `/context` — learn your baseline and what's eating it    |
+| Baseline already high before you've typed anything       | Standing cost — trim MCP servers and `CLAUDE.md`         |
+| You need part of a big file, or part of a long output    | Read a line range / `grep` / `head` — don't dump it      |
+| A task changed how the project is built, run, or tested  | Check `CLAUDE.md` is still true; fix it in that PR       |
+| A convention true for everyone on the project            | Project `CLAUDE.md` (committed, reviewed)                |
+| A preference true for you across all projects            | Personal `~/.claude/CLAUDE.md`                           |
+| Stack detail only relevant inside one part of a monorepo | A `CLAUDE.md` in that subdirectory                       |
+| Writing a `CLAUDE.md` from scratch                       | Open with the stack, versions, and your preferences      |
+| An open-ended search across unfamiliar code              | Delegate to `Explore` (read-only, safe to run)           |
+| Deciding an approach before building it                  | Delegate to `Plan` (read-only)                           |
+| A whole multi-step task, carried through to done         | Delegate to `general-purpose` (can edit — brief it well) |
+| A task that will produce a lot of disposable raw output  | Delegate to a subagent                                   |
+| A single known file/symbol lookup                        | Just do it directly — don't delegate                     |
+| Two genuinely independent checks (e.g. two test suites)  | Launch both as parallel subagents                        |
+| Starting a long session on a focused codebase            | Check `/mcp`, disable connectors the work can't touch    |
+| A capability one documented shell command already covers | Write a skill, don't add an MCP server                   |
+| A capability with no CLI equivalent / complex auth       | An MCP server genuinely earns its place                  |
+| Tests pass / build succeeds / PR shows "Merged"          | Verify the actual state before trusting it               |
+| A script or test behaves unexpectedly                    | Read the real source before iterating blindly            |
+| A product decision with more than one reasonable answer  | Ask explicitly, don't guess silently                     |
+| Finished with a dev server / background process          | Stop it, don't leave it running                          |
 
 ---
 
