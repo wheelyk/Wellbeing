@@ -3,7 +3,11 @@ import { NavBar } from "../../components/NavBar";
 import { BottomNav } from "../../components/BottomNav";
 import { Button } from "../../components/Button";
 import { TextField } from "../../components/TextField";
-import { CategoryCreateForm, type Category } from "../../components/CategoryCreateForm";
+import {
+  CategoryCreateForm,
+  type Category,
+  type CategoryGroup,
+} from "../../components/CategoryCreateForm";
 import { apiFetch } from "../../api/client";
 
 function describeValueType(category: Category): string {
@@ -26,21 +30,32 @@ function describeValueType(category: Category): string {
 // system-wide.
 export function AdminCategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
+  // GET /api/category-groups isn't admin-only (see backend's categoryGroups.ts) - the admin
+  // account sees exactly the same built-in groups every regular user does, plus any personal
+  // groups of its own (normally none), which is exactly the set adminCategories.ts's own
+  // isSystemGroupIdValid() actually allows a system category to be assigned into.
+  const [groups, setGroups] = useState<CategoryGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editIcon, setEditIcon] = useState("");
+  const [editGroupId, setEditGroupId] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<Category[]>("/api/admin/categories")
-      .then((res) => {
-        if (!cancelled) setCategories(res);
+    Promise.all([
+      apiFetch<Category[]>("/api/admin/categories"),
+      apiFetch<CategoryGroup[]>("/api/category-groups"),
+    ])
+      .then(([categoriesRes, groupsRes]) => {
+        if (cancelled) return;
+        setCategories(categoriesRes);
+        setGroups(groupsRes);
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -53,6 +68,12 @@ export function AdminCategoriesPage() {
     };
   }, []);
 
+  function groupLabel(groupId: string | null): string | null {
+    const group = groups.find((g) => g.id === groupId);
+    if (!group) return null;
+    return group.icon ? `${group.icon} ${group.name}` : group.name;
+  }
+
   function handleCreated(category: Category) {
     setCategories((prev) => [...prev, category].sort((a, b) => a.name.localeCompare(b.name)));
     setShowCreateForm(false);
@@ -63,6 +84,7 @@ export function AdminCategoriesPage() {
     setEditingId(category.id);
     setEditName(category.name);
     setEditIcon(category.icon ?? "");
+    setEditGroupId(category.groupId ?? "");
     setEditError(null);
   }
 
@@ -76,7 +98,11 @@ export function AdminCategoriesPage() {
     try {
       const updated = await apiFetch<Category>(`/api/admin/categories/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ name: editName.trim(), icon: editIcon.trim() || null }),
+        body: JSON.stringify({
+          name: editName.trim(),
+          icon: editIcon.trim() || null,
+          groupId: editGroupId || null,
+        }),
       });
       setCategories((prev) => prev.map((c) => (c.id === id ? updated : c)));
       setEditingId(null);
@@ -155,6 +181,28 @@ export function AdminCategoriesPage() {
                                 maxLength={8}
                               />
                             </div>
+                            <div className="flex flex-col gap-1">
+                              <label
+                                htmlFor={`admin-edit-category-group-${category.id}`}
+                                className="text-sm font-medium text-text"
+                              >
+                                Group
+                              </label>
+                              <select
+                                id={`admin-edit-category-group-${category.id}`}
+                                value={editGroupId}
+                                onChange={(e) => setEditGroupId(e.target.value)}
+                                className="rounded-lg border border-border px-3 py-2 text-base text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                              >
+                                <option value="">Uncategorized</option>
+                                {groups.map((group) => (
+                                  <option key={group.id} value={group.id}>
+                                    {group.icon ? `${group.icon} ` : ""}
+                                    {group.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                             {editError && (
                               <p role="alert" className="text-sm text-danger">
                                 {editError}
@@ -184,6 +232,11 @@ export function AdminCategoriesPage() {
                               <p className="text-text">
                                 {category.icon ? `${category.icon} ` : ""}
                                 {category.name}
+                                {groupLabel(category.groupId) && (
+                                  <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+                                    {groupLabel(category.groupId)}
+                                  </span>
+                                )}
                               </p>
                               <p className="text-xs text-text-muted">
                                 {describeValueType(category)}
@@ -213,6 +266,7 @@ export function AdminCategoriesPage() {
                     createEndpoint="/api/admin/categories"
                     onCreated={handleCreated}
                     onCancel={() => setShowCreateForm(false)}
+                    groups={groups}
                   />
                 </div>
               ) : (
