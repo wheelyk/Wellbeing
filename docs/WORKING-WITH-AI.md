@@ -340,9 +340,9 @@ to run and in what order, rather than by exposing a new set of tools of its own.
 The context difference is the important part:
 
 - An **MCP server** loads all of its tool schemas up front, for the whole session, used or not.
-- A **skill** is listed by name and one-line description only. Its full instructions load _when
-  it's actually invoked_ — so ten available skills cost roughly ten lines of context, not ten
-  full toolsets.
+- A **skill** is listed by name and one-line description only. Its full instructions load _only in
+  the sessions where that description matches the task_ — automatically, without you asking — so
+  ten available skills cost roughly ten lines of context, not ten full toolsets.
 
 This makes skills the better fit whenever the underlying capability is already reachable through
 tools you have (usually: running a command). Some real examples of where that line falls:
@@ -557,18 +557,30 @@ true last time.
 
 ### Where a repeated instruction should live
 
-There are three homes, and picking the right one matters:
+There are two homes, and picking the right one matters:
 
-| Home                | Loaded                       | Best for                                                        |
-| ------------------- | ---------------------------- | --------------------------------------------------------------- |
-| **`CLAUDE.md`**     | Every session, automatically | Short, always-true **rules**. "Never merge your own PR."        |
-| **A skill**         | Only when invoked            | Longer **procedures** — steps, templates, checklists, examples. |
-| **A slash command** | When you type it             | Something you want to trigger deliberately, on demand.          |
+| Home            | Loaded                                  | Best for                                                        |
+| --------------- | --------------------------------------- | --------------------------------------------------------------- |
+| **`CLAUDE.md`** | Every session, automatically            | Short, always-true **rules**. "Never merge your own PR."        |
+| **A skill**     | Automatically, when the task matches it | Longer **procedures** — steps, templates, checklists, examples. |
 
-The `CLAUDE.md`-vs-skill split is the one people get wrong. Because `CLAUDE.md` loads into every
-session, it has to stay short — which means it's good at stating **what** to do and bad at
-specifying **how**. A skill has the opposite shape: it costs almost nothing until invoked, so it can
-carry a full template, a worked example, and a checklist without taxing every conversation.
+> **Clearing up the most common misconception: skills are automatic. You do not have to type a
+> slash command to use one.**
+>
+> A skill's one-line description sits in context, and when the task at hand matches it, the skill
+> gets loaded and followed on its own — no `/command`, no prompting, no remembering. Typing
+> `/skill-name` is available if you want to force one deliberately, but it's an override, not the
+> normal path and not a requirement.
+>
+> This matters because a skill you had to remember to invoke would solve nothing. The entire point
+> of writing one down is that you _stop_ having to remember — if it only worked when summoned by
+> hand, you'd just be swapping "type the instructions again" for "type the command again."
+
+Both homes load without you doing anything, then. The real difference is **when** and **how much**:
+`CLAUDE.md` loads in full, every session, unconditionally — so it has to stay short, which makes it
+good at stating **what** to do and bad at specifying **how**. A skill loads only in the sessions
+where it's relevant, so it can carry a full template, a worked example, and a checklist without
+taxing every unrelated conversation.
 
 So: **a rule goes in `CLAUDE.md`; a procedure goes in a skill.** And when you find yourself
 repeatedly correcting the _how_ rather than the _what_, the rule isn't the problem — the missing
@@ -682,7 +694,7 @@ name that says so rather than shadowing a personal one.
 ### How a skill gets used _without_ you asking
 
 This is the part that makes skills worth the effort, and it's easy to miss: **you don't have to
-remember to invoke one.**
+remember to invoke one — and you don't need a slash command at all.**
 
 Recall from the section above that a skill costs almost nothing until it's used, because only its
 **name and one-line description** sit in context. That listing isn't just a menu for you — it's
@@ -820,7 +832,8 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | A task changed how the project is built, run, or tested  | Check `CLAUDE.md` is still true; fix it in that PR       |
 | You've given the same instruction three times            | Stop and write it down — that's a missing artifact       |
 | A short rule that's always true                          | `CLAUDE.md` (loaded every session, so keep it brief)     |
-| A longer procedure — steps, template, checklist          | A skill (costs nothing until invoked, so it can be full) |
+| A longer procedure — steps, template, checklist          | A skill (fires automatically, so it can be full-length)  |
+| Worrying you'll have to remember to invoke a skill       | You won't — matching is automatic; `/name` is optional   |
 | Writing a skill's description                            | Describe _when it applies_ — that's what makes it fire   |
 | Bulky material a skill needs only sometimes              | A supporting file it links to, not `SKILL.md` itself     |
 | A check that's deterministic and repeatable              | A script in the skill — costs its output, not its source |
