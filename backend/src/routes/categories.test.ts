@@ -257,6 +257,139 @@ describe("categories routes", () => {
   });
 });
 
+describe("categories routes — soft-delete, restore, and the deleted list", () => {
+  it("a deleted category appears in GET /deleted with a purgeEligibleAt 30 days out and hasLogs: false", async () => {
+    const { accessToken } = await registerAndLogin("deleted-list");
+    const created = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Reading", valueType: "boolean" });
+
+    const beforeDelete = Date.now();
+    await request(app).delete(`/api/categories/${created.body.id}`).set(authed(accessToken));
+
+    const res = await request(app).get("/api/categories/deleted").set(authed(accessToken));
+    expect(res.status).toBe(200);
+    const entry = res.body.find((c: { id: string }) => c.id === created.body.id);
+    expect(entry).toBeDefined();
+    expect(entry.hasLogs).toBe(false);
+
+    const purgeEligibleAt = new Date(entry.purgeEligibleAt).getTime();
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    // Allow a few seconds of slack for the request round-trip itself, rather than asserting an
+    // exact millisecond match against a clock read before the request was even sent.
+    expect(purgeEligibleAt).toBeGreaterThan(beforeDelete + thirtyDaysMs - 5000);
+    expect(purgeEligibleAt).toBeLessThan(beforeDelete + thirtyDaysMs + 5000);
+  });
+
+  it("hasLogs: true for a deleted category that still has logged entries against it", async () => {
+    const { accessToken } = await registerAndLogin("deleted-haslogs");
+    const created = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Meditation", valueType: "boolean" });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId: created.body.id, valueBoolean: true });
+
+    await request(app).delete(`/api/categories/${created.body.id}`).set(authed(accessToken));
+
+    const res = await request(app).get("/api/categories/deleted").set(authed(accessToken));
+    const entry = res.body.find((c: { id: string }) => c.id === created.body.id);
+    expect(entry.hasLogs).toBe(true);
+  });
+
+  it("GET /deleted never returns another user's deleted categories", async () => {
+    const owner = await registerAndLogin("deleted-scope-owner");
+    const other = await registerAndLogin("deleted-scope-other");
+    const created = await request(app)
+      .post("/api/categories")
+      .set(authed(owner.accessToken))
+      .send({ name: "Owner's private", valueType: "boolean" });
+    await request(app).delete(`/api/categories/${created.body.id}`).set(authed(owner.accessToken));
+
+    const res = await request(app).get("/api/categories/deleted").set(authed(other.accessToken));
+    expect(res.body.map((c: { id: string }) => c.id)).not.toContain(created.body.id);
+  });
+
+  it("restores a deleted category, returning it to the default list and off the deleted list", async () => {
+    const { accessToken } = await registerAndLogin("restore");
+    const created = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Journaling", valueType: "boolean" });
+    await request(app).delete(`/api/categories/${created.body.id}`).set(authed(accessToken));
+
+    const res = await request(app)
+      .post(`/api/categories/${created.body.id}/restore`)
+      .set(authed(accessToken));
+    expect(res.status).toBe(200);
+    expect(res.body.archivedAt).toBeNull();
+
+    const listRes = await request(app).get("/api/categories").set(authed(accessToken));
+    expect(listRes.body.map((c: { id: string }) => c.id)).toContain(created.body.id);
+
+    const deletedRes = await request(app).get("/api/categories/deleted").set(authed(accessToken));
+    expect(deletedRes.body.map((c: { id: string }) => c.id)).not.toContain(created.body.id);
+  });
+
+  it("returns 404 restoring a category that isn't deleted, doesn't exist, or belongs to another user", async () => {
+    const owner = await registerAndLogin("restore-404-owner");
+    const other = await registerAndLogin("restore-404-other");
+    const created = await request(app)
+      .post("/api/categories")
+      .set(authed(owner.accessToken))
+      .send({ name: "Never deleted", valueType: "boolean" });
+
+    // Not deleted yet.
+    const notDeletedRes = await request(app)
+      .post(`/api/categories/${created.body.id}/restore`)
+      .set(authed(owner.accessToken));
+    expect(notDeletedRes.status).toBe(404);
+
+    // Belongs to someone else.
+    await request(app).delete(`/api/categories/${created.body.id}`).set(authed(owner.accessToken));
+    const wrongOwnerRes = await request(app)
+      .post(`/api/categories/${created.body.id}/restore`)
+      .set(authed(other.accessToken));
+    expect(wrongOwnerRes.status).toBe(404);
+
+    // Doesn't exist at all.
+    const missingRes = await request(app)
+      .post("/api/categories/00000000-0000-0000-0000-000000000000/restore")
+      .set(authed(owner.accessToken));
+    expect(missingRes.status).toBe(404);
+  });
+
+  it("restoring a category does not re-enable a reminder that was disabled when it was deleted", async () => {
+    const { accessToken, userId } = await registerAndLogin("restore-reminder");
+    const created = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Diazepam", valueType: "boolean" });
+    const reminder = await prisma.reminder.create({
+      data: {
+        userId,
+        target: "CATEGORY",
+        categoryId: created.body.id,
+        times: ["09:00"],
+        enabled: true,
+      },
+    });
+
+    await request(app).delete(`/api/categories/${created.body.id}`).set(authed(accessToken));
+    const disabled = await prisma.reminder.findUnique({ where: { id: reminder.id } });
+    expect(disabled?.enabled).toBe(false);
+
+    await request(app).post(`/api/categories/${created.body.id}/restore`).set(authed(accessToken));
+    const stillDisabled = await prisma.reminder.findUnique({ where: { id: reminder.id } });
+    expect(stillDisabled?.enabled).toBe(false);
+
+    await prisma.reminder.delete({ where: { id: reminder.id } });
+  });
+});
+
 describe("categories routes — lastLoggedAt", () => {
   it("is null for a category with no logs yet from this caller", async () => {
     const { accessToken } = await registerAndLogin("last-logged-none");

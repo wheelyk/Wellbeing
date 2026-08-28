@@ -8,6 +8,12 @@ interface CollapsibleSectionProps {
   // toggle and SectionPanel's four Quick Add sections for the same convention this follows).
   storageKey: string;
   children: ReactNode;
+  // Every existing section wants "expanded until the user says otherwise," which is
+  // useCollapsedState's own default - left unset here for every one of them. A section whose
+  // content is both expensive to fetch and rarely needed (e.g. Settings' "Deleted categories")
+  // can opt into the opposite default instead, so its own fetch only actually happens once the
+  // caller opens it, not on every page load.
+  defaultCollapsed?: boolean;
 }
 
 // The same chevron-toggle disclosure header used by SectionPanel (the four Dashboard Quick Add
@@ -18,8 +24,13 @@ interface CollapsibleSectionProps {
 // caller still owns that (each Trends section already had its own `rounded-2xl border ...`
 // wrapper before this existed, and reusing it here means one less thing this component has to
 // know about spacing/layout for).
-export function CollapsibleSection({ title, storageKey, children }: CollapsibleSectionProps) {
-  const { collapsed, toggle } = useCollapsedState(storageKey);
+export function CollapsibleSection({
+  title,
+  storageKey,
+  children,
+  defaultCollapsed = false,
+}: CollapsibleSectionProps) {
+  const { collapsed, toggle } = useCollapsedState(storageKey, defaultCollapsed);
   const contentId = `collapsible-section-${storageKey}-content`;
 
   return (

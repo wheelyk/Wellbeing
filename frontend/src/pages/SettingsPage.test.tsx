@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "../auth/AuthContext";
@@ -699,9 +699,9 @@ describe("SettingsPage — categories", () => {
     expect(screen.getByText(/sleep hours/i)).toBeInTheDocument();
     expect(screen.getByText("Built-in")).toBeInTheDocument();
 
-    // Only the user's own category gets Edit/Archive actions - the system one has none.
+    // Only the user's own category gets Edit/Delete actions - the system one has none.
     expect(screen.getAllByRole("button", { name: "Edit" })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "Archive" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Delete Water intake" })).toHaveLength(1);
   });
 
   it("creates a new category and shows it in the list", async () => {
@@ -763,26 +763,35 @@ describe("SettingsPage — categories", () => {
     expect(await screen.findByText(/daily water/i)).toBeInTheDocument();
   });
 
-  it("archives the user's own category (not a hard delete) and removes it from the list", async () => {
+  it("soft-deletes the user's own category (not a hard delete), via a real confirmation dialog, and removes it from the list", async () => {
     const fetchMock = withAuthedUser({
       "DELETE /api/categories": () =>
         jsonResponse(200, { ...ownCategory, archivedAt: "2026-08-23T12:00:00.000Z" }),
+      "/api/categories/deleted": () => jsonResponse(200, []),
       "/api/categories": () => jsonResponse(200, [ownCategory]),
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     renderSettingsPage();
 
     await screen.findByText(/water intake/i);
-    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await user.click(screen.getByRole("button", { name: "Delete Water intake" }));
 
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(await screen.findByText(/category archived/i)).toBeInTheDocument();
+    // Delete goes through this app's own Modal-based confirmation dialog (ConfirmDeleteModal)
+    // rather than a native window.confirm() popup - clicking the row's own Delete button only
+    // opens it; the actual DELETE request only fires once the dialog's own "Delete" button (its
+    // exact accessible name, unambiguous once the row's own button is scoped to "Delete Water
+    // intake" above) is clicked.
+    expect(await screen.findByText(/delete category\?/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(
+      await screen.findByText(/category deleted.*restore it from deleted categories/i),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/water intake/i)).not.toBeInTheDocument();
   });
 
-  it("never shows Edit/Archive for a system category", async () => {
+  it("never shows Edit/Delete for a system category", async () => {
     const fetchMock = withAuthedUser({
       "/api/categories": () => jsonResponse(200, [systemCategory]),
     });
@@ -791,7 +800,123 @@ describe("SettingsPage — categories", () => {
 
     await screen.findByText(/sleep hours/i);
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+    // Scoped to this specific category's own name, not a bare /^Delete /i - the page also has an
+    // unrelated "Delete account" section further down, which a looser pattern would match too.
+    expect(
+      screen.queryByRole("button", { name: `Delete ${systemCategory.name}` }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("cancelling the delete confirmation leaves the category untouched, with no DELETE request sent", async () => {
+    const fetchMock = withAuthedUser({
+      "/api/categories": () => jsonResponse(200, [ownCategory]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderSettingsPage();
+
+    await screen.findByText(/water intake/i);
+    await user.click(screen.getByRole("button", { name: "Delete Water intake" }));
+    expect(await screen.findByText(/delete category\?/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByText(/delete category\?/i)).not.toBeInTheDocument();
+    // Scoped to the row's own Delete button, not a bare "water intake" text query - Reminders'
+    // own category picker (elsewhere on this same page) independently renders "Water intake" too
+    // once its own fetch resolves, which would otherwise make this an ambiguous, flaky match.
+    expect(screen.getByRole("button", { name: "Delete Water intake" })).toBeInTheDocument();
+    const deleteCalls = fetchMock.mock.calls.filter(
+      (call) => call[1]?.method === "DELETE" && String(call[0]).includes("/api/categories"),
+    );
+    expect(deleteCalls).toHaveLength(0);
+  });
+
+  describe("Deleted categories", () => {
+    // "Deleted categories" defaults to collapsed (see CollapsibleSection's defaultCollapsed
+    // prop), and these tests click it open, which persists that "expanded" choice to
+    // localStorage - reusing this file's own stubWorkingLocalStorage (see its own comment above)
+    // so one test's own toggle can never leave the section stuck open (or closed) for the next
+    // one, the same isolation reason the "appearance" tests already need it for.
+    beforeEach(() => {
+      stubWorkingLocalStorage();
+    });
+
+    const deletedNoLogs = {
+      id: "cat-deleted-empty",
+      userId: "user-1",
+      name: "Old habit",
+      icon: null,
+      valueType: "boolean",
+      scaleMin: null,
+      scaleMax: null,
+      archivedAt: "2026-08-01T00:00:00.000Z",
+      createdAt: "2026-07-01T00:00:00.000Z",
+      // 3 days from a purgeEligibleAt fixed relative to Date.now() at test-run time - the exact
+      // "how many days left" text this asserts on is computed the same way in both the component
+      // and this fixture, so it stays correct regardless of when the suite actually runs.
+      purgeEligibleAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+      hasLogs: false,
+    };
+    const deletedWithLogs = {
+      id: "cat-deleted-haslogs",
+      userId: "user-1",
+      name: "Old symptom",
+      icon: null,
+      valueType: "boolean",
+      scaleMin: null,
+      scaleMax: null,
+      archivedAt: "2026-08-01T00:00:00.000Z",
+      createdAt: "2026-07-01T00:00:00.000Z",
+      purgeEligibleAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+      hasLogs: true,
+    };
+
+    it("lazily fetches and lists deleted categories only once the section is expanded", async () => {
+      const deletedFetch = vi.fn(() => jsonResponse(200, [deletedNoLogs, deletedWithLogs]));
+      const fetchMock = withAuthedUser({
+        "/api/categories/deleted": deletedFetch,
+        "/api/categories": () => jsonResponse(200, []),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+      renderSettingsPage();
+
+      await screen.findByText(/no categories yet/i);
+      expect(deletedFetch).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: "Deleted categories" }));
+
+      expect(await screen.findByText("Old habit")).toBeInTheDocument();
+      expect(screen.getByText(/permanently removed in 3 days/i)).toBeInTheDocument();
+      expect(screen.getByText("Old symptom")).toBeInTheDocument();
+      expect(screen.getByText(/has entries, so it's kept/i)).toBeInTheDocument();
+    });
+
+    it("restores a deleted category, moving it back into the main list and off the deleted list", async () => {
+      const restoredCategory = { ...deletedNoLogs, archivedAt: null };
+      const fetchMock = withAuthedUser({
+        "POST /api/categories/cat-deleted-empty/restore": () => jsonResponse(200, restoredCategory),
+        "/api/categories/deleted": () => jsonResponse(200, [deletedNoLogs]),
+        "/api/categories": () => jsonResponse(200, []),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+      renderSettingsPage();
+
+      await screen.findByText(/no categories yet/i);
+      await user.click(screen.getByRole("button", { name: "Deleted categories" }));
+      await screen.findByText("Old habit");
+
+      await user.click(screen.getByRole("button", { name: "Restore" }));
+
+      // Gone from the Deleted section first (its own list re-renders without it)...
+      await waitFor(() =>
+        expect(screen.queryByText(/permanently removed in/i)).not.toBeInTheDocument(),
+      );
+      // ...and back in the main (non-deleted) list - a single remaining match proves it moved
+      // rather than merely disappearing from one list without appearing in the other.
+      expect(screen.getByText("Old habit")).toBeInTheDocument();
+    });
   });
 
   // Hide/Unhide (Phase 17, Task 1's HiddenCategory mechanism) is what actually replaces the old

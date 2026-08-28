@@ -100,11 +100,16 @@ model Category {
   // routes/categories.ts and categoryLogs.ts) rather than a DB CHECK constraint.
   scaleMin    Int?              @map("scale_min")
   scaleMax    Int?              @map("scale_max")
-  // Archiving (not deleting) is this model's primary "remove" action - a system category used by
-  // even one user would otherwise become permanently undeletable the moment CategoryLog's
-  // Restrict relation (below) kicks in, which is fine for a personal mistake but not for an admin
-  // wanting to retire a bad built-in. Excluded from default listings; a log against an archived
-  // category still resolves it by id in History, exactly like any other now-hidden reference.
+  // Soft-removal, not a real (hard) delete - a system category used by even one user would
+  // otherwise become permanently undeletable the moment CategoryLog's Restrict relation (below)
+  // kicks in. Excluded from default listings; a log against an archived category still resolves
+  // it by id in History, exactly like any other now-hidden reference. For a system category
+  // (userId null), this is an admin-only, permanent "retire this built-in" action with no expiry.
+  // For a personal category (userId set), DELETE /api/categories/:id sets this as the start of a
+  // 30-day undo window - see categoryPurgeScheduler.ts, the background job that actually removes
+  // it for real once that window passes, but only if it still has zero logs by then; one with
+  // real logged history is kept indefinitely rather than ever being silently erased. See
+  // docs/log/22-category-soft-delete-with-undo.md for the full reasoning.
   archivedAt  DateTime?         @map("archived_at")
   createdAt   DateTime          @default(now()) @map("created_at")
 

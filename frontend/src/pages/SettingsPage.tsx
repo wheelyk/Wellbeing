@@ -15,6 +15,7 @@ import {
   PushPermissionDeniedError,
 } from "../lib/pushNotifications";
 import { CategoryCreateForm, type Category } from "../components/CategoryCreateForm";
+import { ConfirmDeleteModal } from "../components/ConfirmDeleteModal";
 import {
   ReminderCreateForm,
   type Reminder,
@@ -680,7 +681,7 @@ function describeValueType(category: Category): string {
 }
 
 // Lists every category visible to this user (their own, plus any admin-created built-ins),
-// with create/edit/archive available only for their own - a system category never shows those
+// with create/edit/delete available only for their own - a system category never shows those
 // actions at all, mirroring how categories.ts's own PATCH/DELETE routes 404 on a system
 // category's id for a regular user (there's nothing to hide by disabling a button that would
 // fail anyway, but a visibly missing action is clearer than a button that errors on click).
@@ -701,6 +702,10 @@ function CategoriesSection() {
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  // Which of the caller's own categories (by id) the "Delete" confirmation dialog is currently
+  // asking about - null means closed. See ConfirmDeleteModal.tsx for why this replaced a native
+  // window.confirm() here too, matching History's own precedent.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -759,19 +764,32 @@ function CategoriesSection() {
     }
   }
 
-  async function handleArchive(id: string) {
-    // Archiving (not deleting) is the real backend action here (see categories.ts) - existing
-    // entries against this category are kept, just no longer offered for new logging.
-    const confirmed = window.confirm(
-      "Archive this category? Existing entries are kept, but it won't be offered for new logging.",
-    );
-    if (!confirmed) return;
+  // Confirming is a separate step from actually deleting (see handleConfirmDelete below) - opens
+  // ConfirmDeleteModal rather than acting immediately, so a category can't be soft-deleted by a
+  // stray or accidental tap the way a bare button never quite prevents.
+  function handleDeleteClick(id: string) {
+    setPendingDeleteId(id);
+  }
 
+  function handleCancelDelete() {
+    setPendingDeleteId(null);
+  }
+
+  async function handleConfirmDelete() {
+    const id = pendingDeleteId;
+    if (!id) return;
+    setPendingDeleteId(null);
+
+    // Soft-deletes (see categories.ts's own DELETE /:id comment) - existing entries against this
+    // category are kept, and it's no longer offered for new logging, but it isn't gone yet: it
+    // shows up in "Deleted categories" below for the next 30 days, restorable at any time during
+    // that window. Only removed for real afterward, and only if it still has no logged entries by
+    // then (see categoryPurgeScheduler.ts) - never a silent, permanent loss of real history.
     const previous = categories;
     setCategories((prev) => prev.filter((c) => c.id !== id));
     try {
       await apiFetch(`/api/categories/${id}`, { method: "DELETE" });
-      setActionMessage("Category archived.");
+      setActionMessage("Category deleted. You can restore it from Deleted categories below.");
     } catch {
       setCategories(previous);
       setActionMessage(null);
@@ -814,7 +832,8 @@ function CategoriesSection() {
           Create your own trackable categories - medications included - alongside any an admin has
           added for everyone (including Mood, Energy, Stress, and every default symptom, like
           Headache or Fatigue). Hide a built-in one you don&apos;t use instead of deleting it - your
-          own categories are archived instead, from the same list.
+          own categories can be deleted instead, from the same list, with a 30-day window to restore
+          one if you change your mind.
         </p>
         {user?.isAdmin && (
           <Link
@@ -913,9 +932,10 @@ function CategoriesSection() {
                               </Button>
                               <Button
                                 variant="secondary"
-                                onClick={() => handleArchive(category.id)}
+                                aria-label={`Delete ${category.name}`}
+                                onClick={() => handleDeleteClick(category.id)}
                               >
-                                Archive
+                                Delete
                               </Button>
                             </div>
                           ) : (
@@ -957,10 +977,134 @@ function CategoriesSection() {
                 + New category
               </Button>
             )}
+            <div className="mt-6 border-t border-border pt-4">
+              <CollapsibleSection
+                title="Deleted categories"
+                storageKey="settings.categories.deleted"
+                defaultCollapsed
+              >
+                <DeletedCategoriesSection
+                  onRestored={(category) =>
+                    setCategories((prev) =>
+                      [...prev, { ...category, hidden: false }].sort((a, b) =>
+                        a.name.localeCompare(b.name),
+                      ),
+                    )
+                  }
+                />
+              </CollapsibleSection>
+            </div>
           </>
         )}
       </CollapsibleSection>
+      <ConfirmDeleteModal
+        open={pendingDeleteId !== null}
+        title="Delete category?"
+        message={`Existing entries against "${
+          categories.find((c) => c.id === pendingDeleteId)?.name ?? "this category"
+        }" are kept, and it won't be offered for new logging. It'll be permanently removed in 30 days if it still has no entries by then - or you can restore it any time before that from Deleted categories below.`}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+      />
     </SectionCard>
+  );
+}
+
+interface DeletedCategory extends Category {
+  purgeEligibleAt: string;
+  hasLogs: boolean;
+}
+
+// Lazily mounted: CollapsibleSection only renders its children while expanded (see that
+// component's own conditional render), so this only fetches once the caller actually opens
+// "Deleted categories" - not on every Settings page load, for a list most visits will never need.
+function DeletedCategoriesSection({ onRestored }: { onRestored: (category: Category) => void }) {
+  const [categories, setCategories] = useState<DeletedCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<DeletedCategory[]>("/api/categories/deleted")
+      .then((res) => {
+        if (!cancelled) setCategories(res);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleRestore(category: DeletedCategory) {
+    setRestoringId(category.id);
+    try {
+      const restored = await apiFetch<Category>(`/api/categories/${category.id}/restore`, {
+        method: "POST",
+      });
+      setCategories((prev) => prev.filter((c) => c.id !== category.id));
+      onRestored(restored);
+    } catch {
+      // Left in the list on failure - the button below just stops showing "Restoring…", so the
+      // caller can simply try again rather than losing their place.
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
+  if (loading) return <p className="text-sm text-text-muted">Loading…</p>;
+  if (loadError) {
+    return (
+      <p role="alert" className="text-sm text-danger">
+        Couldn't load deleted categories. Please refresh the page.
+      </p>
+    );
+  }
+  if (categories.length === 0) {
+    return <p className="text-sm text-text-muted">Nothing deleted right now.</p>;
+  }
+
+  return (
+    <ul className="flex flex-col gap-2">
+      {categories.map((category) => {
+        const daysLeft = Math.max(
+          0,
+          Math.ceil(
+            (new Date(category.purgeEligibleAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000),
+          ),
+        );
+        return (
+          <li key={category.id} className="rounded-xl border border-border bg-surface-muted p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-text">
+                  {category.icon ? `${category.icon} ` : ""}
+                  {category.name}
+                </p>
+                <p className="text-xs text-text-muted">
+                  {category.hasLogs
+                    ? "Has entries, so it's kept until you delete those too - it won't be automatically removed."
+                    : `Permanently removed in ${daysLeft} day${daysLeft === 1 ? "" : "s"} unless restored.`}
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                onClick={() => handleRestore(category)}
+                disabled={restoringId === category.id}
+                className="shrink-0"
+              >
+                {restoringId === category.id ? "Restoring…" : "Restore"}
+              </Button>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
