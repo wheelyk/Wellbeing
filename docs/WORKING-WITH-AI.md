@@ -171,30 +171,106 @@ Concretely, replaying the two missed opportunities above as if they'd been deleg
 have** and therefore **what they're safe and sensible to use for**. The names vary a little by
 setup, but the shape is consistent:
 
-| Agent               | Can it change files? | Best for                                                                        |
-| ------------------- | -------------------- | ------------------------------------------------------------------------------- |
-| **Explore**         | No — read-only       | Finding things. "Where is X defined?", "What calls Y?", "Which files handle Z?" |
-| **Plan**            | No — read-only       | Deciding things. Designing an approach before you build it                      |
-| **general-purpose** | **Yes** — full tools | Doing things. Multi-step work carried through to a finished result              |
-| Specialised agents  | Varies               | Narrow jobs (e.g. answering questions about the tooling itself)                 |
+| Agent               | Can it change files? | Best for                                                                        | Don't use it for                                       |
+| ------------------- | -------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| **Explore**         | No — read-only       | Finding things. "Where is X defined?", "What calls Y?", "Which files handle Z?" | Anything needing complete coverage — it reads excerpts |
+| **Plan**            | No — read-only       | Deciding things. Designing an approach before you build it                      | Small, obvious changes you can already describe        |
+| **general-purpose** | **Yes** — full tools | Doing things. Multi-step work carried through to a finished result              | A single lookup you could do in one tool call          |
+| Specialised agents  | Varies               | Narrow jobs (e.g. questions about the AI tooling itself)                        | Anything outside their specific remit                  |
 
 The read-only/read-write split is the important one. `Explore` and `Plan` **cannot modify your
 repository**, which makes them safe to launch speculatively — worst case you've spent some time and
 learned nothing. `general-purpose` can edit files and run commands, so it deserves a clearer brief
 and more attention to what it reports back.
 
-**The multi-step case specifically.** `general-purpose` is the one that handles a whole task
-end-to-end rather than answering a single question. Given a goal, it runs its own loop: read the
-relevant code, make a change, run the tests, read the failure, adjust, run again — as many rounds
-as it takes — and only then reports back. That's why it suits exactly the work described above (the
-iterative script-debugging loop): the value isn't just fewer tokens in your context, it's that the
-whole grind of converging on a working result happens somewhere else, and you get the outcome
-rather than every intermediate step.
+#### `Explore` — finding things in the codebase
+
+A fast, read-only search agent. Its job is answering **"where is it?"** questions about code you
+don't already know your way around:
+
+- "Where is `groupId` validated on the backend?"
+- "Which files reference `CategoryGroup`?"
+- "Where does the app decide whether a category is hidden?"
+
+It's the right tool when you'd otherwise burn several rounds of `grep`, guessing at naming
+conventions, and opening files that turn out to be irrelevant — all of which lands in your context
+if you do it inline, and none of which does if you delegate it.
+
+It's worth saying what breadth you want, because it changes how hard the agent looks: a **quick**
+lookup for one targeted thing, **medium** for moderate exploration, or **very thorough** when the
+thing might be named several different ways or live in several places.
+
+**Its real limitation, worth knowing before you trust it:** `Explore` reads _excerpts_, not whole
+files. That makes it fast, but it means it can genuinely miss things past its read window. So it's
+excellent for "find me the places that mention X" and **wrong** for anything needing complete
+coverage of a file or a judgment across many files — code review, checking a design doc against the
+implementation, cross-file consistency checks, or open-ended "is this codebase doing anything
+odd?" analysis. For those, either read the files properly yourself or use `general-purpose`, which
+isn't constrained the same way.
+
+**On web searching:** `Explore` is aimed at your codebase, not the internet. Agents generally _can_
+reach web search and fetch tools, but "search the web for how library X handles Y" isn't what
+`Explore` is designed around — that's a research task, better given to `general-purpose` (or, for
+questions specifically about the AI tooling itself, a specialised agent like `claude-code-guide`,
+which is built to consult the official documentation).
+
+#### `Plan` — deciding an approach before you build it
+
+A read-only software-architect agent. You give it a goal; it investigates the codebase and returns
+a **step-by-step implementation plan** — which files matter, what order to do things in, and the
+architectural trade-offs it considered.
+
+The value is that planning and building are genuinely different modes of thinking, and doing them
+in one pass tends to mean committing to the first approach that occurs to you. A separate planning
+step surfaces the "we could do it this way or that way, and here's the difference" decision _before_
+any code exists to be attached to.
+
+Good candidates: a feature touching several layers (the category-groups work in this repo would
+have qualified — schema, migration, routes, and a substantial UI restructure), anything where you
+suspect there's a structural decision you haven't spotted yet, or a task you're not sure how to
+break down.
+
+Not worth it for: a small, obvious change. If you can already describe the steps in a sentence,
+planning it formally is overhead.
+
+Note that a plan is a **proposal, not a verdict** — read it, disagree with the parts you disagree
+with, and use it as a starting point rather than a script to follow blindly.
+
+#### `general-purpose` — doing the whole thing
+
+Full tool access: it can read, search, edit files, run commands, and iterate. This is the agent for
+**multi-step work carried through to a finished result**, rather than a single question answered.
+
+Given a goal, it runs its own loop — read the relevant code, make a change, run the tests, read the
+failure, adjust, run again — as many rounds as it takes, then reports back. That's exactly the
+shape of the script-debugging grind described above: the value isn't only fewer tokens in your
+context, it's that the whole business of converging on something that works happens elsewhere, and
+you receive the outcome instead of every intermediate step.
+
+It's also the fallback for research and search tasks that don't fit `Explore` — either because they
+need complete coverage rather than excerpts, or because they need genuine analysis rather than
+location.
+
+Because it **can change your repository**, it earns more care than the read-only agents: brief it
+clearly about what's in and out of scope, and actually read what it reports rather than assuming
+the work is done (the same "verify, don't trust" habit as everywhere else in this document — a
+subagent's summary is a claim, and claims get checked).
+
+#### Specialised agents
+
+Beyond the general three, setups often include narrow agents for specific jobs — for example one
+that answers questions about the AI tooling itself by consulting its official documentation, or one
+that configures a particular setting. They're worth knowing exist so you don't hand a niche
+question to a general agent that will guess at it. (Earlier in this project's history, exactly that
+happened: a question about an unfamiliar plugin got a confident, partly-wrong answer from general
+knowledge when a documentation-consulting agent would have been the right route — see _Verify,
+don't trust_ below.)
 
 **Pick the narrowest agent that can do the job.** Use `Explore` when you only need to _find_
 something, `Plan` when you need to _decide_ something, and `general-purpose` when you need
 something actually _done_. Reaching for the most capable one by default gives up the safety of the
-read-only ones for no benefit.
+read-only ones for no benefit — and reaching for `Explore` when you need completeness gives up
+correctness for speed.
 
 **Brief them properly — they start cold.** A subagent has none of your conversation's context. A
 good brief states the goal, the constraints that matter (conventions to follow, things not to
@@ -515,9 +591,11 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | A preference true for you across all projects            | Personal `~/.claude/CLAUDE.md`                           |
 | Stack detail only relevant inside one part of a monorepo | A `CLAUDE.md` in that subdirectory                       |
 | Writing a `CLAUDE.md` from scratch                       | Open with the stack, versions, and your preferences      |
-| An open-ended search across unfamiliar code              | Delegate to `Explore` (read-only, safe to run)           |
+| "Where is X?" across unfamiliar code                     | Delegate to `Explore` (read-only, safe to run)           |
+| A check needing _every_ occurrence, not just some        | Not `Explore` — it reads excerpts and can miss things    |
 | Deciding an approach before building it                  | Delegate to `Plan` (read-only)                           |
 | A whole multi-step task, carried through to done         | Delegate to `general-purpose` (can edit — brief it well) |
+| A question about the AI tooling itself                   | A docs-consulting agent, not general knowledge           |
 | A task that will produce a lot of disposable raw output  | Delegate to a subagent                                   |
 | A single known file/symbol lookup                        | Just do it directly — don't delegate                     |
 | Two genuinely independent checks (e.g. two test suites)  | Launch both as parallel subagents                        |
