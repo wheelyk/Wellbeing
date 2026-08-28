@@ -16,6 +16,9 @@ const createSchema = z
     valueType: z.enum(API_CATEGORY_VALUE_TYPES),
     scaleMin: z.number().int().optional(),
     scaleMax: z.number().int().optional(),
+    // Optional - see schema.prisma's Category.groupId comment for why a category with no group is
+    // a normal, supported state ("Uncategorized" in the UI), not an error.
+    groupId: z.string().trim().min(1).optional(),
   })
   .refine(
     (data) =>
@@ -28,14 +31,33 @@ const createSchema = z
     },
   );
 
-// name/icon/description are editable; valueType (and therefore scaleMin/scaleMax) is not - same
-// reasoning as Habit's own immutable `type`: an existing log's value column is only meaningful in
-// light of the type it was logged under.
+// name/icon/description/groupId are editable; valueType (and therefore scaleMin/scaleMax) is not -
+// same reasoning as Habit's own immutable `type`: an existing log's value column is only
+// meaningful in light of the type it was logged under. groupId accepts an explicit `null` (unlike
+// createSchema's own optional-but-not-nullable version) so moving a category back to
+// "Uncategorized" is possible, not just moving it between two real groups.
 const updateSchema = z.object({
   name: z.string().trim().min(1).optional(),
   icon: z.string().trim().min(1).max(8).optional().nullable(),
   description: z.string().trim().min(1).max(2000).optional().nullable(),
+  groupId: z.string().trim().min(1).optional().nullable(),
 });
+
+// ID-tampering defense - the same pattern reminders.ts's own categoryId handling already uses:
+// scope the lookup by ownership/visibility before ever trusting an id in the request body, so a
+// category can never end up "in" a group its owner can't actually see (another user's private
+// one). Returns true for `undefined`/`null` (nothing to check) or a group the caller can see;
+// false otherwise.
+async function isGroupIdValid(
+  groupId: string | null | undefined,
+  userId: string,
+): Promise<boolean> {
+  if (groupId === undefined || groupId === null) return true;
+  const group = await prisma.categoryGroup.findFirst({
+    where: { id: groupId, OR: [{ userId: null }, { userId }] },
+  });
+  return group !== null;
+}
 
 export const categoriesRouter = Router();
 
@@ -127,7 +149,14 @@ categoriesRouter.post("/", async (req, res) => {
     });
   }
 
-  const { name, icon, description, valueType, scaleMin, scaleMax } = parsed.data;
+  const { name, icon, description, valueType, scaleMin, scaleMax, groupId } = parsed.data;
+
+  if (!(await isGroupIdValid(groupId, req.userId as string))) {
+    return res.status(404).json({
+      error: { message: "Group not found", code: "GROUP_NOT_FOUND" },
+    });
+  }
+
   // Always creates with the caller's own userId - a regular user can never create a system
   // category through this route, only through /api/admin/categories (requireAdmin-gated).
   const category = await prisma.category.create({
@@ -139,6 +168,7 @@ categoriesRouter.post("/", async (req, res) => {
       valueType: toPrismaCategoryValueType(valueType),
       scaleMin: valueType === "scale" ? scaleMin : null,
       scaleMax: valueType === "scale" ? scaleMax : null,
+      groupId,
     },
   });
 
@@ -166,6 +196,12 @@ categoriesRouter.patch("/:id", async (req, res) => {
   if (!existing) {
     return res.status(404).json({
       error: { message: "Category not found", code: "CATEGORY_NOT_FOUND" },
+    });
+  }
+
+  if (!(await isGroupIdValid(parsed.data.groupId, req.userId as string))) {
+    return res.status(404).json({
+      error: { message: "Group not found", code: "GROUP_NOT_FOUND" },
     });
   }
 

@@ -95,6 +95,13 @@ function routedFetchMock(overrides: Record<string, (init?: RequestInit) => Respo
         overrides["GET /api/users/me"]?.(init) ?? jsonResponse(200, DEFAULT_PROFILE),
       );
     }
+    // CategoriesSection fetches this alongside /api/categories on every mount (see
+    // docs/log/23-category-groups.md) - defaulted to empty here so every pre-existing test that
+    // exercises that section doesn't need to know about groups at all unless it specifically
+    // cares, the same "auto-handle, override only when needed" convention as the two cases above.
+    if (url.includes("/api/category-groups") && (!init?.method || init.method === "GET")) {
+      return Promise.resolve(overrides["/api/category-groups"]?.(init) ?? jsonResponse(200, []));
+    }
     for (const [key, respond] of Object.entries(overrides)) {
       const [method, path] = key.includes(" ") ? key.split(" ") : [undefined, key];
       if (url.includes(path) && (!method || init?.method === method)) {

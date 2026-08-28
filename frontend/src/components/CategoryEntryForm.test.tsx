@@ -21,6 +21,7 @@ const booleanCategory: Category = {
   scaleMax: null,
   archivedAt: null,
   createdAt: "2026-08-23T00:00:00.000Z",
+  groupId: null,
 };
 const numericCategory: Category = {
   id: "cat-numeric",
@@ -32,6 +33,7 @@ const numericCategory: Category = {
   scaleMax: null,
   archivedAt: null,
   createdAt: "2026-08-23T00:00:00.000Z",
+  groupId: null,
 };
 const scaleCategory: Category = {
   id: "cat-scale",
@@ -43,6 +45,7 @@ const scaleCategory: Category = {
   scaleMax: 5,
   archivedAt: null,
   createdAt: "2026-08-23T00:00:00.000Z",
+  groupId: null,
 };
 const durationCategory: Category = {
   id: "cat-duration",
@@ -54,6 +57,7 @@ const durationCategory: Category = {
   scaleMax: null,
   archivedAt: null,
   createdAt: "2026-08-23T00:00:00.000Z",
+  groupId: null,
 };
 
 describe("CategoryEntryForm", () => {
