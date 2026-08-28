@@ -558,6 +558,50 @@ The cost of not having done that isn't dramatic — the documentation got writte
 cost is that its quality depended on the same instructions being given again each time, which means
 it depended on the person remembering to give them. That's the fragile part.
 
+### How a skill gets used _without_ you asking
+
+This is the part that makes skills worth the effort, and it's easy to miss: **you don't have to
+remember to invoke one.**
+
+Recall from the section above that a skill costs almost nothing until it's used, because only its
+**name and one-line description** sit in context. That listing isn't just a menu for you — it's
+what the assistant itself reads. When a task in front of it looks like one a listed skill covers,
+it loads that skill and follows it, unprompted. Typing `/skill-name` yourself is the manual
+override, not the normal path.
+
+Which leads to the single highest-leverage fact about writing a skill:
+
+> **The description is not a label. It's the matching rule.**
+
+A skill described as _"Documentation helper"_ will sit there unused, because nothing about a
+request like "write up what we just built" obviously matches it. The same skill described as _"Use
+when writing or updating an entry in `docs/log/` or `IMPLEMENTATION_LOG.md` — the required
+structure, depth of explanation, and beginner-facing conventions for this project"_ fires reliably,
+because it names the actual situation and the concrete nouns that show up in real requests.
+
+So a skill has two audiences, and they want different things:
+
+- **The description** is read to decide _whether this applies right now_. Write it in terms of
+  **when to use it**, and include the words that would appear in a real request — file names, task
+  names, the vocabulary you actually use.
+- **The body** is read only after that decision. This is where the full procedure, template,
+  checklist, and examples go, and it can be as long as it needs to be.
+
+**How to check it actually works:** start a fresh session, ask for the task in your own natural
+words — without naming the skill — and see whether it gets picked up. If it doesn't, **fix the
+description, not the body.** The body was never the problem; it was never reached.
+
+This failure mode is worth naming because it's silent. A skill with a vague description doesn't
+error or warn. It just quietly never fires, and you drift back to typing the same instructions by
+hand — the exact problem it was written to solve — without any obvious signal telling you why.
+
+**The trade-off against `CLAUDE.md`, stated plainly:** a rule in `CLAUDE.md` **always** applies,
+because it's loaded every time and nothing has to match. A skill applies **only if its description
+matches the task**. That's the real reason to keep genuinely non-negotiable rules ("never commit
+straight to `main`", "never merge your own PR") in `CLAUDE.md` even though they're short enough to
+live anywhere: you don't want them contingent on a matcher firing. Procedures can afford to be
+matched; guardrails can't.
+
 ### The practical rule
 
 **Said it twice? Notice. Said it three times? Write it down.**
@@ -653,6 +697,9 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | You've given the same instruction three times            | Stop and write it down — that's a missing artifact       |
 | A short rule that's always true                          | `CLAUDE.md` (loaded every session, so keep it brief)     |
 | A longer procedure — steps, template, checklist          | A skill (costs nothing until invoked, so it can be full) |
+| Writing a skill's description                            | Describe _when it applies_ — that's what makes it fire   |
+| A skill you wrote never seems to get used                | Fix the description, not the body — it was never reached |
+| A non-negotiable guardrail, not just a procedure         | `CLAUDE.md` — always applies, never depends on matching  |
 | A convention true for everyone on the project            | Project `CLAUDE.md` (committed, reviewed)                |
 | A preference true for you across all projects            | Personal `~/.claude/CLAUDE.md`                           |
 | Stack detail only relevant inside one part of a monorepo | A `CLAUDE.md` in that subdirectory                       |
