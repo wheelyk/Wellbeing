@@ -269,14 +269,18 @@ model Reminder {
   userId     String         @map("user_id")
   target     ReminderTarget
   categoryId String?        @map("category_id")
-  // One or more "HH:mm" 24-hour local times - a plain Postgres text array rather than a separate
-  // join table, since nothing beyond this Reminder's own row ever needs to reference a single
-  // time in isolation (ReminderSend below references a time by its string value directly, not by
-  // a foreign key to a row here). Multiple entries are what let "every 3 hours" be approximated
-  // as several fixed times (e.g. ["09:00","12:00","15:00"]) without any real recurring-interval
-  // logic - confirmed directly with the user that fixed times are the whole point, not true
-  // intervals.
-  times      String[]
+  // One or more standard five-field cron expressions ("minute hour day-of-month month
+  // day-of-week"), replacing the fixed "HH:mm" times this column used to hold - see
+  // docs/log/25-cron-reminder-schedules.md. Still a plain Postgres text array rather than a join
+  // table, for the same reason as before: nothing outside this row ever references a single
+  // schedule in isolation (ReminderSend below keys off the *expanded* "HH:mm" slot by value, not
+  // by a foreign key to anything here).
+  //
+  // An array rather than one expression because a single expression can only express several
+  // times a day when they share a minute - `0 8,20 * * *` is fine, but 08:00 plus 20:30 genuinely
+  // needs two entries. One entry per "time rule" preserves exactly the cardinality times[] had,
+  // which is what let the migration be a straight per-element rewrite.
+  schedules  String[]
   enabled    Boolean        @default(true)
   createdAt  DateTime       @default(now()) @map("created_at")
 

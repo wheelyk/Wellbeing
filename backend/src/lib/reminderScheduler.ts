@@ -2,6 +2,7 @@ import { prisma } from "./prisma";
 import { currentTimeInTimezone, getDayRangeUtc, todayInTimezone } from "./timezone";
 import { sendPushNotification } from "./webPush";
 import { shouldSendReminder } from "./reminderEligibility";
+import { cronSlotsForDate } from "./cron";
 import type { Reminder } from "../generated/prisma/client";
 
 // How often to check whether any reminder's time has arrived. Not the same thing as how
@@ -60,6 +61,28 @@ async function hasLoggedTarget(
         })) !== null
       );
   }
+}
+
+// Every "HH:mm" slot this reminder's schedules produce on the given local date, deduplicated and
+// ascending - two expressions can legitimately overlap on one day (e.g. a weekday rule and a
+// specific-date rule), and the same slot must never be treated as two separate firings.
+//
+// A stored expression that no longer parses is skipped rather than thrown: expressions are
+// validated at the API boundary (see routes/reminders.ts), so this shouldn't happen - but if one
+// ever did get in, one user's bad row must not stop the tick that serves everyone else.
+function slotsForToday(schedules: string[], dateStr: string, reminderId: string): string[] {
+  const slots = new Set<string>();
+  for (const expression of schedules) {
+    try {
+      for (const slot of cronSlotsForDate(expression, dateStr)) slots.add(slot);
+    } catch (err) {
+      console.error(
+        `Skipping unparseable schedule on reminder ${reminderId}: "${expression}"`,
+        err,
+      );
+    }
+  }
+  return [...slots].sort();
 }
 
 async function sendReminderToUser(
@@ -128,10 +151,14 @@ export async function runReminderTick(): Promise<void> {
     const today = todayByUserId.get(reminder.userId) as string;
     const currentLocalTime = currentTimeInTimezone(reminder.user.timezone);
 
+    const todaysSlots = slotsForToday(reminder.schedules, today, reminder.id);
+
     // Skip the "has this been logged" query entirely if nothing on this reminder could possibly
     // be due yet, or everything due has already fired - true for most reminders on most ticks,
-    // so this keeps a 5-minute tick cheap regardless of how many reminders exist overall.
-    const hasCandidateTime = reminder.times.some(
+    // so this keeps a 5-minute tick cheap regardless of how many reminders exist overall. Also
+    // covers the "this expression doesn't fire today at all" case (a weekday rule on a Saturday),
+    // which is now a normal, common outcome rather than an impossible one.
+    const hasCandidateTime = todaysSlots.some(
       (time) => currentLocalTime >= time && !sentSet.has(sentSlotKey(reminder.id, today, time)),
     );
     if (!hasCandidateTime) continue;
@@ -139,16 +166,25 @@ export async function runReminderTick(): Promise<void> {
     const { start, end } = getDayRangeUtc(today, reminder.user.timezone);
     const loggedTarget = await hasLoggedTarget(reminder, reminder.userId, start, end);
 
-    for (const time of reminder.times) {
-      const eligible = shouldSendReminder({
+    const eligible = todaysSlots.filter((time) =>
+      shouldSendReminder({
         time,
         currentLocalTime,
         alreadySentThisSlot: sentSet.has(sentSlotKey(reminder.id, today, time)),
         hasLoggedTarget: loggedTarget,
-      });
-      if (!eligible) continue;
+      }),
+    );
+    if (eligible.length === 0) continue;
 
-      await sendReminderToUser(reminder.userId, reminderCopy(reminder));
+    // Only the most recent due slot actually notifies; every earlier one is recorded as handled
+    // without sending. Firing late is still deliberate (see reminderEligibility.ts - better a late
+    // reminder than none after a restart), but firing *every* missed slot at once is not: an
+    // hourly schedule whose process was down until 14:00 would otherwise deliver fifteen identical
+    // notifications in one burst. This behaviour only became reachable when schedules stopped
+    // being a hand-typed list capped at six times - see docs/log/25-cron-reminder-schedules.md.
+    await sendReminderToUser(reminder.userId, reminderCopy(reminder));
+
+    for (const time of eligible) {
       await prisma.reminderSend.create({
         data: { reminderId: reminder.id, date: today, time },
       });
