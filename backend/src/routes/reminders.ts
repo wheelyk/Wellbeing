@@ -7,7 +7,8 @@ import {
   toApiReminderTarget,
   toPrismaReminderTarget,
 } from "../lib/reminderTarget";
-import { cronValidationError } from "../lib/cron";
+import { cronValidationError, nextRunsForSchedules } from "../lib/cron";
+import { addDaysToDateStr, todayInTimezone } from "../lib/timezone";
 
 // A generous cap, not a real limit anyone should hit - guards against a runaway request rather
 // than a genuine product constraint (see routes/categories.ts's icon length cap for the same kind
@@ -18,6 +19,10 @@ import { cronValidationError } from "../lib/cron";
 // docs/log/27-multiple-schedules-per-reminder.md): rules multiply expressions, so a UI cap of
 // four rules with a few times each needs more headroom than a single rule ever did.
 const MAX_SCHEDULES = 12;
+
+// Enough to show the shape of a schedule (a two-rule weekday/weekend pattern needs more than one
+// to be recognisable) without turning a confirmation line into a list.
+const PREVIEW_RUN_COUNT = 3;
 
 const schedulesSchema = z
   .array(
@@ -99,6 +104,50 @@ remindersRouter.get("/", async (req, res) => {
     include: REMINDER_INCLUDE,
   });
   res.json(reminders.map(serializeReminder));
+});
+
+// "When would this actually fire?", answered for a schedule the caller hasn't saved yet.
+//
+// Deliberately computed here rather than in the browser, even though the frontend has its own cron
+// code capable of it. That frontend implementation exists to *draw* the picker; this one is what
+// the scheduler genuinely uses to decide what to send. A preview derived from the drawing code
+// could agree with the user's expectation while still disagreeing with what will really happen -
+// which is precisely the failure this endpoint exists to make visible. See
+// docs/log/33-next-run-preview.md.
+//
+// Declared before the "/:id" routes below purely for readability; POST "/preview" and POST "/" are
+// already unambiguous to Express.
+remindersRouter.post("/preview", async (req, res) => {
+  const parsed = z.object({ schedules: schedulesSchema }).safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: {
+        message: "Invalid schedule",
+        code: "VALIDATION_ERROR",
+        details: parsed.error.flatten().fieldErrors,
+      },
+    });
+  }
+
+  // The scheduler resolves every reminder against the owner's stored timezone, so a preview that
+  // used the server's - or the browser's - would be answering a different question.
+  const user = await prisma.user.findUnique({
+    where: { id: req.userId },
+    select: { timezone: true },
+  });
+  if (!user) {
+    return res.status(404).json({ error: { message: "User not found", code: "USER_NOT_FOUND" } });
+  }
+
+  // "today" travels with the response so the client never has to work out what day it is in the
+  // user timezone - it only has to compare date strings, which has no clock in it at all.
+  const today = todayInTimezone(user.timezone);
+  res.json({
+    timezone: user.timezone,
+    today,
+    tomorrow: addDaysToDateStr(today, 1),
+    nextRuns: nextRunsForSchedules(parsed.data.schedules, user.timezone, PREVIEW_RUN_COUNT),
+  });
 });
 
 remindersRouter.post("/", async (req, res) => {

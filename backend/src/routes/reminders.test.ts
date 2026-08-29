@@ -149,6 +149,77 @@ describe("reminders routes", () => {
     }
   });
 
+  // The preview is what makes the picker trustworthy: it is answered by the same cron code the
+  // scheduler runs, so a disagreement between what the UI draws and what will actually fire shows
+  // up here rather than as a reminder arriving on the wrong day.
+  describe("POST /preview", () => {
+    it("returns the next few runs for an unsaved schedule, in the caller timezone", async () => {
+      const { accessToken } = await registerAndLogin("preview");
+
+      const res = await request(app)
+        .post("/api/reminders/preview")
+        .set(authed(accessToken))
+        .send({ schedules: ["0 8 * * *"] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.timezone).toBe("UTC");
+      expect(res.body.nextRuns).toHaveLength(3);
+      // Shape rather than exact values - the wall clock moves, and cron.test.ts pins the clock to
+      // assert the arithmetic itself.
+      for (const run of res.body.nextRuns) {
+        expect(run.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(run.time).toBe("08:00");
+      }
+    });
+
+    it("previews a schedule that has not been saved, and saves nothing", async () => {
+      const { accessToken } = await registerAndLogin("preview-no-save");
+
+      await request(app)
+        .post("/api/reminders/preview")
+        .set(authed(accessToken))
+        .send({ schedules: ["0 8 * * 1-5"] });
+
+      const list = await request(app).get("/api/reminders").set(authed(accessToken));
+      expect(list.body).toHaveLength(0);
+    });
+
+    it("merges several rules into one chronological list", async () => {
+      const { accessToken } = await registerAndLogin("preview-rules");
+
+      const res = await request(app)
+        .post("/api/reminders/preview")
+        .set(authed(accessToken))
+        .send({ schedules: ["0 8 * * 1-5", "0 10 * * 0,6"] });
+
+      expect(res.status).toBe(200);
+      const times = res.body.nextRuns.map((r: { time: string }) => r.time);
+      // Every run is one of the two rules, and they are ordered by date then time.
+      expect(times.every((t: string) => t === "08:00" || t === "10:00")).toBe(true);
+      const keys = res.body.nextRuns.map((r: { date: string; time: string }) => r.date + r.time);
+      expect(keys).toEqual([...keys].sort());
+    });
+
+    it("rejects an invalid expression with the same message the save path gives", async () => {
+      const { accessToken } = await registerAndLogin("preview-invalid");
+
+      const res = await request(app)
+        .post("/api/reminders/preview")
+        .set(authed(accessToken))
+        .send({ schedules: ["0 25 * * *"] });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("401s without an access token", async () => {
+      const res = await request(app)
+        .post("/api/reminders/preview")
+        .send({ schedules: ["0 8 * * *"] });
+      expect(res.status).toBe(401);
+    });
+  });
+
   it("rejects a CATEGORY reminder with no categoryId, or one not visible to the caller", async () => {
     const owner = await registerAndLogin("category-owner");
     const intruder = await registerAndLogin("category-intruder");

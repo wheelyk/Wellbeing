@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "./Button";
 import {
   DAY_INITIALS,
@@ -12,6 +12,7 @@ import {
   type ScheduleDraft,
   type ScheduleRule,
 } from "../lib/cronSchedule";
+import { describeNextRun, fetchNextRuns, type NextRunPreview } from "../lib/nextRunPreview";
 
 // The controls behind a category's bell. Presets cover almost every real case in one tap, day
 // toggles handle the rest, and the raw cron sits behind a disclosure for anyone who wants it -
@@ -111,21 +112,11 @@ function RuleFields({
     onChange({ ...rule, daysOfWeek: next.sort((a, b) => a - b) });
   }
 
-  // Reported from a real Android phone as "the add time button isn't working". Three separate
-  // dead-ends could produce exactly that, and this addresses all of them rather than guessing
-  // which one bit - see docs/log/29-fix-add-time-button.md.
-  //
-  // 1. The button used to be `disabled` until React state held a time. On a dark theme the
-  //    disabled styling is subtle, so it read as an ordinary button that simply did nothing.
-  // 2. Re-adding a time already in the list returned silently.
-  // 3. A controlled `<input type="time">` on mobile commits its value through a native picker,
-  //    and the browser can blur the input as the tap lands - so React state was not always
-  //    up to date at the instant the handler ran. The input's *own* current value is the
-  //    authority here, with state only as a fallback.
   // Opens the platform's own time picker straight from the "+" chip. There is no separate text
-  // field or confirm button any more: the picker's own Set/OK *is* the confirmation, which is one
-  // step instead of three and removes the empty-input dead-end that made this feel broken before
-  // (see docs/log/29-fix-add-time-button.md).
+  // field and no confirm button: the picker's own Set/OK *is* the confirmation, which is one step
+  // instead of three and removes the empty-input dead-end that made this feel broken when it was
+  // reported from a real phone (see docs/log/29-fix-add-time-button.md and
+  // docs/log/30-inline-time-picker.md).
   function openTimePicker() {
     const input = timeInputRef.current;
     if (!input) return;
@@ -316,6 +307,44 @@ export function ReminderScheduleForm({
 
   const generated = buildSchedules(draft);
 
+  // Asked of the server rather than worked out here, deliberately - see lib/nextRunPreview.ts.
+  // Keyed on the generated expressions so it re-runs whenever the schedule genuinely changes, and
+  // not merely when the component re-renders.
+  const [preview, setPreview] = useState<NextRunPreview | null>(null);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const scheduleKey = generated.join("\n");
+
+  useEffect(() => {
+    if (generated.length === 0) {
+      setPreview(null);
+      return;
+    }
+    let cancelled = false;
+    // Debounced: tapping through day toggles changes the schedule several times in a second, and
+    // every intermediate state would otherwise be a request whose answer is immediately stale.
+    const timer = setTimeout(() => {
+      fetchNextRuns(scheduleKey.split("\n"))
+        .then((result) => {
+          if (cancelled) return;
+          setPreview(result);
+          setPreviewFailed(false);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          // A rejected expression is an ordinary outcome while someone is mid-edit in the cron
+          // box, so this stays quiet rather than shouting - the save path reports the real error.
+          setPreview(null);
+          setPreviewFailed(true);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // generated is rebuilt on every render; scheduleKey is its stable value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduleKey]);
+
   function updateRule(index: number, next: ScheduleRule) {
     setDraft((prev) => ({
       ...prev,
@@ -422,6 +451,35 @@ export function ReminderScheduleForm({
           </div>
         )}
       </div>
+
+      {/* The whole point of this line: it is the server's answer, from the same cron code the
+          scheduler runs, so a picker that draws one thing while the scheduler intends another
+          becomes visible here instead of arriving as a notification on the wrong day. */}
+      {preview && preview.nextRuns.length > 0 && (
+        <div className="rounded-lg border border-border bg-surface-muted px-3 py-2 text-sm">
+          <p className="text-text">
+            Next:{" "}
+            <span className="font-medium">{describeNextRun(preview.nextRuns[0], preview)}</span>
+          </p>
+          {preview.nextRuns.length > 1 && (
+            <p className="mt-0.5 text-xs text-text-muted">
+              then{" "}
+              {preview.nextRuns
+                .slice(1)
+                .map((run) => describeNextRun(run, preview))
+                .join(", ")}
+            </p>
+          )}
+        </div>
+      )}
+      {preview && preview.nextRuns.length === 0 && (
+        <p className="rounded-lg border border-border bg-surface-muted px-3 py-2 text-sm text-text-muted">
+          This schedule has no upcoming runs in the next year.
+        </p>
+      )}
+      {previewFailed && !error && (
+        <p className="text-xs text-text-muted">Couldn&apos;t work out when this would next run.</p>
+      )}
 
       {error && (
         <p role="alert" className="text-sm text-danger">
