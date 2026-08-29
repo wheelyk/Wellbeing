@@ -7,7 +7,7 @@ import { BottomNav } from "../components/BottomNav";
 import { Button } from "../components/Button";
 import { TextField } from "../components/TextField";
 import { CollapsibleSection } from "../components/CollapsibleSection";
-import { useCollapsedState } from "../hooks/useCollapsedState";
+import { readCollapsedState, useCollapsedState } from "../hooks/useCollapsedState";
 import {
   CategoryCreateForm,
   type Category,
@@ -19,11 +19,17 @@ import { ReminderScheduleForm, type Reminder } from "../components/ReminderSched
 import { describeSchedules } from "../lib/cronSchedule";
 import { useTimedMessage } from "../hooks/useTimedMessage";
 import { Toast } from "../components/Toast";
-import { dispatchCollapseAll } from "../lib/collapseAllEvent";
+import { dispatchCollapseAll, listenForCollapsedChanged } from "../lib/collapseAllEvent";
 
 // Every group section persists its collapsed state under this prefix, which is also what the
 // page’s Collapse/Expand all control broadcasts to (see lib/collapseAllEvent.ts).
 const GROUP_COLLAPSE_PREFIX = "categories.group.";
+
+// One place that decides a group's storage key, so the page (which needs to know whether anything
+// is expanded) and the section (which owns the state) cannot drift apart.
+function groupCollapseKey(group: { id: string } | null): string {
+  return group ? `${GROUP_COLLAPSE_PREFIX}${group.id}` : `${GROUP_COLLAPSE_PREFIX}uncategorized`;
+}
 
 function describeValueType(category: Category): string {
   switch (category.valueType) {
@@ -314,9 +320,7 @@ function GroupSection({
   remindersByCategoryId: Map<string, Reminder>;
   reminderState: ReminderUiState;
 }) {
-  const storageKey = group
-    ? `${GROUP_COLLAPSE_PREFIX}${group.id}`
-    : `${GROUP_COLLAPSE_PREFIX}uncategorized`;
+  const storageKey = groupCollapseKey(group);
   const { collapsed, toggle } = useCollapsedState(storageKey);
   const contentId = `${storageKey}-content`;
   const isOwnGroup = group !== null && group.userId === currentUserId;
@@ -477,7 +481,23 @@ function CategoriesBody() {
   // Self-clearing, and rendered as a floating toast rather than inline at the top of the list -
   // a confirmation for a category near the bottom of a long page used to appear off-screen.
   const { message: actionMessage, showMessage: setActionMessage } = useTimedMessage();
-  const [allCollapsed, setAllCollapsed] = useState(false);
+  // Whichever groups have since been toggled by hand, keyed by storage key. Anything not in here
+  // has not changed since load, so its stored value is still the truth - which is why this starts
+  // empty rather than trying to seed itself.
+  //
+  // This replaces a flag that simply remembered what the button did last time. That went stale the
+  // moment a single group was toggled on its own: the page could be fully expanded while the button
+  // still offered "Expand all", which is exactly how it was reported.
+  const [collapsedOverrides, setCollapsedOverrides] = useState<Record<string, boolean>>({});
+
+  useEffect(
+    () =>
+      listenForCollapsedChanged((key, collapsed) => {
+        if (!key.startsWith(GROUP_COLLAPSE_PREFIX)) return;
+        setCollapsedOverrides((prev) => ({ ...prev, [key]: collapsed }));
+      }),
+    [],
+  );
   // Which of the caller's own categories (by id) the "Delete" confirmation dialog is currently
   // asking about - null means closed. See ConfirmDeleteModal.tsx for why this replaced a native
   // window.confirm() here too, matching History's own precedent.
@@ -557,6 +577,18 @@ function CategoriesBody() {
       ? [...groupSections, { group: null, categories: uncategorized.sort(byName) }]
       : groupSections;
   }, [categories, groups]);
+
+  // What the bulk control should offer next, derived from what the sections actually are rather
+  // than from what the button did last. A section that hasn't been touched since load still has
+  // its stored value, so that's the fallback; anything toggled since is in the overrides map.
+  const anyExpanded = useMemo(
+    () =>
+      sections.some(({ group }) => {
+        const key = groupCollapseKey(group);
+        return !(collapsedOverrides[key] ?? readCollapsedState(key));
+      }),
+    [sections, collapsedOverrides],
+  );
 
   function handleCreated(category: Category) {
     setCategories((prev) =>
@@ -872,20 +904,16 @@ function CategoriesBody() {
           </p>
         </div>
         {/* Broadcast rather than lifted state: each group keeps owning (and persisting) its own
-            collapsed state, and this control never needs to know how many groups exist. See
-            lib/collapseAllEvent.ts. */}
+            collapsed state. The page only listens for what they report, so this control can label
+            itself for what would actually happen. See lib/collapseAllEvent.ts. */}
         {!loading && !loadError && sections.length > 0 && (
-          <Button
+          <ActionButton
             variant="secondary"
             className="shrink-0"
-            onClick={() => {
-              const next = !allCollapsed;
-              dispatchCollapseAll(GROUP_COLLAPSE_PREFIX, next);
-              setAllCollapsed(next);
-            }}
-          >
-            {allCollapsed ? "Expand all" : "Collapse all"}
-          </Button>
+            icon={anyExpanded ? "⌃" : "⌄"}
+            label={anyExpanded ? "Collapse all" : "Expand all"}
+            onClick={() => dispatchCollapseAll(GROUP_COLLAPSE_PREFIX, anyExpanded)}
+          />
         )}
       </div>
       <p className="mt-3 mb-4 text-sm text-text-muted">
