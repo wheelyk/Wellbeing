@@ -223,7 +223,11 @@ remindersRouter.post("/preview", async (req, res) => {
 // minute tick (anything shorter would be a promise the scheduler can't keep); the ceiling is the
 // point at which "again in a bit" stops being a follow-up to something you just did.
 const MIN_FOLLOW_UP_MINUTES = 15;
-const MAX_FOLLOW_UP_MINUTES = 12 * 60;
+// Raised from 12 hours once startsAt made a follow-up able to land tomorrow. A cooldown may be up
+// to 24 hours (see lib/categoryTiming.ts), and a cooldown's "you can have another now" is created
+// through this endpoint - a ceiling below that would have made the longer gaps silently unable to
+// notify at all.
+const MAX_FOLLOW_UP_MINUTES = 24 * 60;
 
 const followUpSchema = z
   .object({
@@ -286,23 +290,26 @@ remindersRouter.post("/follow-up", async (req, res) => {
   const [nowHour, nowMinute] = currentTimeInTimezone(timezone).split(":").map(Number);
   const totalMinutes = nowHour * 60 + nowMinute + inMinutes;
 
-  // Refused rather than rolled over into tomorrow. A schedule of "02:00" created at 22:00 would be
-  // read by the scheduler as a slot that has *already passed today* - it fires late by design (see
-  // reminderEligibility.ts), so the reminder would arrive immediately instead of in four hours.
-  // Rejecting is honest; quietly delivering the opposite of what was asked for is not.
-  if (totalMinutes >= 24 * 60) {
-    return res.status(400).json({
-      error: {
-        message: "That would land tomorrow - a follow-up only runs for the rest of today",
-        code: "FOLLOW_UP_PAST_MIDNIGHT",
-      },
-    });
-  }
-
-  const hour = Math.floor(totalMinutes / 60);
-  const minute = totalMinutes % 60;
+  // Crossing midnight used to be refused outright, because the scheduler fires late by design (see
+  // reminderEligibility.ts) and would have read "03:46" as a slot already gone by, delivering it
+  // immediately. startsAt is what makes that expressible instead: the slot is real, it just isn't
+  // allowed to fire before the moment asked for. See docs/log/40-reminder-starts-at.md.
+  const daysAhead = Math.floor(totalMinutes / (24 * 60));
+  const minutesIntoDay = totalMinutes % (24 * 60);
+  const hour = Math.floor(minutesIntoDay / 60);
+  const minute = minutesIntoDay % 60;
   const firesAtLocal = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-  const expiresAt = getDayRangeUtc(todayInTimezone(timezone), timezone).end;
+
+  const firesOnDate = addDaysToDateStr(todayInTimezone(timezone), daysAhead);
+  // The exact instant the slot represents: the start of its own local day, plus the wall-clock
+  // minutes into it. Derived from getDayRangeUtc rather than assembled by hand so it stays right
+  // across a DST boundary, where a local day is not 24 hours long.
+  const startsAt = new Date(
+    getDayRangeUtc(firesOnDate, timezone).start.getTime() + minutesIntoDay * 60 * 1000,
+  );
+  // Expires at the end of the day it fires on, not today's - a one-shot must outlive the day it
+  // was created on when it lands on the next one.
+  const expiresAt = getDayRangeUtc(firesOnDate, timezone).end;
 
   // Replaces the live temporary reminder for this target, if there is one, rather than 409ing.
   // Deleting and recreating (instead of updating in place) also clears its ReminderSend rows by
@@ -323,6 +330,7 @@ remindersRouter.post("/follow-up", async (req, res) => {
       target: prismaTarget,
       categoryId: categoryId ?? null,
       schedules: [`${minute} ${hour} * * *`],
+      startsAt,
       expiresAt,
       stopsWhenLogged: false,
     },
@@ -335,6 +343,9 @@ remindersRouter.post("/follow-up", async (req, res) => {
   res.status(201).json({
     ...serializeReminder(reminder),
     firesAtLocal,
+    // Whether that time is today or tomorrow, so the client can say so rather than leaving someone
+    // to work out that "03:46" cannot mean this morning.
+    firesTomorrow: daysAhead > 0,
     replacedExisting: replaced.count > 0,
   });
 });

@@ -703,13 +703,14 @@ describe("reminders routes", () => {
       expect(after?.stopsWhenLogged).toBe(true);
     });
 
-    it("refuses a follow-up that would land tomorrow rather than firing it immediately", async () => {
+    // This used to be a 400. Crossing midnight was refused because the scheduler fires late by
+    // design, so a slot for "03:46" created at 21:46 read as already gone by and arrived at once.
+    // startsAt makes it expressible instead - see docs/log/40-reminder-starts-at.md.
+    it("schedules a follow-up that lands tomorrow, and marks it as not due until then", async () => {
       const { zone, minutes } = latestZone();
       const { accessToken } = await userInZone("follow-up-midnight", zone);
 
-      // Enough to cross midnight there, capped at the endpoint's own ceiling. The zone list spans
-      // more than a full day, so one of them is always late enough for this to fit under the cap.
-      const inMinutes = Math.min(24 * 60 - minutes + 30, 12 * 60);
+      const inMinutes = Math.min(24 * 60 - minutes + 30, 24 * 60);
       if (minutes + inMinutes < 24 * 60) {
         throw new Error(`No zone late enough to cross midnight (latest was ${zone})`);
       }
@@ -719,14 +720,27 @@ describe("reminders routes", () => {
         .set(authed(accessToken))
         .send({ target: "general", inMinutes });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error.code).toBe("FOLLOW_UP_PAST_MIDNIGHT");
-      // Nothing was created - a rejected follow-up must not leave a reminder behind.
-      const list = await request(app).get("/api/reminders").set(authed(accessToken));
-      expect(list.body).toEqual([]);
+      expect(res.status).toBe(201);
+      expect(res.body.firesTomorrow).toBe(true);
+
+      // The wall-clock time is the one asked for, wrapped past midnight...
+      const expected = (minutes + inMinutes) % (24 * 60);
+      expect(res.body.firesAtLocal).toBe(
+        `${String(Math.floor(expected / 60)).padStart(2, "0")}:${String(expected % 60).padStart(2, "0")}`,
+      );
+
+      // ...and startsAt is what stops it arriving the moment it is created. Without it, this
+      // reminder's only slot is a time earlier today, and the scheduler would fire it at once.
+      const stored = await prisma.reminder.findUnique({ where: { id: res.body.id } });
+      expect(stored?.startsAt).not.toBeNull();
+      expect((stored?.startsAt as Date).getTime()).toBeGreaterThan(Date.now());
+      // It also has to outlive today, or it would be swept before it ever fired.
+      expect((stored?.expiresAt as Date).getTime()).toBeGreaterThan(
+        (stored?.startsAt as Date).getTime(),
+      );
     });
 
-    it("rejects an interval below the scheduler's own resolution, or beyond half a day", async () => {
+    it("rejects an interval below the scheduler's own resolution, or beyond a day", async () => {
       const { accessToken } = await registerAndLogin("follow-up-bounds");
 
       const tooSoon = await request(app)
@@ -735,10 +749,19 @@ describe("reminders routes", () => {
         .send({ target: "general", inMinutes: 5 });
       expect(tooSoon.status).toBe(400);
 
+      // The ceiling moved from 12 hours to 24 when startsAt let a follow-up land tomorrow -
+      // deliberately matching the longest gap a cooldown may be set to, since a cooldown's own
+      // "you can have another now" is created through this endpoint.
+      const stillFine = await request(app)
+        .post("/api/reminders/follow-up")
+        .set(authed(accessToken))
+        .send({ target: "general", inMinutes: 20 * 60 });
+      expect(stillFine.status).toBe(201);
+
       const tooLate = await request(app)
         .post("/api/reminders/follow-up")
         .set(authed(accessToken))
-        .send({ target: "general", inMinutes: 13 * 60 });
+        .send({ target: "general", inMinutes: 25 * 60 });
       expect(tooLate.status).toBe(400);
     });
 

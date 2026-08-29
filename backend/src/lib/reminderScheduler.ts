@@ -1,5 +1,11 @@
 import { prisma } from "./prisma";
-import { currentTimeInTimezone, getDayRangeUtc, todayInTimezone } from "./timezone";
+import {
+  currentTimeInTimezone,
+  formatDateInTimezone,
+  getDayRangeUtc,
+  timeInTimezone,
+  todayInTimezone,
+} from "./timezone";
 import { sendPushNotification } from "./webPush";
 import { shouldSendReminder } from "./reminderEligibility";
 import { cronSlotsForDate } from "./cron";
@@ -146,7 +152,13 @@ export async function runReminderTick(): Promise<void> {
     // a candidate once its expiry passes. Nothing else about it is special: while it is live it
     // goes through exactly the same slot expansion, same already-sent guard and same
     // has-this-been-logged check as any other reminder.
-    where: { enabled: true, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+    where: {
+      enabled: true,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      // A reminder that hasn't started yet is not a candidate at all. Filtered here rather than
+      // per-slot below because it is exact and cheap: startsAt is an instant, and so is now.
+      AND: [{ OR: [{ startsAt: null }, { startsAt: { lte: now } }] }],
+    },
     include: {
       user: { select: { timezone: true } },
       category: { select: { name: true, description: true } },
@@ -182,7 +194,21 @@ export async function runReminderTick(): Promise<void> {
     const today = todayByUserId.get(reminder.userId) as string;
     const currentLocalTime = currentTimeInTimezone(reminder.user.timezone);
 
-    const todaysSlots = slotsForToday(reminder.schedules, today, reminder.id);
+    let todaysSlots = slotsForToday(reminder.schedules, today, reminder.id);
+
+    // On the day a reminder starts, the slots earlier than its start time have not "already
+    // passed" - they were never its slots at all. Without this the scheduler's own fire-late rule
+    // (see reminderEligibility.ts) would deliver a one-shot for 03:46 the moment it was created at
+    // 21:46 the evening before, which is the entire failure startsAt exists to prevent.
+    //
+    // Only the start *day* needs filtering: on any later day every slot is legitimately after it.
+    if (reminder.startsAt) {
+      const startDate = formatDateInTimezone(reminder.startsAt, reminder.user.timezone);
+      if (today === startDate) {
+        const startTime = timeInTimezone(reminder.startsAt, reminder.user.timezone);
+        todaysSlots = todaysSlots.filter((time) => time >= startTime);
+      }
+    }
 
     // Skip the "has this been logged" query entirely if nothing on this reminder could possibly
     // be due yet, or everything due has already fired - true for most reminders on most ticks,
