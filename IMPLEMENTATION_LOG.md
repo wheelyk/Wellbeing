@@ -365,3 +365,7 @@ project's own sessions.
 ### [Categories Page Polish: Toasts, Collapse All, and an Add Control That Belongs](docs/log/31-categories-page-polish.md)
 
 - 2026-08-29 — Three pieces of feedback from using the page for real
+
+### [Responsive Row Actions: Icons on Phones, Words on Wider Screens](docs/log/32-responsive-icon-actions.md)
+
+- 2026-08-29 — One accessible name, two visual treatments
