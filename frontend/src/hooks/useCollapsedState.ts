@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { listenForCollapseAll } from "../lib/collapseAllEvent";
 
 // The one deliberate use of localStorage in this app - everywhere else (see api/client.ts,
 // auth/AuthContext.tsx) persistence is avoided on purpose for anything auth-related, since
@@ -36,6 +37,16 @@ function persist(key: string, value: boolean) {
 
 export function useCollapsedState(key: string, defaultValue = false): CollapsedStateControls {
   const [collapsed, setCollapsed] = useState(() => readStored(key, defaultValue));
+
+  // Responds to a "collapse/expand everything under this prefix" broadcast (see
+  // lib/collapseAllEvent.ts). The result is persisted exactly as a manual toggle would be, so a
+  // bulk action isn't quietly forgotten on the next page load.
+  useEffect(() => {
+    return listenForCollapseAll(key, (next) => {
+      setCollapsed(next);
+      persist(key, next);
+    });
+  }, [key]);
 
   function toggle() {
     setCollapsed((prev) => {

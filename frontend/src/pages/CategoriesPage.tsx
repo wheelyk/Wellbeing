@@ -16,6 +16,13 @@ import {
 import { ConfirmDeleteModal } from "../components/ConfirmDeleteModal";
 import { ReminderScheduleForm, type Reminder } from "../components/ReminderScheduleForm";
 import { describeSchedules } from "../lib/cronSchedule";
+import { useTimedMessage } from "../hooks/useTimedMessage";
+import { Toast } from "../components/Toast";
+import { dispatchCollapseAll } from "../lib/collapseAllEvent";
+
+// Every group section persists its collapsed state under this prefix, which is also what the
+// page’s Collapse/Expand all control broadcasts to (see lib/collapseAllEvent.ts).
+const GROUP_COLLAPSE_PREFIX = "categories.group.";
 
 function describeValueType(category: Category): string {
   switch (category.valueType) {
@@ -296,7 +303,9 @@ function GroupSection({
   remindersByCategoryId: Map<string, Reminder>;
   reminderState: ReminderUiState;
 }) {
-  const storageKey = group ? `categories.group.${group.id}` : "categories.group.uncategorized";
+  const storageKey = group
+    ? `${GROUP_COLLAPSE_PREFIX}${group.id}`
+    : `${GROUP_COLLAPSE_PREFIX}uncategorized`;
   const { collapsed, toggle } = useCollapsedState(storageKey);
   const contentId = `${storageKey}-content`;
   const isOwnGroup = group !== null && group.userId === currentUserId;
@@ -439,7 +448,10 @@ function CategoriesBody() {
   const [editCategoryGroupId, setEditCategoryGroupId] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  // Self-clearing, and rendered as a floating toast rather than inline at the top of the list -
+  // a confirmation for a category near the bottom of a long page used to appear off-screen.
+  const { message: actionMessage, showMessage: setActionMessage } = useTimedMessage();
+  const [allCollapsed, setAllCollapsed] = useState(false);
   // Which of the caller's own categories (by id) the "Delete" confirmation dialog is currently
   // asking about - null means closed. See ConfirmDeleteModal.tsx for why this replaced a native
   // window.confirm() here too, matching History's own precedent.
@@ -593,7 +605,7 @@ function CategoriesBody() {
       setActionMessage("Category deleted. You can restore it from Deleted categories below.");
     } catch {
       setCategories(previous);
-      setActionMessage(null);
+      setActionMessage("Couldn’t delete that category. Please try again.");
     }
   }
 
@@ -610,7 +622,7 @@ function CategoriesBody() {
       setActionMessage("Category hidden.");
     } catch {
       setCategories(previous);
-      setActionMessage(null);
+      setActionMessage("Couldn’t hide that category. Please try again.");
     }
   }
 
@@ -622,7 +634,7 @@ function CategoriesBody() {
       setActionMessage("Category unhidden.");
     } catch {
       setCategories(previous);
-      setActionMessage(null);
+      setActionMessage("Couldn’t unhide that category. Please try again.");
     }
   }
 
@@ -789,7 +801,7 @@ function CategoriesBody() {
       setActionMessage("Group hidden.");
     } catch {
       setGroups(previous);
-      setActionMessage(null);
+      setActionMessage("Couldn’t hide that group. Please try again.");
     }
   }
 
@@ -801,7 +813,7 @@ function CategoriesBody() {
       setActionMessage("Group unhidden.");
     } catch {
       setGroups(previous);
-      setActionMessage(null);
+      setActionMessage("Couldn’t unhide that group. Please try again.");
     }
   }
 
@@ -824,12 +836,32 @@ function CategoriesBody() {
 
   return (
     <>
-      <h1 className="text-2xl font-semibold text-text">Categories</h1>
-      <p className="mt-1 text-sm text-text-muted">
-        {loading
-          ? "Loading…"
-          : `${categories.length} ${categories.length === 1 ? "category" : "categories"} in ${groups.length} ${groups.length === 1 ? "group" : "groups"}`}
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-text">Categories</h1>
+          <p className="mt-1 text-sm text-text-muted">
+            {loading
+              ? "Loading…"
+              : `${categories.length} ${categories.length === 1 ? "category" : "categories"} in ${groups.length} ${groups.length === 1 ? "group" : "groups"}`}
+          </p>
+        </div>
+        {/* Broadcast rather than lifted state: each group keeps owning (and persisting) its own
+            collapsed state, and this control never needs to know how many groups exist. See
+            lib/collapseAllEvent.ts. */}
+        {!loading && !loadError && sections.length > 0 && (
+          <Button
+            variant="secondary"
+            className="shrink-0"
+            onClick={() => {
+              const next = !allCollapsed;
+              dispatchCollapseAll(GROUP_COLLAPSE_PREFIX, next);
+              setAllCollapsed(next);
+            }}
+          >
+            {allCollapsed ? "Expand all" : "Collapse all"}
+          </Button>
+        )}
+      </div>
       <p className="mt-3 mb-4 text-sm text-text-muted">
         Create your own trackable categories - medications included - alongside any an admin has
         added for everyone, organized into groups. Hide a built-in category or group you don&apos;t
@@ -852,11 +884,6 @@ function CategoriesBody() {
       )}
       {!loading && !loadError && (
         <>
-          {actionMessage && (
-            <p role="status" className="mb-3 text-sm text-success">
-              {actionMessage}
-            </p>
-          )}
           {categories.length === 0 && groups.length === 0 ? (
             <p className="text-sm text-text-muted">No categories yet.</p>
           ) : (
@@ -972,6 +999,7 @@ function CategoriesBody() {
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
       />
+      <Toast message={actionMessage} />
     </>
   );
 }
