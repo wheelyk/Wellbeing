@@ -377,3 +377,7 @@ project's own sessions.
 ### [A Real Push Delivery Test](docs/log/34-real-push-delivery-test.md)
 
 - 2026-08-29 — Closing the last unverified link in the reminder chain
+
+### [Making the Backend Suite Tell the Truth Every Run](docs/log/35-reliable-backend-test-suite.md)
+
+- 2026-08-29 — Resolving the parallelism trade-off in favour of reliability
