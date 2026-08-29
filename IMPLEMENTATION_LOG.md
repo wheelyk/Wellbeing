@@ -373,3 +373,7 @@ project's own sessions.
 ### [Next-Run Preview](docs/log/33-next-run-preview.md)
 
 - 2026-08-29 — Showing when a schedule will actually fire, computed by the code that fires it
+
+### [A Real Push Delivery Test](docs/log/34-real-push-delivery-test.md)
+
+- 2026-08-29 — Closing the last unverified link in the reminder chain
