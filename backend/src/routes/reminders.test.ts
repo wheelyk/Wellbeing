@@ -381,6 +381,195 @@ describe("reminders routes", () => {
     expect(stillThere).toBeNull();
   });
 
+  // A temporary reminder - "nudge me every 30 minutes for the rest of today" - is an ordinary
+  // reminder carrying an expiry. What these tests pin down is the part that isn't ordinary: who
+  // resolves "end of today" (the server, against the user's *stored* timezone), what an expiry may
+  // legally be, and how a temporary one coexists with the standing reminder for the same target.
+  describe("temporary reminders", () => {
+    it("resolves end-of-day to midnight tonight in the user's own stored timezone", async () => {
+      const { accessToken, userId } = await registerAndLogin("expiry-timezone");
+      // Deliberately not UTC, and deliberately far from it: if this were resolved against the
+      // server's clock instead of the user's timezone, the instant would come out hours wrong -
+      // which is the entire reason the client doesn't compute it.
+      await prisma.user.update({ where: { id: userId }, data: { timezone: "Asia/Tokyo" } });
+
+      const res = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({ target: "general", schedules: ["0 * * * *"], expiresAt: "end-of-day" });
+
+      expect(res.status).toBe(201);
+      const expiresAt = new Date(res.body.expiresAt);
+      expect(expiresAt.getTime()).toBeGreaterThan(Date.now());
+
+      // Asserted independently of the helper that produced it: the instant one millisecond
+      // *before* the expiry must still be today in Tokyo, and the expiry itself must already be
+      // the next day there. That is what "midnight tonight, there" means, and it is true of no
+      // other instant.
+      const inTokyo = (date: Date) =>
+        new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(date);
+      expect(inTokyo(new Date(expiresAt.getTime() - 1))).toBe(inTokyo(new Date()));
+      expect(inTokyo(expiresAt)).not.toBe(inTokyo(new Date()));
+    });
+
+    it("rejects an expiry in the past, or further ahead than a temporary reminder should reach", async () => {
+      const { accessToken } = await registerAndLogin("expiry-bounds");
+
+      const past = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({
+          target: "general",
+          schedules: ["0 9 * * *"],
+          expiresAt: new Date(Date.now() - 60_000).toISOString(),
+        });
+      expect(past.status).toBe(400);
+      expect(past.body.error.details.expiresAt[0]).toMatch(/future/i);
+
+      const tooFar = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({
+          target: "general",
+          schedules: ["0 9 * * *"],
+          expiresAt: new Date(Date.now() + 400 * 24 * 60 * 60 * 1000).toISOString(),
+        });
+      expect(tooFar.status).toBe(400);
+      expect(tooFar.body.error.details.expiresAt[0]).toMatch(/at most/i);
+
+      const nonsense = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({ target: "general", schedules: ["0 9 * * *"], expiresAt: "tomorrow-ish" });
+      expect(nonsense.status).toBe(400);
+    });
+
+    it("runs alongside the standing reminder for the same target, but only one at a time", async () => {
+      const { accessToken } = await registerAndLogin("expiry-coexist");
+      const categoryId = await createCategory(accessToken, "Water");
+
+      const standing = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({ target: "category", categoryId, schedules: ["0 9 * * *"] });
+      expect(standing.status).toBe(201);
+      expect(standing.body.expiresAt).toBeNull();
+
+      // The whole point: this is an addition to the daily reminder above, not a replacement, so
+      // it must not collide with it.
+      const temporary = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({
+          target: "category",
+          categoryId,
+          schedules: ["0 * * * *"],
+          expiresAt: "end-of-day",
+        });
+      expect(temporary.status).toBe(201);
+
+      // A second live temporary one, however, is still one too many.
+      const second = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({
+          target: "category",
+          categoryId,
+          schedules: ["0 */2 * * *"],
+          expiresAt: "end-of-day",
+        });
+      expect(second.status).toBe(409);
+      expect(second.body.error.code).toBe("TEMPORARY_REMINDER_ALREADY_EXISTS");
+
+      // ... and so is a second standing one, exactly as before this feature existed.
+      const secondStanding = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({ target: "category", categoryId, schedules: ["0 21 * * *"] });
+      expect(secondStanding.status).toBe(409);
+      expect(secondStanding.body.error.code).toBe("REMINDER_ALREADY_EXISTS");
+    });
+
+    it("lets a new temporary reminder be created once the previous one has expired", async () => {
+      const { accessToken, userId } = await registerAndLogin("expiry-finished");
+
+      // An expired reminder still in the table - it lives for a day after lapsing (see
+      // reminderScheduler.ts's sweep), and during that day it must not block a fresh one.
+      await prisma.reminder.create({
+        data: {
+          userId,
+          target: "GENERAL",
+          schedules: ["0 * * * *"],
+          expiresAt: new Date(Date.now() - 60 * 60 * 1000),
+        },
+      });
+
+      const res = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({ target: "general", schedules: ["0 * * * *"], expiresAt: "end-of-day" });
+
+      expect(res.status).toBe(201);
+    });
+
+    // The distinction docs/LESSONS-LEARNED.md exists for, tested on the edit path - the only place
+    // it can ever bite: an omitted field and an explicit null are different requests.
+    it("tells an omitted expiry apart from one explicitly cleared", async () => {
+      const { accessToken } = await registerAndLogin("expiry-patch");
+
+      const created = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({ target: "general", schedules: ["0 * * * *"], expiresAt: "end-of-day" });
+      expect(created.status).toBe(201);
+      const originalExpiry = created.body.expiresAt;
+      expect(originalExpiry).not.toBeNull();
+
+      // Not provided: the expiry must survive untouched while something else changes.
+      const untouched = await request(app)
+        .patch(`/api/reminders/${created.body.id}`)
+        .set(authed(accessToken))
+        .send({ enabled: false });
+      expect(untouched.status).toBe(200);
+      expect(untouched.body.expiresAt).toBe(originalExpiry);
+
+      // Explicitly cleared: the reminder stops being temporary and becomes standing.
+      const cleared = await request(app)
+        .patch(`/api/reminders/${created.body.id}`)
+        .set(authed(accessToken))
+        .send({ expiresAt: null });
+      expect(cleared.status).toBe(200);
+      expect(cleared.body.expiresAt).toBeNull();
+    });
+
+    it("refuses to clear an expiry when that would leave two standing reminders for one target", async () => {
+      const { accessToken } = await registerAndLogin("expiry-clear-conflict");
+      const categoryId = await createCategory(accessToken, "Stretch");
+
+      await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({ target: "category", categoryId, schedules: ["0 9 * * *"] });
+      const temporary = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({
+          target: "category",
+          categoryId,
+          schedules: ["0 * * * *"],
+          expiresAt: "end-of-day",
+        });
+
+      const cleared = await request(app)
+        .patch(`/api/reminders/${temporary.body.id}`)
+        .set(authed(accessToken))
+        .send({ expiresAt: null });
+
+      expect(cleared.status).toBe(409);
+      expect(cleared.body.error.code).toBe("REMINDER_ALREADY_EXISTS");
+    });
+  });
+
   it("archiving a category disables (not deletes) every reminder targeting it, across users", async () => {
     const owner = await registerAndLogin("archive-owner");
     const other = await registerAndLogin("archive-other");

@@ -385,3 +385,7 @@ project's own sessions.
 ### [Picker and Collapse-All Polish](docs/log/36-picker-and-collapse-polish.md)
 
 - 2026-08-29 — A button that told the truth, and one chip fewer
+
+### [Temporary Reminders (Backend)](docs/log/37-temporary-reminders-backend.md)
+
+- 2026-08-29 — A reminder that knows when to stop
