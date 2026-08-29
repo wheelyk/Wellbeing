@@ -417,11 +417,11 @@ describe("CategoriesPage", () => {
 
     await screen.findByText(/sleep hours/i);
     expect(screen.queryByText("Hidden")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Hide" }));
+    await user.click(screen.getByRole("button", { name: "Hide Sleep hours" }));
 
     expect(await screen.findByText("Hidden")).toBeInTheDocument();
     expect(await screen.findByText(/category hidden/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Unhide" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Unhide Sleep hours" })).toBeInTheDocument();
   });
 
   it("unhides an already-hidden system category", async () => {
@@ -435,11 +435,11 @@ describe("CategoriesPage", () => {
     renderCategoriesPage();
 
     await screen.findByText("Hidden");
-    await user.click(screen.getByRole("button", { name: "Unhide" }));
+    await user.click(screen.getByRole("button", { name: "Unhide Sleep hours" }));
 
     expect(await screen.findByText(/category unhidden/i)).toBeInTheDocument();
     expect(screen.queryByText("Hidden")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Hide" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide Sleep hours" })).toBeInTheDocument();
   });
 
   it("never offers Hide/Unhide for the user's own category", async () => {

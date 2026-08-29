@@ -7,6 +7,7 @@ import { apiFetch } from "../api/client";
 import type { Category } from "../components/CategoryCreateForm";
 import { HistoryEditModal } from "./history/HistoryEditModal";
 import { ConfirmDeleteModal } from "../components/ConfirmDeleteModal";
+import { ActionButton } from "../components/ActionButton";
 
 export interface HistoryEntry {
   id: string;
@@ -326,20 +327,20 @@ export function HistoryPage() {
                           </p>
                         </div>
                         <div className="flex shrink-0 gap-2">
-                          <Button
+                          <ActionButton
                             variant="secondary"
+                            icon="✏️"
+                            label="Edit"
+                            name={`Edit entry from ${new Date(entry.loggedAt).toLocaleString()}`}
                             onClick={() => setEditingEntry(entry)}
-                            aria-label={`Edit entry from ${new Date(entry.loggedAt).toLocaleString()}`}
-                          >
-                            Edit
-                          </Button>
-                          <Button
+                          />
+                          <ActionButton
                             variant="secondary"
+                            icon="🗑️"
+                            label="Delete"
+                            name={`Delete entry from ${new Date(entry.loggedAt).toLocaleString()}`}
                             onClick={() => handleRequestDelete(entry)}
-                            aria-label={`Delete entry from ${new Date(entry.loggedAt).toLocaleString()}`}
-                          >
-                            Delete
-                          </Button>
+                          />
                         </div>
                       </li>
                     ))}

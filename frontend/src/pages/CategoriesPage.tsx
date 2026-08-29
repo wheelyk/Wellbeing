@@ -14,6 +14,7 @@ import {
   type CategoryGroup,
 } from "../components/CategoryCreateForm";
 import { ConfirmDeleteModal } from "../components/ConfirmDeleteModal";
+import { ActionButton } from "../components/ActionButton";
 import { ReminderScheduleForm, type Reminder } from "../components/ReminderScheduleForm";
 import { describeSchedules } from "../lib/cronSchedule";
 import { useTimedMessage } from "../hooks/useTimedMessage";
@@ -199,42 +200,52 @@ function CategoryRow({
             {reminder?.enabled && ` · ${describeSchedules(reminder.schedules)}`}
           </p>
         </div>
+        {/* Icons on a phone, words from `sm:` up (see ActionButton) - three text buttons don't fit
+            beside a long category name at 412px, but there's ample room for them on a laptop. The
+            bell sits inside this group rather than apart from it, so a row reads as one set of
+            actions rather than a reminder control plus some others. */}
         <div className="flex shrink-0 gap-2">
-          {/* Icon-only, because three text buttons don't fit beside a long category name at
-              412px. Each keeps a real accessible name, the same way Delete already did. */}
-          <Button
+          <ActionButton
             variant={reminder?.enabled ? "primary" : "secondary"}
-            aria-label={`${reminder?.enabled ? "Edit reminder for" : "Remind me about"} ${category.name}`}
+            icon="🔔"
+            label="Remind"
+            name={`${reminder?.enabled ? "Edit reminder for" : "Remind me about"} ${category.name}`}
             aria-expanded={remindOpen}
             onClick={() => handlers.onToggleRemind(category.id)}
-          >
-            🔔
-          </Button>
+          />
           {isOwn ? (
             <>
-              <Button
+              <ActionButton
                 variant="secondary"
-                aria-label={`Edit ${category.name}`}
+                icon="✏️"
+                label="Edit"
+                name={`Edit ${category.name}`}
                 onClick={() => handlers.onStartEdit(category)}
-              >
-                Edit
-              </Button>
-              <Button
+              />
+              <ActionButton
                 variant="secondary"
-                aria-label={`Delete ${category.name}`}
+                icon="🗑️"
+                label="Delete"
+                name={`Delete ${category.name}`}
                 onClick={() => handlers.onDeleteClick(category.id)}
-              >
-                Delete
-              </Button>
+              />
             </>
           ) : category.hidden ? (
-            <Button variant="secondary" onClick={() => handlers.onUnhide(category.id)}>
-              Unhide
-            </Button>
+            <ActionButton
+              variant="secondary"
+              icon="👁️"
+              label="Unhide"
+              name={`Unhide ${category.name}`}
+              onClick={() => handlers.onUnhide(category.id)}
+            />
           ) : (
-            <Button variant="secondary" onClick={() => handlers.onHide(category.id)}>
-              Hide
-            </Button>
+            <ActionButton
+              variant="secondary"
+              icon="🙈"
+              label="Hide"
+              name={`Hide ${category.name}`}
+              onClick={() => handlers.onHide(category.id)}
+            />
           )}
         </div>
       </div>
@@ -350,20 +361,35 @@ function GroupSection({
           </svg>
         </button>
         {group && (
+          // Same icon-then-text treatment as the category rows below, so a group header and the
+          // rows inside it don't disagree about how an action is presented at the same width.
+          // These carry the group's name too, since a page shows many of them at once.
           <div className="flex shrink-0 gap-2">
             {isOwnGroup && (
-              <Button variant="secondary" onClick={() => groupHandlers.onStartEditGroup(group)}>
-                Rename
-              </Button>
+              <ActionButton
+                variant="secondary"
+                icon="✏️"
+                label="Rename"
+                name={`Rename ${group.name}`}
+                onClick={() => groupHandlers.onStartEditGroup(group)}
+              />
             )}
             {group.hidden ? (
-              <Button variant="secondary" onClick={() => groupHandlers.onUnhideGroup(group.id)}>
-                Unhide
-              </Button>
+              <ActionButton
+                variant="secondary"
+                icon="👁️"
+                label="Unhide"
+                name={`Unhide ${group.name}`}
+                onClick={() => groupHandlers.onUnhideGroup(group.id)}
+              />
             ) : (
-              <Button variant="secondary" onClick={() => groupHandlers.onHideGroup(group.id)}>
-                Hide
-              </Button>
+              <ActionButton
+                variant="secondary"
+                icon="🙈"
+                label="Hide"
+                name={`Hide ${group.name}`}
+                onClick={() => groupHandlers.onHideGroup(group.id)}
+              />
             )}
           </div>
         )}
