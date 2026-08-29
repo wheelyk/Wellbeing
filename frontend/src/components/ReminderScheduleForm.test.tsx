@@ -38,6 +38,72 @@ describe("ReminderScheduleForm", () => {
     expect(onSave).toHaveBeenCalledWith(["0 9 * * 1-5"]);
   });
 
+  // Regression tests for a bug reported from a real Android phone: "the add time button isn't
+  // working". Every one of these previously ended in the button doing nothing visible.
+  describe("adding a time", () => {
+    it("adds the chosen time to the list", async () => {
+      const onSave = renderForm();
+      const user = userEvent.setup();
+
+      await user.type(screen.getByLabelText(/add a time to schedule 1/i), "20:30");
+      await user.click(screen.getByRole("button", { name: "+ Add time" }));
+      await user.click(screen.getByRole("button", { name: "Save reminder" }));
+
+      expect(onSave).toHaveBeenCalledWith(["0 9 * * *", "30 20 * * *"]);
+    });
+
+    it("is never disabled, so a tap always produces a visible response", () => {
+      renderForm();
+
+      // The original bug: disabled until React state held a time, which on a dark theme is
+      // indistinguishable from a button that simply doesn't work.
+      expect(screen.getByRole("button", { name: "+ Add time" })).toBeEnabled();
+    });
+
+    it("says why nothing was added when no time has been chosen", async () => {
+      renderForm();
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("button", { name: "+ Add time" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Choose a time first.");
+    });
+
+    it("says why nothing was added when the time is already on the schedule", async () => {
+      renderForm(["0 9 * * *"]);
+      const user = userEvent.setup();
+
+      await user.type(screen.getByLabelText(/add a time to schedule 1/i), "09:00");
+      await user.click(screen.getByRole("button", { name: "+ Add time" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "09:00 is already on this schedule.",
+      );
+    });
+
+    it("clears the error once a different time is chosen", async () => {
+      renderForm();
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("button", { name: "+ Add time" }));
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText(/add a time to schedule 1/i), "20:30");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("empties the input after adding, so the same time isn't added twice", async () => {
+      renderForm();
+      const user = userEvent.setup();
+
+      const input = screen.getByLabelText(/add a time to schedule 1/i);
+      await user.type(input, "20:30");
+      await user.click(screen.getByRole("button", { name: "+ Add time" }));
+
+      expect(input).toHaveValue("");
+    });
+  });
+
   it("saves an hourly schedule with no time list at all", async () => {
     const onSave = renderForm();
     const user = userEvent.setup();

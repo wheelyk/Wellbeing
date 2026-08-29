@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Button } from "./Button";
 import {
   DAY_INITIALS,
@@ -81,6 +81,8 @@ function RuleFields({
   onRemove: () => void;
 }) {
   const [newTime, setNewTime] = useState("");
+  const [timeError, setTimeError] = useState<string | null>(null);
+  const timeInputRef = useRef<HTMLInputElement>(null);
   const activeOption: RepeatOption =
     rule.mode === "hourly" ? "hourly" : presetForDays(rule.daysOfWeek);
 
@@ -106,10 +108,35 @@ function RuleFields({
     onChange({ ...rule, daysOfWeek: next.sort((a, b) => a - b) });
   }
 
+  // Reported from a real Android phone as "the add time button isn't working". Three separate
+  // dead-ends could produce exactly that, and this addresses all of them rather than guessing
+  // which one bit - see docs/log/29-fix-add-time-button.md.
+  //
+  // 1. The button used to be `disabled` until React state held a time. On a dark theme the
+  //    disabled styling is subtle, so it read as an ordinary button that simply did nothing.
+  // 2. Re-adding a time already in the list returned silently.
+  // 3. A controlled `<input type="time">` on mobile commits its value through a native picker,
+  //    and the browser can blur the input as the tap lands - so React state was not always
+  //    up to date at the instant the handler ran. The input's *own* current value is the
+  //    authority here, with state only as a fallback.
   function addTime() {
-    if (!newTime || rule.times.includes(newTime)) return;
-    onChange({ ...rule, times: [...rule.times, newTime].sort() });
+    const value = timeInputRef.current?.value || newTime;
+
+    if (!value) {
+      setTimeError("Choose a time first.");
+      return;
+    }
+    if (rule.times.includes(value)) {
+      setTimeError(`${value} is already on this schedule.`);
+      return;
+    }
+
+    setTimeError(null);
+    onChange({ ...rule, times: [...rule.times, value].sort() });
     setNewTime("");
+    // The DOM node holds its own value independently of React state, so it has to be cleared
+    // too, or the next tap would re-add the same time.
+    if (timeInputRef.current) timeInputRef.current.value = "";
   }
 
   return (
@@ -206,16 +233,27 @@ function RuleFields({
               Add a time to schedule {index + 1}
             </label>
             <input
+              ref={timeInputRef}
               id={`reminder-add-time-${index}`}
               type="time"
               value={newTime}
-              onChange={(e) => setNewTime(e.target.value)}
+              onChange={(e) => {
+                setNewTime(e.target.value);
+                setTimeError(null);
+              }}
               className="rounded-lg border border-border px-2 py-1 text-sm text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             />
-            <Button type="button" variant="secondary" onClick={addTime} disabled={!newTime}>
+            {/* Deliberately never disabled: a button that silently does nothing is
+                indistinguishable from a broken one, which is exactly how this was reported. */}
+            <Button type="button" variant="secondary" onClick={addTime}>
               + Add time
             </Button>
           </div>
+          {timeError && (
+            <p role="alert" className="mt-1 text-sm text-danger">
+              {timeError}
+            </p>
+          )}
         </>
       )}
     </div>

@@ -353,3 +353,7 @@ project's own sessions.
 ### [Multiple Schedules Per Reminder](docs/log/27-multiple-schedules-per-reminder.md)
 
 - 2026-08-29 — Letting one reminder do different things on different days
+
+### [Fix: the "+ Add time" Button Did Nothing](docs/log/29-fix-add-time-button.md)
+
+- 2026-08-29 — A reported bug, three possible causes, and why all three were fixed
