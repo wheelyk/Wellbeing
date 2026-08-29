@@ -8,6 +8,7 @@ import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { CategoriesPage } from "./pages/CategoriesPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { TrendsPage } from "./pages/TrendsPage";
 import { AdminCategoriesPage } from "./pages/admin/AdminCategoriesPage";
@@ -26,6 +27,7 @@ function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/trends" element={<TrendsPage />} />
+            <Route path="/categories" element={<CategoriesPage />} />
             <Route path="/settings" element={<SettingsPage />} />
 
             <Route element={<RequireAdmin />}>

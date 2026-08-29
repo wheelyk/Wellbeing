@@ -345,3 +345,7 @@ project's own sessions.
 ### [Cron Reminder Schedules](docs/log/25-cron-reminder-schedules.md)
 
 - 2026-08-28 — Replacing fixed "HH:mm" reminder times with cron expressions
+
+### [Categories Page and Reminder Picker](docs/log/26-categories-page-and-reminder-picker.md)
+
+- 2026-08-28 — Giving categories their own page, and a schedule picker over cron
