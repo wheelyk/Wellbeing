@@ -378,6 +378,14 @@ project's own sessions.
 
 - 2026-08-29 — Closing the last unverified link in the reminder chain
 
+### [Making the Backend Suite Tell the Truth Every Run](docs/log/35-reliable-backend-test-suite.md)
+
+- 2026-08-29 — Resolving the parallelism trade-off in favour of reliability
+
+### [Picker and Collapse-All Polish](docs/log/36-picker-and-collapse-polish.md)
+
+- 2026-08-29 — A button that told the truth, and one chip fewer
+
 ### [Temporary Reminders (Backend)](docs/log/37-temporary-reminders-backend.md)
 
 - 2026-08-29 — A reminder that knows when to stop

@@ -179,10 +179,16 @@ end to end together. Nor has a follow-up been watched surviving a real midnight.
 
 ### Known limitations and follow-ups
 
-- **`describeInterval` and PR #152 overlap.** That PR adds a `describeHourly` for `0 * * * *`;
-  `describeInterval` handles the same case and produces the same sentence ("Every hour, daily"),
-  which is why the phrasing was matched deliberately. Whichever merges second should drop
-  `describeHourly` in favour of the more general helper.
+- **`describeHourly` has been folded into `describeInterval`.** PR #152 added a `describeHourly`
+  for `0 * * * *` while this was in flight; `describeInterval` covers the same case and every
+  other step expression besides, which is why the phrasing was matched deliberately in advance.
+  On merging #152 the narrower helper was removed.
+
+  Worth noting how that was confirmed rather than assumed: **both sides' tests were kept**, and
+  #152's `describes hourly schedules` now passes against `describeInterval` alongside this
+  branch's own interval tests. Two independently-written assertions agreeing on the same sentence
+  is better evidence than reading the two functions and concluding they match.
+
 - **A follow-up can't be edited, only stopped.** That seems right — an interval you asked for
   five minutes ago is easier to re-ask than to adjust — but it is an assumption, not a finding.
 - **Interval choices are bounded by `MAX_SLOTS_PER_EXPRESSION` (48)** for the _repeater_, not the

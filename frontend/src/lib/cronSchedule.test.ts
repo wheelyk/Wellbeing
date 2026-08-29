@@ -12,7 +12,6 @@ import {
 } from "./cronSchedule";
 
 const rule = (over: Partial<ScheduleRule> = {}): ScheduleRule => ({
-  mode: "times",
   daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
   times: ["09:00"],
   ...over,
@@ -42,10 +41,6 @@ describe("buildSchedules", () => {
     expect(buildSchedules(draft([rule({ daysOfWeek: [1, 3, 5], times: ["18:30"] })]))).toEqual([
       "30 18 * * 1,3,5",
     ]);
-  });
-
-  it("writes hourly as a wildcard hour", () => {
-    expect(buildSchedules(draft([rule({ mode: "hourly" })]))).toEqual(["0 * * * *"]);
   });
 
   // The whole point of this change: two rules a single set of day toggles could never express
@@ -80,7 +75,6 @@ describe("parseSchedules", () => {
     expect(parsed.mode).toBe("rules");
     expect(parsed.rules).toHaveLength(1);
     expect(parsed.rules[0]).toMatchObject({
-      mode: "times",
       times: ["09:00"],
       daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
     });
@@ -110,19 +104,11 @@ describe("parseSchedules", () => {
     ]);
   });
 
-  it("reads an hourly expression back into an hourly rule", () => {
-    expect(parseSchedules(["0 * * * *"]).rules[0]).toMatchObject({ mode: "hourly" });
-    expect(parseSchedules(["0 * * * 1-5"]).rules[0]).toMatchObject({
-      mode: "hourly",
-      daysOfWeek: [1, 2, 3, 4, 5],
-    });
-  });
-
-  it("supports an hourly rule alongside a times rule on different days", () => {
-    const parsed = parseSchedules(["0 * * * 1-5", "0 10 * * 0,6"]);
-    expect(parsed.mode).toBe("rules");
-    expect(parsed.rules[0]).toMatchObject({ mode: "hourly", daysOfWeek: [1, 2, 3, 4, 5] });
-    expect(parsed.rules[1]).toMatchObject({ mode: "times", times: ["10:00"] });
+  // Hourly is no longer something the controls can edit, so it comes back as raw text for editing
+  // - while still being described readably in a row (see the describeSchedules tests below).
+  it("treats an hourly expression as raw text, since the controls no longer offer it", () => {
+    expect(parseSchedules(["0 * * * *"]).mode).toBe("expression");
+    expect(parseSchedules(["0 * * * 1-5"]).mode).toBe("expression");
   });
 
   it("zero-pads times so they render consistently", () => {
@@ -136,17 +122,12 @@ describe("parseSchedules", () => {
     ["a month restriction", "0 9 * 12 *"],
     ["a step in the minute field", "*/15 * * * *"],
     ["a step in the hour field", "0 */3 * * *"],
+    ["an hourly rule", "0 * * * *"],
     ["an hourly rule that isn't on the hour", "30 * * * *"],
   ])("falls back to expression mode for %s", (_label, expression) => {
     const parsed = parseSchedules([expression]);
     expect(parsed.mode).toBe("expression");
     expect(parsed.expressions).toEqual([expression]);
-  });
-
-  // One rule can't be both "every hour" and "at these times" on the same days - its controls
-  // would have to show both at once.
-  it("falls back to expression mode when hourly and specific times share a day set", () => {
-    expect(parseSchedules(["0 * * * *", "0 9 * * *"]).mode).toBe("expression");
   });
 
   it("falls back to expression mode if any one entry is unrepresentable", () => {
@@ -159,23 +140,17 @@ describe("parseSchedules", () => {
       draft([rule({ times: ["08:00", "20:30"] })]),
       draft([rule({ daysOfWeek: [1, 2, 3, 4, 5] })]),
       draft([rule({ daysOfWeek: [1, 3, 5], times: ["18:30"] })]),
-      draft([rule({ mode: "hourly" })]),
       draft([
         rule({ daysOfWeek: [1, 2, 3, 4, 5], times: ["08:00"] }),
         rule({ daysOfWeek: [0, 6], times: ["10:00"] }),
-      ]),
-      draft([
-        rule({ mode: "hourly", daysOfWeek: [1, 2, 3, 4, 5] }),
-        rule({ daysOfWeek: [0, 6], times: ["10:00", "18:00"] }),
       ]),
     ]) {
       const parsed = parseSchedules(buildSchedules(original));
       expect(parsed.mode).toBe("rules");
       expect(parsed.rules).toHaveLength(original.rules.length);
       original.rules.forEach((expected, i) => {
-        expect(parsed.rules[i].mode).toBe(expected.mode);
         expect(parsed.rules[i].daysOfWeek).toEqual(expected.daysOfWeek);
-        if (expected.mode === "times") expect(parsed.rules[i].times).toEqual(expected.times);
+        expect(parsed.rules[i].times).toEqual(expected.times);
       });
     }
   });
@@ -190,6 +165,8 @@ describe("describeSchedules", () => {
     expect(describeSchedules(["0 9 * * 1,4"])).toBe("09:00 Mon, Thu");
   });
 
+  // Display survives even though editing does not: a schedule already saved as hourly still reads
+  // as what it is, rather than degrading to an anonymous "custom schedule".
   it("describes hourly schedules", () => {
     expect(describeSchedules(["0 * * * *"])).toBe("Every hour, daily");
     expect(describeSchedules(["0 * * * 1-5"])).toBe("Every hour, weekdays");
@@ -229,9 +206,7 @@ describe("describeSchedules", () => {
   });
 
   it("describes a single rule on its own", () => {
-    expect(describeRule({ mode: "times", daysOfWeek: [1, 2, 3, 4, 5], times: ["08:00"] })).toBe(
-      "08:00 weekdays",
-    );
+    expect(describeRule({ daysOfWeek: [1, 2, 3, 4, 5], times: ["08:00"] })).toBe("08:00 weekdays");
   });
 });
 
@@ -250,7 +225,7 @@ describe("presets", () => {
   });
 
   it("starts a new rule on a sensible default rather than an empty one", () => {
-    expect(emptyRule()).toMatchObject({ mode: "times", times: ["09:00"] });
+    expect(emptyRule()).toMatchObject({ times: ["09:00"] });
     expect(buildSchedules(draft([emptyRule()]))).toEqual(["0 9 * * *"]);
   });
 });

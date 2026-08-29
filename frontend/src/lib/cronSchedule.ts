@@ -25,9 +25,15 @@ const WEEKENDS = [0, 6];
 
 export type RepeatPreset = "daily" | "weekdays" | "weekends" | "custom";
 
-// One "rule": a set of days, and either specific times on those days or every hour.
+// One "rule": a set of days, and the times it fires on those days.
+//
+// There used to be an "every hour" mode here as well. It was removed because combining it with a
+// day selection produced something nobody wanted to read - the day toggles stayed on screen with
+// no times beneath them, and it was never clear what the rule was actually saying. Hourly is still
+// perfectly expressible by typing `0 * * * *` into the cron box, which is a better home for it:
+// a schedule that fires twenty-four times a day is not really what these controls are for.
+// See docs/log/36-picker-and-collapse-polish.md.
 export interface ScheduleRule {
-  mode: "times" | "hourly";
   daysOfWeek: number[];
   times: string[];
 }
@@ -41,7 +47,7 @@ export interface ScheduleDraft {
 }
 
 export function emptyRule(): ScheduleRule {
-  return { mode: "times", daysOfWeek: [...ALL_DAYS], times: ["09:00"] };
+  return { daysOfWeek: [...ALL_DAYS], times: ["09:00"] };
 }
 
 function sameDays(a: number[], b: number[]): boolean {
@@ -83,7 +89,6 @@ function dayFieldFor(daysOfWeek: number[]): string {
 
 function ruleToExpressions(rule: ScheduleRule): string[] {
   const dayField = dayFieldFor(rule.daysOfWeek);
-  if (rule.mode === "hourly") return [`0 * * * ${dayField}`];
   return rule.times.map((time) => {
     const [hour, minute] = time.split(":");
     return `${Number(minute)} ${Number(hour)} * * ${dayField}`;
@@ -130,7 +135,7 @@ export function parseSchedules(schedules: string[]): ScheduleDraft {
   // Keyed by the raw day field so expressions written the same way group together, and ordered by
   // first appearance so the rules read back in the order they were created.
   const order: string[] = [];
-  const byDayField = new Map<string, { hourly: boolean; times: string[] }>();
+  const byDayField = new Map<string, { times: string[] }>();
 
   for (const expression of schedules) {
     const fields = expression.trim().split(/\s+/);
@@ -143,19 +148,12 @@ export function parseSchedules(schedules: string[]): ScheduleDraft {
 
     if (!byDayField.has(dow)) {
       order.push(dow);
-      byDayField.set(dow, { hourly: false, times: [] });
+      byDayField.set(dow, { times: [] });
     }
-    const group = byDayField.get(dow) as { hourly: boolean; times: string[] };
+    const group = byDayField.get(dow) as { times: string[] };
 
-    if (hour === "*") {
-      // Only "on the hour" maps onto the hourly control; `30 * * * *` is valid but has nowhere to
-      // show its minute. An hourly rule also can't share its day set with specific times - one
-      // rule's controls would have to show both at once.
-      if (minute !== "0" || group.times.length > 0 || group.hourly) return asExpression;
-      group.hourly = true;
-      continue;
-    }
-    if (group.hourly) return asExpression;
+    // A wildcard hour is hourly, which these controls no longer offer - it stays as raw text.
+    if (hour === "*") return asExpression;
 
     if (!/^\d{1,2}$/.test(minute) || !/^\d{1,2}$/.test(hour)) return asExpression;
     const h = Number(hour);
@@ -165,12 +163,8 @@ export function parseSchedules(schedules: string[]): ScheduleDraft {
   }
 
   const rules: ScheduleRule[] = order.map((dayField) => {
-    const group = byDayField.get(dayField) as { hourly: boolean; times: string[] };
-    return {
-      mode: group.hourly ? "hourly" : "times",
-      daysOfWeek: parseDayField(dayField) as number[],
-      times: group.times,
-    };
+    const group = byDayField.get(dayField) as { times: string[] };
+    return { daysOfWeek: parseDayField(dayField) as number[], times: group.times };
   });
 
   return { mode: "rules", rules, expressions: schedules };
@@ -188,7 +182,6 @@ function describeDays(daysOfWeek: number[]): string {
 }
 
 export function describeRule(rule: ScheduleRule): string {
-  if (rule.mode === "hourly") return `Every hour, ${describeDays(rule.daysOfWeek)}`;
   return `${[...rule.times].sort().join(", ")} ${describeDays(rule.daysOfWeek)}`;
 }
 
