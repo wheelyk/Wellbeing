@@ -282,6 +282,17 @@ model Reminder {
   // which is what let the migration be a straight per-element rewrite.
   schedules  String[]
   enabled    Boolean        @default(true)
+  // Null for an ordinary standing reminder - the only kind that existed before this column. Set
+  // to a real instant for a *temporary* one ("nudge me every 30 minutes for the rest of today"),
+  // after which it stops firing, and is swept away a day later by the reminder tick itself.
+  //
+  // An absolute instant rather than a local date, because an instant is what the scheduler can
+  // actually compare against without re-resolving anything: it already works out "today" per user
+  // timezone on every tick, and an expiry stored as "2026-08-29" would have to be re-interpreted
+  // against that timezone every time to mean anything. The interpretation ("the end of today, for
+  // this user") happens once instead, at the API boundary where the timezone is already in hand -
+  // see routes/reminders.ts.
+  expiresAt  DateTime?      @map("expires_at")
   createdAt  DateTime       @default(now()) @map("created_at")
 
   user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)

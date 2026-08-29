@@ -14,6 +14,28 @@ const TICK_INTERVAL_MS = 5 * 60 * 1000;
 
 const APP_TITLE = "WellTrack";
 
+// How long an expired reminder stays in the table before being removed for good.
+//
+// Swept at all because an expired reminder is dead weight - it can never fire again, and
+// routes/reminders.ts's own DELETE already establishes that a Reminder has no historical value
+// once it's gone (unlike a log, there is nothing anyone would look back on). Swept a day later
+// rather than the instant it lapses so that a "for the rest of today" reminder is still visible,
+// and visibly finished, for the day it ran: disappearing at the stroke of midnight would leave
+// someone wondering whether it had ever been created at all.
+export const EXPIRED_REMINDER_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+// Removes reminders whose expiry passed more than EXPIRED_REMINDER_RETENTION_MS ago. Deliberately
+// scoped to rows that genuinely have an expiry set - a standing reminder (expiresAt null) is never
+// a candidate, and `lt` on a null column never matches anyway, so this cannot touch one even if
+// the filter were wrong.
+//
+// Cascades to that reminder's ReminderSend rows (see schema.prisma), which is correct: those exist
+// solely as an idempotency guard for a reminder that no longer exists.
+async function sweepExpiredReminders(now: Date): Promise<void> {
+  const cutoff = new Date(now.getTime() - EXPIRED_REMINDER_RETENTION_MS);
+  await prisma.reminder.deleteMany({ where: { expiresAt: { not: null, lt: cutoff } } });
+}
+
 type ReminderWithTargets = Reminder & {
   user: { timezone: string };
   category: { name: string; description: string | null } | null;
@@ -114,8 +136,17 @@ async function sendReminderToUser(
 // interval below) specifically so a test can call it directly, deterministically, without
 // waiting on a real timer.
 export async function runReminderTick(): Promise<void> {
+  // One "now" for the whole pass, so the sweep and the expiry filter below can't disagree with
+  // each other about what time it is.
+  const now = new Date();
+  await sweepExpiredReminders(now);
+
   const reminders = await prisma.reminder.findMany({
-    where: { enabled: true },
+    // A temporary reminder ("nudge me every 30 minutes for the rest of today") simply stops being
+    // a candidate once its expiry passes. Nothing else about it is special: while it is live it
+    // goes through exactly the same slot expansion, same already-sent guard and same
+    // has-this-been-logged check as any other reminder.
+    where: { enabled: true, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
     include: {
       user: { select: { timezone: true } },
       category: { select: { name: true, description: true } },

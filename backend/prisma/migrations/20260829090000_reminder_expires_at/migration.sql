@@ -1,0 +1,12 @@
+-- Adds an optional expiry to a reminder.
+--
+-- Nullable with no default and no backfill on purpose: every reminder that exists today is a
+-- standing one that should keep firing forever, and NULL is exactly what that means here. There
+-- is nothing to migrate, only something new to allow.
+--
+-- No index on the new column either. The reminder tick already reads every enabled reminder in a
+-- single query and filters in memory (see lib/reminderScheduler.ts), so an index here would be
+-- read by nothing - and a partial index (the only shape that would be worth having) cannot be
+-- expressed in schema.prisma, which would leave the database permanently drifted from the schema
+-- for no gain.
+ALTER TABLE "reminders" ADD COLUMN "expires_at" TIMESTAMP(3);

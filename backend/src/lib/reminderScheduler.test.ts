@@ -54,6 +54,7 @@ async function createReminder(
     categoryId?: string;
     schedules?: string[];
     enabled?: boolean;
+    expiresAt?: Date | null;
   } = {},
 ) {
   return prisma.reminder.create({
@@ -63,6 +64,7 @@ async function createReminder(
       categoryId: overrides.categoryId,
       schedules: overrides.schedules ?? ["0 20 * * *"],
       enabled: overrides.enabled ?? true,
+      expiresAt: overrides.expiresAt ?? null,
     },
   });
 }
@@ -280,6 +282,71 @@ describe("runReminderTick", () => {
     await runReminderTick();
 
     expect(sendNotification).not.toHaveBeenCalled();
+  });
+
+  // A temporary reminder ("nudge me every 30 minutes for the rest of today") is an ordinary
+  // reminder with an expiry - these four tests pin down the only two things that expiry actually
+  // changes: whether the reminder is still a candidate, and when the row is finally removed.
+  describe("expiring reminders", () => {
+    it("still sends one whose expiry has not passed yet", async () => {
+      const user = await registerUser("expiry-live");
+      await addSubscription(user.id, "expiry-live");
+      // 20:05 "now" (see beforeEach); this expires at midnight tonight.
+      await createReminder(user.id, { expiresAt: new Date("2026-08-23T00:00:00.000Z") });
+
+      await runReminderTick();
+
+      expect(sendNotification).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not send one whose expiry has passed", async () => {
+      const user = await registerUser("expiry-passed");
+      await addSubscription(user.id, "expiry-passed");
+      // Expired five minutes ago. The 20:00 slot is otherwise perfectly due - it is only the
+      // expiry that stops it.
+      const reminder = await createReminder(user.id, {
+        expiresAt: new Date("2026-08-22T20:00:00.000Z"),
+      });
+
+      await runReminderTick();
+
+      expect(sendNotification).not.toHaveBeenCalled();
+      // Not merely unsent - never even considered, so no send row was written either.
+      const sends = await prisma.reminderSend.findMany({ where: { reminderId: reminder.id } });
+      expect(sends).toEqual([]);
+    });
+
+    it("keeps a recently expired reminder around, so it is still visible on the day it ran", async () => {
+      const user = await registerUser("expiry-recent");
+      const reminder = await createReminder(user.id, {
+        expiresAt: new Date("2026-08-22T09:00:00.000Z"),
+      });
+
+      await runReminderTick();
+
+      expect(await prisma.reminder.findUnique({ where: { id: reminder.id } })).not.toBeNull();
+    });
+
+    it("sweeps away one that expired more than a day ago, and leaves standing reminders alone", async () => {
+      const user = await registerUser("expiry-sweep");
+      const longExpired = await createReminder(user.id, {
+        // 25 hours before "now" - past the 24-hour retention window.
+        expiresAt: new Date("2026-08-21T19:05:00.000Z"),
+      });
+      const standing = await createReminder(user.id, {
+        target: "CATEGORY",
+        categoryId: (
+          await prisma.category.create({
+            data: { userId: user.id, name: "Water", valueType: "NUMERIC" },
+          })
+        ).id,
+      });
+
+      await runReminderTick();
+
+      expect(await prisma.reminder.findUnique({ where: { id: longExpired.id } })).toBeNull();
+      expect(await prisma.reminder.findUnique({ where: { id: standing.id } })).not.toBeNull();
+    });
   });
 
   // web-push reports a subscription as gone via a thrown error carrying a 410 (or 404)

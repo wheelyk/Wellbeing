@@ -377,3 +377,7 @@ project's own sessions.
 ### [A Real Push Delivery Test](docs/log/34-real-push-delivery-test.md)
 
 - 2026-08-29 — Closing the last unverified link in the reminder chain
+
+### [Temporary Reminders (Backend)](docs/log/37-temporary-reminders-backend.md)
+
+- 2026-08-29 — A reminder that knows when to stop

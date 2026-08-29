@@ -8,7 +8,7 @@ import {
   toPrismaReminderTarget,
 } from "../lib/reminderTarget";
 import { cronValidationError, nextRunsForSchedules } from "../lib/cron";
-import { addDaysToDateStr, todayInTimezone } from "../lib/timezone";
+import { addDaysToDateStr, getDayRangeUtc, todayInTimezone } from "../lib/timezone";
 
 // A generous cap, not a real limit anyone should hit - guards against a runaway request rather
 // than a genuine product constraint (see routes/categories.ts's icon length cap for the same kind
@@ -49,11 +49,62 @@ const schedulesSchema = z
   // instead, so what someone entered is the order they see when they come back.
   .transform((schedules) => [...new Set(schedules)]);
 
+// How far ahead an expiry may be set. A temporary reminder is meant to be temporary - "for the
+// rest of today", or a course of treatment measured in days. A date years away is far more likely
+// to be a broken client-side calculation than a real intention, and unlike a bad schedule (which
+// is visible in the list and easy to fix) a bad expiry is invisible until the day it silently
+// stops - or doesn't.
+const MAX_EXPIRY_DAYS = 31;
+const MAX_EXPIRY_MS = MAX_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+
+// "end-of-day" is accepted as a literal rather than making the client send the instant, because
+// the client would have to compute it in the user's *stored* timezone to be right - not the
+// browser's. Those are usually the same and occasionally aren't (someone travelling, a phone left
+// on the wrong region), and "quietly fires for an extra hour, once in a while" is exactly the
+// class of bug that never gets reported and never gets found. The scheduler resolves reminders
+// against the stored timezone, so the expiry is resolved against it too, here, where it is
+// already in hand.
+const expiresAtSchema = z.union([
+  z.literal("end-of-day"),
+  z.string().datetime({ message: 'Expiry must be an ISO 8601 timestamp, or "end-of-day"' }),
+]);
+
+type ResolvedExpiry = { expiresAt: Date } | { error: string };
+
+function resolveExpiresAt(value: string, timezone: string): ResolvedExpiry {
+  if (value === "end-of-day") {
+    // getDayRangeUtc's `end` is the *exclusive* end of the local day - midnight tonight, as an
+    // absolute instant. Reused rather than reimplemented so there is only one answer in this
+    // codebase to "when does this user's day end", and it's the one the scheduler already uses.
+    return { expiresAt: getDayRangeUtc(todayInTimezone(timezone), timezone).end };
+  }
+
+  const expiresAt = new Date(value);
+  if (Number.isNaN(expiresAt.getTime())) return { error: "Expiry isn't a real date" };
+
+  const now = Date.now();
+  // An expiry already in the past would create a reminder that has never fired and never can -
+  // rejected outright rather than accepted and silently swept away an hour later.
+  if (expiresAt.getTime() <= now) return { error: "Expiry must be in the future" };
+  if (expiresAt.getTime() > now + MAX_EXPIRY_MS) {
+    return { error: `Expiry can be at most ${MAX_EXPIRY_DAYS} days from now` };
+  }
+  return { expiresAt };
+}
+
+async function userTimezone(userId: string): Promise<string | null> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+  return user?.timezone ?? null;
+}
+
 const createSchema = z
   .object({
     target: z.enum(API_REMINDER_TARGETS),
     categoryId: z.string().trim().min(1).optional(),
     schedules: schedulesSchema,
+    // Absent (or null) means an ordinary standing reminder, which is every reminder that existed
+    // before this field did.
+    expiresAt: expiresAtSchema.nullable().optional(),
   })
   .refine(
     (data) => {
@@ -74,6 +125,12 @@ const updateSchema = z
   .object({
     schedules: schedulesSchema.optional(),
     enabled: z.boolean().optional(),
+    // Explicit null is a genuinely different value from "not provided" here: null means "stop
+    // being temporary and become an ordinary standing reminder", where omitting the field means
+    // "leave the expiry exactly as it is". This is the distinction docs/LESSONS-LEARNED.md was
+    // written about - it only ever bites on edit, never on create - so both cases are covered by
+    // their own test below.
+    expiresAt: expiresAtSchema.nullable().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "Provide at least one field to update",
@@ -165,6 +222,25 @@ remindersRouter.post("/", async (req, res) => {
   const { target, categoryId, schedules } = parsed.data;
   const prismaTarget = toPrismaReminderTarget(target);
 
+  let expiresAt: Date | null = null;
+  if (parsed.data.expiresAt) {
+    const timezone = await userTimezone(req.userId as string);
+    if (!timezone) {
+      return res.status(404).json({ error: { message: "User not found", code: "USER_NOT_FOUND" } });
+    }
+    const resolved = resolveExpiresAt(parsed.data.expiresAt, timezone);
+    if ("error" in resolved) {
+      return res.status(400).json({
+        error: {
+          message: "Invalid reminder",
+          code: "VALIDATION_ERROR",
+          details: { expiresAt: [resolved.error] },
+        },
+      });
+    }
+    expiresAt = resolved.expiresAt;
+  }
+
   // ID-tampering defense - the same pattern every other route with a foreign reference already
   // uses: scope the lookup by ownership/visibility before ever trusting the id in the request.
   if (target === "category") {
@@ -178,20 +254,44 @@ remindersRouter.post("/", async (req, res) => {
     }
   }
 
-  // At most one reminder per (user, target, categoryId) - an app-level check, not a DB
-  // constraint, matching this codebase's established preference for this class of invariant (see
-  // e.g. HabitLog's own "exactly one value column" check in habitLogs.ts).
+  // At most one *standing* reminder per (user, target, categoryId), and at most one live
+  // temporary one alongside it - an app-level check, not a DB constraint, matching this
+  // codebase's established preference for this class of invariant (see e.g. CategoryLog's own
+  // "exactly one value column" check in categoryLogs.ts).
+  //
+  // Splitting the old single rule in two is what makes a temporary reminder useful at all: "nudge
+  // me every 30 minutes for the rest of today" is an *addition* to your normal daily reminder for
+  // that category, not a replacement for it, so the two have to be able to coexist. Within each
+  // kind the original "only one" rule is unchanged.
+  //
+  // An already-expired temporary reminder deliberately doesn't block a new one. It can never fire
+  // again, and it's only still in the table because the sweep that removes it runs a day later
+  // (see reminderScheduler.ts's own sweep) - being told "you already have one" by a reminder that
+  // finished yesterday would be nonsense.
   const existing = await prisma.reminder.findFirst({
     where: {
       userId: req.userId,
       target: prismaTarget,
       categoryId: categoryId ?? null,
+      ...(expiresAt ? { expiresAt: { gt: new Date() } } : { expiresAt: null }),
     },
   });
   if (existing) {
-    return res.status(409).json({
-      error: { message: "A reminder for this already exists", code: "REMINDER_ALREADY_EXISTS" },
-    });
+    return res.status(409).json(
+      expiresAt
+        ? {
+            error: {
+              message: "A temporary reminder for this is already running",
+              code: "TEMPORARY_REMINDER_ALREADY_EXISTS",
+            },
+          }
+        : {
+            error: {
+              message: "A reminder for this already exists",
+              code: "REMINDER_ALREADY_EXISTS",
+            },
+          },
+    );
   }
 
   const reminder = await prisma.reminder.create({
@@ -200,6 +300,7 @@ remindersRouter.post("/", async (req, res) => {
       target: prismaTarget,
       categoryId: categoryId ?? null,
       schedules,
+      expiresAt,
     },
     include: REMINDER_INCLUDE,
   });
@@ -231,9 +332,61 @@ remindersRouter.patch("/:id", async (req, res) => {
     });
   }
 
+  const { expiresAt: rawExpiry, ...rest } = parsed.data;
+  const data: { schedules?: string[]; enabled?: boolean; expiresAt?: Date | null } = { ...rest };
+
+  // An explicit null and an omitted field mean genuinely different things here, and the schema is
+  // deliberately shaped so they stay distinguishable all the way down: null clears the expiry
+  // (this reminder becomes standing again), undefined leaves the column untouched. Collapsing the
+  // two - by treating any falsy value as "clear", say - is exactly the bug docs/LESSONS-LEARNED.md
+  // records, where an edit that looked saved quietly changed something the user never touched.
+  if (rawExpiry !== undefined) {
+    if (rawExpiry === null) {
+      // Becoming standing again means the "only one standing reminder for this target" rule
+      // applies once more - and it has to be re-checked here, because it was legitimately allowed
+      // to be broken while this one was temporary.
+      const standing = await prisma.reminder.findFirst({
+        where: {
+          userId: req.userId,
+          target: existing.target,
+          categoryId: existing.categoryId,
+          expiresAt: null,
+          id: { not: existing.id },
+        },
+      });
+      if (standing) {
+        return res.status(409).json({
+          error: {
+            message: "A reminder for this already exists",
+            code: "REMINDER_ALREADY_EXISTS",
+          },
+        });
+      }
+      data.expiresAt = null;
+    } else {
+      const timezone = await userTimezone(req.userId as string);
+      if (!timezone) {
+        return res
+          .status(404)
+          .json({ error: { message: "User not found", code: "USER_NOT_FOUND" } });
+      }
+      const resolved = resolveExpiresAt(rawExpiry, timezone);
+      if ("error" in resolved) {
+        return res.status(400).json({
+          error: {
+            message: "Invalid reminder",
+            code: "VALIDATION_ERROR",
+            details: { expiresAt: [resolved.error] },
+          },
+        });
+      }
+      data.expiresAt = resolved.expiresAt;
+    }
+  }
+
   const reminder = await prisma.reminder.update({
     where: { id: existing.id },
-    data: parsed.data,
+    data,
     include: REMINDER_INCLUDE,
   });
 
