@@ -38,7 +38,21 @@ export interface Reminder {
   category: { name: string; icon: string | null } | null;
   schedules: string[];
   enabled: boolean;
+  // Null for an ordinary standing reminder; an ISO instant for one that runs only until then (see
+  // docs/log/37-temporary-reminders-backend.md).
+  expiresAt: string | null;
+  // False means "keep nudging me on this rhythm whether or not I've logged it". True - the default
+  // and the way every reminder used to behave - means logging the target silences it for the day.
+  stopsWhenLogged: boolean;
   createdAt: string;
+}
+
+// The two questions a schedule alone can't answer: how long this reminder runs for, and what makes
+// it stop for the day. Passed back with the expressions rather than folded into them, because
+// neither is expressible in cron.
+export interface ReminderOptions {
+  onlyToday: boolean;
+  keepRemindingAfterLogging: boolean;
 }
 
 type RepeatOption = RepeatPreset | "hourly";
@@ -61,9 +75,11 @@ const MAX_RULES = 4;
 interface ReminderScheduleFormProps {
   // The reminder's current expressions, or [] when creating one.
   initialSchedules: string[];
+  // The reminder's current options, or the defaults when creating one.
+  initialOptions?: ReminderOptions;
   saving: boolean;
   error: string | null;
-  onSave: (schedules: string[]) => void;
+  onSave: (schedules: string[], options: ReminderOptions) => void;
   // Omitted when there's no reminder yet - there's nothing to turn off.
   onTurnOff?: () => void;
   onCancel: () => void;
@@ -289,6 +305,7 @@ function RuleFields({
 
 export function ReminderScheduleForm({
   initialSchedules,
+  initialOptions,
   saving,
   error,
   onSave,
@@ -302,6 +319,10 @@ export function ReminderScheduleForm({
   );
   // Opens itself for a schedule the simple controls can't represent, since in that case the raw
   // text is the only honest way to show what's actually stored.
+  const [onlyToday, setOnlyToday] = useState(initialOptions?.onlyToday ?? false);
+  const [keepReminding, setKeepReminding] = useState(
+    initialOptions?.keepRemindingAfterLogging ?? false,
+  );
   const [advancedOpen, setAdvancedOpen] = useState(draft.mode === "expression");
   const [expressionText, setExpressionText] = useState(initialSchedules.join("\n"));
 
@@ -354,16 +375,18 @@ export function ReminderScheduleForm({
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    const options: ReminderOptions = { onlyToday, keepRemindingAfterLogging: keepReminding };
     if (draft.mode === "expression") {
       onSave(
         expressionText
           .split("\n")
           .map((line) => line.trim())
           .filter(Boolean),
+        options,
       );
       return;
     }
-    onSave(buildSchedules(draft));
+    onSave(buildSchedules(draft), options);
   }
 
   // Editing the raw text switches the form into expression mode and re-derives the simple
@@ -419,6 +442,42 @@ export function ReminderScheduleForm({
           </div>
         </>
       )}
+
+      {/* Neither of these is a schedule, which is exactly why they are separate controls rather
+          than more chips: cron can say when something happens, and nothing at all about how long
+          it goes on for or what makes it stop. */}
+      <fieldset className="flex flex-col gap-2 border-t border-border pt-3">
+        <legend className="sr-only">Reminder options</legend>
+        <label className="flex items-start gap-2 text-sm text-text">
+          <input
+            type="checkbox"
+            checked={onlyToday}
+            onChange={(e) => setOnlyToday(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Only for today
+            <span className="block text-xs text-text-muted">
+              Stops at midnight and clears itself away.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm text-text">
+          <input
+            type="checkbox"
+            checked={keepReminding}
+            onChange={(e) => setKeepReminding(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Keep reminding me after I&apos;ve logged it
+            <span className="block text-xs text-text-muted">
+              Off, this goes quiet for the day once you log it. On, it keeps to its schedule
+              regardless — useful for something like drinking water.
+            </span>
+          </span>
+        </label>
+      </fieldset>
 
       <div className="border-t border-border pt-2">
         <button

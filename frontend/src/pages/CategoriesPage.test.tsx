@@ -453,4 +453,87 @@ describe("CategoriesPage", () => {
     expect(screen.queryByRole("button", { name: "Hide" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Unhide" })).not.toBeInTheDocument();
   });
+
+  // A category can now carry two reminders at once - its ordinary standing schedule, and a
+  // temporary one running only until tonight (see
+  // docs/log/38-reminder-stop-condition-and-follow-ups.md). The row has to show both without
+  // confusing them, and the bell has to keep editing the standing one.
+  describe("a category with both a standing and a temporary reminder", () => {
+    const standingReminder = {
+      id: "rem-standing",
+      userId: "user-1",
+      target: "category",
+      categoryId: "cat-own",
+      category: { name: "Water intake", icon: "💧" },
+      schedules: ["0 9 * * *"],
+      enabled: true,
+      expiresAt: null,
+      stopsWhenLogged: true,
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    const temporaryReminder = {
+      ...standingReminder,
+      id: "rem-temporary",
+      schedules: ["0 */2 * * *"],
+      expiresAt: "2026-08-29T23:00:00.000Z",
+      stopsWhenLogged: false,
+    };
+
+    function withBothReminders(overrides: Record<string, (init?: RequestInit) => Response> = {}) {
+      return withAuthedUser({
+        "/api/categories": () => jsonResponse(200, [ownCategory]),
+        "GET /api/reminders": () => jsonResponse(200, [standingReminder, temporaryReminder]),
+        ...overrides,
+      });
+    }
+
+    it("shows both, marking the temporary one as being just for today", async () => {
+      vi.stubGlobal("fetch", withBothReminders());
+      renderCategoriesPage();
+
+      await screen.findByText(/water intake/i);
+      // The standing schedule reads as it always has...
+      expect(screen.getByText(/09:00 daily/)).toBeInTheDocument();
+      // ...and the temporary one is labelled rather than sitting alongside it looking permanent.
+      // Before the page told the two apart, only one of them appeared at all - whichever happened
+      // to come last in the response.
+      expect(screen.getByText("Just for today")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+    });
+
+    it("stops the temporary one without touching the standing one", async () => {
+      const fetchMock = withBothReminders({
+        "DELETE /api/reminders": () => jsonResponse(200, { message: "Deleted" }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      renderCategoriesPage();
+      const user = userEvent.setup();
+
+      await screen.findByText("Just for today");
+      await user.click(screen.getByRole("button", { name: "Stop" }));
+
+      await waitFor(() => expect(screen.queryByText("Just for today")).not.toBeInTheDocument());
+      // The standing reminder is untouched - still listed, still on its own schedule.
+      expect(screen.getByText(/09:00 daily/)).toBeInTheDocument();
+
+      // And it is genuinely the temporary one that was deleted, not merely something that
+      // disappeared from the screen.
+      const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
+      expect(String(deleteCall?.[0])).toContain("/api/reminders/rem-temporary");
+    });
+
+    it("opens the bell on the standing reminder, not the temporary one", async () => {
+      vi.stubGlobal("fetch", withBothReminders());
+      renderCategoriesPage();
+      const user = userEvent.setup();
+
+      await screen.findByText(/water intake/i);
+      await user.click(screen.getByRole("button", { name: /Edit reminder for Water intake/ }));
+
+      // 09:00 is the standing reminder's own time; the temporary one is an every-two-hours
+      // expression with no time list at all, so this is unambiguous.
+      expect(await screen.findByText("09:00")).toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: /Only for today/ })).not.toBeChecked();
+    });
+  });
 });

@@ -55,6 +55,7 @@ async function createReminder(
     schedules?: string[];
     enabled?: boolean;
     expiresAt?: Date | null;
+    stopsWhenLogged?: boolean;
   } = {},
 ) {
   return prisma.reminder.create({
@@ -65,6 +66,7 @@ async function createReminder(
       schedules: overrides.schedules ?? ["0 20 * * *"],
       enabled: overrides.enabled ?? true,
       expiresAt: overrides.expiresAt ?? null,
+      stopsWhenLogged: overrides.stopsWhenLogged ?? true,
     },
   });
 }
@@ -282,6 +284,55 @@ describe("runReminderTick", () => {
     await runReminderTick();
 
     expect(sendNotification).not.toHaveBeenCalled();
+  });
+
+  // The two readings of a repeating reminder, now that a user can say which one they meant:
+  // "nudge me until I do it" (stopsWhenLogged - the default, and how every reminder has always
+  // behaved) and "nudge me on a rhythm" (not stopsWhenLogged). These two tests are deliberately
+  // identical in every respect except that flag, so the flag is unambiguously what decides it.
+  describe("stop condition", () => {
+    async function userWithLoggedCategory(label: string) {
+      const user = await registerUser(label);
+      await addSubscription(user.id, label);
+      const category = await prisma.category.create({
+        data: { userId: user.id, name: "Water", valueType: "NUMERIC" },
+      });
+      await prisma.categoryLog.create({
+        data: {
+          userId: user.id,
+          categoryId: category.id,
+          valueNumeric: 1,
+          loggedAt: new Date("2026-08-22T09:00:00.000Z"),
+        },
+      });
+      return { user, category };
+    }
+
+    it("keeps firing after the target has been logged when it does not stop on logging", async () => {
+      const { user, category } = await userWithLoggedCategory("rhythm");
+      await createReminder(user.id, {
+        target: "CATEGORY",
+        categoryId: category.id,
+        stopsWhenLogged: false,
+      });
+
+      await runReminderTick();
+
+      expect(sendNotification).toHaveBeenCalledTimes(1);
+    });
+
+    it("still goes quiet after logging when it does stop on logging", async () => {
+      const { user, category } = await userWithLoggedCategory("until-done");
+      await createReminder(user.id, {
+        target: "CATEGORY",
+        categoryId: category.id,
+        stopsWhenLogged: true,
+      });
+
+      await runReminderTick();
+
+      expect(sendNotification).not.toHaveBeenCalled();
+    });
   });
 
   // A temporary reminder ("nudge me every 30 minutes for the rest of today") is an ordinary

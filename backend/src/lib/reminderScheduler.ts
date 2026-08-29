@@ -194,8 +194,15 @@ export async function runReminderTick(): Promise<void> {
     );
     if (!hasCandidateTime) continue;
 
-    const { start, end } = getDayRangeUtc(today, reminder.user.timezone);
-    const loggedTarget = await hasLoggedTarget(reminder, reminder.userId, start, end);
+    // A reminder that doesn't stop when logged never asks the question at all - it fires on its
+    // schedule regardless, which is the entire difference between "nudge me until I do it" and
+    // "nudge me on a rhythm". Skipping the query rather than discarding its answer also keeps a
+    // repeating reminder from doing a pointless read on every tick.
+    let loggedTarget = false;
+    if (reminder.stopsWhenLogged) {
+      const { start, end } = getDayRangeUtc(today, reminder.user.timezone);
+      loggedTarget = await hasLoggedTarget(reminder, reminder.userId, start, end);
+    }
 
     const eligible = todaysSlots.filter((time) =>
       shouldSendReminder({

@@ -570,6 +570,239 @@ describe("reminders routes", () => {
     });
   });
 
+  // "Remind me again in four hours", asked right after logging something.
+  //
+  // These tests have a real clock problem to solve: the endpoint works in the caller's own local
+  // time, and the suite can run at any hour. Rather than freezing time (which would take the
+  // database's own now() out of step with the app's) each test picks a timezone in which it is
+  // currently the hour that test needs - early evening for the ones that need room before
+  // midnight, late night for the one about crossing it. Every assertion is then made against that
+  // same timezone's clock, never against a hardcoded hour.
+  describe("follow-up reminders", () => {
+    const ZONES = [
+      "Pacific/Kiritimati",
+      "Pacific/Auckland",
+      "Asia/Tokyo",
+      "Europe/London",
+      "America/New_York",
+      "America/Los_Angeles",
+      "Pacific/Midway",
+    ];
+
+    function localMinutes(timeZone: string) {
+      const [hour, minute] = new Intl.DateTimeFormat("en-GB", {
+        timeZone,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      })
+        .format(new Date())
+        .split(":")
+        .map(Number);
+      return hour * 60 + minute;
+    }
+
+    // The zone where the day is least far along - guaranteed to leave room for a follow-up that
+    // still lands today. The spread of offsets above covers more than 24 hours, so there is always
+    // one somewhere near the start of its day.
+    function earliestZone() {
+      return ZONES.map((zone) => ({ zone, minutes: localMinutes(zone) })).sort(
+        (a, b) => a.minutes - b.minutes,
+      )[0];
+    }
+
+    // ...and the zone furthest through its day, for the case that has to cross midnight.
+    function latestZone() {
+      return ZONES.map((zone) => ({ zone, minutes: localMinutes(zone) })).sort(
+        (a, b) => b.minutes - a.minutes,
+      )[0];
+    }
+
+    async function userInZone(label: string, zone: string) {
+      const session = await registerAndLogin(label);
+      await prisma.user.update({ where: { id: session.userId }, data: { timezone: zone } });
+      return session;
+    }
+
+    it("creates a one-shot reminder at the right local time, expiring tonight", async () => {
+      const { zone, minutes } = earliestZone();
+      const { accessToken } = await userInZone("follow-up-create", zone);
+      const categoryId = await createCategory(accessToken, "Diazepam");
+
+      const res = await request(app)
+        .post("/api/reminders/follow-up")
+        .set(authed(accessToken))
+        .send({ target: "category", categoryId, inMinutes: 120 });
+
+      expect(res.status).toBe(201);
+
+      const expected = minutes + 120;
+      const hour = Math.floor(expected / 60);
+      const minute = expected % 60;
+      // Asserted to the minute against that zone's own clock, so a wrong timezone (or wrong
+      // arithmetic) shows up as a concrete time rather than a vague "something was created".
+      expect(res.body.schedules).toEqual([`${minute} ${hour} * * *`]);
+      expect(res.body.firesAtLocal).toBe(
+        `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+      );
+
+      // Must not stop when logged: the user has *just* logged this category, so a reminder that
+      // stopped on logging would be silenced before it ever fired. This is precisely why the stop
+      // condition had to become an explicit field before this endpoint could exist at all.
+      expect(res.body.stopsWhenLogged).toBe(false);
+      expect(res.body.expiresAt).not.toBeNull();
+      expect(res.body.replacedExisting).toBe(false);
+    });
+
+    it("replaces a temporary reminder already running for the same target", async () => {
+      const { zone } = earliestZone();
+      const { accessToken } = await userInZone("follow-up-replace", zone);
+      const categoryId = await createCategory(accessToken, "Water");
+
+      const repeater = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({
+          target: "category",
+          categoryId,
+          schedules: ["0 */2 * * *"],
+          expiresAt: "end-of-day",
+        });
+      expect(repeater.status).toBe(201);
+
+      const followUp = await request(app)
+        .post("/api/reminders/follow-up")
+        .set(authed(accessToken))
+        .send({ target: "category", categoryId, inMinutes: 60 });
+
+      expect(followUp.status).toBe(201);
+      expect(followUp.body.replacedExisting).toBe(true);
+      // Replaced, not added alongside - "one live temporary per target" still holds afterwards.
+      expect(await prisma.reminder.findUnique({ where: { id: repeater.body.id } })).toBeNull();
+    });
+
+    it("leaves the standing reminder for the same category completely alone", async () => {
+      const { zone } = earliestZone();
+      const { accessToken } = await userInZone("follow-up-standing", zone);
+      const categoryId = await createCategory(accessToken, "Stretch");
+
+      const standing = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({ target: "category", categoryId, schedules: ["0 9 * * *"] });
+
+      const followUp = await request(app)
+        .post("/api/reminders/follow-up")
+        .set(authed(accessToken))
+        .send({ target: "category", categoryId, inMinutes: 60 });
+      expect(followUp.status).toBe(201);
+
+      const after = await prisma.reminder.findUnique({ where: { id: standing.body.id } });
+      expect(after).not.toBeNull();
+      expect(after?.expiresAt).toBeNull();
+      expect(after?.stopsWhenLogged).toBe(true);
+    });
+
+    it("refuses a follow-up that would land tomorrow rather than firing it immediately", async () => {
+      const { zone, minutes } = latestZone();
+      const { accessToken } = await userInZone("follow-up-midnight", zone);
+
+      // Enough to cross midnight there, capped at the endpoint's own ceiling. The zone list spans
+      // more than a full day, so one of them is always late enough for this to fit under the cap.
+      const inMinutes = Math.min(24 * 60 - minutes + 30, 12 * 60);
+      if (minutes + inMinutes < 24 * 60) {
+        throw new Error(`No zone late enough to cross midnight (latest was ${zone})`);
+      }
+
+      const res = await request(app)
+        .post("/api/reminders/follow-up")
+        .set(authed(accessToken))
+        .send({ target: "general", inMinutes });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("FOLLOW_UP_PAST_MIDNIGHT");
+      // Nothing was created - a rejected follow-up must not leave a reminder behind.
+      const list = await request(app).get("/api/reminders").set(authed(accessToken));
+      expect(list.body).toEqual([]);
+    });
+
+    it("rejects an interval below the scheduler's own resolution, or beyond half a day", async () => {
+      const { accessToken } = await registerAndLogin("follow-up-bounds");
+
+      const tooSoon = await request(app)
+        .post("/api/reminders/follow-up")
+        .set(authed(accessToken))
+        .send({ target: "general", inMinutes: 5 });
+      expect(tooSoon.status).toBe(400);
+
+      const tooLate = await request(app)
+        .post("/api/reminders/follow-up")
+        .set(authed(accessToken))
+        .send({ target: "general", inMinutes: 13 * 60 });
+      expect(tooLate.status).toBe(400);
+    });
+
+    it("404s a follow-up for a category the caller cannot see", async () => {
+      const { accessToken } = await registerAndLogin("follow-up-owner");
+      const other = await registerAndLogin("follow-up-other");
+      const theirCategory = await createCategory(other.accessToken, "Private");
+
+      const res = await request(app)
+        .post("/api/reminders/follow-up")
+        .set(authed(accessToken))
+        .send({ target: "category", categoryId: theirCategory, inMinutes: 60 });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe("CATEGORY_NOT_FOUND");
+    });
+
+    it("401s without an access token", async () => {
+      const res = await request(app)
+        .post("/api/reminders/follow-up")
+        .send({ target: "general", inMinutes: 60 });
+      expect(res.status).toBe(401);
+    });
+  });
+
+  describe("stop condition", () => {
+    it("defaults to stopping when logged, and can be set and changed", async () => {
+      const { accessToken } = await registerAndLogin("stop-condition");
+
+      const created = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({ target: "general", schedules: ["0 9 * * *"] });
+      expect(created.body.stopsWhenLogged).toBe(true);
+
+      const changed = await request(app)
+        .patch(`/api/reminders/${created.body.id}`)
+        .set(authed(accessToken))
+        .send({ stopsWhenLogged: false });
+      expect(changed.status).toBe(200);
+      expect(changed.body.stopsWhenLogged).toBe(false);
+
+      // Editing something else must not quietly reset it - the same not-provided-means-untouched
+      // rule the expiry tests above pin down.
+      const other = await request(app)
+        .patch(`/api/reminders/${created.body.id}`)
+        .set(authed(accessToken))
+        .send({ schedules: ["0 10 * * *"] });
+      expect(other.body.stopsWhenLogged).toBe(false);
+    });
+
+    it("can be set at creation time", async () => {
+      const { accessToken } = await registerAndLogin("stop-condition-create");
+
+      const res = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({ target: "general", schedules: ["0 9 * * *"], stopsWhenLogged: false });
+
+      expect(res.status).toBe(201);
+      expect(res.body.stopsWhenLogged).toBe(false);
+    });
+  });
+
   it("archiving a category disables (not deletes) every reminder targeting it, across users", async () => {
     const owner = await registerAndLogin("archive-owner");
     const other = await registerAndLogin("archive-other");

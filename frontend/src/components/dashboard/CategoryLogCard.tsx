@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "../Button";
 import { Modal } from "../Modal";
 import { CategoryEntryForm, type CategoryLog } from "../CategoryEntryForm";
+import { FollowUpPrompt } from "../FollowUpPrompt";
 import type { Category } from "../CategoryCreateForm";
 import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
@@ -57,6 +58,10 @@ export function CategoryLogCard({ category, onEmptied }: CategoryLogCardProps) {
   const [showForm, setShowForm] = useState(false);
   const [editingLog, setEditingLog] = useState<CategoryLog | null>(null);
   const { message: savedMessage, showMessage: showSavedMessage } = useTimedMessage();
+  // Set after a brand-new entry, to offer "remind me again in…" (see FollowUpPrompt). Not timed
+  // like the confirmation above it: a confirmation is finished being read in a second, but an
+  // offer that disappears while someone is deciding is worse than one that waits to be dismissed.
+  const [offerFollowUp, setOfferFollowUp] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,12 +105,16 @@ export function CategoryLogCard({ category, onEmptied }: CategoryLogCardProps) {
   }
 
   function handleSaved(log: CategoryLog) {
+    let wasEdit = false;
     setLogs((prev) => {
-      const isEdit = prev.some((l) => l.id === log.id);
-      return isEdit ? prev.map((l) => (l.id === log.id ? log : l)) : [log, ...prev];
+      wasEdit = prev.some((l) => l.id === log.id);
+      return wasEdit ? prev.map((l) => (l.id === log.id ? log : l)) : [log, ...prev];
     });
     setShowForm(false);
     setEditingLog(null);
+    // Only for a new entry. Correcting last Tuesday's reading is not a reason to be reminded
+    // about anything this afternoon.
+    setOfferFollowUp(!wasEdit);
     showSavedMessage("Entry saved.");
     dispatchDashboardEntryChanged();
   }
@@ -153,6 +162,13 @@ export function CategoryLogCard({ category, onEmptied }: CategoryLogCardProps) {
           <p role="status" className="mb-3 text-sm font-medium text-success">
             {savedMessage}
           </p>
+        )}
+        {offerFollowUp && (
+          <FollowUpPrompt
+            categoryId={category.id}
+            categoryName={category.name}
+            onDismiss={() => setOfferFollowUp(false)}
+          />
         )}
         {loading && <p className="text-text-muted">Loading…</p>}
         {loadError && (
