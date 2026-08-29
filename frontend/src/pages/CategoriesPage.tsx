@@ -15,7 +15,11 @@ import {
 } from "../components/CategoryCreateForm";
 import { ConfirmDeleteModal } from "../components/ConfirmDeleteModal";
 import { ActionButton } from "../components/ActionButton";
-import { ReminderScheduleForm, type Reminder } from "../components/ReminderScheduleForm";
+import {
+  ReminderScheduleForm,
+  type Reminder,
+  type ReminderOptions,
+} from "../components/ReminderScheduleForm";
 import { describeSchedules } from "../lib/cronSchedule";
 import { useTimedMessage } from "../hooks/useTimedMessage";
 import { Toast } from "../components/Toast";
@@ -78,8 +82,9 @@ interface CategoryRowHandlers {
   onHide: (id: string) => void;
   onUnhide: (id: string) => void;
   onToggleRemind: (id: string) => void;
-  onSaveReminder: (categoryId: string, schedules: string[]) => void;
+  onSaveReminder: (categoryId: string, schedules: string[], options: ReminderOptions) => void;
   onDeleteReminder: (categoryId: string) => void;
+  onStopTemporaryReminder: (reminderId: string) => void;
 }
 
 // Only one reminder form is open at a time across the whole list, so this lives in the page
@@ -97,6 +102,7 @@ function CategoryRow({
   handlers,
   pickerGroups,
   reminder,
+  temporaryReminder,
   reminderState,
 }: {
   category: ManagedCategory;
@@ -108,8 +114,13 @@ function CategoryRow({
   // that put it there no longer shows as a choice here, but it can't be moved back /into/ one
   // through this picker (matching how a hidden category itself doesn't clutter other pickers).
   pickerGroups: CategoryGroup[];
-  // This category's own reminder, if it has one at all.
+  // This category's own standing reminder, if it has one at all.
   reminder: Reminder | undefined;
+  // A temporary one running alongside it - "every two hours for the rest of today", or the
+  // one-shot follow-up set from the logging screen. Separate from the standing reminder because
+  // they mean different things and are stopped in different ways: the standing one is edited
+  // through the bell, this one is simply called off.
+  temporaryReminder: Reminder | undefined;
   reminderState: ReminderUiState;
 }) {
   const isEditing = editState.editingId === category.id;
@@ -205,6 +216,24 @@ function CategoryRow({
                 won't notify without opening anything. */}
             {reminder?.enabled && ` · ${describeSchedules(reminder.schedules)}`}
           </p>
+          {/* Shown as its own line rather than appended to the schedule above, because it is a
+              different reminder with a different lifetime - and one that is about to stop on its
+              own, which the row should say plainly rather than leaving it to look permanent. */}
+          {temporaryReminder?.enabled && (
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted">
+              <span className="rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-brand">
+                Just for today
+              </span>
+              <span>{describeSchedules(temporaryReminder.schedules)}</span>
+              <button
+                type="button"
+                onClick={() => handlers.onStopTemporaryReminder(temporaryReminder.id)}
+                className="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand hover:text-danger"
+              >
+                Stop
+              </button>
+            </p>
+          )}
         </div>
         {/* Icons on a phone, words from `sm:` up (see ActionButton) - three text buttons don't fit
             beside a long category name at 412px, but there's ample room for them on a laptop. The
@@ -260,9 +289,15 @@ function CategoryRow({
         <div className="mt-3 border-t border-border pt-3">
           <ReminderScheduleForm
             initialSchedules={reminder?.schedules ?? []}
+            initialOptions={{
+              onlyToday: !!reminder?.expiresAt,
+              keepRemindingAfterLogging: reminder ? !reminder.stopsWhenLogged : false,
+            }}
             saving={reminderState.saving}
             error={reminderState.error}
-            onSave={(schedules) => handlers.onSaveReminder(category.id, schedules)}
+            onSave={(schedules, options) =>
+              handlers.onSaveReminder(category.id, schedules, options)
+            }
             onTurnOff={reminder ? () => handlers.onDeleteReminder(category.id) : undefined}
             onCancel={() => handlers.onToggleRemind(category.id)}
           />
@@ -306,7 +341,8 @@ function GroupSection({
   categoryEditState,
   categoryHandlers,
   pickerGroups,
-  remindersByCategoryId,
+  standingRemindersByCategoryId,
+  temporaryRemindersByCategoryId,
   reminderState,
 }: {
   group: ManagedGroup | null;
@@ -317,7 +353,8 @@ function GroupSection({
   categoryEditState: CategoryEditState;
   categoryHandlers: CategoryRowHandlers;
   pickerGroups: CategoryGroup[];
-  remindersByCategoryId: Map<string, Reminder>;
+  standingRemindersByCategoryId: Map<string, Reminder>;
+  temporaryRemindersByCategoryId: Map<string, Reminder>;
   reminderState: ReminderUiState;
 }) {
   const storageKey = groupCollapseKey(group);
@@ -453,7 +490,8 @@ function GroupSection({
                   editState={categoryEditState}
                   handlers={categoryHandlers}
                   pickerGroups={pickerGroups}
-                  reminder={remindersByCategoryId.get(category.id)}
+                  reminder={standingRemindersByCategoryId.get(category.id)}
+                  temporaryReminder={temporaryRemindersByCategoryId.get(category.id)}
                   reminderState={reminderState}
                 />
               ))}
@@ -696,15 +734,23 @@ function CategoriesBody() {
     }
   }
 
-  // Keyed lookup so a row can find its own reminder without scanning the list for every render.
-  const remindersByCategoryId = useMemo(() => {
-    const map = new Map<string, Reminder>();
+  // Keyed lookups so a row can find its own reminders without scanning the list on every render.
+  //
+  // Two maps, not one: a category can now have a standing reminder *and* a temporary one at the
+  // same time (see docs/log/37-temporary-reminders-backend.md). A single map keyed by category
+  // would have silently kept whichever happened to come last in the response - the row would show
+  // one of them, seemingly at random, and the bell would edit the wrong one.
+  const { standingRemindersByCategoryId, temporaryRemindersByCategoryId } = useMemo(() => {
+    const standing = new Map<string, Reminder>();
+    const temporary = new Map<string, Reminder>();
     for (const reminder of reminders) {
-      if (reminder.target === "category" && reminder.categoryId) {
-        map.set(reminder.categoryId, reminder);
-      }
+      if (reminder.target !== "category" || !reminder.categoryId) continue;
+      (reminder.expiresAt ? temporary : standing).set(reminder.categoryId, reminder);
     }
-    return map;
+    return {
+      standingRemindersByCategoryId: standing,
+      temporaryRemindersByCategoryId: temporary,
+    };
   }, [reminders]);
 
   function toggleRemind(categoryId: string) {
@@ -718,23 +764,39 @@ function CategoriesBody() {
   // Creates the reminder if the category doesn't have one yet, otherwise re-schedules the
   // existing one. The caller doesn't need to know which - it just hands over the expressions the
   // picker produced.
-  async function handleSaveReminder(categoryId: string, schedules: string[]) {
+  async function handleSaveReminder(
+    categoryId: string,
+    schedules: string[],
+    options: ReminderOptions,
+  ) {
     if (schedules.length === 0) {
       setReminderState((prev) => ({ ...prev, error: "Add at least one time." }));
       return;
     }
     setReminderState((prev) => ({ ...prev, saving: true, error: null }));
 
-    const existing = remindersByCategoryId.get(categoryId);
+    const existing = standingRemindersByCategoryId.get(categoryId);
+    // "end-of-day" is a literal the API resolves against the account's own timezone, rather than
+    // an instant this browser computes - see routes/reminders.ts for why that distinction matters.
+    // Explicit null on the edit path, not omission: leaving the field out would mean "don't touch
+    // it", which would make unticking "Only for today" do nothing at all.
+    const expiresAt = options.onlyToday ? "end-of-day" : null;
+    const stopsWhenLogged = !options.keepRemindingAfterLogging;
     try {
       const saved = existing
         ? await apiFetch<Reminder>(`/api/reminders/${existing.id}`, {
             method: "PATCH",
-            body: JSON.stringify({ schedules, enabled: true }),
+            body: JSON.stringify({ schedules, enabled: true, expiresAt, stopsWhenLogged }),
           })
         : await apiFetch<Reminder>("/api/reminders", {
             method: "POST",
-            body: JSON.stringify({ target: "category", categoryId, schedules }),
+            body: JSON.stringify({
+              target: "category",
+              categoryId,
+              schedules,
+              expiresAt,
+              stopsWhenLogged,
+            }),
           });
 
       setReminders((prev) =>
@@ -754,8 +816,23 @@ function CategoriesBody() {
     }
   }
 
+  // Calls off a temporary reminder early. Deliberately not routed through the bell: the bell
+  // edits the standing schedule, and a "just for today" reminder has nothing worth editing - the
+  // only thing anyone wants to do with one before it lapses is stop it.
+  async function handleStopTemporaryReminder(reminderId: string) {
+    const previous = reminders;
+    setReminders((prev) => prev.filter((r) => r.id !== reminderId));
+    try {
+      await apiFetch(`/api/reminders/${reminderId}`, { method: "DELETE" });
+      setActionMessage("Reminder stopped.");
+    } catch {
+      setReminders(previous);
+      setActionMessage("Couldn't stop that reminder. Please try again.");
+    }
+  }
+
   async function handleDeleteReminder(categoryId: string) {
-    const existing = remindersByCategoryId.get(categoryId);
+    const existing = standingRemindersByCategoryId.get(categoryId);
     if (!existing) return;
     setReminderState((prev) => ({ ...prev, saving: true, error: null }));
     try {
@@ -785,6 +862,7 @@ function CategoriesBody() {
     onToggleRemind: toggleRemind,
     onSaveReminder: handleSaveReminder,
     onDeleteReminder: handleDeleteReminder,
+    onStopTemporaryReminder: handleStopTemporaryReminder,
   };
   const categoryEditState: CategoryEditState = {
     editingId,
@@ -952,7 +1030,8 @@ function CategoriesBody() {
                   groupHandlers={groupHandlers}
                   categoryEditState={categoryEditState}
                   categoryHandlers={categoryHandlers}
-                  remindersByCategoryId={remindersByCategoryId}
+                  standingRemindersByCategoryId={standingRemindersByCategoryId}
+                  temporaryRemindersByCategoryId={temporaryRemindersByCategoryId}
                   reminderState={reminderState}
                   pickerGroups={pickerGroups}
                 />

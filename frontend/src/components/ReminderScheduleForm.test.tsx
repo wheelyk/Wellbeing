@@ -3,6 +3,11 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { ReminderScheduleForm } from "./ReminderScheduleForm";
 
+// Every assertion below is about the cron this form produces; the options object it now hands back
+// alongside them has its own tests at the bottom of this file. Spelled out rather than matched
+// loosely, so a change to what "no options chosen" means shows up here rather than passing quietly.
+const DEFAULT_OPTIONS = { onlyToday: false, keepRemindingAfterLogging: false };
+
 function renderForm(initialSchedules: string[] = [], onSave = vi.fn()) {
   render(
     <ReminderScheduleForm
@@ -25,7 +30,7 @@ describe("ReminderScheduleForm", () => {
 
     await user.click(screen.getByRole("button", { name: "Save reminder" }));
 
-    expect(onSave).toHaveBeenCalledWith(["0 9 * * *"]);
+    expect(onSave).toHaveBeenCalledWith(["0 9 * * *"], DEFAULT_OPTIONS);
   });
 
   it("turns a preset chip into the matching day field", async () => {
@@ -35,7 +40,7 @@ describe("ReminderScheduleForm", () => {
     await user.click(screen.getByRole("button", { name: "Weekdays" }));
     await user.click(screen.getByRole("button", { name: "Save reminder" }));
 
-    expect(onSave).toHaveBeenCalledWith(["0 9 * * 1-5"]);
+    expect(onSave).toHaveBeenCalledWith(["0 9 * * 1-5"], DEFAULT_OPTIONS);
   });
 
   // The time control is a single "+" chip that opens the platform's own picker; that picker's Set
@@ -70,7 +75,7 @@ describe("ReminderScheduleForm", () => {
       });
       await user.click(screen.getByRole("button", { name: "Save reminder" }));
 
-      expect(onSave).toHaveBeenCalledWith(["0 9 * * *", "30 20 * * *"]);
+      expect(onSave).toHaveBeenCalledWith(["0 9 * * *", "30 20 * * *"], DEFAULT_OPTIONS);
     });
 
     it("shows the new time as a chip alongside the existing ones", () => {
@@ -145,7 +150,7 @@ describe("ReminderScheduleForm", () => {
 
     await user.click(screen.getByRole("button", { name: "Save reminder" }));
 
-    expect(onSave).toHaveBeenCalledWith(["0 9 * * 1-5", "0 9 * * 0,6"]);
+    expect(onSave).toHaveBeenCalledWith(["0 9 * * 1-5", "0 9 * * 0,6"], DEFAULT_OPTIONS);
   });
 
   it("reads a two-rule schedule back into two sets of controls", async () => {
@@ -175,7 +180,7 @@ describe("ReminderScheduleForm", () => {
     expect(screen.queryByRole("button", { name: /^Remove schedule/ })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Save reminder" }));
-    expect(onSave).toHaveBeenCalledWith(["0 8 * * 1-5"]);
+    expect(onSave).toHaveBeenCalledWith(["0 8 * * 1-5"], DEFAULT_OPTIONS);
   });
 
   it("keeps a hand-written expression exactly as written rather than redrawing it", async () => {
@@ -188,7 +193,7 @@ describe("ReminderScheduleForm", () => {
     expect(screen.getByLabelText("Cron expressions")).toHaveValue("0 7 1,15 * *");
 
     await user.click(screen.getByRole("button", { name: "Save reminder" }));
-    expect(onSave).toHaveBeenCalledWith(["0 7 1,15 * *"]);
+    expect(onSave).toHaveBeenCalledWith(["0 7 1,15 * *"], DEFAULT_OPTIONS);
   });
 
   it("re-derives the controls when a representable expression is typed into the cron box", async () => {
@@ -277,5 +282,64 @@ describe("ReminderScheduleForm next-run preview", () => {
     ).toBeInTheDocument();
     // Never an alert - a rejected expression is ordinary while someone is mid-edit.
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  // Neither of these is expressible in cron, which is exactly why they are separate controls and
+  // travel back separately - see docs/log/38-reminder-stop-condition-and-follow-ups.md.
+  describe("options a schedule can't express", () => {
+    it("passes both options back with the expressions", async () => {
+      const onSave = renderForm();
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("checkbox", { name: /Only for today/ }));
+      await user.click(screen.getByRole("checkbox", { name: /Keep reminding me/ }));
+      await user.click(screen.getByRole("button", { name: "Save reminder" }));
+
+      expect(onSave).toHaveBeenCalledWith(["0 9 * * *"], {
+        onlyToday: true,
+        keepRemindingAfterLogging: true,
+      });
+    });
+
+    it("starts from the reminder's current options rather than the defaults", () => {
+      render(
+        <ReminderScheduleForm
+          initialSchedules={["0 9 * * *"]}
+          initialOptions={{ onlyToday: true, keepRemindingAfterLogging: false }}
+          saving={false}
+          error={null}
+          onSave={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByRole("checkbox", { name: /Only for today/ })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: /Keep reminding me/ })).not.toBeChecked();
+    });
+
+    // Unticking has to be as expressible as ticking: an edit that silently can't turn something
+    // off is the failure docs/LESSONS-LEARNED.md is about.
+    it("reports an option being turned off, not just left alone", async () => {
+      const onSave = vi.fn();
+      render(
+        <ReminderScheduleForm
+          initialSchedules={["0 9 * * *"]}
+          initialOptions={{ onlyToday: true, keepRemindingAfterLogging: true }}
+          saving={false}
+          error={null}
+          onSave={onSave}
+          onCancel={vi.fn()}
+        />,
+      );
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("checkbox", { name: /Only for today/ }));
+      await user.click(screen.getByRole("button", { name: "Save reminder" }));
+
+      expect(onSave).toHaveBeenCalledWith(["0 9 * * *"], {
+        onlyToday: false,
+        keepRemindingAfterLogging: true,
+      });
+    });
   });
 });

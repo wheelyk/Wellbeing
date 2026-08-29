@@ -185,22 +185,46 @@ export function describeRule(rule: ScheduleRule): string {
   return `${[...rule.times].sort().join(", ")} ${describeDays(rule.daysOfWeek)}`;
 }
 
-// Display only. The picker cannot *edit* an hourly schedule any more, but one already saved (or
-// typed into the cron box) should still read as something in the list rather than an anonymous
-// "custom schedule".
-function describeHourly(schedules: string[]): string | null {
-  const dayFields = new Set<string>();
-  for (const expression of schedules) {
-    const fields = expression.trim().split(/\s+/);
-    if (fields.length !== 5) return null;
-    const [minute, hour, dom, month, dow] = fields;
-    if (minute !== "0" || hour !== "*" || dom !== "*" || month !== "*") return null;
-    if (parseDayField(dow) === null) return null;
-    dayFields.add(dow);
+// Display only, for the one shape the controls can't draw but a person reads at a glance: an
+// interval. "0 */2 * * *" is perfectly clear as "every 2 hours" and telling someone it is a
+// "custom schedule" is strictly less informative than the cron they didn't write.
+//
+// This matters more than it used to. A temporary reminder ("nudge me every two hours for the rest
+// of today") is *typically* an interval, so before this the headline feature of a temporary
+// reminder rendered as an anonymous "Custom schedule" in every row it appeared in.
+//
+// Reading only, deliberately: parseSchedules still refuses these, so editing one still shows the
+// raw expression rather than day toggles that would misrepresent it.
+function describeInterval(schedules: string[]): string | null {
+  if (schedules.length !== 1) return null;
+
+  const fields = schedules[0].trim().split(/\s+/);
+  if (fields.length !== 5) return null;
+  const [minute, hour, dom, month, dow] = fields;
+  if (dom !== "*" || month !== "*") return null;
+
+  const days = parseDayField(dow);
+  if (days === null) return null;
+  // The day part is always spelled out, including "daily". That matches how an hourly schedule
+  // already reads elsewhere in this file ("Every hour, daily") - an interval phrased without it
+  // would leave two neighbouring rows describing the same kind of thing in two different styles.
+  const dayPart = `, ${describeDays(days)}`;
+
+  // Every N minutes: "*/15 * * * *".
+  const minuteStep = /^\*\/(\d+)$/.exec(minute);
+  if (minuteStep && hour === "*") {
+    return `Every ${minuteStep[1]} minutes${dayPart}`;
   }
-  if (dayFields.size !== 1) return null;
-  const days = parseDayField([...dayFields][0]) as number[];
-  return `Every hour, ${describeDays(days)}`;
+
+  // Every N hours, on a fixed minute: "0 */2 * * *", and plain hourly: "0 * * * *".
+  if (!/^\d{1,2}$/.test(minute)) return null;
+  const past = Number(minute) === 0 ? "" : ` at ${minute} past`;
+  if (hour === "*") return `Every hour${past}${dayPart}`;
+
+  const hourStep = /^\*\/(\d+)$/.exec(hour);
+  if (hourStep) return `Every ${hourStep[1]} hours${past}${dayPart}`;
+
+  return null;
 }
 
 // The one-line summary shown under a category's name, so a whole group can be scanned without
@@ -209,10 +233,10 @@ function describeHourly(schedules: string[]): string | null {
 export function describeSchedules(schedules: string[]): string {
   const draft = parseSchedules(schedules);
   if (draft.mode === "expression") {
-    // Hourly is no longer editable through the controls, but it is still perfectly readable - so a
-    // saved one says what it does rather than degrading to "custom schedule".
+    // An interval is not something the controls can draw, but it is something anyone can read -
+    // so it says what it does rather than falling back to an anonymous label.
     return (
-      describeHourly(schedules) ??
+      describeInterval(schedules) ??
       (schedules.length === 1 ? "Custom schedule" : `${schedules.length} custom schedules`)
     );
   }

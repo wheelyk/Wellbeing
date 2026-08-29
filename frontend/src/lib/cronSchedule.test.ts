@@ -178,8 +178,30 @@ describe("describeSchedules", () => {
     );
   });
 
+  // A temporary reminder is typically an interval, so this is the shape most of them render as.
+  // Before these were described, the headline case of the whole feature read as "Custom schedule".
+  it("reads an interval out in plain words, even though the controls can't draw one", () => {
+    expect(describeSchedules(["0 */2 * * *"])).toBe("Every 2 hours, daily");
+    expect(describeSchedules(["*/30 * * * *"])).toBe("Every 30 minutes, daily");
+    expect(describeSchedules(["15 */4 * * *"])).toBe("Every 4 hours at 15 past, daily");
+    // Already readable through the hourly rule the controls still offer - asserted here so the
+    // two routes to the same sentence stay in step.
+    expect(describeSchedules(["0 * * * *"])).toBe("Every hour, daily");
+    expect(describeSchedules(["0 */2 * * 1-5"])).toBe("Every 2 hours, weekdays");
+  });
+
+  // Describing one must not imply the controls can edit it - that would put day toggles on screen
+  // claiming to represent a step they cannot express.
+  it("still refuses to parse an interval back into controls", () => {
+    expect(parseSchedules(["0 */2 * * *"]).mode).toBe("expression");
+    expect(parseSchedules(["*/30 * * * *"]).mode).toBe("expression");
+  });
+
   it("says plainly when a schedule is beyond the simple controls", () => {
     expect(describeSchedules(["0 7 1,15 * *"])).toBe("Custom schedule");
+    // A day-of-month restriction is not an interval, so it stays "custom" - the new helper must
+    // not claim more than it can actually read.
+    expect(describeSchedules(["0 */2 1,15 * *"])).toBe("Custom schedule");
     expect(describeSchedules(["0 7 1 * *", "*/15 9 * * *"])).toBe("2 custom schedules");
   });
 

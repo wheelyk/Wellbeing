@@ -8,7 +8,12 @@ import {
   toPrismaReminderTarget,
 } from "../lib/reminderTarget";
 import { cronValidationError, nextRunsForSchedules } from "../lib/cron";
-import { addDaysToDateStr, getDayRangeUtc, todayInTimezone } from "../lib/timezone";
+import {
+  addDaysToDateStr,
+  currentTimeInTimezone,
+  getDayRangeUtc,
+  todayInTimezone,
+} from "../lib/timezone";
 
 // A generous cap, not a real limit anyone should hit - guards against a runaway request rather
 // than a genuine product constraint (see routes/categories.ts's icon length cap for the same kind
@@ -105,6 +110,10 @@ const createSchema = z
     // Absent (or null) means an ordinary standing reminder, which is every reminder that existed
     // before this field did.
     expiresAt: expiresAtSchema.nullable().optional(),
+    // Defaults true at the database level - "nudge me until I do it", how every reminder has always
+    // behaved. False is "nudge me on a rhythm": keep firing on schedule whether or not it's been
+    // logged.
+    stopsWhenLogged: z.boolean().optional(),
   })
   .refine(
     (data) => {
@@ -131,6 +140,9 @@ const updateSchema = z
     // written about - it only ever bites on edit, never on create - so both cases are covered by
     // their own test below.
     expiresAt: expiresAtSchema.nullable().optional(),
+    // No null case here, unlike expiresAt: a boolean column that is never null has no third state
+    // to express, so "not provided" is the only absence there is.
+    stopsWhenLogged: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "Provide at least one field to update",
@@ -204,6 +216,126 @@ remindersRouter.post("/preview", async (req, res) => {
     today,
     tomorrow: addDaysToDateStr(today, 1),
     nextRuns: nextRunsForSchedules(parsed.data.schedules, user.timezone, PREVIEW_RUN_COUNT),
+  });
+});
+
+// How far out a follow-up may be asked for. The floor keeps it above the scheduler's own five
+// minute tick (anything shorter would be a promise the scheduler can't keep); the ceiling is the
+// point at which "again in a bit" stops being a follow-up to something you just did.
+const MIN_FOLLOW_UP_MINUTES = 15;
+const MAX_FOLLOW_UP_MINUTES = 12 * 60;
+
+const followUpSchema = z
+  .object({
+    target: z.enum(API_REMINDER_TARGETS),
+    categoryId: z.string().trim().min(1).optional(),
+    inMinutes: z.number().int().min(MIN_FOLLOW_UP_MINUTES).max(MAX_FOLLOW_UP_MINUTES),
+  })
+  .refine((data) => (data.target === "category" ? !!data.categoryId : !data.categoryId), {
+    message: 'categoryId is required for target "category"; it is not allowed for any other target',
+    path: ["target"],
+  });
+
+// "Remind me again in four hours", asked straight after logging something.
+//
+// This exists as its own endpoint rather than as a POST "/" with a cleverly-built schedule for two
+// reasons. First, the time has to be computed in the *user's* timezone - "four hours from now" is a
+// wall-clock time on their day, and the browser's own clock is the wrong authority for the same
+// reason it is for "end-of-day" above. Second, this replaces whatever temporary reminder was
+// already running for the target rather than colliding with it: someone who has just logged the
+// thing does not want to be told they already have a reminder, they want the one they just asked
+// for.
+//
+// The result is an ordinary reminder, not a new kind of object: one cron time, expiring tonight,
+// and stopsWhenLogged false - which it must be, because the user has *just* logged this target, so
+// a reminder that stops when logged would be silenced before it ever fired.
+remindersRouter.post("/follow-up", async (req, res) => {
+  const parsed = followUpSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: {
+        message: "Invalid follow-up",
+        code: "VALIDATION_ERROR",
+        details: parsed.error.flatten().fieldErrors,
+      },
+    });
+  }
+
+  const { target, categoryId, inMinutes } = parsed.data;
+  const prismaTarget = toPrismaReminderTarget(target);
+
+  const timezone = await userTimezone(req.userId as string);
+  if (!timezone) {
+    return res.status(404).json({ error: { message: "User not found", code: "USER_NOT_FOUND" } });
+  }
+
+  if (target === "category") {
+    const category = await prisma.category.findFirst({
+      where: { id: categoryId, archivedAt: null, OR: [{ userId: null }, { userId: req.userId }] },
+    });
+    if (!category) {
+      return res.status(404).json({
+        error: { message: "Category not found", code: "CATEGORY_NOT_FOUND" },
+      });
+    }
+  }
+
+  // Wall-clock arithmetic on the user's own local time, deliberately - the stored schedule is a
+  // cron expression, and cron times are local times. Truncated to the minute, which is all
+  // currentTimeInTimezone reports and finer than the five-minute tick can act on anyway.
+  const [nowHour, nowMinute] = currentTimeInTimezone(timezone).split(":").map(Number);
+  const totalMinutes = nowHour * 60 + nowMinute + inMinutes;
+
+  // Refused rather than rolled over into tomorrow. A schedule of "02:00" created at 22:00 would be
+  // read by the scheduler as a slot that has *already passed today* - it fires late by design (see
+  // reminderEligibility.ts), so the reminder would arrive immediately instead of in four hours.
+  // Rejecting is honest; quietly delivering the opposite of what was asked for is not.
+  if (totalMinutes >= 24 * 60) {
+    return res.status(400).json({
+      error: {
+        message: "That would land tomorrow - a follow-up only runs for the rest of today",
+        code: "FOLLOW_UP_PAST_MIDNIGHT",
+      },
+    });
+  }
+
+  const hour = Math.floor(totalMinutes / 60);
+  const minute = totalMinutes % 60;
+  const firesAtLocal = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  const expiresAt = getDayRangeUtc(todayInTimezone(timezone), timezone).end;
+
+  // Replaces the live temporary reminder for this target, if there is one, rather than 409ing.
+  // Deleting and recreating (instead of updating in place) also clears its ReminderSend rows by
+  // cascade, which matters: those are keyed by (reminder, date, time), and a reused row could
+  // carry a "already sent at 18:34 today" record from a schedule that no longer exists.
+  const replaced = await prisma.reminder.deleteMany({
+    where: {
+      userId: req.userId,
+      target: prismaTarget,
+      categoryId: categoryId ?? null,
+      expiresAt: { gt: new Date() },
+    },
+  });
+
+  const reminder = await prisma.reminder.create({
+    data: {
+      userId: req.userId as string,
+      target: prismaTarget,
+      categoryId: categoryId ?? null,
+      schedules: [`${minute} ${hour} * * *`],
+      expiresAt,
+      stopsWhenLogged: false,
+    },
+    include: REMINDER_INCLUDE,
+  });
+
+  // firesAtLocal travels with the response so the client can say "We'll remind you at 18:34"
+  // without parsing cron or re-deriving the user's timezone - the same reasoning as POST
+  // /preview's own `today`.
+  res.status(201).json({
+    ...serializeReminder(reminder),
+    firesAtLocal,
+    replacedExisting: replaced.count > 0,
   });
 });
 
@@ -301,6 +433,7 @@ remindersRouter.post("/", async (req, res) => {
       categoryId: categoryId ?? null,
       schedules,
       expiresAt,
+      stopsWhenLogged: parsed.data.stopsWhenLogged ?? true,
     },
     include: REMINDER_INCLUDE,
   });
@@ -333,7 +466,12 @@ remindersRouter.patch("/:id", async (req, res) => {
   }
 
   const { expiresAt: rawExpiry, ...rest } = parsed.data;
-  const data: { schedules?: string[]; enabled?: boolean; expiresAt?: Date | null } = { ...rest };
+  const data: {
+    schedules?: string[];
+    enabled?: boolean;
+    stopsWhenLogged?: boolean;
+    expiresAt?: Date | null;
+  } = { ...rest };
 
   // An explicit null and an omitted field mean genuinely different things here, and the schema is
   // deliberately shaped so they stay distinguishable all the way down: null clears the expiry

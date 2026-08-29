@@ -389,3 +389,7 @@ project's own sessions.
 ### [Temporary Reminders (Backend)](docs/log/37-temporary-reminders-backend.md)
 
 - 2026-08-29 — A reminder that knows when to stop
+
+### [What Stops a Reminder, and Asking For One After Logging](docs/log/38-reminder-stop-condition-and-follow-ups.md)
+
+- 2026-08-29 — Two readings of "remind me again", made into two different things
