@@ -13,7 +13,11 @@ import { cronValidationError } from "../lib/cron";
 // than a genuine product constraint (see routes/categories.ts's icon length cap for the same kind
 // of defensive-not-restrictive bound). This bounds the number of *expressions*; cron.ts's own
 // MAX_SLOTS_PER_EXPRESSION separately bounds how often any single one of them may fire.
-const MAX_SCHEDULES = 6;
+//
+// Raised from 6 once the picker gained multiple schedule rules per reminder (see
+// docs/log/27-multiple-schedules-per-reminder.md): rules multiply expressions, so a UI cap of
+// four rules with a few times each needs more headroom than a single rule ever did.
+const MAX_SCHEDULES = 12;
 
 const schedulesSchema = z
   .array(

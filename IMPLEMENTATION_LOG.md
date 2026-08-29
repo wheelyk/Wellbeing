@@ -349,3 +349,11 @@ project's own sessions.
 ### [Categories Page and Reminder Picker](docs/log/26-categories-page-and-reminder-picker.md)
 
 - 2026-08-28 — Giving categories their own page, and a schedule picker over cron
+
+### [Multiple Schedules Per Reminder](docs/log/27-multiple-schedules-per-reminder.md)
+
+- 2026-08-29 — Letting one reminder do different things on different days
+
+### [Fix: the "+ Add time" Button Did Nothing](docs/log/29-fix-add-time-button.md)
+
+- 2026-08-29 — A reported bug, three possible causes, and why all three were fixed

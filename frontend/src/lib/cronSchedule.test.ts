@@ -3,78 +3,130 @@ import {
   buildSchedules,
   parseSchedules,
   describeSchedules,
+  describeRule,
   presetForDays,
   daysForPreset,
+  emptyRule,
   type ScheduleDraft,
+  type ScheduleRule,
 } from "./cronSchedule";
 
-const draft = (over: Partial<ScheduleDraft> = {}): ScheduleDraft => ({
+const rule = (over: Partial<ScheduleRule> = {}): ScheduleRule => ({
   mode: "times",
   daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
   times: ["09:00"],
-  expressions: [],
   ...over,
+});
+
+const draft = (rules: ScheduleRule[]): ScheduleDraft => ({
+  mode: "rules",
+  rules,
+  expressions: [],
 });
 
 describe("buildSchedules", () => {
   it("writes a daily time as an every-day expression", () => {
-    expect(buildSchedules(draft())).toEqual(["0 9 * * *"]);
+    expect(buildSchedules(draft([rule()]))).toEqual(["0 9 * * *"]);
   });
 
-  it("writes one expression per time", () => {
-    expect(buildSchedules(draft({ times: ["08:00", "20:30"] }))).toEqual([
+  it("writes one expression per time within a rule", () => {
+    expect(buildSchedules(draft([rule({ times: ["08:00", "20:30"] })]))).toEqual([
       "0 8 * * *",
       "30 20 * * *",
     ]);
   });
 
   it("uses readable day fields for the common presets", () => {
-    expect(buildSchedules(draft({ daysOfWeek: [1, 2, 3, 4, 5] }))).toEqual(["0 9 * * 1-5"]);
-    expect(buildSchedules(draft({ daysOfWeek: [0, 6] }))).toEqual(["0 9 * * 0,6"]);
-    expect(buildSchedules(draft({ daysOfWeek: [1, 3, 5], times: ["18:30"] }))).toEqual([
+    expect(buildSchedules(draft([rule({ daysOfWeek: [1, 2, 3, 4, 5] })]))).toEqual(["0 9 * * 1-5"]);
+    expect(buildSchedules(draft([rule({ daysOfWeek: [0, 6] })]))).toEqual(["0 9 * * 0,6"]);
+    expect(buildSchedules(draft([rule({ daysOfWeek: [1, 3, 5], times: ["18:30"] })]))).toEqual([
       "30 18 * * 1,3,5",
     ]);
   });
 
   it("writes hourly as a wildcard hour", () => {
-    expect(buildSchedules(draft({ mode: "hourly" }))).toEqual(["0 * * * *"]);
-    expect(buildSchedules(draft({ mode: "hourly", daysOfWeek: [1, 2, 3, 4, 5] }))).toEqual([
-      "0 * * * 1-5",
-    ]);
+    expect(buildSchedules(draft([rule({ mode: "hourly" })]))).toEqual(["0 * * * *"]);
+  });
+
+  // The whole point of this change: two rules a single set of day toggles could never express
+  // together.
+  it("concatenates the expressions of several rules", () => {
+    expect(
+      buildSchedules(
+        draft([
+          rule({ daysOfWeek: [1, 2, 3, 4, 5], times: ["08:00"] }),
+          rule({ daysOfWeek: [0, 6], times: ["10:00"] }),
+        ]),
+      ),
+    ).toEqual(["0 8 * * 1-5", "0 10 * * 0,6"]);
+  });
+
+  it("dedupes an expression two overlapping rules both produce", () => {
+    expect(
+      buildSchedules(draft([rule({ times: ["09:00"] }), rule({ times: ["09:00", "21:00"] })])),
+    ).toEqual(["0 9 * * *", "0 21 * * *"]);
   });
 
   it("passes a hand-written expression straight through", () => {
-    expect(buildSchedules(draft({ mode: "expression", expressions: ["0 7 1,15 * *"] }))).toEqual([
-      "0 7 1,15 * *",
-    ]);
+    expect(
+      buildSchedules({ mode: "expression", rules: [], expressions: ["0 7 1,15 * *"] }),
+    ).toEqual(["0 7 1,15 * *"]);
   });
 });
 
 describe("parseSchedules", () => {
-  it("reads a daily time back into times mode", () => {
-    expect(parseSchedules(["0 9 * * *"])).toMatchObject({
+  it("reads a daily time back into a single rule", () => {
+    const parsed = parseSchedules(["0 9 * * *"]);
+    expect(parsed.mode).toBe("rules");
+    expect(parsed.rules).toHaveLength(1);
+    expect(parsed.rules[0]).toMatchObject({
       mode: "times",
       times: ["09:00"],
       daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
     });
   });
 
-  it("reads day ranges and lists back into day numbers", () => {
-    expect(parseSchedules(["0 8 * * 1-5"]).daysOfWeek).toEqual([1, 2, 3, 4, 5]);
-    expect(parseSchedules(["30 10 * * 0,6"]).daysOfWeek).toEqual([0, 6]);
-    expect(parseSchedules(["30 18 * * 1,3,5"]).daysOfWeek).toEqual([1, 3, 5]);
+  it("groups several times on the same days into one rule", () => {
+    const parsed = parseSchedules(["0 8 * * 1-5", "30 20 * * 1-5"]);
+    expect(parsed.rules).toHaveLength(1);
+    expect(parsed.rules[0].times).toEqual(["08:00", "20:30"]);
+    expect(parsed.rules[0].daysOfWeek).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it("reads an hourly expression back into hourly mode", () => {
-    expect(parseSchedules(["0 * * * *"])).toMatchObject({ mode: "hourly" });
-    expect(parseSchedules(["0 * * * 1-5"])).toMatchObject({
+  // Previously this fell back to raw text, because one row of day toggles couldn't show both.
+  it("splits expressions with different day sets into separate rules", () => {
+    const parsed = parseSchedules(["0 8 * * 1-5", "0 10 * * 0,6"]);
+    expect(parsed.mode).toBe("rules");
+    expect(parsed.rules).toHaveLength(2);
+    expect(parsed.rules[0]).toMatchObject({ times: ["08:00"], daysOfWeek: [1, 2, 3, 4, 5] });
+    expect(parsed.rules[1]).toMatchObject({ times: ["10:00"], daysOfWeek: [0, 6] });
+  });
+
+  it("keeps rules in the order their expressions first appear", () => {
+    const parsed = parseSchedules(["0 10 * * 0,6", "0 8 * * 1-5"]);
+    expect(parsed.rules.map((r) => r.daysOfWeek)).toEqual([
+      [0, 6],
+      [1, 2, 3, 4, 5],
+    ]);
+  });
+
+  it("reads an hourly expression back into an hourly rule", () => {
+    expect(parseSchedules(["0 * * * *"]).rules[0]).toMatchObject({ mode: "hourly" });
+    expect(parseSchedules(["0 * * * 1-5"]).rules[0]).toMatchObject({
       mode: "hourly",
       daysOfWeek: [1, 2, 3, 4, 5],
     });
   });
 
+  it("supports an hourly rule alongside a times rule on different days", () => {
+    const parsed = parseSchedules(["0 * * * 1-5", "0 10 * * 0,6"]);
+    expect(parsed.mode).toBe("rules");
+    expect(parsed.rules[0]).toMatchObject({ mode: "hourly", daysOfWeek: [1, 2, 3, 4, 5] });
+    expect(parsed.rules[1]).toMatchObject({ mode: "times", times: ["10:00"] });
+  });
+
   it("zero-pads times so they render consistently", () => {
-    expect(parseSchedules(["5 7 * * *"]).times).toEqual(["07:05"]);
+    expect(parseSchedules(["5 7 * * *"]).rules[0].times).toEqual(["07:05"]);
   });
 
   // The escape hatch. Each of these is valid cron the controls simply can't show, so the raw text
@@ -91,26 +143,40 @@ describe("parseSchedules", () => {
     expect(parsed.expressions).toEqual([expression]);
   });
 
-  it("falls back to expression mode when two entries disagree about which days they run", () => {
-    // A single row of day toggles couldn't represent this without misstating one of them.
-    const parsed = parseSchedules(["0 8 * * 1-5", "0 10 * * 0,6"]);
-    expect(parsed.mode).toBe("expression");
+  // One rule can't be both "every hour" and "at these times" on the same days - its controls
+  // would have to show both at once.
+  it("falls back to expression mode when hourly and specific times share a day set", () => {
+    expect(parseSchedules(["0 * * * *", "0 9 * * *"]).mode).toBe("expression");
+  });
+
+  it("falls back to expression mode if any one entry is unrepresentable", () => {
+    expect(parseSchedules(["0 8 * * 1-5", "0 7 1,15 * *"]).mode).toBe("expression");
   });
 
   it("round-trips everything the picker can generate", () => {
     for (const original of [
-      draft(),
-      draft({ times: ["08:00", "20:30"] }),
-      draft({ daysOfWeek: [1, 2, 3, 4, 5] }),
-      draft({ daysOfWeek: [0, 6], times: ["10:30"] }),
-      draft({ daysOfWeek: [1, 3, 5], times: ["18:30"] }),
-      draft({ mode: "hourly" }),
-      draft({ mode: "hourly", daysOfWeek: [1, 2, 3, 4, 5] }),
+      draft([rule()]),
+      draft([rule({ times: ["08:00", "20:30"] })]),
+      draft([rule({ daysOfWeek: [1, 2, 3, 4, 5] })]),
+      draft([rule({ daysOfWeek: [1, 3, 5], times: ["18:30"] })]),
+      draft([rule({ mode: "hourly" })]),
+      draft([
+        rule({ daysOfWeek: [1, 2, 3, 4, 5], times: ["08:00"] }),
+        rule({ daysOfWeek: [0, 6], times: ["10:00"] }),
+      ]),
+      draft([
+        rule({ mode: "hourly", daysOfWeek: [1, 2, 3, 4, 5] }),
+        rule({ daysOfWeek: [0, 6], times: ["10:00", "18:00"] }),
+      ]),
     ]) {
       const parsed = parseSchedules(buildSchedules(original));
-      expect(parsed.mode).toBe(original.mode);
-      expect(parsed.daysOfWeek).toEqual(original.daysOfWeek);
-      if (original.mode === "times") expect(parsed.times).toEqual(original.times);
+      expect(parsed.mode).toBe("rules");
+      expect(parsed.rules).toHaveLength(original.rules.length);
+      original.rules.forEach((expected, i) => {
+        expect(parsed.rules[i].mode).toBe(expected.mode);
+        expect(parsed.rules[i].daysOfWeek).toEqual(expected.daysOfWeek);
+        if (expected.mode === "times") expect(parsed.rules[i].times).toEqual(expected.times);
+      });
     }
   });
 });
@@ -129,9 +195,21 @@ describe("describeSchedules", () => {
     expect(describeSchedules(["0 * * * 1-5"])).toBe("Every hour, weekdays");
   });
 
+  it("joins several rules so a row still reads at a glance", () => {
+    expect(describeSchedules(["0 8 * * 1-5", "0 10 * * 0,6"])).toBe(
+      "08:00 weekdays · 10:00 weekends",
+    );
+  });
+
   it("says plainly when a schedule is beyond the simple controls", () => {
     expect(describeSchedules(["0 7 1,15 * *"])).toBe("Custom schedule");
     expect(describeSchedules(["0 7 1 * *", "*/15 9 * * *"])).toBe("2 custom schedules");
+  });
+
+  it("describes a single rule on its own", () => {
+    expect(describeRule({ mode: "times", daysOfWeek: [1, 2, 3, 4, 5], times: ["08:00"] })).toBe(
+      "08:00 weekdays",
+    );
   });
 });
 
@@ -145,7 +223,12 @@ describe("presets", () => {
 
   it("keeps the current selection when switching to custom, rather than clearing it", () => {
     expect(daysForPreset("custom", [1, 3, 5])).toEqual([1, 3, 5]);
-    // Never returns an empty selection - a schedule with no days would simply never fire.
+    // Never returns an empty selection - a rule with no days would simply never fire.
     expect(daysForPreset("custom", [])).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  it("starts a new rule on a sensible default rather than an empty one", () => {
+    expect(emptyRule()).toMatchObject({ mode: "times", times: ["09:00"] });
+    expect(buildSchedules(draft([emptyRule()]))).toEqual(["0 9 * * *"]);
   });
 });
