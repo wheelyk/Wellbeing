@@ -393,3 +393,7 @@ project's own sessions.
 ### [What Stops a Reminder, and Asking For One After Logging](docs/log/38-reminder-stop-condition-and-follow-ups.md)
 
 - 2026-08-29 — Two readings of "remind me again", made into two different things
+
+### [Category Timing: Reminder, Cooldown, or Stopwatch (Backend)](docs/log/39-category-timing.md)
+
+- 2026-08-29 — "A timer or a reminder" turns out to be three questions
