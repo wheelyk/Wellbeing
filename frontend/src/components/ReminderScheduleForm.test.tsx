@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ReminderScheduleForm } from "./ReminderScheduleForm";
 
@@ -38,69 +38,82 @@ describe("ReminderScheduleForm", () => {
     expect(onSave).toHaveBeenCalledWith(["0 9 * * 1-5"]);
   });
 
-  // Regression tests for a bug reported from a real Android phone: "the add time button isn't
-  // working". Every one of these previously ended in the button doing nothing visible.
+  // The time control is a single "+" chip that opens the platform's own picker; that picker's Set
+  // button is the confirmation, so `change` on the hidden input is exactly what a real selection
+  // looks like from the component's point of view.
   describe("adding a time", () => {
-    it("adds the chosen time to the list", async () => {
+    // Deliberately not queried by role or label: the input is aria-hidden, because the "+" button
+    // is the control and the input is only the mechanism that opens the platform picker.
+    const timePickerInput = () =>
+      document.getElementById("reminder-add-time-0") as HTMLInputElement;
+
+    it("opens the native picker when the + chip is tapped", async () => {
+      const showPicker = vi.fn();
+      // jsdom has no showPicker, so it's stubbed rather than spied - its absence is also what the
+      // component's own fallback path exists for.
+      (HTMLInputElement.prototype as unknown as { showPicker: () => void }).showPicker = showPicker;
+      renderForm();
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("button", { name: /add a time to schedule 1/i }));
+
+      expect(showPicker).toHaveBeenCalled();
+      delete (HTMLInputElement.prototype as unknown as { showPicker?: () => void }).showPicker;
+    });
+
+    it("adds the time as soon as the picker returns one, with nothing further to press", async () => {
       const onSave = renderForm();
       const user = userEvent.setup();
 
-      await user.type(screen.getByLabelText(/add a time to schedule 1/i), "20:30");
-      await user.click(screen.getByRole("button", { name: "+ Add time" }));
+      fireEvent.change(timePickerInput(), {
+        target: { value: "20:30" },
+      });
       await user.click(screen.getByRole("button", { name: "Save reminder" }));
 
       expect(onSave).toHaveBeenCalledWith(["0 9 * * *", "30 20 * * *"]);
     });
 
-    it("is never disabled, so a tap always produces a visible response", () => {
+    it("shows the new time as a chip alongside the existing ones", () => {
       renderForm();
 
-      // The original bug: disabled until React state held a time, which on a dark theme is
-      // indistinguishable from a button that simply doesn't work.
-      expect(screen.getByRole("button", { name: "+ Add time" })).toBeEnabled();
+      fireEvent.change(timePickerInput(), {
+        target: { value: "20:30" },
+      });
+
+      expect(screen.getByText("09:00")).toBeInTheDocument();
+      expect(screen.getByText("20:30")).toBeInTheDocument();
     });
 
-    it("says why nothing was added when no time has been chosen", async () => {
-      renderForm();
-      const user = userEvent.setup();
-
-      await user.click(screen.getByRole("button", { name: "+ Add time" }));
-
-      expect(await screen.findByRole("alert")).toHaveTextContent("Choose a time first.");
-    });
-
-    it("says why nothing was added when the time is already on the schedule", async () => {
+    it("says so rather than silently ignoring a time already on the schedule", () => {
       renderForm(["0 9 * * *"]);
-      const user = userEvent.setup();
 
-      await user.type(screen.getByLabelText(/add a time to schedule 1/i), "09:00");
-      await user.click(screen.getByRole("button", { name: "+ Add time" }));
+      fireEvent.change(timePickerInput(), {
+        target: { value: "09:00" },
+      });
 
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "09:00 is already on this schedule.",
-      );
+      expect(screen.getByRole("alert")).toHaveTextContent("09:00 is already on this schedule.");
     });
 
-    it("clears the error once a different time is chosen", async () => {
+    it("clears the hidden input after adding, so the same time can be picked again later", () => {
       renderForm();
-      const user = userEvent.setup();
+      const input = timePickerInput();
 
-      await user.click(screen.getByRole("button", { name: "+ Add time" }));
-      expect(await screen.findByRole("alert")).toBeInTheDocument();
+      fireEvent.change(input, { target: { value: "20:30" } });
 
-      await user.type(screen.getByLabelText(/add a time to schedule 1/i), "20:30");
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    });
-
-    it("empties the input after adding, so the same time isn't added twice", async () => {
-      renderForm();
-      const user = userEvent.setup();
-
-      const input = screen.getByLabelText(/add a time to schedule 1/i);
-      await user.type(input, "20:30");
-      await user.click(screen.getByRole("button", { name: "+ Add time" }));
-
+      // The element keeps its own value independently of React state; if it were left set, the
+      // picker would not reopen on that time.
       expect(input).toHaveValue("");
+    });
+
+    it("clears a duplicate warning once a different time is picked", () => {
+      renderForm(["0 9 * * *"]);
+      const input = timePickerInput();
+
+      fireEvent.change(input, { target: { value: "09:00" } });
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+
+      fireEvent.change(input, { target: { value: "20:30" } });
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
   });
 

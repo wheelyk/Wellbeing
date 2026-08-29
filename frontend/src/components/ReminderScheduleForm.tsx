@@ -42,12 +42,15 @@ export interface Reminder {
 
 type RepeatOption = RepeatPreset | "hourly";
 
+// Shortcuts for the day selection, not an exhaustive set of modes - the day toggles below them
+// are always visible and are the real control. There is deliberately no "Custom" chip: with the
+// toggles on screen, it did nothing except keep the days already selected, and the chips
+// underneath already show no selection when the days match no preset.
 const REPEAT_OPTIONS: { value: RepeatOption; label: string }[] = [
   { value: "daily", label: "Every day" },
   { value: "weekdays", label: "Weekdays" },
   { value: "weekends", label: "Weekends" },
   { value: "hourly", label: "Every hour" },
-  { value: "custom", label: "Custom" },
 ];
 
 // Mirrors the backend's own cap on stored expressions (see routes/reminders.ts) - a guard against
@@ -119,23 +122,41 @@ function RuleFields({
   //    and the browser can blur the input as the tap lands - so React state was not always
   //    up to date at the instant the handler ran. The input's *own* current value is the
   //    authority here, with state only as a fallback.
-  function addTime() {
-    const value = timeInputRef.current?.value || newTime;
-
-    if (!value) {
-      setTimeError("Choose a time first.");
-      return;
+  // Opens the platform's own time picker straight from the "+" chip. There is no separate text
+  // field or confirm button any more: the picker's own Set/OK *is* the confirmation, which is one
+  // step instead of three and removes the empty-input dead-end that made this feel broken before
+  // (see docs/log/29-fix-add-time-button.md).
+  function openTimePicker() {
+    const input = timeInputRef.current;
+    if (!input) return;
+    setTimeError(null);
+    try {
+      // Supported by every current mobile browser, and the only way to open the picker without
+      // showing the input itself. Must be called from a user gesture, which this is.
+      input.showPicker();
+    } catch {
+      // Older browsers, or a context that refuses showPicker - focusing the (rendered but
+      // transparent) input still lets the native control be opened by the next tap.
+      input.focus();
+      input.click();
     }
+  }
+
+  // Fires when the native picker is confirmed, so the chosen time is added immediately - there is
+  // nothing left for the user to press.
+  function handleTimeChosen(value: string) {
+    if (!value) return;
+
     if (rule.times.includes(value)) {
       setTimeError(`${value} is already on this schedule.`);
-      return;
+    } else {
+      setTimeError(null);
+      onChange({ ...rule, times: [...rule.times, value].sort() });
     }
 
-    setTimeError(null);
-    onChange({ ...rule, times: [...rule.times, value].sort() });
+    // Reset both React state and the DOM node - the element holds its own value independently, so
+    // leaving it set would stop the picker reopening on the same time.
     setNewTime("");
-    // The DOM node holds its own value independently of React state, so it has to be cleared
-    // too, or the next tap would re-add the same time.
     if (timeInputRef.current) timeInputRef.current.value = "";
   }
 
@@ -206,6 +227,10 @@ function RuleFields({
           <p className="mt-3 text-xs font-semibold tracking-wide text-text-muted uppercase">
             Times
           </p>
+          {/* The times and the control that adds one sit on the same row: a set of chips, then a
+              "+" chip built to match them. Tapping it opens the platform time picker directly, and
+              that picker's own Set button is what commits - so there is no text field to fill in
+              and no second button to press afterwards. */}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {rule.times.map((time) => (
               <span
@@ -227,27 +252,38 @@ function RuleFields({
                 )}
               </span>
             ))}
-          </div>
-          <div className="mt-2 flex items-center gap-2">
-            <label htmlFor={`reminder-add-time-${index}`} className="sr-only">
-              Add a time to schedule {index + 1}
-            </label>
-            <input
-              ref={timeInputRef}
-              id={`reminder-add-time-${index}`}
-              type="time"
-              value={newTime}
-              onChange={(e) => {
-                setNewTime(e.target.value);
-                setTimeError(null);
-              }}
-              className="rounded-lg border border-border px-2 py-1 text-sm text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-            />
-            {/* Deliberately never disabled: a button that silently does nothing is
-                indistinguishable from a broken one, which is exactly how this was reported. */}
-            <Button type="button" variant="secondary" onClick={addTime}>
-              + Add time
-            </Button>
+
+            <span className="relative inline-flex">
+              {/* Rendered, but transparent and behind the button: showPicker() needs a real
+                  element to anchor its popup to, and keeping it exactly under the chip is what
+                  makes the picker appear in the right place. pointer-events-none so every tap
+                  reaches the button on top. */}
+              {/* Hidden from assistive technology and out of the tab order on purpose: it is a
+                  mechanism for opening the platform picker, not a control in its own right. The
+                  button beside it is the thing that carries the accessible name, so exposing both
+                  would announce the same action twice. */}
+              <input
+                ref={timeInputRef}
+                id={`reminder-add-time-${index}`}
+                type="time"
+                value={newTime}
+                onChange={(e) => handleTimeChosen(e.target.value)}
+                tabIndex={-1}
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
+              />
+              <button
+                type="button"
+                onClick={openTimePicker}
+                aria-label={`Add a time to schedule ${index + 1}`}
+                className="inline-flex items-center gap-1 rounded-lg border border-dashed border-border px-2 py-1 text-sm text-text-muted transition-colors hover:border-brand hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              >
+                <span aria-hidden="true">🕐</span>
+                <span aria-hidden="true" className="font-semibold">
+                  +
+                </span>
+              </button>
+            </span>
           </div>
           {timeError && (
             <p role="alert" className="mt-1 text-sm text-danger">

@@ -357,3 +357,7 @@ project's own sessions.
 ### [Fix: the "+ Add time" Button Did Nothing](docs/log/29-fix-add-time-button.md)
 
 - 2026-08-29 — A reported bug, three possible causes, and why all three were fixed
+
+### [Inline Time Picker, and Fewer Repeat Chips](docs/log/30-inline-time-picker.md)
+
+- 2026-08-29 — Adding a time in one tap instead of three
