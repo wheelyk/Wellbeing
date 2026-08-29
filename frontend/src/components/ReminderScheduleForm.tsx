@@ -356,6 +356,11 @@ export function ReminderScheduleForm({
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
       {draft.mode === "rules" && (
         <>
+          {/* The rule cards and the control that adds one belong to the same stack, so the add
+              control is shaped like an empty card in that stack rather than a loose button sitting
+              on the form background - which is what made it read as unrelated to the cards above
+              it. Dashed border marks it as an "add" affordance, matching the "+" time chip inside
+              each card. */}
           <div className="flex flex-col gap-2">
             {draft.rules.map((rule, index) => (
               <RuleFields
@@ -371,17 +376,18 @@ export function ReminderScheduleForm({
                 }
               />
             ))}
+            {draft.rules.length < MAX_RULES && (
+              <button
+                type="button"
+                onClick={() =>
+                  setDraft((prev) => ({ ...prev, rules: [...prev.rules, emptyRule()] }))
+                }
+                className="w-full rounded-lg border border-dashed border-border bg-surface/50 p-3 text-sm font-medium text-text-muted transition-colors hover:border-brand hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              >
+                + Add another schedule
+              </button>
+            )}
           </div>
-          {draft.rules.length < MAX_RULES && (
-            <Button
-              type="button"
-              variant="secondary"
-              className="self-start"
-              onClick={() => setDraft((prev) => ({ ...prev, rules: [...prev.rules, emptyRule()] }))}
-            >
-              + Add another schedule
-            </Button>
-          )}
         </>
       )}
 

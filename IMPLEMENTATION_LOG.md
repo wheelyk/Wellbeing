@@ -361,3 +361,7 @@ project's own sessions.
 ### [Inline Time Picker, and Fewer Repeat Chips](docs/log/30-inline-time-picker.md)
 
 - 2026-08-29 — Adding a time in one tap instead of three
+
+### [Categories Page Polish: Toasts, Collapse All, and an Add Control That Belongs](docs/log/31-categories-page-polish.md)
+
+- 2026-08-29 — Three pieces of feedback from using the page for real
