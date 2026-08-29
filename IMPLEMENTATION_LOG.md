@@ -377,3 +377,7 @@ project's own sessions.
 ### [A Real Push Delivery Test](docs/log/34-real-push-delivery-test.md)
 
 - 2026-08-29 — Closing the last unverified link in the reminder chain
+
+### [Picker and Collapse-All Polish](docs/log/36-picker-and-collapse-polish.md)
+
+- 2026-08-29 — A button that told the truth, and one chip fewer
