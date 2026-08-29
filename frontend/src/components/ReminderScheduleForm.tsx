@@ -41,17 +41,19 @@ export interface Reminder {
   createdAt: string;
 }
 
-type RepeatOption = RepeatPreset | "hourly";
-
-// Shortcuts for the day selection, not an exhaustive set of modes - the day toggles below them
-// are always visible and are the real control. There is deliberately no "Custom" chip: with the
-// toggles on screen, it did nothing except keep the days already selected, and the chips
-// underneath already show no selection when the days match no preset.
-const REPEAT_OPTIONS: { value: RepeatOption; label: string }[] = [
+// Shortcuts for the day selection, nothing more - the day toggles below them are always visible
+// and are the real control.
+//
+// Two chips have been removed over time, both for the same reason: they looked like modes but
+// were not. "Custom" did nothing except keep the days already selected, and the toggles already
+// show no chip selected when the days match no preset. "Every hour" combined with a day selection
+// produced a rule nobody could read - day toggles on screen with no times under them - and hourly
+// is better typed into the cron box, which is where a schedule firing 24 times a day belongs.
+// See docs/log/36-picker-and-collapse-polish.md.
+const REPEAT_OPTIONS: { value: RepeatPreset; label: string }[] = [
   { value: "daily", label: "Every day" },
   { value: "weekdays", label: "Weekdays" },
   { value: "weekends", label: "Weekends" },
-  { value: "hourly", label: "Every hour" },
 ];
 
 // Mirrors the backend's own cap on stored expressions (see routes/reminders.ts) - a guard against
@@ -87,21 +89,10 @@ function RuleFields({
   const [newTime, setNewTime] = useState("");
   const [timeError, setTimeError] = useState<string | null>(null);
   const timeInputRef = useRef<HTMLInputElement>(null);
-  const activeOption: RepeatOption =
-    rule.mode === "hourly" ? "hourly" : presetForDays(rule.daysOfWeek);
+  const activeOption: RepeatPreset = presetForDays(rule.daysOfWeek);
 
-  function choosePreset(option: RepeatOption) {
-    if (option === "hourly") {
-      onChange({ ...rule, mode: "hourly" });
-      return;
-    }
-    onChange({
-      ...rule,
-      // Leaving hourly returns to the time list, keeping whatever times were there before.
-      mode: "times",
-      times: rule.times.length > 0 ? rule.times : ["09:00"],
-      daysOfWeek: daysForPreset(option, rule.daysOfWeek),
-    });
+  function choosePreset(option: RepeatPreset) {
+    onChange({ ...rule, daysOfWeek: daysForPreset(option, rule.daysOfWeek) });
   }
 
   function toggleDay(day: number) {
@@ -213,76 +204,70 @@ function RuleFields({
         })}
       </div>
 
-      {rule.mode === "times" && (
-        <>
-          <p className="mt-3 text-xs font-semibold tracking-wide text-text-muted uppercase">
-            Times
-          </p>
-          {/* The times and the control that adds one sit on the same row: a set of chips, then a
+      <>
+        <p className="mt-3 text-xs font-semibold tracking-wide text-text-muted uppercase">Times</p>
+        {/* The times and the control that adds one sit on the same row: a set of chips, then a
               "+" chip built to match them. Tapping it opens the platform time picker directly, and
               that picker's own Set button is what commits - so there is no text field to fill in
               and no second button to press afterwards. */}
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {rule.times.map((time) => (
-              <span
-                key={time}
-                className="inline-flex items-center gap-1 rounded-lg border border-brand bg-brand/10 px-2 py-1 text-sm text-brand tabular-nums"
-              >
-                {time}
-                {rule.times.length > 1 && (
-                  <button
-                    type="button"
-                    aria-label={`Remove ${time}`}
-                    onClick={() =>
-                      onChange({ ...rule, times: rule.times.filter((t) => t !== time) })
-                    }
-                    className="font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                  >
-                    ✕
-                  </button>
-                )}
-              </span>
-            ))}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {rule.times.map((time) => (
+            <span
+              key={time}
+              className="inline-flex items-center gap-1 rounded-lg border border-brand bg-brand/10 px-2 py-1 text-sm text-brand tabular-nums"
+            >
+              {time}
+              {rule.times.length > 1 && (
+                <button
+                  type="button"
+                  aria-label={`Remove ${time}`}
+                  onClick={() => onChange({ ...rule, times: rule.times.filter((t) => t !== time) })}
+                  className="font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                >
+                  ✕
+                </button>
+              )}
+            </span>
+          ))}
 
-            <span className="relative inline-flex">
-              {/* Rendered, but transparent and behind the button: showPicker() needs a real
+          <span className="relative inline-flex">
+            {/* Rendered, but transparent and behind the button: showPicker() needs a real
                   element to anchor its popup to, and keeping it exactly under the chip is what
                   makes the picker appear in the right place. pointer-events-none so every tap
                   reaches the button on top. */}
-              {/* Hidden from assistive technology and out of the tab order on purpose: it is a
+            {/* Hidden from assistive technology and out of the tab order on purpose: it is a
                   mechanism for opening the platform picker, not a control in its own right. The
                   button beside it is the thing that carries the accessible name, so exposing both
                   would announce the same action twice. */}
-              <input
-                ref={timeInputRef}
-                id={`reminder-add-time-${index}`}
-                type="time"
-                value={newTime}
-                onChange={(e) => handleTimeChosen(e.target.value)}
-                tabIndex={-1}
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
-              />
-              <button
-                type="button"
-                onClick={openTimePicker}
-                aria-label={`Add a time to schedule ${index + 1}`}
-                className="inline-flex items-center gap-1 rounded-lg border border-dashed border-border px-2 py-1 text-sm text-text-muted transition-colors hover:border-brand hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-              >
-                <span aria-hidden="true">🕐</span>
-                <span aria-hidden="true" className="font-semibold">
-                  +
-                </span>
-              </button>
-            </span>
-          </div>
-          {timeError && (
-            <p role="alert" className="mt-1 text-sm text-danger">
-              {timeError}
-            </p>
-          )}
-        </>
-      )}
+            <input
+              ref={timeInputRef}
+              id={`reminder-add-time-${index}`}
+              type="time"
+              value={newTime}
+              onChange={(e) => handleTimeChosen(e.target.value)}
+              tabIndex={-1}
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
+            />
+            <button
+              type="button"
+              onClick={openTimePicker}
+              aria-label={`Add a time to schedule ${index + 1}`}
+              className="inline-flex items-center gap-1 rounded-lg border border-dashed border-border px-2 py-1 text-sm text-text-muted transition-colors hover:border-brand hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            >
+              <span aria-hidden="true">🕐</span>
+              <span aria-hidden="true" className="font-semibold">
+                +
+              </span>
+            </button>
+          </span>
+        </div>
+        {timeError && (
+          <p role="alert" className="mt-1 text-sm text-danger">
+            {timeError}
+          </p>
+        )}
+      </>
     </div>
   );
 }
