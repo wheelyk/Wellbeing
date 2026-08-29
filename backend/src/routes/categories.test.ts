@@ -669,6 +669,241 @@ describe("categories routes — hide/unhide", () => {
   });
 });
 
+describe("categories routes — timing", () => {
+  // "Should this category have a timer or a reminder?" turns out to be three different questions,
+  // so it is one setting with three modes rather than a flag - see
+  // docs/log/39-category-timing.md. Stored per user, not on the category, because a system
+  // category is shared and one person's six-hour gap is not a property of Diazepam.
+  describe("category timing", () => {
+    async function ownCategory(accessToken: string, valueType = "numeric", name = "Diazepam") {
+      const res = await request(app)
+        .post("/api/categories")
+        .set(authed(accessToken))
+        .send({ name, valueType });
+      expect(res.status).toBe(201);
+      return res.body.id as string;
+    }
+
+    it("sets a cooldown and returns it on the category list", async () => {
+      const { accessToken } = await registerAndLogin("timing-cooldown");
+      const categoryId = await ownCategory(accessToken);
+
+      const put = await request(app)
+        .put(`/api/categories/${categoryId}/timing`)
+        .set(authed(accessToken))
+        .send({ mode: "cooldown", intervalMinutes: 360 });
+
+      expect(put.status).toBe(200);
+      expect(put.body).toEqual({ mode: "cooldown", intervalMinutes: 360 });
+
+      const list = await request(app).get("/api/categories").set(authed(accessToken));
+      const listed = list.body.find((c: { id: string }) => c.id === categoryId);
+      expect(listed.timing).toEqual({ mode: "cooldown", intervalMinutes: 360 });
+      // A cooldown counts from the last log, and that is already on every category - so the
+      // countdown needs no extra request and no server state of its own.
+      expect(listed).toHaveProperty("lastLoggedAt");
+    });
+
+    it("is null on a category with no timing set, not an object saying 'none'", async () => {
+      const { accessToken } = await registerAndLogin("timing-absent");
+      const categoryId = await ownCategory(accessToken);
+
+      const list = await request(app).get("/api/categories").set(authed(accessToken));
+      expect(list.body.find((c: { id: string }) => c.id === categoryId).timing).toBeNull();
+    });
+
+    it("replaces the whole setting when the mode changes, rather than merging", async () => {
+      const { accessToken } = await registerAndLogin("timing-replace");
+      const categoryId = await ownCategory(accessToken, "duration", "Screen time");
+
+      await request(app)
+        .put(`/api/categories/${categoryId}/timing`)
+        .set(authed(accessToken))
+        .send({ mode: "cooldown", intervalMinutes: 360 });
+
+      const stopwatch = await request(app)
+        .put(`/api/categories/${categoryId}/timing`)
+        .set(authed(accessToken))
+        .send({ mode: "stopwatch" });
+
+      expect(stopwatch.status).toBe(200);
+      // The cooldown's six hours must not survive as a stopwatch's interval - carrying a stale
+      // field across a mode change is exactly how a setting starts meaning something nobody chose.
+      expect(stopwatch.body).toEqual({ mode: "stopwatch", intervalMinutes: null });
+    });
+
+    it("can be removed, and removing one that was never set is a no-op", async () => {
+      const { accessToken } = await registerAndLogin("timing-remove");
+      const categoryId = await ownCategory(accessToken);
+
+      const neverSet = await request(app)
+        .delete(`/api/categories/${categoryId}/timing`)
+        .set(authed(accessToken));
+      expect(neverSet.status).toBe(200);
+
+      await request(app)
+        .put(`/api/categories/${categoryId}/timing`)
+        .set(authed(accessToken))
+        .send({ mode: "reminder", intervalMinutes: 120 });
+      await request(app).delete(`/api/categories/${categoryId}/timing`).set(authed(accessToken));
+
+      const list = await request(app).get("/api/categories").set(authed(accessToken));
+      expect(list.body.find((c: { id: string }) => c.id === categoryId).timing).toBeNull();
+    });
+
+    // The reason this is a per-user row rather than a column: a built-in category is shared, and is
+    // also the one kind nobody can edit - so it is exactly where the setting has to work.
+    it("can be set on a built-in category without affecting anyone else", async () => {
+      const mine = await registerAndLogin("timing-system-mine");
+      const theirs = await registerAndLogin("timing-system-theirs");
+
+      const systemCategory = await prisma.category.findFirst({
+        where: { userId: null, archivedAt: null },
+      });
+      expect(systemCategory).not.toBeNull();
+      const id = (systemCategory as { id: string }).id;
+
+      const put = await request(app)
+        .put(`/api/categories/${id}/timing`)
+        .set(authed(mine.accessToken))
+        .send({ mode: "cooldown", intervalMinutes: 60 });
+      expect(put.status).toBe(200);
+
+      const mineList = await request(app).get("/api/categories").set(authed(mine.accessToken));
+      expect(mineList.body.find((c: { id: string }) => c.id === id).timing).toEqual({
+        mode: "cooldown",
+        intervalMinutes: 60,
+      });
+
+      const theirList = await request(app).get("/api/categories").set(authed(theirs.accessToken));
+      expect(theirList.body.find((c: { id: string }) => c.id === id).timing).toBeNull();
+    });
+
+    it("404s a category the caller cannot see", async () => {
+      const { accessToken } = await registerAndLogin("timing-owner");
+      const other = await registerAndLogin("timing-other");
+      const theirCategory = await ownCategory(other.accessToken, "numeric", "Private");
+
+      const res = await request(app)
+        .put(`/api/categories/${theirCategory}/timing`)
+        .set(authed(accessToken))
+        .send({ mode: "cooldown", intervalMinutes: 60 });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe("CATEGORY_NOT_FOUND");
+    });
+
+    describe("what each mode will and won't accept", () => {
+      it("refuses a stopwatch on anything not measured in minutes", async () => {
+        const { accessToken } = await registerAndLogin("timing-stopwatch-wrong");
+        const numeric = await ownCategory(accessToken, "numeric", "Units");
+
+        const res = await request(app)
+          .put(`/api/categories/${numeric}/timing`)
+          .set(authed(accessToken))
+          .send({ mode: "stopwatch" });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.details.intervalMinutes[0]).toMatch(/measured in minutes/i);
+      });
+
+      it("accepts a stopwatch on a duration category", async () => {
+        const { accessToken } = await registerAndLogin("timing-stopwatch-right");
+        const duration = await ownCategory(accessToken, "duration", "Exercise");
+
+        const res = await request(app)
+          .put(`/api/categories/${duration}/timing`)
+          .set(authed(accessToken))
+          .send({ mode: "stopwatch" });
+
+        expect(res.status).toBe(200);
+      });
+
+      it("refuses an interval on a stopwatch, which measures rather than counts down", async () => {
+        const { accessToken } = await registerAndLogin("timing-stopwatch-interval");
+        const duration = await ownCategory(accessToken, "duration", "Exercise");
+
+        const res = await request(app)
+          .put(`/api/categories/${duration}/timing`)
+          .set(authed(accessToken))
+          .send({ mode: "stopwatch", intervalMinutes: 30 });
+
+        expect(res.status).toBe(400);
+      });
+
+      it("requires a gap for a cooldown, since the gap is the whole setting", async () => {
+        const { accessToken } = await registerAndLogin("timing-cooldown-missing");
+        const categoryId = await ownCategory(accessToken);
+
+        const res = await request(app)
+          .put(`/api/categories/${categoryId}/timing`)
+          .set(authed(accessToken))
+          .send({ mode: "cooldown" });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.details.intervalMinutes[0]).toMatch(/how long/i);
+      });
+
+      it("lets a reminder leave the interval open, to be chosen each time", async () => {
+        const { accessToken } = await registerAndLogin("timing-reminder-open");
+        const categoryId = await ownCategory(accessToken);
+
+        const res = await request(app)
+          .put(`/api/categories/${categoryId}/timing`)
+          .set(authed(accessToken))
+          .send({ mode: "reminder" });
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ mode: "reminder", intervalMinutes: null });
+      });
+
+      // A reminder interval is handed straight to POST /api/reminders/follow-up, so anything this
+      // accepts must be something that endpoint would too - matched deliberately.
+      it("holds a reminder interval to the same bounds a follow-up has", async () => {
+        const { accessToken } = await registerAndLogin("timing-reminder-bounds");
+        const categoryId = await ownCategory(accessToken);
+
+        const tooSoon = await request(app)
+          .put(`/api/categories/${categoryId}/timing`)
+          .set(authed(accessToken))
+          .send({ mode: "reminder", intervalMinutes: 5 });
+        expect(tooSoon.status).toBe(400);
+
+        const tooLate = await request(app)
+          .put(`/api/categories/${categoryId}/timing`)
+          .set(authed(accessToken))
+          .send({ mode: "reminder", intervalMinutes: 13 * 60 });
+        expect(tooLate.status).toBe(400);
+      });
+
+      // A cooldown schedules nothing, so it is allowed to reach further than a reminder can.
+      it("allows a cooldown longer than a reminder may be", async () => {
+        const { accessToken } = await registerAndLogin("timing-cooldown-long");
+        const categoryId = await ownCategory(accessToken);
+
+        const res = await request(app)
+          .put(`/api/categories/${categoryId}/timing`)
+          .set(authed(accessToken))
+          .send({ mode: "cooldown", intervalMinutes: 20 * 60 });
+
+        expect(res.status).toBe(200);
+      });
+
+      it("rejects a mode that isn't one of the three", async () => {
+        const { accessToken } = await registerAndLogin("timing-bad-mode");
+        const categoryId = await ownCategory(accessToken);
+
+        const res = await request(app)
+          .put(`/api/categories/${categoryId}/timing`)
+          .set(authed(accessToken))
+          .send({ mode: "alarm", intervalMinutes: 60 });
+
+        expect(res.status).toBe(400);
+      });
+    });
+  });
+});
+
 afterAll(async () => {
   const users = await prisma.user.findMany({ where: { email: { in: createdEmails } } });
   const userIds = users.map((u) => u.id);

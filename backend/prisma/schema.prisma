@@ -39,6 +39,7 @@ model User {
   categoryLogs      CategoryLog[]
   reminders         Reminder[]
   hiddenCategories  HiddenCategory[]
+  categoryTimings   CategoryTiming[]
   hiddenGroups      HiddenGroup[]
 
   @@map("users")
@@ -172,6 +173,7 @@ model Category {
   logs      CategoryLog[]
   reminders Reminder[]
   hiddenBy  HiddenCategory[]
+  timings   CategoryTiming[]
 
   // Every "list my categories" query (GET /api/categories) filters on userId (including the
   // NULL case for system categories), so this index keeps that lookup fast as the category
@@ -188,6 +190,57 @@ model Category {
 // does the job, since they own it. Unlike CategoryLog, this has no historical value of its own -
 // deleting the user or the category itself should just make the preference disappear along with
 // it, so both FKs cascade.
+// What happens around logging a category - the three answers to "should this category have a
+// timer or a reminder", which turn out to be genuinely different things rather than one thing with
+// a switch:
+//
+//   REMINDER  - after logging, offer to be nudged again in a while ("drink water again in 2h").
+//               Creates an ordinary follow-up reminder (see routes/reminders.ts's POST /follow-up).
+//   COOLDOWN  - a minimum gap before the next one is due ("not another Diazepam for 6 hours").
+//               The opposite instruction to a reminder: not "do this", but "not yet".
+//   STOPWATCH - the thing being logged has a duration, and the timer measures it rather than
+//               scheduling anything. Only meaningful for a DURATION category.
+//
+// A per-user row rather than columns on Category, for the same reason Reminder and HiddenCategory
+// are: a category can be system-wide (userId null), and two people tracking the same one will want
+// different answers - one person's six-hour gap is not a property of Diazepam, it is a property of
+// how they are choosing to track it. It also means the settings are available for built-in
+// categories, which a user cannot edit at all.
+//
+// No NONE member: the absence of a row *is* "no timing", so there is one representation of it
+// rather than two that have to be kept in step.
+enum CategoryTimingMode {
+  REMINDER
+  COOLDOWN
+  STOPWATCH
+
+  @@map("category_timing_mode")
+}
+
+model CategoryTiming {
+  id              String             @id @default(uuid())
+  userId          String             @map("user_id")
+  categoryId      String             @map("category_id")
+  mode            CategoryTimingMode
+  // Minutes. Required for COOLDOWN (the gap itself, which is the whole setting). Optional for
+  // REMINDER, where it pre-selects the interval offered after logging; null there means "offer the
+  // usual choices and let me pick each time". Always null for STOPWATCH, which measures rather than
+  // counts down - enforced in routes/categories.ts rather than by a DB constraint, matching how
+  // Category's own scaleMin/scaleMax are handled.
+  intervalMinutes Int?               @map("interval_minutes")
+  createdAt       DateTime           @default(now()) @map("created_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Cascade, unlike CategoryLog's Restrict: this is a preference about how to track something, not
+  // a record of anything that happened, so it has nothing worth protecting from a delete. Matches
+  // HiddenCategory for the same reason.
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  // One setting per user per category - the three modes are alternatives, not a set to combine.
+  @@unique([userId, categoryId])
+  @@map("category_timings")
+}
+
 model HiddenCategory {
   id         String   @id @default(uuid())
   userId     String   @map("user_id")
