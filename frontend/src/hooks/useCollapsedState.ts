@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listenForCollapseAll } from "../lib/collapseAllEvent";
+import { dispatchCollapsedChanged, listenForCollapseAll } from "../lib/collapseAllEvent";
 
 // The one deliberate use of localStorage in this app - everywhere else (see api/client.ts,
 // auth/AuthContext.tsx) persistence is avoided on purpose for anything auth-related, since
@@ -35,6 +35,12 @@ function persist(key: string, value: boolean) {
   }
 }
 
+// Exported so a page can ask what a section *would* start as, without needing to know that this
+// module keeps it in localStorage or under what prefix.
+export function readCollapsedState(key: string, defaultValue = false): boolean {
+  return readStored(key, defaultValue);
+}
+
 export function useCollapsedState(key: string, defaultValue = false): CollapsedStateControls {
   const [collapsed, setCollapsed] = useState(() => readStored(key, defaultValue));
 
@@ -45,20 +51,28 @@ export function useCollapsedState(key: string, defaultValue = false): CollapsedS
     return listenForCollapseAll(key, (next) => {
       setCollapsed(next);
       persist(key, next);
+      dispatchCollapsedChanged(key, next);
     });
   }, [key]);
 
+  // The persist and the announcement deliberately sit *outside* the state updater. React may run
+  // an updater during render, and dispatching from there synchronously calls listeners - which
+  // meant a listening parent setting state while a child was still rendering, and React said so:
+  // "Cannot update a component while rendering a different component". Both side effects belong in
+  // the event handler, where they run exactly once, after the click.
   function toggle() {
-    setCollapsed((prev) => {
-      const next = !prev;
-      persist(key, next);
-      return next;
-    });
+    const next = !collapsed;
+    setCollapsed(next);
+    persist(key, next);
+    // Announced so a bulk control can stay honest about what it would do next - see
+    // lib/collapseAllEvent.ts.
+    dispatchCollapsedChanged(key, next);
   }
 
   function expand() {
     setCollapsed(false);
     persist(key, false);
+    dispatchCollapsedChanged(key, false);
   }
 
   return { collapsed, toggle, expand };

@@ -117,16 +117,16 @@ describe("ReminderScheduleForm", () => {
     });
   });
 
-  it("saves an hourly schedule with no time list at all", async () => {
-    const onSave = renderForm();
-    const user = userEvent.setup();
+  // "Every hour" was removed as a chip: combined with a day selection it produced a rule nobody
+  // could read. Hourly is still reachable by typing it into the cron box, which the escape-hatch
+  // tests below cover.
+  it("offers only day presets, not anything that looks like a mode", () => {
+    renderForm();
 
-    await user.click(screen.getByRole("button", { name: "Every hour" }));
-    // Times are meaningless for an hourly rule, so the control disappears entirely.
-    expect(screen.queryByLabelText(/add a time to schedule 1/i)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Save reminder" }));
-
-    expect(onSave).toHaveBeenCalledWith(["0 * * * *"]);
+    const chips = within(screen.getByRole("group", { name: "Repeat 1" }))
+      .getAllByRole("button")
+      .map((b) => b.textContent);
+    expect(chips).toEqual(["Every day", "Weekdays", "Weekends"]);
   });
 
   // The point of this component's second version: a reminder that does different things on

@@ -37,3 +37,36 @@ export function listenForCollapseAll(
   window.addEventListener(COLLAPSE_ALL_EVENT, handler);
   return () => window.removeEventListener(COLLAPSE_ALL_EVENT, handler);
 }
+
+// The reverse direction: a section announcing that its own collapsed state changed, so a control
+// like "Collapse all" can label itself for what will actually happen rather than for whatever it
+// did last time. Without this the button went stale the moment a single group was toggled by hand -
+// which is exactly how it was reported.
+//
+// Still a broadcast rather than lifted state: sections announce into the room without knowing
+// anyone is listening, and the page listens without knowing which sections exist.
+export const COLLAPSED_CHANGED_EVENT = "welltrack:collapsed-changed";
+
+interface CollapsedChangedDetail {
+  key: string;
+  collapsed: boolean;
+}
+
+export function dispatchCollapsedChanged(key: string, collapsed: boolean): void {
+  window.dispatchEvent(
+    new CustomEvent<CollapsedChangedDetail>(COLLAPSED_CHANGED_EVENT, {
+      detail: { key, collapsed },
+    }),
+  );
+}
+
+export function listenForCollapsedChanged(
+  onChange: (key: string, collapsed: boolean) => void,
+): () => void {
+  const handler = (event: Event) => {
+    const { key, collapsed } = (event as CustomEvent<CollapsedChangedDetail>).detail;
+    onChange(key, collapsed);
+  };
+  window.addEventListener(COLLAPSED_CHANGED_EVENT, handler);
+  return () => window.removeEventListener(COLLAPSED_CHANGED_EVENT, handler);
+}
