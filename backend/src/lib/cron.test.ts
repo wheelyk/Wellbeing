@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   parseCron,
   cronMatchesDate,
@@ -6,6 +6,7 @@ import {
   cronValidationError,
   CronParseError,
   MAX_SLOTS_PER_EXPRESSION,
+  nextRunsForSchedules,
 } from "./cron";
 
 // 2026-08-28 is a Friday (dayOfWeek 5) - used throughout so day-of-week assertions are anchored
@@ -181,5 +182,84 @@ describe("cronValidationError", () => {
     expect(cronValidationError("0,30 * * * *")).toBeNull();
     // Every 20 minutes = 72 slots.
     expect(cronValidationError("*/20 * * * *")).not.toBeNull();
+  });
+});
+
+describe("nextRunsForSchedules", () => {
+  // Pinned so "next" is a fact rather than whatever the clock happens to say. 2026-08-28 is a
+  // Friday; 10:00 UTC leaves 12:00 and 20:00 still ahead on the same day.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-28T10:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns today's remaining slots before tomorrow's", () => {
+    expect(nextRunsForSchedules(["0 8 * * *", "0 12 * * *", "0 20 * * *"], "UTC", 3)).toEqual([
+      { date: "2026-08-28", time: "12:00" },
+      { date: "2026-08-28", time: "20:00" },
+      { date: "2026-08-29", time: "08:00" },
+    ]);
+  });
+
+  // A slot at the current minute has either just fired or is about to, so calling it "next" would
+  // be misleading either way.
+  it("skips a slot at the current minute, and any already past", () => {
+    const runs = nextRunsForSchedules(["0 8 * * *", "0 10 * * *", "0 14 * * *"], "UTC", 1);
+    expect(runs).toEqual([{ date: "2026-08-28", time: "14:00" }]);
+  });
+
+  it("skips days the schedule doesn't run on", () => {
+    // Friday 10:00 -> the next weekday slot is Monday, since 08:00 today has passed.
+    expect(nextRunsForSchedules(["0 8 * * 1-5"], "UTC", 1)).toEqual([
+      { date: "2026-08-31", time: "08:00" },
+    ]);
+  });
+
+  it("merges several rules into one chronological list", () => {
+    // Weekdays 08:00 and weekends 10:00 - Saturday comes before Monday.
+    expect(nextRunsForSchedules(["0 8 * * 1-5", "0 10 * * 0,6"], "UTC", 2)).toEqual([
+      { date: "2026-08-29", time: "10:00" },
+      { date: "2026-08-30", time: "10:00" },
+    ]);
+  });
+
+  it("looks far enough ahead for a day-of-month rule", () => {
+    expect(nextRunsForSchedules(["0 7 1,15 * *"], "UTC", 2)).toEqual([
+      { date: "2026-09-01", time: "07:00" },
+      { date: "2026-09-15", time: "07:00" },
+    ]);
+  });
+
+  it("looks far enough ahead for a month-restricted rule", () => {
+    // Evaluated in August, the next December run is months away - inside the year-long window.
+    expect(nextRunsForSchedules(["0 9 25 12 *"], "UTC", 1)).toEqual([
+      { date: "2026-12-25", time: "09:00" },
+    ]);
+  });
+
+  it("resolves 'next' in the user's own timezone, not the server's", () => {
+    // 10:00 UTC is 03:00 in Los Angeles, so 08:00 there is still ahead - whereas in UTC it has
+    // already passed. Getting this wrong is exactly the class of bug that fires on the wrong day.
+    expect(nextRunsForSchedules(["0 8 * * *"], "America/Los_Angeles", 1)).toEqual([
+      { date: "2026-08-28", time: "08:00" },
+    ]);
+    expect(nextRunsForSchedules(["0 8 * * *"], "UTC", 1)).toEqual([
+      { date: "2026-08-29", time: "08:00" },
+    ]);
+  });
+
+  it("returns nothing rather than throwing for an unparseable expression", () => {
+    expect(nextRunsForSchedules(["not a cron"], "UTC", 3)).toEqual([]);
+  });
+
+  it("expands an hourly rule into consecutive hours", () => {
+    expect(nextRunsForSchedules(["0 * * * *"], "UTC", 3)).toEqual([
+      { date: "2026-08-28", time: "11:00" },
+      { date: "2026-08-28", time: "12:00" },
+      { date: "2026-08-28", time: "13:00" },
+    ]);
   });
 });

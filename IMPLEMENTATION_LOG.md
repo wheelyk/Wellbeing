@@ -369,3 +369,11 @@ project's own sessions.
 ### [Responsive Row Actions: Icons on Phones, Words on Wider Screens](docs/log/32-responsive-icon-actions.md)
 
 - 2026-08-29 — One accessible name, two visual treatments
+
+### [Next-Run Preview](docs/log/33-next-run-preview.md)
+
+- 2026-08-29 — Showing when a schedule will actually fire, computed by the code that fires it
+
+### [A Real Push Delivery Test](docs/log/34-real-push-delivery-test.md)
+
+- 2026-08-29 — Closing the last unverified link in the reminder chain

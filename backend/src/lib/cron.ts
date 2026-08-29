@@ -1,4 +1,4 @@
-import { dayOfWeek } from "./timezone";
+import { addDaysToDateStr, currentTimeInTimezone, dayOfWeek, todayInTimezone } from "./timezone";
 
 // A small, hand-written cron parser rather than a dependency - the same call this project already
 // made for timezone.ts ("Node's built-in Intl can do this correctly without adding a dependency,
@@ -180,4 +180,53 @@ export function cronValidationError(expression: string): string | null {
   }
 
   return null;
+}
+
+export interface NextRun {
+  // Local to the user's own timezone, not UTC and not the server's - the same frame of reference
+  // the scheduler itself works in (see reminderScheduler.ts).
+  date: string;
+  time: string;
+}
+
+// How far ahead to look before giving up. A monthly rule only needs ~31 days, but a
+// month-restricted one (`0 9 * 12 *` evaluated in January) can legitimately be almost a year out,
+// so the window covers a full year plus a day for leap years. Each day is a cheap in-memory
+// expansion, and the scan stops as soon as enough runs are found - which for almost every real
+// schedule is on the first or second day.
+const MAX_LOOKAHEAD_DAYS = 366;
+
+// The next few times these schedules will actually fire, computed with the same parser and the
+// same day-by-day expansion the scheduler uses to decide what to send. That shared implementation
+// is the entire point: a preview derived from separate logic could agree with the user's
+// expectation while still disagreeing with what the scheduler will really do.
+// See docs/log/33-next-run-preview.md.
+export function nextRunsForSchedules(schedules: string[], timeZone: string, count = 3): NextRun[] {
+  const today = todayInTimezone(timeZone);
+  const nowLocalTime = currentTimeInTimezone(timeZone);
+  const runs: NextRun[] = [];
+
+  for (let offset = 0; offset < MAX_LOOKAHEAD_DAYS && runs.length < count; offset += 1) {
+    const date = addDaysToDateStr(today, offset);
+
+    const slots = new Set<string>();
+    for (const expression of schedules) {
+      try {
+        for (const slot of cronSlotsForDate(expression, date)) slots.add(slot);
+      } catch {
+        // A stored expression that no longer parses is skipped rather than thrown, exactly as the
+        // scheduler skips it - a preview should never be the thing that breaks the page.
+      }
+    }
+
+    for (const time of [...slots].sort()) {
+      // Strictly future: a slot at the current minute has either just fired or is about to, so
+      // calling it the "next" run would be misleading either way.
+      if (offset === 0 && time <= nowLocalTime) continue;
+      runs.push({ date, time });
+      if (runs.length === count) break;
+    }
+  }
+
+  return runs;
 }

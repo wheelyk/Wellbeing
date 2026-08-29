@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ReminderScheduleForm } from "./ReminderScheduleForm";
 
@@ -204,5 +204,78 @@ describe("ReminderScheduleForm", () => {
         name: "Weekdays",
       }),
     ).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+// The preview is fetched from the server on purpose (see lib/nextRunPreview.ts), so these tests
+// stub the endpoint and assert what the form does with the answer - not what it would have
+// calculated for itself.
+describe("ReminderScheduleForm next-run preview", () => {
+  const previewResponse = {
+    timezone: "UTC",
+    today: "2026-08-28",
+    tomorrow: "2026-08-29",
+    nextRuns: [
+      { date: "2026-08-28", time: "20:00" },
+      { date: "2026-08-29", time: "08:00" },
+      { date: "2026-08-31", time: "08:00" },
+    ],
+  };
+
+  function stubPreview(body: unknown = previewResponse, status = 200) {
+    const fetchMock = vi.fn((_url: string, _init?: RequestInit) =>
+      Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("asks the server what the schedule it built would actually do", async () => {
+    const fetchMock = stubPreview();
+    renderForm();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/reminders/preview");
+    const body = JSON.parse(init?.body as string);
+    // The expressions the picker generated, not the picker state itself.
+    expect(body.schedules).toEqual(["0 9 * * *"]);
+  });
+
+  it("shows the next run in words, relative to the servers own today", async () => {
+    stubPreview();
+    renderForm();
+
+    expect(await screen.findByText(/today at 20:00/i)).toBeInTheDocument();
+    expect(screen.getByText(/tomorrow at 08:00/i)).toBeInTheDocument();
+    // Beyond tomorrow it falls back to a dated form rather than counting days.
+    expect(screen.getByText(/Monday 31 Aug at 08:00/i)).toBeInTheDocument();
+  });
+
+  it("says so when a schedule has no upcoming runs at all", async () => {
+    stubPreview({ ...previewResponse, nextRuns: [] });
+    renderForm();
+
+    expect(await screen.findByText(/no upcoming runs in the next year/i)).toBeInTheDocument();
+  });
+
+  it("stays quiet when the preview fails, since the save path reports the real error", async () => {
+    stubPreview({ error: { message: "nope" } }, 400);
+    renderForm();
+
+    expect(
+      await screen.findByText(/couldn.t work out when this would next run/i),
+    ).toBeInTheDocument();
+    // Never an alert - a rejected expression is ordinary while someone is mid-edit.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
