@@ -109,15 +109,10 @@ describe("reminders routes", () => {
       .set(authed(accessToken))
       .send({
         target: "general",
-        schedules: [
-          "0 1 * * *",
-          "0 2 * * *",
-          "0 3 * * *",
-          "0 4 * * *",
-          "0 5 * * *",
-          "0 6 * * *",
-          "0 7 * * *",
-        ],
+        // Thirteen distinct expressions - one past the cap. Deliberately more than the picker can
+        // produce (four rules), since this guards the API against a runaway request rather than
+        // the UI against itself.
+        schedules: Array.from({ length: 13 }, (_, hour) => `0 ${hour} * * *`),
       });
     expect(tooMany.status).toBe(400);
   });

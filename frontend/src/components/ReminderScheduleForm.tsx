@@ -5,16 +5,21 @@ import {
   DAY_LABELS,
   buildSchedules,
   daysForPreset,
+  emptyRule,
   parseSchedules,
   presetForDays,
   type RepeatPreset,
   type ScheduleDraft,
+  type ScheduleRule,
 } from "../lib/cronSchedule";
 
 // The controls behind a category's bell. Presets cover almost every real case in one tap, day
 // toggles handle the rest, and the raw cron sits behind a disclosure for anyone who wants it -
 // same data, two views (see lib/cronSchedule.ts and
 // docs/log/26-categories-page-and-reminder-picker.md).
+//
+// A reminder can hold several rules, because "weekdays at 08:00 and weekends at 10:00" needs two
+// sets of day toggles to say (see docs/log/27-multiple-schedules-per-reminder.md).
 //
 // Deliberately dumb about the network: it owns the *draft* and hands finished cron expressions
 // back to whoever rendered it. That keeps the round-trip logic testable without mocking fetch,
@@ -45,6 +50,10 @@ const REPEAT_OPTIONS: { value: RepeatOption; label: string }[] = [
   { value: "custom", label: "Custom" },
 ];
 
+// Mirrors the backend's own cap on stored expressions (see routes/reminders.ts) - a guard against
+// a runaway list rather than a product opinion, but the UI should stop you before the API has to.
+const MAX_RULES = 4;
+
 interface ReminderScheduleFormProps {
   // The reminder's current expressions, or [] when creating one.
   initialSchedules: string[];
@@ -54,6 +63,163 @@ interface ReminderScheduleFormProps {
   // Omitted when there's no reminder yet - there's nothing to turn off.
   onTurnOff?: () => void;
   onCancel: () => void;
+}
+
+// One rule's own controls. Split out so each rule's repeat chips, day toggles and time list are
+// self-contained, and so adding a second rule is genuinely just another card.
+function RuleFields({
+  rule,
+  index,
+  canRemove,
+  onChange,
+  onRemove,
+}: {
+  rule: ScheduleRule;
+  index: number;
+  canRemove: boolean;
+  onChange: (next: ScheduleRule) => void;
+  onRemove: () => void;
+}) {
+  const [newTime, setNewTime] = useState("");
+  const activeOption: RepeatOption =
+    rule.mode === "hourly" ? "hourly" : presetForDays(rule.daysOfWeek);
+
+  function choosePreset(option: RepeatOption) {
+    if (option === "hourly") {
+      onChange({ ...rule, mode: "hourly" });
+      return;
+    }
+    onChange({
+      ...rule,
+      // Leaving hourly returns to the time list, keeping whatever times were there before.
+      mode: "times",
+      times: rule.times.length > 0 ? rule.times : ["09:00"],
+      daysOfWeek: daysForPreset(option, rule.daysOfWeek),
+    });
+  }
+
+  function toggleDay(day: number) {
+    const has = rule.daysOfWeek.includes(day);
+    const next = has ? rule.daysOfWeek.filter((d) => d !== day) : [...rule.daysOfWeek, day];
+    // Never allow an empty selection - it would save a rule that can never fire.
+    if (next.length === 0) return;
+    onChange({ ...rule, daysOfWeek: next.sort((a, b) => a - b) });
+  }
+
+  function addTime() {
+    if (!newTime || rule.times.includes(newTime)) return;
+    onChange({ ...rule, times: [...rule.times, newTime].sort() });
+    setNewTime("");
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-surface p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold tracking-wide text-text-muted uppercase">
+          {index === 0 ? "Repeat" : `Also repeat`}
+        </p>
+        {canRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label={`Remove schedule ${index + 1}`}
+            className="text-sm text-text-muted hover:text-danger focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      <div role="group" aria-label={`Repeat ${index + 1}`} className="mt-2 flex flex-wrap gap-2">
+        {REPEAT_OPTIONS.map((option) => (
+          <Button
+            key={option.value}
+            type="button"
+            variant={activeOption === option.value ? "primary" : "secondary"}
+            aria-pressed={activeOption === option.value}
+            onClick={() => choosePreset(option.value)}
+          >
+            {option.label}
+          </Button>
+        ))}
+      </div>
+
+      <p className="mt-3 text-xs font-semibold tracking-wide text-text-muted uppercase">
+        On these days
+      </p>
+      <div
+        role="group"
+        aria-label={`Days of the week ${index + 1}`}
+        className="mt-2 grid grid-cols-7 gap-1"
+      >
+        {DAY_INITIALS.map((initial, day) => {
+          const selected = rule.daysOfWeek.includes(day);
+          return (
+            <button
+              key={day}
+              type="button"
+              role="checkbox"
+              aria-checked={selected}
+              aria-label={`${DAY_LABELS[day]} ${index + 1}`}
+              onClick={() => toggleDay(day)}
+              className={`rounded-lg border py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+                selected
+                  ? "border-brand bg-brand text-white"
+                  : "border-border bg-surface text-text-muted"
+              }`}
+            >
+              {initial}
+            </button>
+          );
+        })}
+      </div>
+
+      {rule.mode === "times" && (
+        <>
+          <p className="mt-3 text-xs font-semibold tracking-wide text-text-muted uppercase">
+            Times
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {rule.times.map((time) => (
+              <span
+                key={time}
+                className="inline-flex items-center gap-1 rounded-lg border border-brand bg-brand/10 px-2 py-1 text-sm text-brand tabular-nums"
+              >
+                {time}
+                {rule.times.length > 1 && (
+                  <button
+                    type="button"
+                    aria-label={`Remove ${time}`}
+                    onClick={() =>
+                      onChange({ ...rule, times: rule.times.filter((t) => t !== time) })
+                    }
+                    className="font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                  >
+                    ✕
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <label htmlFor={`reminder-add-time-${index}`} className="sr-only">
+              Add a time to schedule {index + 1}
+            </label>
+            <input
+              id={`reminder-add-time-${index}`}
+              type="time"
+              value={newTime}
+              onChange={(e) => setNewTime(e.target.value)}
+              className="rounded-lg border border-border px-2 py-1 text-sm text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            />
+            <Button type="button" variant="secondary" onClick={addTime} disabled={!newTime}>
+              + Add time
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 export function ReminderScheduleForm({
@@ -67,66 +233,31 @@ export function ReminderScheduleForm({
   const [draft, setDraft] = useState<ScheduleDraft>(() =>
     initialSchedules.length > 0
       ? parseSchedules(initialSchedules)
-      : { mode: "times", daysOfWeek: [0, 1, 2, 3, 4, 5, 6], times: ["09:00"], expressions: [] },
+      : { mode: "rules", rules: [emptyRule()], expressions: [] },
   );
   // Opens itself for a schedule the simple controls can't represent, since in that case the raw
   // text is the only honest way to show what's actually stored.
   const [advancedOpen, setAdvancedOpen] = useState(draft.mode === "expression");
   const [expressionText, setExpressionText] = useState(initialSchedules.join("\n"));
-  const [newTime, setNewTime] = useState("");
 
-  const activeOption: RepeatOption =
-    draft.mode === "hourly" ? "hourly" : presetForDays(draft.daysOfWeek);
-  const generated = draft.mode === "expression" ? draft.expressions : buildSchedules(draft);
+  const generated = buildSchedules(draft);
 
-  function choosePreset(option: RepeatOption) {
-    if (option === "hourly") {
-      setDraft((prev) => ({ ...prev, mode: "hourly" }));
-      return;
-    }
+  function updateRule(index: number, next: ScheduleRule) {
     setDraft((prev) => ({
       ...prev,
-      // Leaving hourly returns to the time list, keeping whatever times were there before.
-      mode: "times",
-      times: prev.times.length > 0 ? prev.times : ["09:00"],
-      daysOfWeek: daysForPreset(option, prev.daysOfWeek),
-    }));
-  }
-
-  function toggleDay(day: number) {
-    setDraft((prev) => {
-      const has = prev.daysOfWeek.includes(day);
-      const next = has ? prev.daysOfWeek.filter((d) => d !== day) : [...prev.daysOfWeek, day];
-      // Never allow an empty selection - it would save a schedule that can never fire.
-      return {
-        ...prev,
-        daysOfWeek: next.length > 0 ? next.sort((a, b) => a - b) : prev.daysOfWeek,
-      };
-    });
-  }
-
-  function addTime() {
-    if (!newTime || draft.times.includes(newTime)) return;
-    setDraft((prev) => ({ ...prev, times: [...prev.times, newTime].sort() }));
-    setNewTime("");
-  }
-
-  function removeTime(time: string) {
-    setDraft((prev) => ({
-      ...prev,
-      // Same reasoning as the day toggles: a reminder with no times isn't a reminder.
-      times: prev.times.length > 1 ? prev.times.filter((t) => t !== time) : prev.times,
+      rules: prev.rules.map((r, i) => (i === index ? next : r)),
     }));
   }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (draft.mode === "expression") {
-      const expressions = expressionText
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean);
-      onSave(expressions);
+      onSave(
+        expressionText
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean),
+      );
       return;
     }
     onSave(buildSchedules(draft));
@@ -143,105 +274,41 @@ export function ReminderScheduleForm({
     setDraft(
       expressions.length > 0
         ? parseSchedules(expressions)
-        : { ...draft, mode: "expression", expressions: [] },
+        : { mode: "expression", rules: [], expressions: [] },
     );
   }
 
-  const showDayToggles = draft.mode !== "expression";
-  const showTimes = draft.mode === "times";
-
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-      <div>
-        <p className="text-xs font-semibold tracking-wide text-text-muted uppercase">Repeat</p>
-        <div role="group" aria-label="Repeat" className="mt-2 flex flex-wrap gap-2">
-          {REPEAT_OPTIONS.map((option) => (
-            <Button
-              key={option.value}
-              type="button"
-              variant={
-                draft.mode !== "expression" && activeOption === option.value
-                  ? "primary"
-                  : "secondary"
-              }
-              aria-pressed={draft.mode !== "expression" && activeOption === option.value}
-              onClick={() => choosePreset(option.value)}
-            >
-              {option.label}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      {showDayToggles && (
-        <div>
-          <p className="text-xs font-semibold tracking-wide text-text-muted uppercase">
-            On these days
-          </p>
-          <div role="group" aria-label="Days of the week" className="mt-2 grid grid-cols-7 gap-1">
-            {DAY_INITIALS.map((initial, day) => {
-              const selected = draft.daysOfWeek.includes(day);
-              return (
-                <button
-                  key={day}
-                  type="button"
-                  role="checkbox"
-                  aria-checked={selected}
-                  aria-label={DAY_LABELS[day]}
-                  onClick={() => toggleDay(day)}
-                  className={`rounded-lg border py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
-                    selected
-                      ? "border-brand bg-brand text-white"
-                      : "border-border bg-surface text-text-muted"
-                  }`}
-                >
-                  {initial}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {showTimes && (
-        <div>
-          <p className="text-xs font-semibold tracking-wide text-text-muted uppercase">Times</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {draft.times.map((time) => (
-              <span
-                key={time}
-                className="inline-flex items-center gap-1 rounded-lg border border-brand bg-brand/10 px-2 py-1 text-sm text-brand tabular-nums"
-              >
-                {time}
-                {draft.times.length > 1 && (
-                  <button
-                    type="button"
-                    aria-label={`Remove ${time}`}
-                    onClick={() => removeTime(time)}
-                    className="font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                  >
-                    ✕
-                  </button>
-                )}
-              </span>
+      {draft.mode === "rules" && (
+        <>
+          <div className="flex flex-col gap-2">
+            {draft.rules.map((rule, index) => (
+              <RuleFields
+                // Index is a legitimate key here: rules have no id, and the list is only ever
+                // appended to or spliced, never reordered.
+                key={index}
+                rule={rule}
+                index={index}
+                canRemove={draft.rules.length > 1}
+                onChange={(next) => updateRule(index, next)}
+                onRemove={() =>
+                  setDraft((prev) => ({ ...prev, rules: prev.rules.filter((_, i) => i !== index) }))
+                }
+              />
             ))}
           </div>
-          <div className="mt-2 flex items-center gap-2">
-            <label htmlFor="reminder-add-time" className="sr-only">
-              Add a time
-            </label>
-            <input
-              id="reminder-add-time"
-              type="time"
-              value={newTime}
-              onChange={(e) => setNewTime(e.target.value)}
-              className="rounded-lg border border-border px-2 py-1 text-sm text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-            />
-            <Button type="button" variant="secondary" onClick={addTime} disabled={!newTime}>
-              + Add time
+          {draft.rules.length < MAX_RULES && (
+            <Button
+              type="button"
+              variant="secondary"
+              className="self-start"
+              onClick={() => setDraft((prev) => ({ ...prev, rules: [...prev.rules, emptyRule()] }))}
+            >
+              + Add another schedule
             </Button>
-          </div>
-        </div>
+          )}
+        </>
       )}
 
       <div className="border-t border-border pt-2">
