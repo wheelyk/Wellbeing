@@ -3,6 +3,9 @@ import { Button } from "../Button";
 import { Modal } from "../Modal";
 import { CategoryEntryForm, type CategoryLog } from "../CategoryEntryForm";
 import { FollowUpPrompt } from "../FollowUpPrompt";
+import { StatusPill } from "../CollapsibleSection";
+import { cooldownRemaining } from "../../lib/cooldown";
+import { useNow } from "../../hooks/useNow";
 import type { Category } from "../CategoryCreateForm";
 import { SectionPanel } from "./SectionPanel";
 import { apiFetch } from "../../api/client";
@@ -147,10 +150,32 @@ export function CategoryLogCard({ category, onEmptied }: CategoryLogCardProps) {
     }
   }
 
+  // A cooldown is "last log + the gap", so it needs a clock rather than a fetch - re-rendered on
+  // the minute, which is as precise as a countdown measured in minutes can usefully be.
+  const now = useNow(category.timing?.mode === "cooldown" ? 30_000 : null);
+  const cooldown = cooldownRemaining(
+    logs[0]?.loggedAt ?? null,
+    category.timing?.mode === "cooldown" ? category.timing.intervalMinutes : null,
+    now,
+  );
+
+  const subtitle = cooldown
+    ? `Next available in ${cooldown.remaining}`
+    : logs[0]
+      ? `Last ${formatCategoryLogValue(logs[0], category)} · ${formatEntryDateTime(logs[0].loggedAt)}`
+      : undefined;
+
   return (
     <>
       <SectionPanel
-        title={`Recent ${category.icon ? `${category.icon} ` : ""}${category.name}`}
+        // "Recent" is gone from the title: it did no work, and it pushed the actual name to the
+        // second word on every card. The icon moves into its own slot for the same reason.
+        title={category.name}
+        icon={category.icon ?? undefined}
+        // What the card is worth opening for, without opening it - the last value and when, or a
+        // cooldown's own countdown, which reads as the more useful of the two when it applies.
+        subtitle={subtitle}
+        badge={cooldown ? <StatusPill>Cooldown</StatusPill> : undefined}
         storageKey={`category-${category.id}`}
         addLabel={`Add ${category.name} entry`}
         onAddClick={() => {

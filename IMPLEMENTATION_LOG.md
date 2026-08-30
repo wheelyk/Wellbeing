@@ -409,3 +409,7 @@ project's own sessions.
 ### [One Disclosure Header, and Why the Best One Had Escaped](docs/log/43-disclosure-panel.md)
 
 - 2026-08-30 — A collapsed panel should still answer a question
+
+### [Filling In What a Collapsed Panel Says](docs/log/44-panel-content.md)
+
+- 2026-08-30 — A count, a last value, and a countdown that needs no server
