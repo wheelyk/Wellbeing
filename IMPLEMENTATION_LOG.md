@@ -417,3 +417,7 @@ project's own sessions.
 ### [Filling In What a Collapsed Panel Says](docs/log/44-panel-content.md)
 
 - 2026-08-30 — A count, a last value, and a countdown that needs no server
+
+### [The Coming Up Panel](docs/log/45-coming-up-panel.md)
+
+- 2026-08-30 — Answering "what's next" without opening anything
