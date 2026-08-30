@@ -90,7 +90,10 @@ describe("DashboardSummary", () => {
     // deliberately doesn't hard-code a locale - see formatDisplayDate's comment) - so this
     // checks for the pieces that must appear regardless of locale-specific ordering/punctuation,
     // rather than asserting one exact rendered string.
-    const heading = await screen.findByRole("heading", { level: 2 });
+    // Level 1, not 2 - the date is now the page's one true heading rather than a section within
+    // it, since DashboardPage no longer has a heading of its own (see
+    // docs/log/48-dashboard-heading-merge.md).
+    const heading = await screen.findByRole("heading", { level: 1 });
     expect(heading.textContent).toMatch(/monday/i);
     expect(heading.textContent).toMatch(/august/i);
     expect(heading.textContent).toMatch(/17/);
@@ -100,6 +103,37 @@ describe("DashboardSummary", () => {
     expect(screen.getByText(/logged 4 of 7 days this week/i)).toBeInTheDocument();
     expect(screen.getByText(/headache — 6\/10/i)).toBeInTheDocument();
     expect(screen.getByText(/mood — 4\/5/i)).toBeInTheDocument();
+  });
+
+  // The identity clause that replaced DashboardPage's own separate "Welcome, {name}" heading -
+  // see docs/log/48-dashboard-heading-merge.md.
+  it("folds the caller's display name into the byline under the date, when given one", async () => {
+    mockDashboardFetch({
+      date: "2026-08-17",
+      loggedTodayCount: 0,
+      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    });
+
+    render(<DashboardSummary displayName="Keith" />);
+
+    expect(await screen.findByText(/welcome back, keith/i)).toBeInTheDocument();
+  });
+
+  // Optional, and rendered defensively: a caller with no name yet (or a test that doesn't care)
+  // must not see a dangling "Welcome back, " with nothing after it.
+  it("omits the welcome clause entirely when no display name is given", async () => {
+    mockDashboardFetch({
+      date: "2026-08-17",
+      loggedTodayCount: 0,
+      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
+      streak: { current: 0, daysLoggedThisWeek: 0 },
+    });
+
+    render(<DashboardSummary />);
+
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByText(/welcome back/i)).not.toBeInTheDocument();
   });
 
   // Computed relative to the real current time (rather than mocking the clock) so these stay

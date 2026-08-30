@@ -89,7 +89,18 @@ function groupEntriesByDay(entries: RecentEntry[]): RecentEntryGroup[] {
 // enough to miss the dispatch - so staleness is bounded at POLL_INTERVAL_MS even then.
 const POLL_INTERVAL_MS = 10_000;
 
-export function DashboardSummary() {
+interface DashboardSummaryProps {
+  // The caller's own display name, folded into the byline under the date heading below (see
+  // docs/log/48-dashboard-heading-merge.md). Passed in rather than read here via useAuth()
+  // directly: DashboardPage already holds it, and this component's entire test suite mocks
+  // exactly one fetch call (GET /api/dashboard) - wiring in AuthContext here would pull in
+  // AuthProvider's own session-rehydration request too, for a value the caller already has.
+  // Optional and rendered defensively (see below), so a caller that doesn't have it yet - or a
+  // test that doesn't care - isn't forced to supply one.
+  displayName?: string;
+}
+
+export function DashboardSummary({ displayName }: DashboardSummaryProps) {
   const [data, setData] = useState<DashboardSummaryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -209,31 +220,39 @@ export function DashboardSummary() {
   // of its own.
   const hasLoggedAnything = data.loggedTodayCount > 0;
 
+  // Informational tone only, per requirements §7 - a plain sentence, no badges, streak counters
+  // styled as achievements, or "don't break the chain" language. Unchanged wording from before
+  // this merge; only its position moved, into the byline below the date.
+  const streakClause =
+    data.streak.current > 0
+      ? `Logging streak: ${data.streak.current} day${data.streak.current === 1 ? "" : "s"}`
+      : "No current logging streak";
+
   return (
     <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-      {/* h2, not h1 - DashboardPage's own "Welcome, {name}" heading is the page's one <h1>; this
-          card is a section within the page, not a second top-level heading. */}
-      <h2 className="text-2xl font-semibold text-text">{formatDisplayDate(data.date)}</h2>
+      {/* The page's one true heading now - see the note in DashboardPage.tsx on what used to sit
+          above this instead. */}
+      <h1 className="text-2xl font-semibold text-text">{formatDisplayDate(data.date)}</h1>
 
-      {hasLoggedAnything ? (
-        <p className="mt-2 text-text">
-          Logged {data.loggedTodayCount} {data.loggedTodayCount === 1 ? "entry" : "entries"} today
-        </p>
-      ) : (
-        <p className="mt-2 text-text-muted">
-          Nothing logged yet today — use one of the Quick Add buttons below to get started.
-        </p>
-      )}
-
-      {/* Informational tone only, per requirements §7 - a plain sentence, no badges, streak
-          counters styled as achievements, or "don't break the chain" language. */}
-      <p className="mt-3 text-sm text-text-muted">
-        {data.streak.current > 0
-          ? `Logging streak: ${data.streak.current} day${data.streak.current === 1 ? "" : "s"}`
-          : "No current logging streak"}
+      {/* The identity+streak byline that replaced DashboardPage's own separate "Welcome, {name}"
+          block. displayName is genuinely optional here (see the prop's own comment), so the
+          clause is simply omitted rather than rendering "Welcome back, " with nothing after it. */}
+      <p className="mt-1 text-sm text-text-muted">
+        {displayName && `Welcome back, ${displayName} · `}
+        {streakClause}
         {" · "}
         Logged {data.streak.daysLoggedThisWeek} of 7 days this week
       </p>
+
+      {hasLoggedAnything ? (
+        <p className="mt-3 text-text">
+          Logged {data.loggedTodayCount} {data.loggedTodayCount === 1 ? "entry" : "entries"} today
+        </p>
+      ) : (
+        <p className="mt-3 text-text-muted">
+          Nothing logged yet today — use one of the Quick Add buttons below to get started.
+        </p>
+      )}
 
       <div className="mt-6">
         {/* Same disclosure pattern as each SectionPanel below (see SectionPanel.tsx) - a full

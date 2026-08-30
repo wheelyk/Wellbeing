@@ -20,17 +20,23 @@ export function DashboardPage() {
           BottomNav bar below `md:`, so the last panel in the grid isn't hidden behind it;
           md:pb-8 reverts to the normal, symmetric padding once `md:` hides BottomNav. */}
       <main className="mx-auto max-w-3xl px-4 pt-8 pb-24 md:max-w-5xl md:pb-8">
-        <h1 className="text-2xl font-semibold text-text">Welcome, {user?.displayName}</h1>
-        <p className="mt-2 text-text-muted">You&apos;re logged in as {user?.email}.</p>
+        {/* No page-level heading out here any more. There used to be one - "Welcome, {name}" plus
+            a "You're logged in as ..." line - sitting above DashboardSummary's own date heading, so
+            the page opened with two blocks both doing the same job (orienting you: who, then
+            what day). DashboardSummary's date is now the page's one <h1>, with the welcome line
+            folded into the byline underneath it - see docs/log/48-dashboard-heading-merge.md.
+            displayName is passed down rather than read via useAuth() inside DashboardSummary
+            itself, so that component's fetch/poll tests keep mocking exactly the one endpoint
+            they always have. */}
 
         {/* Above the day summary, deliberately: "what is about to happen" is the question people
             open the app to answer, and the streak card is a look back rather than forward. */}
-        <div className="mt-8">
+        <div>
           <UpcomingRemindersPanel />
         </div>
 
         <div className="mt-6">
-          <DashboardSummary />
+          <DashboardSummary displayName={user?.displayName} />
         </div>
 
         {/* One column on mobile (screen width is the scarce resource - see the implementation

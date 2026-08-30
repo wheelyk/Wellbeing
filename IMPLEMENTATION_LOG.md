@@ -429,3 +429,7 @@ project's own sessions.
 ### [Recent Reminders: What Happened, and What Didn't](docs/log/47-recent-reminders.md)
 
 - 2026-08-30 — The backward-looking half of the Timeline
+
+### [Merging the Welcome Banner and the Date Heading](docs/log/48-dashboard-heading-merge.md)
+
+- 2026-08-30 — One heading instead of two, answering the same question
