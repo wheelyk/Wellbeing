@@ -405,3 +405,7 @@ project's own sessions.
 ### [Quiet Hours, and Who Gets To Ignore Them](docs/log/41-quiet-hours.md)
 
 - 2026-08-30 — "No reminder in the middle of the night unless the user explicitly selects it"
+
+### [One Disclosure Header, and Why the Best One Had Escaped](docs/log/43-disclosure-panel.md)
+
+- 2026-08-30 — A collapsed panel should still answer a question

@@ -6,8 +6,8 @@ import { NavBar } from "../components/NavBar";
 import { BottomNav } from "../components/BottomNav";
 import { Button } from "../components/Button";
 import { TextField } from "../components/TextField";
-import { CollapsibleSection } from "../components/CollapsibleSection";
-import { readCollapsedState, useCollapsedState } from "../hooks/useCollapsedState";
+import { CollapsibleSection, StatusPill } from "../components/CollapsibleSection";
+import { readCollapsedState } from "../hooks/useCollapsedState";
 import {
   CategoryCreateForm,
   type Category,
@@ -358,85 +358,66 @@ function GroupSection({
   reminderState: ReminderUiState;
 }) {
   const storageKey = groupCollapseKey(group);
-  const { collapsed, toggle } = useCollapsedState(storageKey);
-  const contentId = `${storageKey}-content`;
   const isOwnGroup = group !== null && group.userId === currentUserId;
   const isEditingGroup = group !== null && groupEditState.editingGroupId === group.id;
 
   return (
     <div className="rounded-xl border border-border p-3">
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={toggle}
-          aria-expanded={!collapsed}
-          aria-controls={contentId}
-          className="flex flex-1 items-center gap-2 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-        >
-          <span className="flex-1 font-medium text-text">
-            {group ? (group.icon ? `${group.icon} ` : "") : "🗂️ "}
-            {group ? group.name : "Uncategorized"}
-            {group && group.userId === null && (
-              <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
-                Built-in
-              </span>
-            )}
-            {group?.hidden && (
-              <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
-                Hidden
-              </span>
-            )}
-          </span>
-          <span className="text-xs text-text-muted">{categories.length}</span>
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 20 20"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`h-4 w-4 shrink-0 text-text-muted transition-transform ${collapsed ? "" : "rotate-180"}`}
-          >
-            <path d="M5 7.5 10 12.5 15 7.5" />
-          </svg>
-        </button>
-        {group && (
-          // Same icon-then-text treatment as the category rows below, so a group header and the
-          // rows inside it don't disagree about how an action is presented at the same width.
-          // These carry the group's name too, since a page shows many of them at once.
-          <div className="flex shrink-0 gap-2">
-            {isOwnGroup && (
-              <ActionButton
-                variant="secondary"
-                icon="✏️"
-                label="Rename"
-                name={`Rename ${group.name}`}
-                onClick={() => groupHandlers.onStartEditGroup(group)}
-              />
-            )}
-            {group.hidden ? (
-              <ActionButton
-                variant="secondary"
-                icon="👁️"
-                label="Unhide"
-                name={`Unhide ${group.name}`}
-                onClick={() => groupHandlers.onUnhideGroup(group.id)}
-              />
-            ) : (
-              <ActionButton
-                variant="secondary"
-                icon="🙈"
-                label="Hide"
-                name={`Hide ${group.name}`}
-                onClick={() => groupHandlers.onHideGroup(group.id)}
-              />
-            )}
-          </div>
-        )}
-      </div>
-      {!collapsed && (
-        <div id={contentId} className="mt-3">
+      <CollapsibleSection
+        storageKey={storageKey}
+        size="md"
+        // Deliberately not an <h2>: a page renders a dozen of these, and making each one a heading
+        // would bury the page's own heading structure in noise.
+        heading={false}
+        icon={group ? (group.icon ?? undefined) : "🗂️"}
+        title={group ? group.name : "Uncategorized"}
+        badge={
+          group && (group.userId === null || group.hidden) ? (
+            <span className="flex gap-2">
+              {group.userId === null && <StatusPill>Built-in</StatusPill>}
+              {group.hidden && <StatusPill>Hidden</StatusPill>}
+            </span>
+          ) : undefined
+        }
+        meta={categories.length}
+        contentClassName="mt-3"
+        actions={
+          group ? (
+            // Same icon-then-text treatment as the category rows below, so a group header and the
+            // rows inside it don't disagree about how an action is presented at the same width.
+            // These carry the group's name too, since a page shows many of them at once.
+            <>
+              {isOwnGroup && (
+                <ActionButton
+                  variant="secondary"
+                  icon="✏️"
+                  label="Rename"
+                  name={`Rename ${group.name}`}
+                  onClick={() => groupHandlers.onStartEditGroup(group)}
+                />
+              )}
+              {group.hidden ? (
+                <ActionButton
+                  variant="secondary"
+                  icon="👁️"
+                  label="Unhide"
+                  name={`Unhide ${group.name}`}
+                  onClick={() => groupHandlers.onUnhideGroup(group.id)}
+                />
+              ) : (
+                <ActionButton
+                  variant="secondary"
+                  icon="🙈"
+                  label="Hide"
+                  name={`Hide ${group.name}`}
+                  onClick={() => groupHandlers.onHideGroup(group.id)}
+                />
+              )}
+            </>
+          ) : undefined
+        }
+      >
+        <>
           {isEditingGroup ? (
             <div className="mb-3 flex flex-col gap-2 rounded-lg border border-border bg-surface-muted p-3">
               <div className="flex gap-2">
@@ -497,8 +478,8 @@ function GroupSection({
               ))}
             </ul>
           )}
-        </div>
-      )}
+        </>
+      </CollapsibleSection>
     </div>
   );
 }
