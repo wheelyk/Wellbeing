@@ -75,8 +75,27 @@ them is the point.
   | Group by reminder alone, ignoring state | `does not merge slots whose state differs`                                |
   | Collapse every group regardless of size | 5 tests, including `merges several reminders into one chronological list` |
 
-**What this does not prove.** No browser has rendered a collapsed row yet — the frontend half sits
-with the panel, on its own branch. The `MAX_SLOT_EXPANSION` ceiling has no test: reaching it needs
+- **Driven end to end in a real browser**, by merging this branch with the panel's into a throwaway
+  branch - an hourly reminder plus a two-time one, with quiet hours from 22:00:
+
+  ```
+  endpoint: [{"t":"15:00","who":"Water","state":"scheduled","x":7,"last":"21:00"},
+             {"t":"21:00","who":"Sertraline","state":"scheduled"},
+             {"t":"22:00","who":"Water","state":"held"},
+             {"t":"23:00","who":"Water","state":"held"}]
+
+  panel:    Coming up | 4 | Today | 7 days | 30 days | TODAY |
+            15:00 | 💧 Water | 7 times, until 21:00 |
+            21:00 | 💊 Sertraline |
+            22:00 | 💧 Water | Quiet hours — arrives at 08:00 | Held |
+            23:00 | 💧 Water | Quiet hours — arrives at 08:00 | Held
+  ```
+
+  Four rows where there were eleven. All three rules are visible at once: the seven-slot cadence
+  merged, the two held slots stayed separate from it _and_ stayed listed (two is below the
+  threshold), and the hand-written 21:00 was never touched.
+
+**What this does not prove.** The `MAX_SLOT_EXPANSION` ceiling has no test: reaching it needs
 several every-fifteen-minutes reminders across thirty days, and the setup cost outweighs what it
 would demonstrate about a guard whose only job is to stop counting.
 
