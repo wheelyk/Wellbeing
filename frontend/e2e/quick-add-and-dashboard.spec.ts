@@ -20,14 +20,14 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
   // every account, even a brand new one, already sees the 11 seeded system categories (Mood/
   // Energy/Stress plus every system symptom - see backend/prisma/seed.ts) here, with Mood itself
   // selectable directly from the picker rather than needing to be created. Since Phase 18, saving
-  // this first entry promotes Mood into its own "Recent Mood" Dashboard card (see
+  // this first entry promotes Mood into its own Dashboard card (see
   // docs/log/18-per-category-dashboard-cards.md) rather than an inline "Mood: 5/5" line.
   await page.getByRole("button", { name: "Quick add" }).click();
   await page.waitForSelector("text=Log an entry");
   await page.locator("#category-picker").selectOption({ label: "Mood" });
   await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "5" }).click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector("text=Recent Mood");
+  await page.waitForSelector('h2:text-is("Mood")');
 
   // Category #1: a "scale" category (1-10), standing in for what a migrated Symptom now looks
   // like - reached via "+ Add a new category" since a category (Mood) already exists by this
@@ -47,7 +47,7 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
     .getByRole("radio", { name: "6" })
     .click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector("text=Recent E2E Test Scale Category");
+  await page.waitForSelector('h2:text-is("E2E Test Scale Category")');
 
   // Category #2: a "boolean" category, standing in for what a migrated Medication dose now looks
   // like - same "Log an entry" -> "+ Add a new category" path as Category #1 above.
@@ -61,7 +61,7 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
   await page.waitForSelector("text=Log an entry");
   await page.getByRole("radio", { name: "Yes" }).click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector("text=Recent E2E Test Medication");
+  await page.waitForSelector('h2:text-is("E2E Test Medication")');
 
   // Category #3: a second "boolean" category, standing in for what a migrated Habit now looks
   // like - same "Log an entry" -> "+ Add a new category" path as above.
@@ -75,7 +75,7 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
   await page.waitForSelector("text=Log an entry");
   await page.getByRole("radio", { name: "Yes" }).click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector("text=Recent E2E Test Category");
+  await page.waitForSelector('h2:text-is("E2E Test Category")');
 
   // The unified "Recent entries" card at the top of Dashboard is the actual assertion this
   // scenario cares about: one card reflecting all four just-logged entries together, not just

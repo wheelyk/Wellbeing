@@ -95,6 +95,27 @@ checked at desktop width, or in dark mode. And no test covers the wiring between
 `cooldownRemaining`; the pure function is tested and the browser run shows the result, but there is
 no unit test that would fail if the card stopped passing `timing` through.
 
+### Correction — the E2E suite was left broken
+
+Dropping "Recent" from the card titles broke six `waitForSelector("text=Recent …")` calls across
+`frontend/e2e/`. The unit suite was green and the change merged; **E2E only runs on PR branches**,
+and this PR never got a run before merging, so the breakage surfaced on the _next_ PR to run against
+main — where it looked like that PR's fault.
+
+Two things worth taking from it:
+
+- **The unit suite finding six stale references is not the same as finding all of them.** Six were
+  caught in `CategorySection.test.tsx` and updated; six more sat in a suite that does not run
+  locally by default (`npm run test:e2e`, separate from `npm test`). Changing user-visible copy
+  means grepping for that copy, not only running the tests that happen to be wired up.
+- **The replacements are stricter than the originals.** `text=Recent Mood` matched a substring
+  anywhere on the page; `h2:text-is("Mood")` matches the card heading exactly, so it cannot pass
+  on a picker option or a log row while the card itself is missing.
+
+Verified against the running app rather than by reading: the new selector matches, the old one does
+not (confirming it really was broken), and `text=Recent entries` - the Dashboard summary card,
+which keeps that name - still matches, confirming the fix did not over-reach.
+
 ### Known limitations and follow-ups
 
 - **The category icons on History dates**, once the response carries the category rather than a
