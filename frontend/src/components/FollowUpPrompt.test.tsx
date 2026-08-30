@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { FollowUpPrompt, intervalsThatFitToday } from "./FollowUpPrompt";
+import { FollowUpPrompt, offeredIntervals } from "./FollowUpPrompt";
 import { apiFetch } from "../api/client";
 
 vi.mock("../api/client", () => ({ apiFetch: vi.fn() }));
@@ -25,21 +25,15 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("intervalsThatFitToday", () => {
-  // The API refuses a follow-up that would cross midnight - it would otherwise read to the
-  // scheduler as a time already passed today and fire immediately. So anything that can't fit is
-  // never offered, rather than offered and then rejected.
-  it("offers everything early in the day", () => {
-    expect(intervalsThatFitToday(new Date(2026, 7, 29, 9, 0)).map((i) => i.minutes)).toEqual([
+describe("offeredIntervals", () => {
+  // These used to be filtered by how much of the day was left, because a follow-up that crossed
+  // midnight was refused outright. Reminder.startsAt made that expressible, so every interval is
+  // now offered at any hour - late at night included, which is exactly when a six-hour gap needs
+  // to be able to reach into tomorrow.
+  it("offers every interval regardless of the hour", () => {
+    expect(offeredIntervals().map((i: { minutes: number }) => i.minutes)).toEqual([
       30, 60, 120, 240,
     ]);
-  });
-
-  it("drops the intervals that would land tomorrow", () => {
-    expect(intervalsThatFitToday(new Date(2026, 7, 29, 22, 30)).map((i) => i.minutes)).toEqual([
-      30, 60,
-    ]);
-    expect(intervalsThatFitToday(new Date(2026, 7, 29, 23, 40)).map((i) => i.minutes)).toEqual([]);
   });
 });
 
@@ -51,17 +45,16 @@ describe("FollowUpPrompt", () => {
     expect(screen.getByRole("button", { name: "4 hours" })).toBeInTheDocument();
   });
 
-  it("renders nothing at all when the day is too far gone to fit any of them", () => {
+  it("still offers every interval late at night, when one would land tomorrow", () => {
     vi.setSystemTime(new Date(2026, 7, 29, 23, 45, 0));
-    const { container } = render(
-      <FollowUpPrompt categoryId="cat-1" categoryName="Water" onDismiss={vi.fn()} />,
-    );
+    renderPrompt();
 
-    expect(container).toBeEmptyDOMElement();
+    expect(screen.getByRole("button", { name: "30 min" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "4 hours" })).toBeInTheDocument();
   });
 
   it("asks the server for the follow-up and reports the time it will fire", async () => {
-    apiFetchMock.mockResolvedValue({ firesAtLocal: "13:00" });
+    apiFetchMock.mockResolvedValue({ firesAtLocal: "13:00", firesTomorrow: false });
     renderPrompt();
     const user = userEvent.setup();
 
@@ -77,6 +70,7 @@ describe("FollowUpPrompt", () => {
 
     expect(await screen.findByText(/We'll remind you about Water at/)).toBeInTheDocument();
     expect(screen.getByText("13:00")).toBeInTheDocument();
+    expect(screen.queryByText(/tomorrow/)).not.toBeInTheDocument();
     // The choice has been made, so the offer is gone rather than inviting a second one.
     expect(screen.queryByRole("button", { name: "30 min" })).not.toBeInTheDocument();
   });
@@ -93,6 +87,19 @@ describe("FollowUpPrompt", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Your entry was still saved.");
     // Still offered, so a transient failure can simply be retried.
     expect(screen.getByRole("button", { name: "1 hour" })).toBeEnabled();
+  });
+
+  // "at 03:46" on its own reads as this morning, which is already past. Once a follow-up can land
+  // on the other side of midnight, the day has to be said out loud.
+  it("says tomorrow when the follow-up lands after midnight", async () => {
+    apiFetchMock.mockResolvedValue({ firesAtLocal: "03:46", firesTomorrow: true });
+    renderPrompt();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "4 hours" }));
+
+    expect(await screen.findByText(/We'll remind you about Water tomorrow at/)).toBeInTheDocument();
+    expect(screen.getByText("03:46")).toBeInTheDocument();
   });
 
   it("can be dismissed without setting anything", async () => {

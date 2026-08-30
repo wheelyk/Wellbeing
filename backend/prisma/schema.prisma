@@ -345,6 +345,15 @@ model Reminder {
   // against that timezone every time to mean anything. The interpretation ("the end of today, for
   // this user") happens once instead, at the API boundary where the timezone is already in hand -
   // see routes/reminders.ts.
+  // The mirror of expiresAt below: a moment this reminder must not fire *before*.
+  //
+  // Needed because cron cannot express a beginning any more than it can express an ending, and the
+  // scheduler deliberately fires late (see reminderEligibility.ts - better a late reminder than
+  // none after a restart). Those two together mean a one-shot for 03:46 created at 21:46 today
+  // reads as a slot that has already passed, and arrives immediately. startsAt is what makes "not
+  // yet" expressible, and it is what lets a follow-up - or a cooldown's "you can have another
+  // now" - land on the other side of midnight.
+  startsAt        DateTime?      @map("starts_at")
   expiresAt       DateTime?      @map("expires_at")
   // What stops this reminder for the day. True (the default, and how every reminder behaved before
   // this column existed) means logging its target silences it until tomorrow - "nudge me until I

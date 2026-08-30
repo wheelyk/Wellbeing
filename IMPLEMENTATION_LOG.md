@@ -397,3 +397,7 @@ project's own sessions.
 ### [Category Timing: Reminder, Cooldown, or Stopwatch (Backend)](docs/log/39-category-timing.md)
 
 - 2026-08-29 — "A timer or a reminder" turns out to be three questions
+
+### [A Reminder That Knows Not To Fire Yet](docs/log/40-reminder-starts-at.md)
+
+- 2026-08-29 — Cron can't express a beginning either

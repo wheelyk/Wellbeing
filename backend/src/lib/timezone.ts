@@ -109,12 +109,19 @@ export function todayInTimezone(timeZone: string): string {
 // same shape each entry in `Reminder.times` is stored in, so the reminder scheduler can compare
 // the two directly as strings rather than parsing either one into numbers first.
 export function currentTimeInTimezone(timeZone: string): string {
+  return timeInTimezone(new Date(), timeZone);
+}
+
+// The same thing for an arbitrary instant rather than "now" - needed once a reminder can carry a
+// moment it must not fire before (Reminder.startsAt), since that moment has to be compared against
+// the "HH:mm" slots the schedule expands to, in the same timezone they are read in.
+export function timeInTimezone(date: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone,
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
-  }).format(new Date());
+  }).format(date);
 }
 
 // Shifts a "YYYY-MM-DD" calendar-date string by `days` (negative moves backward), purely as

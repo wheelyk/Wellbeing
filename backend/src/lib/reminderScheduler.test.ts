@@ -55,6 +55,7 @@ async function createReminder(
     schedules?: string[];
     enabled?: boolean;
     expiresAt?: Date | null;
+    startsAt?: Date | null;
     stopsWhenLogged?: boolean;
   } = {},
 ) {
@@ -66,6 +67,7 @@ async function createReminder(
       schedules: overrides.schedules ?? ["0 20 * * *"],
       enabled: overrides.enabled ?? true,
       expiresAt: overrides.expiresAt ?? null,
+      startsAt: overrides.startsAt ?? null,
       stopsWhenLogged: overrides.stopsWhenLogged ?? true,
     },
   });
@@ -332,6 +334,66 @@ describe("runReminderTick", () => {
       await runReminderTick();
 
       expect(sendNotification).not.toHaveBeenCalled();
+    });
+  });
+
+  // startsAt is the mirror of expiresAt, and exists for one specific failure: the scheduler fires
+  // late on purpose, so without it a one-shot created this evening for tomorrow morning would be
+  // read as a slot that had already passed, and delivered immediately.
+  describe("reminders that have not started yet", () => {
+    it("does not fire a slot earlier than the start time on the day it starts", async () => {
+      const user = await registerUser("starts-later-today");
+      await addSubscription(user.id, "starts-later-today");
+      // "Now" is 20:05 (see beforeEach) and the slot is 20:00 - due, and would fire. But the
+      // reminder does not begin until 22:00 today, so 20:00 was never one of its slots.
+      await createReminder(user.id, {
+        startsAt: new Date("2026-08-22T22:00:00.000Z"),
+      });
+
+      await runReminderTick();
+
+      expect(sendNotification).not.toHaveBeenCalled();
+    });
+
+    it("fires normally on a later day, when every slot is after the start", async () => {
+      const user = await registerUser("started-yesterday");
+      await addSubscription(user.id, "started-yesterday");
+      // Started yesterday evening; today's 20:00 slot is legitimately after it.
+      await createReminder(user.id, {
+        startsAt: new Date("2026-08-21T22:00:00.000Z"),
+      });
+
+      await runReminderTick();
+
+      expect(sendNotification).toHaveBeenCalledTimes(1);
+    });
+
+    it("fires a slot at or after the start time on the starting day", async () => {
+      const user = await registerUser("starts-earlier-today");
+      await addSubscription(user.id, "starts-earlier-today");
+      await createReminder(user.id, {
+        startsAt: new Date("2026-08-22T19:00:00.000Z"),
+      });
+
+      await runReminderTick();
+
+      expect(sendNotification).toHaveBeenCalledTimes(1);
+    });
+
+    it("is not a candidate at all while its start is still in the future", async () => {
+      const user = await registerUser("starts-tomorrow");
+      await addSubscription(user.id, "starts-tomorrow");
+      const reminder = await createReminder(user.id, {
+        startsAt: new Date("2026-08-23T08:00:00.000Z"),
+      });
+
+      await runReminderTick();
+
+      expect(sendNotification).not.toHaveBeenCalled();
+      // Not merely unsent - never considered, so nothing was recorded as handled either.
+      expect(await prisma.reminderSend.findMany({ where: { reminderId: reminder.id } })).toEqual(
+        [],
+      );
     });
   });
 

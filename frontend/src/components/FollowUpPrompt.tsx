@@ -26,17 +26,12 @@ const INTERVALS = [
   { minutes: 240, label: "4 hours" },
 ];
 
-// A follow-up only runs for the rest of today - the API refuses one that would cross midnight
-// rather than quietly delivering it immediately (a "02:00" slot created at 22:00 reads to the
-// scheduler as a time that has already passed today, so it would fire at once). The ones that
-// can't fit are therefore never offered: an option that always errors is worse than no option.
-//
-// The browser's own clock decides what to *offer*, which is fine - it can only be wrong by the gap
-// between the device's timezone and the account's, and the server still has the final say on what
-// actually gets created.
-export function intervalsThatFitToday(now = new Date()): typeof INTERVALS {
-  const minutesLeft = 24 * 60 - (now.getHours() * 60 + now.getMinutes());
-  return INTERVALS.filter((interval) => interval.minutes < minutesLeft);
+// Every interval is offered, at any hour. A follow-up used to be refused if it crossed midnight -
+// the scheduler fires late by design, so a slot for "02:00" created at 22:00 read as already gone
+// by and arrived at once - but Reminder.startsAt now makes "not before this moment" expressible, so
+// one can legitimately land tomorrow morning. See docs/log/40-reminder-starts-at.md.
+export function offeredIntervals(): typeof INTERVALS {
+  return INTERVALS;
 }
 
 interface FollowUpPromptProps {
@@ -47,20 +42,23 @@ interface FollowUpPromptProps {
 
 export function FollowUpPrompt({ categoryId, categoryName, onDismiss }: FollowUpPromptProps) {
   const [saving, setSaving] = useState<number | null>(null);
-  const [firesAt, setFiresAt] = useState<string | null>(null);
+  const [firesAt, setFiresAt] = useState<{ time: string; tomorrow: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const intervals = intervalsThatFitToday();
+  const intervals = offeredIntervals();
 
   async function choose(minutes: number) {
     setSaving(minutes);
     setError(null);
     try {
-      const result = await apiFetch<{ firesAtLocal: string }>("/api/reminders/follow-up", {
-        method: "POST",
-        body: JSON.stringify({ target: "category", categoryId, inMinutes: minutes }),
-      });
-      setFiresAt(result.firesAtLocal);
+      const result = await apiFetch<{ firesAtLocal: string; firesTomorrow: boolean }>(
+        "/api/reminders/follow-up",
+        {
+          method: "POST",
+          body: JSON.stringify({ target: "category", categoryId, inMinutes: minutes }),
+        },
+      );
+      setFiresAt({ time: result.firesAtLocal, tomorrow: result.firesTomorrow });
     } catch {
       // Says plainly that the entry itself is safe. The two actions are independent, and someone
       // who reads only "couldn't set that" would reasonably fear they had lost the log as well.
@@ -70,17 +68,15 @@ export function FollowUpPrompt({ categoryId, categoryName, onDismiss }: FollowUp
     }
   }
 
-  // Nothing left of today to fit even the shortest follow-up into, so there is nothing to offer -
-  // and no reason to take up a row saying so.
-  if (intervals.length === 0 && !firesAt) return null;
-
   return (
     <div className="mb-3 rounded-lg border border-border bg-surface-muted px-3 py-2">
       <div className="flex items-start justify-between gap-2">
         {firesAt ? (
           <p role="status" className="text-sm text-text">
-            We&apos;ll remind you about {categoryName} at{" "}
-            <span className="font-medium tabular-nums">{firesAt}</span>.
+            {/* "at 03:46" alone would read as this morning, which is already past - the day has to
+                be said out loud once a follow-up can land on the other side of midnight. */}
+            We&apos;ll remind you about {categoryName} {firesAt.tomorrow ? "tomorrow at" : "at"}{" "}
+            <span className="font-medium tabular-nums">{firesAt.time}</span>.
           </p>
         ) : (
           <p className="text-sm text-text-muted">Remind you again in…</p>
