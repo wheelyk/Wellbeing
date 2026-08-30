@@ -19,7 +19,7 @@ describe("CategorySection", () => {
     vi.restoreAllMocks();
   });
 
-  it("gives an already-logged category its own 'Recent <name>' card showing just the value", async () => {
+  it("gives an already-logged category its own card, titled with just its name", async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/api/categories") && !url.includes("logs")) {
         return Promise.resolve(
@@ -59,7 +59,7 @@ describe("CategorySection", () => {
 
     render(<CategorySection />);
 
-    expect(await screen.findByText("Recent 💧 Water intake")).toBeInTheDocument();
+    expect(await screen.findByText("Water intake")).toBeInTheDocument();
     expect(await screen.findByText("6")).toBeInTheDocument();
   });
 
@@ -91,7 +91,7 @@ describe("CategorySection", () => {
     render(<CategorySection />);
 
     await screen.findByText("Log a category");
-    expect(screen.queryByText("Recent Reading")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reading")).not.toBeInTheDocument();
   });
 
   it("shows a 'create your first category' empty state when the user has none yet", async () => {
@@ -223,12 +223,12 @@ describe("CategorySection", () => {
 
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<CategorySection />);
-    await screen.findByText("Recent Read today");
+    await screen.findByText("Read today");
     await screen.findByText("Done");
 
     await user.click(screen.getByRole("button", { name: /delete entry/i }));
 
-    await waitFor(() => expect(screen.queryByText("Recent Read today")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Read today")).not.toBeInTheDocument());
   });
 
   it("promotes a category into its own card once logged for the first time via the discovery flow", async () => {
@@ -276,7 +276,7 @@ describe("CategorySection", () => {
     await user.type(screen.getByLabelText("Duration (minutes)"), "15");
     await user.click(screen.getByRole("button", { name: /save entry/i }));
 
-    expect(await screen.findByText("Recent Meditation")).toBeInTheDocument();
+    expect(await screen.findByText("Meditation")).toBeInTheDocument();
   });
 
   // Regression test: the discovery picker used to only offer categories with no card of their
@@ -330,7 +330,7 @@ describe("CategorySection", () => {
     const user = userEvent.setup();
 
     render(<CategorySection />);
-    await screen.findByText("Recent Headache");
+    await screen.findByText("Headache");
 
     await user.click(screen.getByRole("button", { name: "Add category entry" }));
 
@@ -394,7 +394,7 @@ describe("CategorySection", () => {
     const user = userEvent.setup();
 
     render(<CategorySection />);
-    await screen.findByText("Recent Headache");
+    await screen.findByText("Headache");
     await screen.findByText("6/10");
 
     await user.click(screen.getByRole("button", { name: "Add category entry" }));
@@ -466,7 +466,7 @@ describe("CategorySection", () => {
     const user = userEvent.setup();
 
     render(<CategorySection />);
-    await screen.findByText("Recent Headache");
+    await screen.findByText("Headache");
     await screen.findByText("6/10");
 
     await user.click(screen.getByRole("button", { name: "Add category entry" }));

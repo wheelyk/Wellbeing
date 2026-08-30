@@ -309,6 +309,12 @@ export function HistoryPage() {
                 <CollapsibleSection
                   title={dateHeading(group.key)}
                   storageKey={`history.${group.key}`}
+                  // So a closed day still says whether it is worth opening. The categories logged
+                  // that day would say more still, but the history entry carries only a formatted
+                  // "Name: value" label - splitting that string to recover the name is the kind of
+                  // fragile parsing that breaks the first time a category name contains a colon.
+                  // It wants a real field on the response instead; see docs/log/44.
+                  meta={group.entries.length}
                 >
                   <ul className="flex flex-col gap-2">
                     {group.entries.map((entry) => (

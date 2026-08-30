@@ -17,6 +17,10 @@ export interface Category {
   // a normal, supported state, not a category that's missing something. See
   // docs/log/23-category-groups.md.
   groupId: string | null;
+  // The caller's own "what happens when I log this" setting - a reminder, a cooldown, or a
+  // stopwatch (see docs/log/39-category-timing.md). Null when unset, which is most of them.
+  // Optional here rather than required because the admin endpoints return categories without it.
+  timing?: { mode: "reminder" | "cooldown" | "stopwatch"; intervalMinutes: number | null } | null;
 }
 
 // The shape GET /api/category-groups returns - see backend/src/routes/categoryGroups.ts. Kept
