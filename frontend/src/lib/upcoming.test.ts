@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { describeState, groupRunsByDay, stateLabel, type UpcomingRun } from "./upcoming";
+import { describeRun, groupRunsByDay, stateLabel, type UpcomingRun } from "./upcoming";
 
 const run = (over: Partial<UpcomingRun> = {}): UpcomingRun => ({
   date: "2026-08-30",
@@ -52,28 +52,47 @@ describe("groupRunsByDay", () => {
   });
 });
 
-describe("describeState", () => {
+describe("describeRun", () => {
   // Held is not lost. Saying when it will actually arrive is the entire point of the state - "held"
   // on its own would read as "you won't get this".
   it("says when a held reminder will actually arrive", () => {
-    expect(describeState(run({ state: "held", deliveredAt: "08:00" }))).toBe(
+    expect(describeRun(run({ state: "held", deliveredAt: "08:00" }))).toBe(
       "Quiet hours — arrives at 08:00",
     );
   });
 
   it("still explains a held reminder with no delivery time", () => {
-    expect(describeState(run({ state: "held" }))).toBe("Quiet hours");
+    expect(describeRun(run({ state: "held" }))).toBe("Quiet hours");
   });
 
   it("explains why a run will not fire", () => {
-    expect(describeState(run({ state: "logged" }))).toMatch(/won't fire/);
-    expect(describeState(run({ state: "paused" }))).toMatch(/switched off/);
+    expect(describeRun(run({ state: "logged" }))).toMatch(/won't fire/);
+    expect(describeRun(run({ state: "paused" }))).toMatch(/switched off/);
   });
 
   // An ordinary due reminder needs no explanation, and a line saying "scheduled" under every row
   // would be noise on the common case.
   it("says nothing about an ordinary scheduled run", () => {
-    expect(describeState(run())).toBeNull();
+    expect(describeRun(run())).toBeNull();
     expect(stateLabel("scheduled")).toBeNull();
+  });
+
+  // A collapsed row stands for many slots, so "13:00" alone would understate it - the count and
+  // the last time are what make one row as informative as the eleven it replaced.
+  it("says how many times a collapsed cadence repeats, and how late it runs", () => {
+    expect(describeRun(run({ repeatCount: 11, lastTime: "23:00" }))).toBe("11 times, until 23:00");
+  });
+
+  // Both facts can be true at once - eleven held slots need to say both - so they are joined
+  // rather than one silently winning.
+  it("says both the repeat and the reason when a collapsed run is also held", () => {
+    expect(
+      describeRun(run({ repeatCount: 4, lastTime: "23:00", state: "held", deliveredAt: "08:00" })),
+    ).toBe("4 times, until 23:00 · Quiet hours — arrives at 08:00");
+  });
+
+  it("says nothing extra about a single ordinary run", () => {
+    expect(describeRun(run())).toBeNull();
+    expect(describeRun(run({ repeatCount: 1 }))).toBeNull();
   });
 });

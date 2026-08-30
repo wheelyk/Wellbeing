@@ -114,9 +114,9 @@ exercised through the server's cap, not through a response deliberately built to
   category, or offer to snooze it.
 - **Twelve is a guess.** It is enough to fill a phone screen without dominating it, but it was
   chosen by looking at one screen, not by measuring anything.
-- **Consecutive identical runs are not collapsed.** "💊 Sertraline, hourly, 12:00–23:00" would say
-  more in one row than twelve rows do. That is the better fix for the wall-of-rows problem; the cap
-  is the cheap one.
+- **The twelve-row cap is the cheap fix; collapsing is the real one.** Done in
+  [46](46-collapsing-repeated-runs.md), server-side - a collapsed row now reads "11 times, until
+  23:00". The cap stays as the backstop for the case where many _different_ reminders are due.
 - **The panel refetches only when the range changes.** Logging something that satisfies a
   `stopsWhenLogged` reminder will not update the list until the next page load.
 

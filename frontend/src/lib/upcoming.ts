@@ -21,6 +21,10 @@ export interface UpcomingRun {
   state: UpcomingState;
   /** Only on a held run: the local time quiet hours end and it will actually arrive. */
   deliveredAt?: string;
+  /** Present only when this entry stands for more than one slot - a cadence the server merged
+   *  into one row (see docs/log/46-collapsing-repeated-runs.md). `time` is still the first. */
+  repeatCount?: number;
+  lastTime?: string;
 }
 
 export interface UpcomingResponse {
@@ -81,7 +85,21 @@ export function groupRunsByDay(runs: UpcomingRun[], today: string): UpcomingDay[
 }
 
 /** The line under a run, when there is something worth saying about why it is not simply due. */
-export function describeState(run: UpcomingRun): string | null {
+// The line under a run. A collapsed cadence says how many and how late it goes, since "13:00" alone
+// would understate a row standing for eleven slots; a state explains why it will not simply fire.
+// Both can be true at once - eleven held slots need to say both things - so they are joined rather
+// than one winning.
+export function describeRun(run: UpcomingRun): string | null {
+  const parts: string[] = [];
+  if (run.repeatCount && run.repeatCount > 1) {
+    parts.push(`${run.repeatCount} times, until ${run.lastTime}`);
+  }
+  const state = describeState(run);
+  if (state) parts.push(state);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function describeState(run: UpcomingRun): string | null {
   switch (run.state) {
     case "held":
       // Held, not dropped - it still arrives, just not in the middle of the night. Saying when is

@@ -3,7 +3,7 @@ import { apiFetch } from "../../api/client";
 import { CollapsibleSection } from "../CollapsibleSection";
 import {
   UPCOMING_RANGES,
-  describeState,
+  describeRun,
   groupRunsByDay,
   stateLabel,
   type UpcomingRange,
@@ -124,7 +124,7 @@ export function UpcomingRemindersPanel() {
               </p>
               <ul className="mt-2 flex flex-col gap-2">
                 {day.runs.map((run) => {
-                  const detail = describeState(run);
+                  const detail = describeRun(run);
                   const pill = stateLabel(run.state);
                   return (
                     <li
