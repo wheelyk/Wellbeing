@@ -425,3 +425,7 @@ project's own sessions.
 ### [Collapsing a Cadence Into One Row](docs/log/46-collapsing-repeated-runs.md)
 
 - 2026-08-30 — Twenty-four rows that say one thing
+
+### [Recent Reminders: What Happened, and What Didn't](docs/log/47-recent-reminders.md)
+
+- 2026-08-30 — The backward-looking half of the Timeline

@@ -620,6 +620,164 @@ remindersRouter.post("/follow-up", async (req, res) => {
   });
 });
 
+// How far back "Recent" may look - the same three choices /upcoming offers going forward, for
+// the same reason: each answers a different question (today so far, this week, this month), and
+// an open range invites scanning a year of history for a home-page glance.
+const RECENT_DAY_OPTIONS = ["1", "3", "7"] as const;
+const recentDaysSchema = z.enum(RECENT_DAY_OPTIONS).default("1").transform(Number);
+
+// Reuses two of UpcomingRunState's own outcomes rather than inventing a parallel enum - "paused"
+// and "logged" mean exactly the same thing looking backward as they do looking forward. "missed"
+// is the one truly new idea: a slot that was due, on a day that has already ended, with nothing
+// logged against its target that day.
+type RecentRunState = "logged" | "missed" | "paused";
+
+interface RecentRun {
+  date: string;
+  time: string;
+  reminderId: string;
+  target: string;
+  category: { name: string; icon: string | null } | null;
+  state: RecentRunState;
+}
+
+// "What happened, and what didn't" - the backward-looking half of /upcoming, sharing its firing
+// rules rather than re-deriving them (see lib/reminderRuns.ts's own comment on why that matters).
+//
+// A reminder whose target was logged on a given day reports "logged" for that day, regardless of
+// which of its own slots is being looked at - the underlying rule is "has this been logged today",
+// not "was this exact slot logged", and the same day-level granularity applies looking backward. A
+// reminder that is currently switched off reports "paused" (this is not versioned - there is no
+// record of when a reminder was toggled, so "paused" reflects its state now, applied uniformly to
+// every day in the window). Anything else due on a day that has fully ended and was not logged
+// reports "missed" - except a reminder with stopsWhenLogged: false, which never gets a missed row
+// at all: a rhythm reminder ("drink water every 2 hours") is not waiting on you to do something
+// once, so there is nothing it can have failed to do. See docs/log/47-recent-reminders.md.
+remindersRouter.get("/recent", async (req, res) => {
+  const parsedDays = recentDaysSchema.safeParse(req.query.days);
+  if (!parsedDays.success) {
+    return res.status(400).json({
+      error: {
+        message: "Invalid range",
+        code: "VALIDATION_ERROR",
+        details: { days: [`days must be one of ${RECENT_DAY_OPTIONS.join(", ")}`] },
+      },
+    });
+  }
+  const days = parsedDays.data;
+
+  const user = await prisma.user.findUnique({
+    where: { id: req.userId },
+    select: { timezone: true },
+  });
+  if (!user) {
+    return res.status(404).json({ error: { message: "User not found", code: "USER_NOT_FOUND" } });
+  }
+  const timezone = user.timezone;
+  const today = todayInTimezone(timezone);
+
+  const reminders = await prisma.reminder.findMany({
+    where: { userId: req.userId },
+    orderBy: { createdAt: "asc" },
+    include: REMINDER_INCLUDE,
+  });
+
+  // "Was this target logged on this day" - memoised per (target, day) rather than per reminder,
+  // for the same reason /upcoming memoises per target: two reminders about the same category, or
+  // one reminder with several slots in a day, all share one answer, so it is asked once.
+  const loggedOnDay = new Map<string, Promise<boolean>>();
+  function wasLoggedOn(
+    reminder: { target: PrismaReminderTarget; categoryId: string | null },
+    date: string,
+  ) {
+    const target = reminder.target === "CATEGORY" ? `CATEGORY:${reminder.categoryId}` : "GENERAL";
+    const key = `${date}|${target}`;
+    let answer = loggedOnDay.get(key);
+    if (!answer) {
+      const { start, end } = getDayRangeUtc(date, timezone);
+      answer = hasLoggedTarget(reminder, req.userId as string, start, end);
+      loggedOnDay.set(key, answer);
+    }
+    return answer;
+  }
+
+  const runs: RecentRun[] = [];
+  let truncated = false;
+  let rawSlotsSeen = 0;
+
+  // Oldest day first, ascending toward today - the far end of the window through "yesterday",
+  // then today's own already-elapsed slots. `days` counts backward from today; the first
+  // iteration is `days - 1` days ago, the last is today itself.
+  outer: for (let offset = days - 1; offset >= 0; offset -= 1) {
+    const date = addDaysToDateStr(today, -offset);
+    const isToday = offset === 0;
+    const nowLocalTime = isToday ? currentTimeInTimezone(timezone) : null;
+
+    // One row per reminder per day, not one per slot - a "Diazepam" reminder with three times a day
+    // that went unlogged is one missed day, not three missed doses, matching how /upcoming's own
+    // "logged" state already collapses a whole day to a single verdict.
+    for (const reminder of reminders) {
+      if (rawSlotsSeen >= MAX_SLOT_EXPANSION) {
+        truncated = true;
+        break outer;
+      }
+      rawSlotsSeen += 1;
+
+      const slots = reminderSlotsForDate({
+        date,
+        schedules: reminder.schedules,
+        timeZone: timezone,
+        startsAt: reminder.startsAt,
+        expiresAt: reminder.expiresAt,
+      });
+      if (slots.length === 0) continue;
+
+      // Today's own slots stop at "now" - a 21:00 reminder at 14:00 has not been missed, it simply
+      // has not come up yet, and belongs on /upcoming instead. Every earlier day already ended in
+      // full, so every one of its slots is eligible.
+      const eligible = isToday ? slots.filter((time) => time <= (nowLocalTime as string)) : slots;
+      if (eligible.length === 0) continue;
+
+      let state: RecentRunState;
+      if (!reminder.enabled) {
+        state = "paused";
+      } else if (await wasLoggedOn(reminder, date)) {
+        state = "logged";
+      } else if (!reminder.stopsWhenLogged) {
+        // A rhythm reminder has nothing to have missed - see this route's own comment above.
+        continue;
+      } else {
+        // Reached only for a slot `eligible` already confirmed is due: any past day in full, or
+        // today's own already-elapsed slots. There is no "too soon to call it missed" case left to
+        // handle here - that filtering already happened above, before the state was ever asked.
+        state = "missed";
+      }
+
+      if (runs.length >= MAX_UPCOMING_RUNS) {
+        truncated = true;
+        break outer;
+      }
+      runs.push({
+        date,
+        time: eligible[0],
+        reminderId: reminder.id,
+        target: toApiReminderTarget(reminder.target),
+        category: reminder.category,
+        state,
+      });
+    }
+  }
+
+  // Chronological, oldest first - already close to this order from the day-by-day walk, but not
+  // guaranteed within a day (reminders are visited in created-order, not slot-time order), so a
+  // single stable sort finishes the job.
+  runs.sort((a, b) =>
+    a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date),
+  );
+
+  res.json({ timezone, today, truncated, runs });
+});
+
 remindersRouter.post("/", async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
