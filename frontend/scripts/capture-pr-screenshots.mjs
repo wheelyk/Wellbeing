@@ -83,7 +83,7 @@ await page.waitForSelector("text=Log an entry");
 await page.locator("#category-picker").selectOption({ label: "Mood" });
 await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "5" }).click();
 await page.getByRole("button", { name: /save entry/i }).click();
-await page.waitForSelector("text=Recent Mood");
+await page.waitForSelector(`h2:text-is("Mood")`);
 
 // A boolean category standing in for what a Medication dose now looks like (Medication unified
 // into Category - see docs/log/19-medication-to-category.md) - reached the same "+ Add a new
@@ -98,7 +98,7 @@ await page.getByRole("button", { name: /create category/i }).click();
 await page.waitForSelector("text=Log an entry");
 await page.getByRole("radio", { name: "Yes" }).click();
 await page.getByRole("button", { name: /save entry/i }).click();
-await page.waitForSelector("text=Recent Ibuprofen");
+await page.waitForSelector(`h2:text-is("Ibuprofen")`);
 
 await page.getByRole("button", { name: "Add category entry" }).click();
 await page.waitForSelector("text=Log an entry");
@@ -110,7 +110,7 @@ await page.getByRole("button", { name: /create category/i }).click();
 await page.waitForSelector("text=Log an entry");
 await page.getByRole("radio", { name: "Yes" }).click();
 await page.getByRole("button", { name: /save entry/i }).click();
-await page.waitForSelector("text=Recent Exercise");
+await page.waitForSelector(`h2:text-is("Exercise")`);
 
 await screenshot("04-dashboard-functioning-with-entries");
 
