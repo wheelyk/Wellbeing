@@ -417,3 +417,7 @@ project's own sessions.
 ### [Filling In What a Collapsed Panel Says](docs/log/44-panel-content.md)
 
 - 2026-08-30 — A count, a last value, and a countdown that needs no server
+
+### [Collapsing a Cadence Into One Row](docs/log/46-collapsing-repeated-runs.md)
+
+- 2026-08-30 — Twenty-four rows that say one thing

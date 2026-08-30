@@ -193,6 +193,29 @@ const UPCOMING_DAY_OPTIONS = ["1", "7", "30"] as const;
 // when something was actually cut, so a client can say "and more" honestly rather than always.
 const MAX_UPCOMING_RUNS = 200;
 
+// A separate ceiling on raw slots, because the cap above now counts *collapsed entries* and one
+// entry can stand for a whole day of an every-fifteen-minutes reminder. Without this, "200 entries"
+// would no longer bound the work - thirty days of several such reminders is tens of thousands of
+// expansions, all of them cheap and all of them pointless once the answer is a handful of rows.
+const MAX_SLOT_EXPANSION = 5000;
+
+// How many slots a reminder must exceed in one day before its entries merge into a single
+// "repeats" row.
+//
+// Six, because that is about where a list stops reading as a list. One or two or four times a day
+// is something a person chose and wants to see; a dozen is a wall, however it was expressed.
+//
+// An earlier version tied this to MAX_SCHEDULES (12) on the theory that the picker writes one
+// expression per time, so anything above that could not have been enumerated by hand. The theory
+// was tidy and the number was useless: an hourly reminder viewed at midday has only eleven slots
+// left today, so it never crossed the line and the panel still showed eleven rows - exactly the
+// problem the collapsing exists to fix.
+//
+// The cost of six is that a hand-written set of seven or more times collapses too, and reads as
+// "9 times, until 22:00" rather than nine rows. That is a mild loss on a rare case, against
+// fixing the common one.
+const COLLAPSE_ABOVE_SLOTS_PER_DAY = 6;
+
 // Why each state exists at all, since three of the four describe a run that will *not* happen:
 //
 //   scheduled - it will fire, at the date and time given.
@@ -216,6 +239,10 @@ interface UpcomingRun {
   state: UpcomingRunState;
   // Only present on a held run.
   deliveredAt?: string;
+  // Present only when this entry stands for more than one slot: how many, and the last of them.
+  // `time` is still the first. See the collapsing note above the loop for why this exists.
+  repeatCount?: number;
+  lastTime?: string;
 }
 
 const upcomingDaysSchema = z.enum(["1", "7", "30"]).default("1").transform(Number);
@@ -290,6 +317,8 @@ remindersRouter.get("/upcoming", async (req, res) => {
   // already logged, *and* inside quiet hours - and only one word fits in the response, so the one
   // that best explains "you will not hear from this" wins. Paused is the largest fact about a
   // reminder; logged silences the slot outright; held still delivers, just later.
+  type ResolvedState = { state: UpcomingRunState; deliveredAt?: string };
+
   async function stateOf(
     reminder: (typeof reminders)[number],
     time: string,
@@ -306,6 +335,7 @@ remindersRouter.get("/upcoming", async (req, res) => {
 
   const runs: UpcomingRun[] = [];
   let truncated = false;
+  let rawSlotsSeen = 0;
 
   // Day by day, ascending - which is what makes the result chronological without ever sorting the
   // whole list, and what lets the cap stop the work rather than just trim the output.
@@ -338,19 +368,70 @@ remindersRouter.get("/upcoming", async (req, res) => {
     // query returned them in - a deterministic list rather than one that reshuffles between calls.
     daySlots.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
 
+    // Collapsed before anything is emitted. A single hourly reminder produces twenty-four slots a
+    // day, and a list of twenty-four near-identical rows is a scroll rather than an answer - the
+    // Dashboard panel found exactly that against a real account.
+    //
+    // The grouping key is deliberately (reminder, state, deliveredAt) within one day, *not* simply
+    // (reminder, day): an hourly reminder that runs into quiet hours is genuinely two different
+    // things, and merging "fires at 21:00" with "held until 08:00" into one row would state
+    // something untrue. Slots that differ in any of those three stay apart.
+    //
+    // Keyed insertion order follows `daySlots`, which is already time-sorted, so each group's first
+    // slot is its earliest and the groups come out in chronological order without a second sort.
+    const groups = new Map<
+      string,
+      { reminder: (typeof reminders)[number]; resolved: ResolvedState; times: string[] }
+    >();
     for (const { time, reminder } of daySlots) {
+      if (rawSlotsSeen >= MAX_SLOT_EXPANSION) {
+        truncated = true;
+        break;
+      }
+      rawSlotsSeen += 1;
+
+      const resolved = await stateOf(reminder, time, isToday);
+      const key = `${reminder.id}|${resolved.state}|${resolved.deliveredAt ?? ""}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.times.push(time);
+      } else {
+        groups.set(key, { reminder, resolved, times: [time] });
+      }
+    }
+
+    const dayEntries: UpcomingRun[] = [];
+    for (const { reminder, resolved, times } of groups.values()) {
+      const base = {
+        date,
+        reminderId: reminder.id,
+        target: toApiReminderTarget(reminder.target),
+        category: reminder.category,
+        ...resolved,
+      };
+      if (times.length > COLLAPSE_ABOVE_SLOTS_PER_DAY) {
+        dayEntries.push({
+          ...base,
+          time: times[0],
+          repeatCount: times.length,
+          lastTime: times[times.length - 1],
+        });
+      } else {
+        // Few enough to be a list somebody wrote - listed.
+        for (const time of times) dayEntries.push({ ...base, time });
+      }
+    }
+
+    // Re-sorted because collapsing rebuilt the day out of per-reminder buckets. Stable, so two
+    // entries sharing a minute keep the created-order the query returned them in.
+    dayEntries.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+
+    for (const entry of dayEntries) {
       if (runs.length >= MAX_UPCOMING_RUNS) {
         truncated = true;
         break;
       }
-      runs.push({
-        date,
-        time,
-        reminderId: reminder.id,
-        target: toApiReminderTarget(reminder.target),
-        category: reminder.category,
-        ...(await stateOf(reminder, time, isToday)),
-      });
+      runs.push(entry);
     }
   }
 
