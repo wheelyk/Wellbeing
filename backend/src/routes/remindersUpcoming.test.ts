@@ -307,6 +307,23 @@ describe("GET /api/reminders/upcoming", () => {
     ]);
   });
 
+  it("leaves out a slot earlier than the start on the day a reminder starts", async () => {
+    const { accessToken, userId } = await registerAndLogin("starts-later-today");
+    // Starts at 18:00 today. 14:00 is still ahead of the 12:05 clock, so it is not excluded for
+    // having gone by - it was simply never one of this reminder's slots. This is the only test
+    // here that separates those two reasons for a slot being absent.
+    await createReminder(userId, {
+      schedules: ["0 14 * * *", "0 18 * * *", "0 20 * * *"],
+      startsAt: new Date("2026-08-30T18:00:00.000Z"),
+    });
+
+    const res = await upcoming(accessToken, 1);
+
+    // 18:00 is included: a slot at exactly the start time is allowed through, matching the
+    // scheduler's own `startsAt <= now` candidate filter.
+    expect(res.body.runs.map((r: { time: string }) => r.time)).toEqual(["18:00", "20:00"]);
+  });
+
   it("marks a slot inside quiet hours as held, at its real time, with when it will arrive", async () => {
     const { accessToken, userId } = await registerAndLogin("held", {
       quietHoursStart: "22:00",

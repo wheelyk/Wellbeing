@@ -487,6 +487,30 @@ describe("runReminderTick", () => {
         [],
       );
     });
+
+    // Added after the fact, because a mutation pass found this rule was not actually covered:
+    // removing the per-slot start filter entirely broke nothing in this file. The three tests
+    // above are all satisfied by the *database* filter (`startsAt <= now`) instead - the first one
+    // sets a start that is still in the future, so the reminder is never a candidate at all, and
+    // the other two have no slot earlier than the start to drop. The per-slot half had no test.
+    it("records only the slots at or after the start, never the earlier ones", async () => {
+      const user = await registerUser("starts-mid-day");
+      await addSubscription(user.id, "starts-mid-day");
+      // Started at 19:00 today, with one slot before that and one exactly on it. Both are due by
+      // the clock (now is 20:05), and the scheduler notifies once for the latest due slot either
+      // way - so the notification count cannot tell these apart. The ReminderSend rows can: only
+      // slots this reminder genuinely owns should be recorded as handled.
+      const reminder = await createReminder(user.id, {
+        schedules: ["0 18 * * *", "0 19 * * *"],
+        startsAt: new Date("2026-08-22T19:00:00.000Z"),
+      });
+
+      await runReminderTick();
+
+      expect(sendNotification).toHaveBeenCalledTimes(1);
+      const sends = await prisma.reminderSend.findMany({ where: { reminderId: reminder.id } });
+      expect(sends.map((s) => s.time)).toEqual(["19:00"]);
+    });
   });
 
   // A temporary reminder ("nudge me every 30 minutes for the rest of today") is an ordinary
