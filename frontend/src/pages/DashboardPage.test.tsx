@@ -50,6 +50,19 @@ describe("DashboardPage", () => {
           }),
         );
       }
+      // The Coming up panel fetches this on every Dashboard render. Defaulted here so the tests
+      // that are about something else do not need to know it exists - the same "auto-handle,
+      // override only when needed" convention CategoriesPage.test.tsx already uses.
+      if (url.includes("/api/reminders/upcoming")) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            timezone: "UTC",
+            today: "2026-08-17",
+            truncated: false,
+            runs: [],
+          }),
+        );
+      }
       if (url.includes("-logs")) {
         return Promise.resolve(
           jsonResponse(200, { entries: [], limit: 10, offset: 0, hasMore: false }),
@@ -87,6 +100,19 @@ describe("DashboardPage", () => {
             loggedTodayCount: 0,
             recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
             streak: { current: 0, daysLoggedThisWeek: 0 },
+          }),
+        );
+      }
+      // The Coming up panel fetches this on every Dashboard render. Defaulted here so the tests
+      // that are about something else do not need to know it exists - the same "auto-handle,
+      // override only when needed" convention CategoriesPage.test.tsx already uses.
+      if (url.includes("/api/reminders/upcoming")) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            timezone: "UTC",
+            today: "2026-08-17",
+            truncated: false,
+            runs: [],
           }),
         );
       }

@@ -2,6 +2,7 @@ import { useAuth } from "../auth/AuthContext";
 import { NavBar } from "../components/NavBar";
 import { BottomNav } from "../components/BottomNav";
 import { DashboardSummary } from "../components/dashboard/DashboardSummary";
+import { UpcomingRemindersPanel } from "../components/dashboard/UpcomingRemindersPanel";
 import { CategorySection } from "../components/dashboard/CategorySection";
 import { QuickAddFab } from "../components/dashboard/QuickAddFab";
 
@@ -22,7 +23,13 @@ export function DashboardPage() {
         <h1 className="text-2xl font-semibold text-text">Welcome, {user?.displayName}</h1>
         <p className="mt-2 text-text-muted">You&apos;re logged in as {user?.email}.</p>
 
+        {/* Above the day summary, deliberately: "what is about to happen" is the question people
+            open the app to answer, and the streak card is a look back rather than forward. */}
         <div className="mt-8">
+          <UpcomingRemindersPanel />
+        </div>
+
+        <div className="mt-6">
           <DashboardSummary />
         </div>
 

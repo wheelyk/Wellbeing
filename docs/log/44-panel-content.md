@@ -95,6 +95,31 @@ checked at desktop width, or in dark mode. And no test covers the wiring between
 `cooldownRemaining`; the pure function is tested and the browser run shows the result, but there is
 no unit test that would fail if the card stopped passing `timing` through.
 
+### Correction — the E2E suite was left broken
+
+Dropping "Recent" from the card titles broke **nine** `waitForSelector("text=Recent …")` calls -
+six in `frontend/e2e/` and three more in `frontend/scripts/capture-pr-screenshots.mjs`, which the
+PR-preview screenshot job runs. The unit suite was green and the change merged; **E2E only runs on PR branches**,
+and this PR never got a run before merging, so the breakage surfaced on the _next_ PR to run against
+main — where it looked like that PR's fault.
+
+Two things worth taking from it:
+
+- **Finding some stale references is not the same as finding all of them - and I made the mistake
+  twice.** Six were caught in `CategorySection.test.tsx` by the unit suite and updated. Six more sat
+  in `frontend/e2e/`, which does not run under `npm test`. I fixed those by grepping
+  `frontend/e2e/*.spec.ts` - a search scoped to where I had just been told the problem was - and the
+  screenshot job then failed on three more in `frontend/scripts/`. The lesson is not "remember the
+  e2e suite"; it is that changing user-visible copy calls for a **repo-wide** grep for that copy,
+  once, before touching anything.
+- **The replacements are stricter than the originals.** `text=Recent Mood` matched a substring
+  anywhere on the page; `h2:text-is("Mood")` matches the card heading exactly, so it cannot pass
+  on a picker option or a log row while the card itself is missing.
+
+Verified against the running app rather than by reading: the new selector matches, the old one does
+not (confirming it really was broken), and `text=Recent entries` - the Dashboard summary card,
+which keeps that name - still matches, confirming the fix did not over-reach.
+
 ### Known limitations and follow-ups
 
 - **The category icons on History dates**, once the response carries the category rather than a
