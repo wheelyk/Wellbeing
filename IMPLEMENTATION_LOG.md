@@ -433,3 +433,7 @@ project's own sessions.
 ### [Merging the Welcome Banner and the Date Heading](docs/log/48-dashboard-heading-merge.md)
 
 - 2026-08-30 — One heading instead of two, answering the same question
+
+### [The Timeline Panel](docs/log/49-timeline-panel.md)
+
+- 2026-08-30 — Past, now, and future in one list

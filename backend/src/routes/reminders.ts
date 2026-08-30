@@ -185,7 +185,10 @@ remindersRouter.get("/", async (req, res) => {
 //
 // 90 was deliberately dropped: a daily reminder over 90 days is 90 rows that all say the same
 // thing, which is a worse answer to "what's coming up" than a shorter honest one.
-const UPCOMING_DAY_OPTIONS = ["1", "7", "30"] as const;
+// Aligned with /recent (docs/log/47) rather than kept at the old 1/7/30: both endpoints now feed
+// the same Timeline panel and its shared range chips (see docs/log/49-timeline-panel.md), so a
+// caller only ever needs one set of valid values, not two that happen to disagree.
+const UPCOMING_DAY_OPTIONS = ["1", "3", "7"] as const;
 
 // A hard ceiling on the response instead of pagination. Pagination would imply the later pages
 // are worth reading; they are not - past the two hundredth entry this has stopped being a preview
@@ -245,7 +248,11 @@ interface UpcomingRun {
   lastTime?: string;
 }
 
-const upcomingDaysSchema = z.enum(["1", "7", "30"]).default("1").transform(Number);
+// Derived from UPCOMING_DAY_OPTIONS rather than a second literal list - the two used to be able
+// to drift apart silently (this schema still said ["1","7","30"] after the constant above was
+// meant to be the single source of truth), which is exactly the class of bug a shared source
+// exists to prevent.
+const upcomingDaysSchema = z.enum(UPCOMING_DAY_OPTIONS).default("1").transform(Number);
 
 // "When will my reminders actually fire?", merged across every reminder and answered with the
 // scheduler's own rules rather than a second set that agrees with them today.
