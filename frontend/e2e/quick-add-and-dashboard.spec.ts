@@ -77,21 +77,24 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
   await page.getByRole("button", { name: /save entry/i }).click();
   await page.waitForSelector('h2:text-is("E2E Test Category")');
 
-  // The unified "Recent entries" card at the top of Dashboard is the actual assertion this
-  // scenario cares about: one card reflecting all four just-logged entries together, not just
-  // each category's own card (already implicitly checked by the waitForSelector calls above).
-  // Scoped to #recent-entries-content specifically: each category's own card further down the
-  // page renders a near-identical value line too, and an unscoped getByText would match both
-  // (Playwright's strict mode correctly rejects that as ambiguous).
-  const recentEntries = page.locator("#recent-entries-content");
+  // The combined "Recent entries" card this used to check against is gone - its job is now split
+  // between the Timeline panel (reminder-driven runs only; these four entries have no reminder
+  // attached, so none of them appear there - see docs/log/49-timeline-panel.md) and each
+  // category's own card, which already shows its own just-saved value
+  // (CategoryLogCard's formatCategoryLogValue). Scoped to each category's own <section>, found by
+  // its heading, so an ambiguous match across cards can't slip through the way an unscoped
+  // getByText would.
+  function cardFor(name: string) {
+    return page.locator("section").filter({ has: page.getByRole("heading", { name, exact: true }) });
+  }
   // Mood is a 1-7 scale (see docs/log/21-unify-scale-to-seven.md) - not the 1-5 it originally
   // launched with, hence "5/7" rather than "5/5" below.
-  await expect(recentEntries.getByText(/Mood — 5\/7/)).toBeVisible();
-  await expect(recentEntries.getByText(/E2E Test Scale Category — 6\/10/)).toBeVisible();
-  await expect(recentEntries.getByText(/E2E Test Medication — Done/)).toBeVisible();
-  await expect(recentEntries.getByText(/E2E Test Category — Done/)).toBeVisible();
+  await expect(cardFor("Mood").getByText("5/7", { exact: true })).toBeVisible();
+  await expect(cardFor("E2E Test Scale Category").getByText("6/10", { exact: true })).toBeVisible();
+  await expect(cardFor("E2E Test Medication").getByText("Done", { exact: true })).toBeVisible();
+  await expect(cardFor("E2E Test Category").getByText("Done", { exact: true })).toBeVisible();
 
-  // And the summary line at the very top of the same card - a plain count now, not a per-type
+  // And the summary line on DashboardSummary itself - a plain count now, not a per-type
   // breakdown: an unbounded, user-extensible category set has no fixed "how many were there to
   // log today" denominator the way the original built-ins did (see DashboardSummary.tsx's own
   // comment on why).

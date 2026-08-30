@@ -2,7 +2,7 @@ import { useAuth } from "../auth/AuthContext";
 import { NavBar } from "../components/NavBar";
 import { BottomNav } from "../components/BottomNav";
 import { DashboardSummary } from "../components/dashboard/DashboardSummary";
-import { UpcomingRemindersPanel } from "../components/dashboard/UpcomingRemindersPanel";
+import { TimelinePanel } from "../components/dashboard/TimelinePanel";
 import { CategorySection } from "../components/dashboard/CategorySection";
 import { QuickAddFab } from "../components/dashboard/QuickAddFab";
 
@@ -29,10 +29,13 @@ export function DashboardPage() {
             itself, so that component's fetch/poll tests keep mocking exactly the one endpoint
             they always have. */}
 
-        {/* Above the day summary, deliberately: "what is about to happen" is the question people
-            open the app to answer, and the streak card is a look back rather than forward. */}
+        {/* Above the day summary, deliberately: "what did I log/miss and what's coming up" is the
+            question people open the app to answer, and the streak card is a look back rather than
+            forward. This replaces both the old Coming Up panel and DashboardSummary's own Recent
+            Entries list, which duplicated the past half of this once GET /api/reminders/recent
+            existed - see docs/log/49-timeline-panel.md. */}
         <div>
-          <UpcomingRemindersPanel />
+          <TimelinePanel />
         </div>
 
         <div className="mt-6">

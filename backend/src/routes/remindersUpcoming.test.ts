@@ -120,7 +120,7 @@ describe("GET /api/reminders/upcoming", () => {
         .set(authed(accessToken));
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe("VALIDATION_ERROR");
-      expect(res.body.error.details.days[0]).toContain("1, 7, 30");
+      expect(res.body.error.details.days[0]).toContain("1, 3, 7");
     }
   });
 
@@ -130,8 +130,8 @@ describe("GET /api/reminders/upcoming", () => {
 
     for (const [days, expected] of [
       [1, 1],
+      [3, 3],
       [7, 7],
-      [30, 30],
     ] as const) {
       const res = await upcoming(accessToken, days);
       expect(res.status).toBe(200);
@@ -444,9 +444,10 @@ describe("GET /api/reminders/upcoming", () => {
 
   it("caps the list at 200 entries and says it was cut", async () => {
     const { accessToken, userId } = await registerAndLogin("truncated");
-    // Six times a day each, which is the most that stays listed rather than collapsing into one
-    // row - so two reminders give twelve entries a day, and thirty days of that is 360. Past the
-    // cap without relying on a cadence, which would now be merged.
+    // Six times a day each is the most that stays listed rather than collapsing into one row, and
+    // /upcoming now only reaches 7 days ahead at most (aligned with /recent - see docs/log/49) -
+    // so five reminders (30 entries/day) over 7 days is 210, comfortably past the cap without
+    // relying on a cadence, which would now be merged.
     const category = await prisma.category.create({
       data: { userId, name: "Water intake", valueType: "NUMERIC", icon: "💧" },
     });
@@ -458,8 +459,17 @@ describe("GET /api/reminders/upcoming", () => {
       categoryId: category.id,
       schedules: Array.from({ length: 6 }, (_, i) => `30 ${13 + i} * * *`),
     });
+    await createReminder(userId, {
+      schedules: Array.from({ length: 6 }, (_, i) => `10 ${13 + i} * * *`),
+    });
+    await createReminder(userId, {
+      schedules: Array.from({ length: 6 }, (_, i) => `20 ${13 + i} * * *`),
+    });
+    await createReminder(userId, {
+      schedules: Array.from({ length: 6 }, (_, i) => `40 ${13 + i} * * *`),
+    });
 
-    const res = await upcoming(accessToken, 30);
+    const res = await upcoming(accessToken, 7);
 
     expect(res.body.runs).toHaveLength(200);
     expect(res.body.truncated).toBe(true);
@@ -536,7 +546,7 @@ describe("GET /api/reminders/upcoming", () => {
   it("returns an empty list for an account with no reminders at all", async () => {
     const { accessToken } = await registerAndLogin("none");
 
-    const res = await upcoming(accessToken, 30);
+    const res = await upcoming(accessToken, 7);
 
     expect(res.body).toMatchObject({ timezone: "UTC", today: TODAY, truncated: false, runs: [] });
   });

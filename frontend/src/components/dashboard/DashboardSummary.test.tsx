@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen } from "@testing-library/react";
 import { DashboardSummary } from "./DashboardSummary";
 import { dispatchDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
 
@@ -43,7 +42,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       loggedTodayCount: 0,
-      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
 
@@ -51,36 +49,14 @@ describe("DashboardSummary", () => {
 
     expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
     expect(screen.getByText(/no current logging streak/i)).toBeInTheDocument();
-    expect(screen.getByText(/you haven't logged anything yet/i)).toBeInTheDocument();
     // The friendly empty-state copy above should replace, not sit alongside, a "logged N" line.
     expect(screen.queryByText(/logged \d+ entr/i)).not.toBeInTheDocument();
   });
 
-  it("renders the date, the day's summary line, streak, and recent entries", async () => {
+  it("renders the date heading and the day's summary line", async () => {
     mockDashboardFetch({
       date: "2026-08-17",
       loggedTodayCount: 2,
-      recentEntries: {
-        entries: [
-          {
-            label: "Headache",
-            value: "6/10",
-            loggedAt: "2026-08-17T14:30:00.000Z",
-            categoryId: "cat-1",
-            icon: null,
-          },
-          {
-            label: "Mood",
-            value: "4/5",
-            loggedAt: "2026-08-17T09:00:00.000Z",
-            categoryId: "cat-2",
-            icon: null,
-          },
-        ],
-        limit: 10,
-        offset: 0,
-        hasMore: false,
-      },
       streak: { current: 3, daysLoggedThisWeek: 4 },
     });
 
@@ -90,9 +66,8 @@ describe("DashboardSummary", () => {
     // deliberately doesn't hard-code a locale - see formatDisplayDate's comment) - so this
     // checks for the pieces that must appear regardless of locale-specific ordering/punctuation,
     // rather than asserting one exact rendered string.
-    // Level 1, not 2 - the date is now the page's one true heading rather than a section within
-    // it, since DashboardPage no longer has a heading of its own (see
-    // docs/log/48-dashboard-heading-merge.md).
+    // Level 1, not 2 - the date is the page's one true heading, since DashboardPage no longer has
+    // a heading of its own (see docs/log/48-dashboard-heading-merge.md).
     const heading = await screen.findByRole("heading", { level: 1 });
     expect(heading.textContent).toMatch(/monday/i);
     expect(heading.textContent).toMatch(/august/i);
@@ -101,8 +76,6 @@ describe("DashboardSummary", () => {
     expect(screen.getByText(/logged 2 entries today/i)).toBeInTheDocument();
     expect(screen.getByText(/logging streak: 3 days/i)).toBeInTheDocument();
     expect(screen.getByText(/logged 4 of 7 days this week/i)).toBeInTheDocument();
-    expect(screen.getByText(/headache — 6\/10/i)).toBeInTheDocument();
-    expect(screen.getByText(/mood — 4\/5/i)).toBeInTheDocument();
   });
 
   // The identity clause that replaced DashboardPage's own separate "Welcome, {name}" heading -
@@ -111,7 +84,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       loggedTodayCount: 0,
-      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
 
@@ -126,7 +98,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       loggedTodayCount: 0,
-      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
 
@@ -136,277 +107,10 @@ describe("DashboardSummary", () => {
     expect(screen.queryByText(/welcome back/i)).not.toBeInTheDocument();
   });
 
-  // Computed relative to the real current time (rather than mocking the clock) so these stay
-  // correct no matter when the suite actually runs - the component compares calendar days using
-  // `new Date()` directly (see formatEntryDateLabel's comment on why: no fake-timer setup needed
-  // to keep this deterministic, just picking entry timestamps a known number of days back from
-  // "now," the same reference point the component itself uses.
-  function daysAgoIso(daysAgo: number): string {
-    const now = new Date();
-    // Midday, not midnight - keeps this away from a local-timezone day-boundary edge case no
-    // matter what timezone the machine running this test happens to be in.
-    return new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo, 12).toISOString();
-  }
-
-  it("labels a recent entry logged today as 'Today'", async () => {
-    mockDashboardFetch({
-      date: "2026-08-17",
-      loggedTodayCount: 0,
-      recentEntries: {
-        entries: [
-          { label: "Mood", value: "4/5", loggedAt: daysAgoIso(0), categoryId: "cat-1", icon: null },
-        ],
-        limit: 10,
-        offset: 0,
-        hasMore: false,
-      },
-      streak: { current: 0, daysLoggedThisWeek: 0 },
-    });
-
-    render(<DashboardSummary />);
-
-    expect(await screen.findByText(/mood — 4\/5 — today,/i)).toBeInTheDocument();
-  });
-
-  it("labels a recent entry logged yesterday as 'Yesterday', not 'Today'", async () => {
-    mockDashboardFetch({
-      date: "2026-08-17",
-      loggedTodayCount: 0,
-      recentEntries: {
-        entries: [
-          {
-            label: "Nap",
-            value: "30 min",
-            loggedAt: daysAgoIso(1),
-            categoryId: "cat-1",
-            icon: null,
-          },
-        ],
-        limit: 10,
-        offset: 0,
-        hasMore: false,
-      },
-      streak: { current: 0, daysLoggedThisWeek: 0 },
-    });
-
-    render(<DashboardSummary />);
-
-    expect(await screen.findByText(/nap — 30 min — yesterday,/i)).toBeInTheDocument();
-    expect(screen.queryByText(/nap — 30 min — today,/i)).not.toBeInTheDocument();
-  });
-
-  it("labels an older recent entry with its actual date, not a relative word", async () => {
-    mockDashboardFetch({
-      date: "2026-08-17",
-      loggedTodayCount: 0,
-      recentEntries: {
-        entries: [
-          {
-            label: "Diazepam",
-            value: "Done",
-            loggedAt: daysAgoIso(10),
-            categoryId: "cat-1",
-            icon: null,
-          },
-        ],
-        limit: 10,
-        offset: 0,
-        hasMore: false,
-      },
-      streak: { current: 0, daysLoggedThisWeek: 0 },
-    });
-
-    render(<DashboardSummary />);
-
-    const entry = await screen.findByText(/diazepam — done —/i);
-    expect(entry.textContent).not.toMatch(/today|yesterday/i);
-  });
-
-  it("loads more recent entries by refetching with a larger limit when Load more is clicked", async () => {
-    // Unlike the per-type sections (offset-based, appending pages), this component
-    // re-fetches the whole summary with a bigger `limit` on every poll tick too - see
-    // DashboardSummary.tsx's own comment on why appending pages independently of polling would
-    // let a background poll silently discard anything "Load more" had added.
-    const entryA = {
-      label: "Mood",
-      value: "4/5",
-      loggedAt: "2026-08-17T09:00:00.000Z",
-      categoryId: "cat-1",
-      icon: null,
-    };
-    const entryB = {
-      label: "Nap",
-      value: "30 min",
-      loggedAt: "2026-08-16T09:00:00.000Z",
-      categoryId: "cat-2",
-      icon: null,
-    };
-    const baseFields = {
-      date: "2026-08-17",
-      loggedTodayCount: 0,
-      streak: { current: 0, daysLoggedThisWeek: 0 },
-    };
-    const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (url.includes("limit=20")) {
-        return Promise.resolve(
-          jsonResponse(200, {
-            ...baseFields,
-            recentEntries: { entries: [entryA, entryB], limit: 20, offset: 0, hasMore: false },
-          }),
-        );
-      }
-      return Promise.resolve(
-        jsonResponse(200, {
-          ...baseFields,
-          recentEntries: { entries: [entryA], limit: 10, offset: 0, hasMore: true },
-        }),
-      );
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-
-    render(<DashboardSummary />);
-
-    expect(await screen.findByText(/mood — 4\/5/i)).toBeInTheDocument();
-    expect(screen.queryByText(/nap — 30 min/i)).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /load more/i }));
-
-    expect(await screen.findByText(/nap — 30 min/i)).toBeInTheDocument();
-  });
-
-  it("shrinks the limit and refetches when Load less is clicked after expanding", async () => {
-    const entryA = {
-      label: "Mood",
-      value: "4/5",
-      loggedAt: "2026-08-17T09:00:00.000Z",
-      categoryId: "cat-1",
-      icon: null,
-    };
-    const entryB = {
-      label: "Nap",
-      value: "30 min",
-      loggedAt: "2026-08-16T09:00:00.000Z",
-      categoryId: "cat-2",
-      icon: null,
-    };
-    const baseFields = {
-      date: "2026-08-17",
-      loggedTodayCount: 0,
-      streak: { current: 0, daysLoggedThisWeek: 0 },
-    };
-    const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (url.includes("limit=20")) {
-        return Promise.resolve(
-          jsonResponse(200, {
-            ...baseFields,
-            recentEntries: { entries: [entryA, entryB], limit: 20, offset: 0, hasMore: false },
-          }),
-        );
-      }
-      return Promise.resolve(
-        jsonResponse(200, {
-          ...baseFields,
-          recentEntries: { entries: [entryA], limit: 10, offset: 0, hasMore: true },
-        }),
-      );
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-
-    render(<DashboardSummary />);
-    await screen.findByText(/mood — 4\/5/i);
-    expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /load more/i }));
-    await screen.findByText(/nap — 30 min/i);
-    expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /load less/i })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /load less/i }));
-
-    // Genuinely refetched at the smaller limit (not a local truncation, unlike the
-    // per-type sections) - Nap disappears because the mocked limit=10 response never included
-    // it, not because the component hid it client-side.
-    await waitFor(() => expect(screen.queryByText(/nap — 30 min/i)).not.toBeInTheDocument());
-    expect(screen.getByText(/mood — 4\/5/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /load less/i })).not.toBeInTheDocument();
-  });
-
-  it("groups recent entries under Today/Yesterday day headings", async () => {
-    mockDashboardFetch({
-      date: "2026-08-17",
-      loggedTodayCount: 0,
-      recentEntries: {
-        entries: [
-          { label: "Mood", value: "4/5", loggedAt: daysAgoIso(0), categoryId: "cat-1", icon: null },
-          {
-            label: "Nap",
-            value: "30 min",
-            loggedAt: daysAgoIso(1),
-            categoryId: "cat-2",
-            icon: null,
-          },
-        ],
-        limit: 10,
-        offset: 0,
-        hasMore: false,
-      },
-      streak: { current: 0, daysLoggedThisWeek: 0 },
-    });
-
-    render(<DashboardSummary />);
-
-    const todayHeading = await screen.findByRole("heading", { level: 4, name: "Today" });
-    const yesterdayHeading = screen.getByRole("heading", { level: 4, name: "Yesterday" });
-    // Both group headings render, and in newest-first order (Today before Yesterday) - matches
-    // the order the flat, newest-first `entries` array already arrives in.
-    expect(
-      todayHeading.compareDocumentPosition(yesterdayHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(screen.getByText(/mood — 4\/5/i)).toBeInTheDocument();
-    expect(screen.getByText(/nap — 30 min/i)).toBeInTheDocument();
-  });
-
-  it("collapses and re-expands the recent entries list, hiding it while collapsed", async () => {
-    mockDashboardFetch({
-      date: "2026-08-17",
-      loggedTodayCount: 0,
-      recentEntries: {
-        entries: [
-          { label: "Mood", value: "4/5", loggedAt: daysAgoIso(0), categoryId: "cat-1", icon: null },
-        ],
-        limit: 10,
-        offset: 0,
-        hasMore: false,
-      },
-      streak: { current: 0, daysLoggedThisWeek: 0 },
-    });
-    const user = userEvent.setup();
-
-    render(<DashboardSummary />);
-    await screen.findByText(/mood — 4\/5/i);
-
-    const toggle = screen.getByRole("button", { name: /recent entries/i });
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-
-    await user.click(toggle);
-
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText(/mood — 4\/5/i)).not.toBeInTheDocument();
-
-    await user.click(toggle);
-
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(await screen.findByText(/mood — 4\/5/i)).toBeInTheDocument();
-  });
-
   it("uses singular 'day' for a one-day streak", async () => {
     mockDashboardFetch({
       date: "2026-08-17",
       loggedTodayCount: 0,
-      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 1, daysLoggedThisWeek: 1 },
     });
 
@@ -419,7 +123,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       loggedTodayCount: 1,
-      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
 
@@ -438,7 +141,6 @@ describe("DashboardSummary", () => {
   it("refetches immediately when a Dashboard section reports an entry changed, without waiting for the poll interval", async () => {
     const baseFields = {
       date: "2026-08-17",
-      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     };
     let callCount = 0;
@@ -468,7 +170,6 @@ describe("DashboardSummary", () => {
     mockDashboardFetch({
       date: "2026-08-17",
       loggedTodayCount: 0,
-      recentEntries: { entries: [], limit: 10, offset: 0, hasMore: false },
       streak: { current: 0, daysLoggedThisWeek: 0 },
     });
 

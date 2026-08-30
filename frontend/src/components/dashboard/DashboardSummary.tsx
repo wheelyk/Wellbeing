@@ -1,33 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "../Button";
+import { useEffect, useState } from "react";
 import { apiFetch } from "../../api/client";
-import { formatEntryDateLabel, formatEntryDateTime } from "../../lib/entryDateLabel";
-import { useCollapsedState } from "../../hooks/useCollapsedState";
 import { listenForDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
 
-interface RecentEntry {
-  label: string;
-  value: string;
-  loggedAt: string;
-  categoryId: string;
-  icon: string | null;
-}
-
-interface RecentEntryPage {
-  entries: RecentEntry[];
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
-
+// Recent entries no longer render here - see the Timeline panel (docs/log/49-timeline-panel.md),
+// which now shows every individual past entry (logged and missed) chronologically alongside
+// what's coming up. Keeping both would show the same data twice on one page. This card is left as
+// the day's frame: the date, who you are, your streak, and today's own count - not a list of
+// entries in its own right. `recentEntries` still comes back from GET /api/dashboard (the backend
+// wasn't touched - see that entry's own follow-ups) but nothing here reads it any more.
 interface DashboardSummaryData {
   date: string;
   loggedTodayCount: number;
-  recentEntries: RecentEntryPage;
   streak: { current: number; daysLoggedThisWeek: number };
 }
-
-const RECENT_ENTRIES_PAGE_SIZE = 10;
 
 // The backend already resolves `date` to a plain "YYYY-MM-DD" string in the user's own
 // timezone (see backend/src/routes/dashboard.ts) - this only reformats that same calendar day
@@ -44,35 +29,6 @@ function formatDisplayDate(dateStr: string): string {
     month: "long",
     day: "numeric",
   });
-}
-
-// Fallback only, used when a category was created with no icon of its own set - every entry
-// carries its own `icon` (see the render below) now that every loggable thing is a category (see
-// docs/log/17-unify-mood-symptom-habit.md and docs/log/19-medication-to-category.md).
-const FALLBACK_ENTRY_ICON = "⭐";
-
-interface RecentEntryGroup {
-  label: string;
-  entries: RecentEntry[];
-}
-
-// Buckets the already newest-first `entries` list under the same relative-day label shown
-// inline on each entry ("Today", "Yesterday", or an actual date - see formatEntryDateLabel),
-// so "Recent entries" reads as day-by-day sections instead of one long undifferentiated list.
-// `Map` preserves first-seen insertion order, so groups come out newest-first, same as the flat
-// list they're built from - no separate sort needed.
-function groupEntriesByDay(entries: RecentEntry[]): RecentEntryGroup[] {
-  const groups = new Map<string, RecentEntry[]>();
-  for (const entry of entries) {
-    const label = formatEntryDateLabel(entry.loggedAt);
-    const group = groups.get(label);
-    if (group) {
-      group.push(entry);
-    } else {
-      groups.set(label, [entry]);
-    }
-  }
-  return Array.from(groups, ([label, groupEntries]) => ({ label, entries: groupEntries }));
 }
 
 // How often to silently re-fetch the summary while this card is on screen. This card and the
@@ -104,23 +60,12 @@ export function DashboardSummary({ displayName }: DashboardSummaryProps) {
   const [data, setData] = useState<DashboardSummaryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [loadingMoreRecent, setLoadingMoreRecent] = useState(false);
-  // How many recent entries to ask for on every fetch, including background polls - "Load more"
-  // grows this instead of appending a separately-tracked page, so a poll tick 10s after clicking
-  // it doesn't silently reset the list back down to the first page (see POLL_INTERVAL_MS below).
-  // Read via a ref inside fetchSummary rather than closed over directly, since that function is
-  // created once (empty effect deps) and would otherwise always see the value from mount.
-  const [recentEntriesLimit, setRecentEntriesLimit] = useState(RECENT_ENTRIES_PAGE_SIZE);
-  const recentEntriesLimitRef = useRef(recentEntriesLimit);
-  recentEntriesLimitRef.current = recentEntriesLimit;
-  const { collapsed: recentCollapsed, toggle: toggleRecentCollapsed } =
-    useCollapsedState("dashboard.recentEntries");
 
   useEffect(() => {
     let cancelled = false;
 
     function fetchSummary() {
-      apiFetch<DashboardSummaryData>(`/api/dashboard?limit=${recentEntriesLimitRef.current}`)
+      apiFetch<DashboardSummaryData>("/api/dashboard")
         .then((res) => {
           if (!cancelled) {
             setData(res);
@@ -155,44 +100,6 @@ export function DashboardSummary({ displayName }: DashboardSummaryProps) {
     };
   }, []);
 
-  async function handleLoadMoreRecent() {
-    setLoadingMoreRecent(true);
-    const nextLimit = recentEntriesLimit + RECENT_ENTRIES_PAGE_SIZE;
-    try {
-      const res = await apiFetch<DashboardSummaryData>(`/api/dashboard?limit=${nextLimit}`);
-      setData(res);
-      setRecentEntriesLimit(nextLimit);
-    } catch {
-      setLoadError(true);
-    } finally {
-      setLoadingMoreRecent(false);
-    }
-  }
-
-  // Unlike the per-type sections' handleLoadLess (a pure client-side truncation), this one
-  // still refetches - this component always asks the backend for exactly `recentEntriesLimit`
-  // entries on every fetch, including background polls (see the ref comment above), so shrinking
-  // the limit without also refetching would leave it showing a page the *next* poll tick would
-  // immediately overwrite back to the larger size anyway.
-  async function handleLoadLessRecent() {
-    setLoadingMoreRecent(true);
-    const nextLimit = Math.max(
-      RECENT_ENTRIES_PAGE_SIZE,
-      recentEntriesLimit - RECENT_ENTRIES_PAGE_SIZE,
-    );
-    try {
-      const res = await apiFetch<DashboardSummaryData>(`/api/dashboard?limit=${nextLimit}`);
-      setData(res);
-      setRecentEntriesLimit(nextLimit);
-    } catch {
-      setLoadError(true);
-    } finally {
-      setLoadingMoreRecent(false);
-    }
-  }
-
-  const entryGroups = useMemo(() => groupEntriesByDay(data?.recentEntries.entries ?? []), [data]);
-
   if (loading) {
     return (
       <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
@@ -216,13 +123,11 @@ export function DashboardSummary({ displayName }: DashboardSummaryProps) {
   // denominator the way the original built-ins did, so a plain count (not an "X/Y taken"
   // breakdown) is the honest summary now that every loggable thing is a category (see
   // docs/log/17-unify-mood-symptom-habit.md and docs/log/19-medication-to-category.md). Today's
-  // per-category status still surfaces in the Recent entries list below, not as a summary clause
-  // of its own.
+  // per-category status surfaces in the Timeline panel above, not as a summary clause of its own.
   const hasLoggedAnything = data.loggedTodayCount > 0;
 
   // Informational tone only, per requirements §7 - a plain sentence, no badges, streak counters
-  // styled as achievements, or "don't break the chain" language. Unchanged wording from before
-  // this merge; only its position moved, into the byline below the date.
+  // styled as achievements, or "don't break the chain" language.
   const streakClause =
     data.streak.current > 0
       ? `Logging streak: ${data.streak.current} day${data.streak.current === 1 ? "" : "s"}`
@@ -253,91 +158,6 @@ export function DashboardSummary({ displayName }: DashboardSummaryProps) {
           Nothing logged yet today — use one of the Quick Add buttons below to get started.
         </p>
       )}
-
-      <div className="mt-6">
-        {/* Same disclosure pattern as each SectionPanel below (see SectionPanel.tsx) - a full
-            SectionPanel wasn't reused here since this card isn't a single "+ Add" section, it's
-            the date/summary/streak header plus this list; only the list itself collapses. */}
-        <button
-          type="button"
-          onClick={toggleRecentCollapsed}
-          aria-expanded={!recentCollapsed}
-          aria-controls="recent-entries-content"
-          className="flex w-full items-center gap-2 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-        >
-          <h3 className="flex-1 text-lg font-semibold text-text">Recent entries</h3>
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 20 20"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`h-5 w-5 shrink-0 text-text-muted transition-transform ${recentCollapsed ? "" : "rotate-180"}`}
-          >
-            <path d="M5 7.5 10 12.5 15 7.5" />
-          </svg>
-        </button>
-        {!recentCollapsed && (
-          <div id="recent-entries-content" className="mt-3">
-            {data.recentEntries.entries.length === 0 ? (
-              <p className="text-text-muted">
-                You haven&apos;t logged anything yet. Your recent entries will show up here.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {entryGroups.map((group) => (
-                  <div key={group.label}>
-                    <h4 className="mb-2 text-sm font-semibold text-text-muted">{group.label}</h4>
-                    <ul className="flex flex-col gap-2">
-                      {group.entries.map((entry, index) => (
-                        // Entries have no id of their own in this response - categoryId +
-                        // loggedAt + position within the group is unique enough for a stable
-                        // React key here without the backend needing to invent a composite id
-                        // field.
-                        <li
-                          key={`${entry.categoryId}-${entry.loggedAt}-${index}`}
-                          className="flex items-center gap-3 rounded-xl border border-border bg-surface-muted px-4 py-3"
-                        >
-                          <span className="text-xl" aria-hidden="true">
-                            {entry.icon ?? FALLBACK_ENTRY_ICON}
-                          </span>
-                          <p className="text-text">
-                            {entry.label} — {entry.value} — {formatEntryDateTime(entry.loggedAt)}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            )}
-            {(data.recentEntries.hasMore || recentEntriesLimit > RECENT_ENTRIES_PAGE_SIZE) && (
-              <div className="mt-4 flex justify-center gap-2">
-                {data.recentEntries.hasMore && (
-                  <Button
-                    variant="secondary"
-                    onClick={handleLoadMoreRecent}
-                    disabled={loadingMoreRecent}
-                  >
-                    {loadingMoreRecent ? "Loading…" : "Load more"}
-                  </Button>
-                )}
-                {recentEntriesLimit > RECENT_ENTRIES_PAGE_SIZE && (
-                  <Button
-                    variant="secondary"
-                    onClick={handleLoadLessRecent}
-                    disabled={loadingMoreRecent}
-                  >
-                    {loadingMoreRecent ? "Loading…" : "Load less"}
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
     </section>
   );
 }

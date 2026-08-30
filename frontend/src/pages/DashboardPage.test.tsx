@@ -50,10 +50,10 @@ describe("DashboardPage", () => {
           }),
         );
       }
-      // The Coming up panel fetches this on every Dashboard render. Defaulted here so the tests
-      // that are about something else do not need to know it exists - the same "auto-handle,
-      // override only when needed" convention CategoriesPage.test.tsx already uses.
-      if (url.includes("/api/reminders/upcoming")) {
+      // The Timeline panel fetches both of these on every Dashboard render. Defaulted here so
+      // the tests that are about something else do not need to know it exists - the same
+      // "auto-handle, override only when needed" convention CategoriesPage.test.tsx already uses.
+      if (url.includes("/api/reminders/upcoming") || url.includes("/api/reminders/recent")) {
         return Promise.resolve(
           jsonResponse(200, {
             timezone: "UTC",
@@ -103,10 +103,10 @@ describe("DashboardPage", () => {
           }),
         );
       }
-      // The Coming up panel fetches this on every Dashboard render. Defaulted here so the tests
-      // that are about something else do not need to know it exists - the same "auto-handle,
-      // override only when needed" convention CategoriesPage.test.tsx already uses.
-      if (url.includes("/api/reminders/upcoming")) {
+      // The Timeline panel fetches both of these on every Dashboard render. Defaulted here so
+      // the tests that are about something else do not need to know it exists - the same
+      // "auto-handle, override only when needed" convention CategoriesPage.test.tsx already uses.
+      if (url.includes("/api/reminders/upcoming") || url.includes("/api/reminders/recent")) {
         return Promise.resolve(
           jsonResponse(200, {
             timezone: "UTC",
