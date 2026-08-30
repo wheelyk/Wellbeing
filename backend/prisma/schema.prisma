@@ -38,9 +38,19 @@ model User {
   categoryGroups    CategoryGroup[]
   categoryLogs      CategoryLog[]
   reminders         Reminder[]
-  hiddenCategories  HiddenCategory[]
-  categoryTimings   CategoryTiming[]
-  hiddenGroups      HiddenGroup[]
+  // "HH:mm" in this user's own timezone, or both null for no quiet hours at all. A window that
+  // wraps midnight (22:00 to 08:00) is the normal case rather than an edge one, so whatever reads
+  // these has to handle start > end - see lib/quietHours.ts.
+  //
+  // Two plain strings rather than minutes-since-midnight, for the same reason Reminder.schedules
+  // keeps cron as text: it is the form a person reads and edits, and comparing two zero-padded
+  // "HH:mm" values as strings is already equivalent to comparing the times.
+  quietHoursStart   String?            @default("22:00") @map("quiet_hours_start")
+  quietHoursEnd     String?            @default("08:00") @map("quiet_hours_end")
+
+  hiddenCategories HiddenCategory[]
+  categoryTimings  CategoryTiming[]
+  hiddenGroups     HiddenGroup[]
 
   @@map("users")
 }
@@ -318,10 +328,10 @@ enum ReminderTarget {
 // choice this schema already makes for CategoryLog's own type-conditional value columns rather
 // than a DB CHECK constraint.
 model Reminder {
-  id              String         @id @default(uuid())
-  userId          String         @map("user_id")
-  target          ReminderTarget
-  categoryId      String?        @map("category_id")
+  id                    String         @id @default(uuid())
+  userId                String         @map("user_id")
+  target                ReminderTarget
+  categoryId            String?        @map("category_id")
   // One or more standard five-field cron expressions ("minute hour day-of-month month
   // day-of-week"), replacing the fixed "HH:mm" times this column used to hold - see
   // docs/log/25-cron-reminder-schedules.md. Still a plain Postgres text array rather than a join
@@ -333,8 +343,8 @@ model Reminder {
   // times a day when they share a minute - `0 8,20 * * *` is fine, but 08:00 plus 20:30 genuinely
   // needs two entries. One entry per "time rule" preserves exactly the cardinality times[] had,
   // which is what let the migration be a straight per-element rewrite.
-  schedules       String[]
-  enabled         Boolean        @default(true)
+  schedules             String[]
+  enabled               Boolean        @default(true)
   // Null for an ordinary standing reminder - the only kind that existed before this column. Set
   // to a real instant for a *temporary* one ("nudge me every 30 minutes for the rest of today"),
   // after which it stops firing, and is swept away a day later by the reminder tick itself.
@@ -353,8 +363,8 @@ model Reminder {
   // reads as a slot that has already passed, and arrives immediately. startsAt is what makes "not
   // yet" expressible, and it is what lets a follow-up - or a cooldown's "you can have another
   // now" - land on the other side of midnight.
-  startsAt        DateTime?      @map("starts_at")
-  expiresAt       DateTime?      @map("expires_at")
+  startsAt              DateTime?      @map("starts_at")
+  expiresAt             DateTime?      @map("expires_at")
   // What stops this reminder for the day. True (the default, and how every reminder behaved before
   // this column existed) means logging its target silences it until tomorrow - "nudge me until I
   // do it". False means it fires on every scheduled slot regardless - "nudge me on a rhythm",
@@ -364,8 +374,22 @@ model Reminder {
   // Stated as its own column rather than inferred from expiresAt: both kinds of reminder can be
   // temporary or standing, and reading a stop condition out of an expiry would be exactly the kind
   // of hidden coupling that surprises whoever reads this next.
-  stopsWhenLogged Boolean        @default(true) @map("stops_when_logged")
-  createdAt       DateTime       @default(now()) @map("created_at")
+  stopsWhenLogged       Boolean        @default(true) @map("stops_when_logged")
+  // Whether this reminder may fire inside its owner's quiet hours.
+  //
+  // The default differs by how the reminder came to exist, which is the entire point of the field:
+  //
+  //   - Scheduling one yourself (POST /api/reminders) sets it TRUE. If you deliberately set a
+  //     reminder for 03:00 then you have explicitly asked for 03:00, and quiet hours have no
+  //     business overruling you.
+  //   - A follow-up (POST /api/reminders/follow-up) sets it FALSE. There you chose "in six hours",
+  //     not "at 03:46" - the time was computed, so it is the app's job not to wake you with it.
+  //
+  // Set explicitly on both paths rather than inferred later from startsAt or expiresAt: reading
+  // intent out of an unrelated column is exactly the coupling this schema has already avoided
+  // twice (see stopsWhenLogged's own note above).
+  allowDuringQuietHours Boolean        @default(false) @map("allow_during_quiet_hours")
+  createdAt             DateTime       @default(now()) @map("created_at")
 
   user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Restrict, not Cascade - and not left as the bare default either: for an *optional* scalar

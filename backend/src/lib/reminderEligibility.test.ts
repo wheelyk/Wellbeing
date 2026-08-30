@@ -6,6 +6,7 @@ const BASE: ReminderEligibilityInput = {
   currentLocalTime: "20:00",
   alreadySentThisSlot: false,
   hasLoggedTarget: false,
+  inQuietHours: false,
 };
 
 describe("shouldSendReminder", () => {

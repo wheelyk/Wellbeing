@@ -114,6 +114,8 @@ const createSchema = z
     // behaved. False is "nudge me on a rhythm": keep firing on schedule whether or not it's been
     // logged.
     stopsWhenLogged: z.boolean().optional(),
+    // Defaults *true* on this path, unlike the column's own default - see below.
+    allowDuringQuietHours: z.boolean().optional(),
   })
   .refine(
     (data) => {
@@ -143,6 +145,7 @@ const updateSchema = z
     // No null case here, unlike expiresAt: a boolean column that is never null has no third state
     // to express, so "not provided" is the only absence there is.
     stopsWhenLogged: z.boolean().optional(),
+    allowDuringQuietHours: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "Provide at least one field to update",
@@ -333,6 +336,10 @@ remindersRouter.post("/follow-up", async (req, res) => {
       startsAt,
       expiresAt,
       stopsWhenLogged: false,
+      // The time here was computed from "in six hours", not chosen - so it is this route's job not
+      // to wake anyone with it. Held until quiet hours end rather than dropped (see
+      // reminderEligibility.ts), so the notification still arrives, just at a civilised hour.
+      allowDuringQuietHours: false,
     },
     include: REMINDER_INCLUDE,
   });
@@ -445,6 +452,10 @@ remindersRouter.post("/", async (req, res) => {
       schedules,
       expiresAt,
       stopsWhenLogged: parsed.data.stopsWhenLogged ?? true,
+      // True by default on this path only. Someone who sets a reminder for 03:00 here has asked
+      // for 03:00 in as many words, and quiet hours have no business overruling them. The
+      // follow-up route below is the opposite case and defaults the other way.
+      allowDuringQuietHours: parsed.data.allowDuringQuietHours ?? true,
     },
     include: REMINDER_INCLUDE,
   });
@@ -481,6 +492,7 @@ remindersRouter.patch("/:id", async (req, res) => {
     schedules?: string[];
     enabled?: boolean;
     stopsWhenLogged?: boolean;
+    allowDuringQuietHours?: boolean;
     expiresAt?: Date | null;
   } = { ...rest };
 

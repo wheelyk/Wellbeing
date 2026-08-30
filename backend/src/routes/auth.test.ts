@@ -389,7 +389,7 @@ describe("POST /api/auth/forgot-password", () => {
   // the raw reset token a real user would receive by clicking a link in their inbox, without
   // needing to mock the whole mail module.
   function captureLoggedResetToken(logSpy: ReturnType<typeof vi.spyOn>): string {
-    const logged = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    const logged = logSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
     const match = logged.match(/[?&]token=([a-f0-9]+)/);
     if (!match) throw new Error("No reset token found in placeholder mailer output");
     return match[1];
@@ -473,7 +473,7 @@ describe("POST /api/auth/reset-password", () => {
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     await request(app).post("/api/auth/forgot-password").send({ email });
-    const logged = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    const logged = logSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
     logSpy.mockRestore();
 
     const match = logged.match(/[?&]token=([a-f0-9]+)/);

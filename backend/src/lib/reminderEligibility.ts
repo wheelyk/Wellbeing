@@ -25,6 +25,13 @@ export interface ReminderEligibilityInput {
   // nudge someone who hasn't, so someone who already has gets no notification for this slot
   // regardless of what time it is.
   hasLoggedTarget: boolean;
+  // Whether *now* falls inside the owner's quiet hours and this reminder isn't allowed to ignore
+  // them (see lib/quietHours.ts, and Reminder.allowDuringQuietHours for who gets to).
+  //
+  // Deliberately about the current time rather than the slot's: that is what turns "don't send"
+  // into "send later" for free. The slot stays due and unsent, so the fire-late rule below picks
+  // it up on the first tick after quiet hours end - no deferral queue, no second mechanism.
+  inQuietHours: boolean;
 }
 
 // Fires once the time has been reached or passed (not before - a string comparison on two
@@ -37,5 +44,8 @@ export interface ReminderEligibilityInput {
 export function shouldSendReminder(input: ReminderEligibilityInput): boolean {
   if (input.hasLoggedTarget) return false;
   if (input.alreadySentThisSlot) return false;
+  // Held rather than dropped: nothing is recorded as sent, so this same slot is still due when
+  // quiet hours end and fires then.
+  if (input.inQuietHours) return false;
   return input.currentLocalTime >= input.time;
 }

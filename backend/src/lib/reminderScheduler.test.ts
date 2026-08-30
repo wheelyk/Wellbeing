@@ -26,11 +26,22 @@ function uniqueEmail(label: string) {
 
 const createdEmails: string[] = [];
 
-async function registerUser(label: string, timezone = "UTC") {
+async function registerUser(
+  label: string,
+  timezone = "UTC",
+  quietHours: { start: string | null; end: string | null } = { start: null, end: null },
+) {
   const email = uniqueEmail(label);
   createdEmails.push(email);
   await request(app).post("/api/auth/register").send({ email, password: "Sup3rSecret" });
-  return prisma.user.update({ where: { email }, data: { timezone } });
+  // Quiet hours default to 22:00-08:00 for a real account, but every test in this file runs at
+  // 20:05 and is about something else - so they're cleared unless a test is specifically about
+  // them, rather than every unrelated assertion depending on 20:05 happening to be outside the
+  // window.
+  return prisma.user.update({
+    where: { email },
+    data: { timezone, quietHoursStart: quietHours.start, quietHoursEnd: quietHours.end },
+  });
 }
 
 async function addSubscription(userId: string, endpointSuffix: string) {
@@ -57,6 +68,7 @@ async function createReminder(
     expiresAt?: Date | null;
     startsAt?: Date | null;
     stopsWhenLogged?: boolean;
+    allowDuringQuietHours?: boolean;
   } = {},
 ) {
   return prisma.reminder.create({
@@ -69,6 +81,7 @@ async function createReminder(
       expiresAt: overrides.expiresAt ?? null,
       startsAt: overrides.startsAt ?? null,
       stopsWhenLogged: overrides.stopsWhenLogged ?? true,
+      allowDuringQuietHours: overrides.allowDuringQuietHours ?? false,
     },
   });
 }
@@ -330,6 +343,85 @@ describe("runReminderTick", () => {
         categoryId: category.id,
         stopsWhenLogged: true,
       });
+
+      await runReminderTick();
+
+      expect(sendNotification).not.toHaveBeenCalled();
+    });
+  });
+
+  // "Don't wake me at 3am." The important half is that a held reminder is not a lost one: nothing
+  // is recorded as sent, so the same slot is still due when the window ends and fires then. That
+  // deferral is not a separate mechanism - it falls out of the fire-late rule that already exists.
+  describe("quiet hours", () => {
+    // 20:05 is "now" in every test here (see beforeEach), so a 20:00-to-08:00 window puts us
+    // firmly inside it.
+    const QUIET_NOW = { start: "20:00", end: "08:00" };
+
+    it("does not fire inside the window", async () => {
+      const user = await registerUser("quiet-inside", "UTC", QUIET_NOW);
+      await addSubscription(user.id, "quiet-inside");
+      await createReminder(user.id);
+
+      await runReminderTick();
+
+      expect(sendNotification).not.toHaveBeenCalled();
+    });
+
+    it("holds the slot rather than losing it, so it can still fire later", async () => {
+      const user = await registerUser("quiet-held", "UTC", QUIET_NOW);
+      await addSubscription(user.id, "quiet-held");
+      const reminder = await createReminder(user.id);
+
+      await runReminderTick();
+
+      // Nothing recorded as sent is the whole mechanism: on the next tick after the window ends,
+      // 20:00 is still due and unsent, so the fire-late rule delivers it then.
+      expect(await prisma.reminderSend.findMany({ where: { reminderId: reminder.id } })).toEqual(
+        [],
+      );
+
+      // Prove it, rather than describing it: step outside the window and tick again.
+      vi.setSystemTime(new Date("2026-08-23T08:30:00.000Z"));
+      await runReminderTick();
+      expect(sendNotification).toHaveBeenCalledTimes(1);
+    });
+
+    it("fires anyway when the reminder is allowed to ignore the window", async () => {
+      const user = await registerUser("quiet-allowed", "UTC", QUIET_NOW);
+      await addSubscription(user.id, "quiet-allowed");
+      // What a reminder you scheduled yourself for this time looks like - you asked for it, so
+      // quiet hours have no business overruling you.
+      await createReminder(user.id, { allowDuringQuietHours: true });
+
+      await runReminderTick();
+
+      expect(sendNotification).toHaveBeenCalledTimes(1);
+    });
+
+    it("fires normally outside the window", async () => {
+      const user = await registerUser("quiet-outside", "UTC", {
+        start: "23:00",
+        end: "08:00",
+      });
+      await addSubscription(user.id, "quiet-outside");
+      await createReminder(user.id);
+
+      await runReminderTick();
+
+      expect(sendNotification).toHaveBeenCalledTimes(1);
+    });
+
+    // The window is read in the owner's own timezone, like everything else the scheduler does.
+    it("uses the owner's timezone, not the server's", async () => {
+      // 20:05 UTC is 05:05 the next morning in Tokyo - inside a 22:00-08:00 window there, and
+      // outside it in UTC. The reminder's own slot is expressed in the same local clock.
+      const user = await registerUser("quiet-tokyo", "Asia/Tokyo", {
+        start: "22:00",
+        end: "08:00",
+      });
+      await addSubscription(user.id, "quiet-tokyo");
+      await createReminder(user.id, { schedules: ["0 4 * * *"] });
 
       await runReminderTick();
 

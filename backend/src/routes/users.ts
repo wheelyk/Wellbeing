@@ -25,14 +25,40 @@ function isValidTimeZone(timeZone: string): boolean {
   }
 }
 
+// "HH:mm", 24-hour. Explicit null clears the window (no quiet hours at all), which is a genuinely
+// different request from leaving the field out - the distinction docs/LESSONS-LEARNED.md exists
+// for, and the reason both fields are nullable rather than merely optional.
+const timeOfDay = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time like 22:00")
+  .nullable();
+
 const updateSchema = z
   .object({
     displayName: z.string().trim().min(1, "Display name can't be empty"),
     timezone: z.string().refine(isValidTimeZone, "Not a recognized timezone"),
+    quietHoursStart: timeOfDay,
+    quietHoursEnd: timeOfDay,
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
     message: "Provide at least one field to update",
+  })
+  // Both or neither, always. Sending one alone would leave a half-configured window whose meaning
+  // nobody could state - and reading it as "quiet from 22:00 until forever" would silently lose
+  // every notification the account has.
+  .refine(
+    (data) =>
+      "quietHoursStart" in data === "quietHoursEnd" in data &&
+      ((data.quietHoursStart ?? null) === null) === ((data.quietHoursEnd ?? null) === null),
+    {
+      message: "Set both a start and an end time, or neither",
+      path: ["quietHoursStart"],
+    },
+  )
+  .refine((data) => !data.quietHoursStart || data.quietHoursStart !== data.quietHoursEnd, {
+    message: "Quiet hours can't start and end at the same time",
+    path: ["quietHoursStart"],
   });
 
 const PROFILE_SELECT = {
@@ -40,6 +66,8 @@ const PROFILE_SELECT = {
   email: true,
   displayName: true,
   timezone: true,
+  quietHoursStart: true,
+  quietHoursEnd: true,
   createdAt: true,
 } as const;
 
