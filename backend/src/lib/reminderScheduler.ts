@@ -1,15 +1,12 @@
 import { prisma } from "./prisma";
-import {
-  currentTimeInTimezone,
-  formatDateInTimezone,
-  getDayRangeUtc,
-  timeInTimezone,
-  todayInTimezone,
-} from "./timezone";
+import { currentTimeInTimezone, getDayRangeUtc, todayInTimezone } from "./timezone";
 import { sendPushNotification } from "./webPush";
 import { shouldSendReminder } from "./reminderEligibility";
-import { isWithinQuietHours } from "./quietHours";
-import { cronSlotsForDate } from "./cron";
+// Which slots a reminder really has on a given day, whether quiet hours hold it, and whether its
+// target has already been logged - all three now live in reminderRuns.ts rather than here, so that
+// GET /api/reminders/upcoming answers with the same rules this tick acts on rather than a second
+// set that agrees with it today and drifts tomorrow. See docs/log/42-upcoming-reminders.md.
+import { hasLoggedTarget, quietHoursHoldUntil, reminderSlotsForDate } from "./reminderRuns";
 import type { Reminder } from "../generated/prisma/client";
 
 // How often to check whether any reminder's time has arrived. Not the same thing as how
@@ -65,53 +62,6 @@ function reminderCopy(reminder: ReminderWithTargets): { title: string; body: str
       return { title: APP_TITLE, body: `Time to log ${label}.` };
     }
   }
-}
-
-// Whether the user has already logged against this specific reminder's own target yet today -
-// GENERAL is a blanket "any category log at all" check; CATEGORY is scoped to the specific
-// category this reminder is about (a "Diazepam" reminder isn't satisfied by logging
-// "Sertraline" - both are now their own categories, see docs/log/19-medication-to-category.md).
-async function hasLoggedTarget(
-  reminder: ReminderWithTargets,
-  userId: string,
-  start: Date,
-  end: Date,
-): Promise<boolean> {
-  const where = { userId, loggedAt: { gte: start, lt: end } };
-
-  switch (reminder.target) {
-    case "GENERAL":
-      return (await prisma.categoryLog.findFirst({ where, select: { id: true } })) !== null;
-    case "CATEGORY":
-      return (
-        (await prisma.categoryLog.findFirst({
-          where: { ...where, categoryId: reminder.categoryId as string },
-          select: { id: true },
-        })) !== null
-      );
-  }
-}
-
-// Every "HH:mm" slot this reminder's schedules produce on the given local date, deduplicated and
-// ascending - two expressions can legitimately overlap on one day (e.g. a weekday rule and a
-// specific-date rule), and the same slot must never be treated as two separate firings.
-//
-// A stored expression that no longer parses is skipped rather than thrown: expressions are
-// validated at the API boundary (see routes/reminders.ts), so this shouldn't happen - but if one
-// ever did get in, one user's bad row must not stop the tick that serves everyone else.
-function slotsForToday(schedules: string[], dateStr: string, reminderId: string): string[] {
-  const slots = new Set<string>();
-  for (const expression of schedules) {
-    try {
-      for (const slot of cronSlotsForDate(expression, dateStr)) slots.add(slot);
-    } catch (err) {
-      console.error(
-        `Skipping unparseable schedule on reminder ${reminderId}: "${expression}"`,
-        err,
-      );
-    }
-  }
-  return [...slots].sort();
 }
 
 async function sendReminderToUser(
@@ -197,21 +147,23 @@ export async function runReminderTick(): Promise<void> {
     const today = todayByUserId.get(reminder.userId) as string;
     const currentLocalTime = currentTimeInTimezone(reminder.user.timezone);
 
-    let todaysSlots = slotsForToday(reminder.schedules, today, reminder.id);
-
-    // On the day a reminder starts, the slots earlier than its start time have not "already
-    // passed" - they were never its slots at all. Without this the scheduler's own fire-late rule
-    // (see reminderEligibility.ts) would deliver a one-shot for 03:46 the moment it was created at
-    // 21:46 the evening before, which is the entire failure startsAt exists to prevent.
-    //
-    // Only the start *day* needs filtering: on any later day every slot is legitimately after it.
-    if (reminder.startsAt) {
-      const startDate = formatDateInTimezone(reminder.startsAt, reminder.user.timezone);
-      if (today === startDate) {
-        const startTime = timeInTimezone(reminder.startsAt, reminder.user.timezone);
-        todaysSlots = todaysSlots.filter((time) => time >= startTime);
-      }
-    }
+    // The cron expansion *and* the startsAt/expiresAt window in one call - see reminderRuns.ts.
+    // A stored expression that no longer parses is logged and skipped rather than thrown:
+    // expressions are validated at the API boundary (see routes/reminders.ts), so this shouldn't
+    // happen - but if one ever did get in, one user's bad row must not stop the tick that serves
+    // everyone else.
+    const todaysSlots = reminderSlotsForDate({
+      date: today,
+      schedules: reminder.schedules,
+      timeZone: reminder.user.timezone,
+      startsAt: reminder.startsAt,
+      expiresAt: reminder.expiresAt,
+      onUnparseable: (expression, err) =>
+        console.error(
+          `Skipping unparseable schedule on reminder ${reminder.id}: "${expression}"`,
+          err,
+        ),
+    });
 
     // Skip the "has this been logged" query entirely if nothing on this reminder could possibly
     // be due yet, or everything due has already fired - true for most reminders on most ticks,
@@ -235,12 +187,16 @@ export async function runReminderTick(): Promise<void> {
 
     // Resolved once per reminder rather than per slot - it depends only on the current time and
     // the owner's window, neither of which varies across a reminder's own slots.
+    //
+    // Keyed on the *current* time rather than the slot's, deliberately: that is what turns "don't
+    // send" into "send later" for free (see reminderEligibility.ts). The upcoming list asks the
+    // same shared function about the *slot's* time instead, because it is describing a slot that
+    // has not arrived yet - the same rule, a different instant.
     const inQuietHours =
-      !reminder.allowDuringQuietHours &&
-      isWithinQuietHours(currentLocalTime, {
+      quietHoursHoldUntil(currentLocalTime, reminder.allowDuringQuietHours, {
         start: reminder.user.quietHoursStart,
         end: reminder.user.quietHoursEnd,
-      });
+      }) !== null;
 
     const eligible = todaysSlots.filter((time) =>
       shouldSendReminder({
