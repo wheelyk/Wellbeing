@@ -8,6 +8,7 @@ import {
   toPrismaReminderTarget,
 } from "../lib/reminderTarget";
 import { cronValidationError, nextRunsForSchedules } from "../lib/cron";
+import { hasLoggedTarget, quietHoursHoldUntil, reminderSlotsForDate } from "../lib/reminderRuns";
 import {
   addDaysToDateStr,
   currentTimeInTimezone,
@@ -176,6 +177,187 @@ remindersRouter.get("/", async (req, res) => {
     include: REMINDER_INCLUDE,
   });
   res.json(reminders.map(serializeReminder));
+});
+
+// How far ahead "Coming up" may look. Three fixed choices rather than an arbitrary number,
+// because each one answers a different question - the rest of today, the week, the month - and an
+// open range invites a client to ask for a year and get a wall of identical rows back.
+//
+// 90 was deliberately dropped: a daily reminder over 90 days is 90 rows that all say the same
+// thing, which is a worse answer to "what's coming up" than a shorter honest one.
+const UPCOMING_DAY_OPTIONS = ["1", "7", "30"] as const;
+
+// A hard ceiling on the response instead of pagination. Pagination would imply the later pages
+// are worth reading; they are not - past the two hundredth entry this has stopped being a preview
+// and become a data dump, and a dashboard panel will show perhaps a dozen. The flag is set only
+// when something was actually cut, so a client can say "and more" honestly rather than always.
+const MAX_UPCOMING_RUNS = 200;
+
+// Why each state exists at all, since three of the four describe a run that will *not* happen:
+//
+//   scheduled - it will fire, at the date and time given.
+//   paused    - the reminder is switched off. Listed rather than hidden because "why am I not
+//               being reminded?" is exactly the question this panel should answer, and an empty
+//               panel answers it wrongly.
+//   logged    - stopsWhenLogged, and the target is already logged today, so this slot is silenced.
+//               Today only: whether tomorrow's will be logged by then is unknowable, and guessing
+//               would be the kind of confident wrong answer this endpoint exists to avoid.
+//   held      - inside the owner's quiet hours and not allowed through them. Listed at its real
+//               time with deliveredAt saying when it will actually arrive, because the scheduler
+//               genuinely defers rather than drops it (see reminderEligibility.ts).
+type UpcomingRunState = "scheduled" | "paused" | "logged" | "held";
+
+interface UpcomingRun {
+  date: string;
+  time: string;
+  reminderId: string;
+  target: string;
+  category: { name: string; icon: string | null } | null;
+  state: UpcomingRunState;
+  // Only present on a held run.
+  deliveredAt?: string;
+}
+
+const upcomingDaysSchema = z.enum(["1", "7", "30"]).default("1").transform(Number);
+
+// "When will my reminders actually fire?", merged across every reminder and answered with the
+// scheduler's own rules rather than a second set that agrees with them today.
+//
+// The trap this endpoint is built around: `nextRunsForSchedules` (see lib/cron.ts) looks like
+// exactly the right function and is not. It understands cron expressions and nothing else - it has
+// never heard of `enabled`, `startsAt`, `expiresAt`, `stopsWhenLogged` or quiet hours, all of
+// which arrived after it was written. Built on it as-is, this would confidently list runs that
+// never happen: expired temporary reminders, follow-ups that have not started, and a 03:46 slot
+// that quiet hours will really deliver at 08:00. So the firing rules come from lib/reminderRuns.ts
+// - the same module the scheduler itself now calls. See docs/log/42-upcoming-reminders.md.
+//
+// Declared before the "/:id" routes below for readability; GET "/upcoming" is already unambiguous
+// to Express, since no GET route here takes a path parameter.
+remindersRouter.get("/upcoming", async (req, res) => {
+  const parsedDays = upcomingDaysSchema.safeParse(req.query.days);
+  if (!parsedDays.success) {
+    return res.status(400).json({
+      error: {
+        message: "Invalid range",
+        code: "VALIDATION_ERROR",
+        details: { days: [`days must be one of ${UPCOMING_DAY_OPTIONS.join(", ")}`] },
+      },
+    });
+  }
+  const days = parsedDays.data;
+
+  // The scheduler resolves every reminder against the owner's *stored* timezone and quiet hours,
+  // so anything answering "when will it fire" has to read the same two columns. Using the server's
+  // clock here would produce a list that is plausibly wrong rather than visibly wrong.
+  const user = await prisma.user.findUnique({
+    where: { id: req.userId },
+    select: { timezone: true, quietHoursStart: true, quietHoursEnd: true },
+  });
+  if (!user) {
+    return res.status(404).json({ error: { message: "User not found", code: "USER_NOT_FOUND" } });
+  }
+
+  const timezone = user.timezone;
+  const quietHours = { start: user.quietHoursStart, end: user.quietHoursEnd };
+  const today = todayInTimezone(timezone);
+  const nowLocalTime = currentTimeInTimezone(timezone);
+
+  // Every reminder, including disabled ones - `enabled` is a state to report here, not a filter.
+  // Created-order is the tiebreak for two reminders sharing a slot (see the stable sort below).
+  const reminders = await prisma.reminder.findMany({
+    where: { userId: req.userId },
+    orderBy: { createdAt: "asc" },
+    include: REMINDER_INCLUDE,
+  });
+
+  // "Has this target been logged today" depends only on the target, not on the reminder - two
+  // reminders about the same category share one answer, and one reminder's many slots share it
+  // too. Memoised as the in-flight promise rather than the resolved value so a second caller
+  // waits on the first query instead of starting a duplicate.
+  const loggedTodayByTarget = new Map<string, Promise<boolean>>();
+  function loggedToday(reminder: { target: PrismaReminderTarget; categoryId: string | null }) {
+    const key = reminder.target === "CATEGORY" ? `CATEGORY:${reminder.categoryId}` : "GENERAL";
+    let answer = loggedTodayByTarget.get(key);
+    if (!answer) {
+      const { start, end } = getDayRangeUtc(today, timezone);
+      answer = hasLoggedTarget(reminder, req.userId as string, start, end);
+      loggedTodayByTarget.set(key, answer);
+    }
+    return answer;
+  }
+
+  // Precedence, most dominant first. A reminder can be several of these at once - switched off,
+  // already logged, *and* inside quiet hours - and only one word fits in the response, so the one
+  // that best explains "you will not hear from this" wins. Paused is the largest fact about a
+  // reminder; logged silences the slot outright; held still delivers, just later.
+  async function stateOf(
+    reminder: (typeof reminders)[number],
+    time: string,
+    isToday: boolean,
+  ): Promise<{ state: UpcomingRunState; deliveredAt?: string }> {
+    if (!reminder.enabled) return { state: "paused" };
+    if (isToday && reminder.stopsWhenLogged && (await loggedToday(reminder))) {
+      return { state: "logged" };
+    }
+    const deliveredAt = quietHoursHoldUntil(time, reminder.allowDuringQuietHours, quietHours);
+    if (deliveredAt !== null) return { state: "held", deliveredAt };
+    return { state: "scheduled" };
+  }
+
+  const runs: UpcomingRun[] = [];
+  let truncated = false;
+
+  // Day by day, ascending - which is what makes the result chronological without ever sorting the
+  // whole list, and what lets the cap stop the work rather than just trim the output.
+  for (let offset = 0; offset < days && !truncated; offset += 1) {
+    const date = addDaysToDateStr(today, offset);
+    const isToday = offset === 0;
+
+    const daySlots: { time: string; reminder: (typeof reminders)[number] }[] = [];
+    for (const reminder of reminders) {
+      const slots = reminderSlotsForDate({
+        date,
+        schedules: reminder.schedules,
+        timeZone: timezone,
+        startsAt: reminder.startsAt,
+        expiresAt: reminder.expiresAt,
+        // No onUnparseable: a stored expression that no longer parses is skipped silently here.
+        // The scheduler logs it once per tick, which is the right place for that; a read-only
+        // preview scanning thirty days would write the same line thirty times per request.
+      });
+      for (const time of slots) {
+        // Strictly future, matching POST /preview's own convention (see lib/cron.ts): a slot at or
+        // before the current minute has either just fired or is about to, and "coming up" is not
+        // the place to relitigate this morning.
+        if (isToday && time <= nowLocalTime) continue;
+        daySlots.push({ time, reminder });
+      }
+    }
+
+    // Array#sort is stable, so two reminders due at the same minute stay in the created-order the
+    // query returned them in - a deterministic list rather than one that reshuffles between calls.
+    daySlots.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+
+    for (const { time, reminder } of daySlots) {
+      if (runs.length >= MAX_UPCOMING_RUNS) {
+        truncated = true;
+        break;
+      }
+      runs.push({
+        date,
+        time,
+        reminderId: reminder.id,
+        target: toApiReminderTarget(reminder.target),
+        category: reminder.category,
+        ...(await stateOf(reminder, time, isToday)),
+      });
+    }
+  }
+
+  // `today` travels with the response for the same reason POST /preview sends it: the client then
+  // only ever compares date strings and never has to decide what day it is in someone else's
+  // timezone, which is exactly where this class of bug lives.
+  res.json({ timezone, today, truncated, runs });
 });
 
 // "When would this actually fire?", answered for a schedule the caller hasn't saved yet.
