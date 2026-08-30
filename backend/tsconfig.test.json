@@ -1,0 +1,15 @@
+{
+  // The build config deliberately excludes test files - they must never be emitted into dist.
+  // That also meant `tsc --noEmit` never looked at them, so a type error in a test was invisible:
+  // vitest transpiles without checking, so a test could reference a property that no longer exists
+  // (or omit one that had become required) and still run, silently, forever.
+  //
+  // This config exists purely to close that hole. Same options, nothing excluded but build output,
+  // and never emits. Run by `npm run typecheck` alongside the build check.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

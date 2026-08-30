@@ -401,3 +401,7 @@ project's own sessions.
 ### [A Reminder That Knows Not To Fire Yet](docs/log/40-reminder-starts-at.md)
 
 - 2026-08-29 — Cron can't express a beginning either
+
+### [Quiet Hours, and Who Gets To Ignore Them](docs/log/41-quiet-hours.md)
+
+- 2026-08-30 — "No reminder in the middle of the night unless the user explicitly selects it"

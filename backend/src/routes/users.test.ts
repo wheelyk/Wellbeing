@@ -263,6 +263,109 @@ describe("DELETE /api/users/me", () => {
   });
 });
 
+// Quiet hours are on by default and switchable off - "no reminder in the middle of the night
+// unless the user explicitly selects it". See docs/log/41-quiet-hours.md.
+describe("quiet hours on the profile", () => {
+  it("gives a brand-new account the default window", async () => {
+    const { accessToken } = await registerAndLogin("quiet-default");
+
+    const res = await request(app).get("/api/users/me").set(authed(accessToken));
+
+    // The migration backfilled every existing account; this is the other half of that - a column
+    // default, so someone signing up tomorrow is treated the same as someone who signed up before.
+    expect(res.body).toMatchObject({ quietHoursStart: "22:00", quietHoursEnd: "08:00" });
+  });
+
+  it("sets a different window", async () => {
+    const { accessToken } = await registerAndLogin("quiet-set");
+
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ quietHoursStart: "23:30", quietHoursEnd: "07:00" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ quietHoursStart: "23:30", quietHoursEnd: "07:00" });
+  });
+
+  // Explicit null is the "I want notifications at any hour" case, and is a different request from
+  // leaving the fields out - the distinction docs/LESSONS-LEARNED.md exists for.
+  it("turns quiet hours off entirely with explicit nulls", async () => {
+    const { accessToken } = await registerAndLogin("quiet-clear");
+
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ quietHoursStart: null, quietHoursEnd: null });
+
+    expect(res.status).toBe(200);
+    expect(res.body.quietHoursStart).toBeNull();
+    expect(res.body.quietHoursEnd).toBeNull();
+  });
+
+  it("leaves the window alone when the update is about something else", async () => {
+    const { accessToken } = await registerAndLogin("quiet-untouched");
+    await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ quietHoursStart: "23:00", quietHoursEnd: "06:00" });
+
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ displayName: "Someone Else" });
+
+    expect(res.body).toMatchObject({ quietHoursStart: "23:00", quietHoursEnd: "06:00" });
+  });
+
+  it("refuses half a window, which would have no statable meaning", async () => {
+    const { accessToken } = await registerAndLogin("quiet-half");
+
+    const startOnly = await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ quietHoursStart: "22:00" });
+    expect(startOnly.status).toBe(400);
+
+    const oneNull = await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ quietHoursStart: "22:00", quietHoursEnd: null });
+    expect(oneNull.status).toBe(400);
+
+    // Clearing one end alone is the same failure wearing a different hat: it would leave the other
+    // end set, which is a window nobody could describe.
+    const clearOneEnd = await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ quietHoursStart: null });
+    expect(clearOneEnd.status).toBe(400);
+  });
+
+  it("refuses a window that starts and ends at the same time", async () => {
+    const { accessToken } = await registerAndLogin("quiet-empty");
+
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ quietHoursStart: "08:00", quietHoursEnd: "08:00" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses anything that isn't a 24-hour time", async () => {
+    const { accessToken } = await registerAndLogin("quiet-bad-time");
+
+    for (const bad of ["10pm", "24:00", "7:00", "22:60"]) {
+      const res = await request(app)
+        .patch("/api/users/me")
+        .set(authed(accessToken))
+        .send({ quietHoursStart: bad, quietHoursEnd: "08:00" });
+      expect(res.status, `expected ${bad} to be rejected`).toBe(400);
+    }
+  });
+});
+
 afterAll(async () => {
   await prisma.user.deleteMany({ where: { email: { in: createdEmails } } });
   await prisma.$disconnect();

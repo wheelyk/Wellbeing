@@ -826,6 +826,60 @@ describe("reminders routes", () => {
     });
   });
 
+  // Whether a reminder may fire inside its owner's quiet hours depends on who chose the time. The
+  // two creation paths therefore default the flag in opposite directions, which is the whole point
+  // of it being a stored field rather than a rule inferred somewhere.
+  describe("quiet hours", () => {
+    it("lets a reminder you scheduled yourself ignore quiet hours", async () => {
+      const { accessToken } = await registerAndLogin("quiet-scheduled");
+
+      const res = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({ target: "general", schedules: ["0 3 * * *"] });
+
+      // You asked for 03:00 in as many words, so quiet hours have no business overruling you.
+      expect(res.status).toBe(201);
+      expect(res.body.allowDuringQuietHours).toBe(true);
+    });
+
+    it("does not let a follow-up ignore them, since the app chose the time", async () => {
+      const { accessToken } = await registerAndLogin("quiet-followup");
+
+      const res = await request(app)
+        .post("/api/reminders/follow-up")
+        .set(authed(accessToken))
+        .send({ target: "general", inMinutes: 360 });
+
+      // Here you asked for "in six hours", not "at 03:46" - so it is the app's job not to wake you.
+      expect(res.status).toBe(201);
+      expect(res.body.allowDuringQuietHours).toBe(false);
+    });
+
+    it("can be overridden either way", async () => {
+      const { accessToken } = await registerAndLogin("quiet-override");
+
+      const created = await request(app)
+        .post("/api/reminders")
+        .set(authed(accessToken))
+        .send({ target: "general", schedules: ["0 9 * * *"], allowDuringQuietHours: false });
+      expect(created.body.allowDuringQuietHours).toBe(false);
+
+      const changed = await request(app)
+        .patch(`/api/reminders/${created.body.id}`)
+        .set(authed(accessToken))
+        .send({ allowDuringQuietHours: true });
+      expect(changed.body.allowDuringQuietHours).toBe(true);
+
+      // Editing something else must not quietly reset it.
+      const other = await request(app)
+        .patch(`/api/reminders/${created.body.id}`)
+        .set(authed(accessToken))
+        .send({ schedules: ["0 10 * * *"] });
+      expect(other.body.allowDuringQuietHours).toBe(true);
+    });
+  });
+
   it("archiving a category disables (not deletes) every reminder targeting it, across users", async () => {
     const owner = await registerAndLogin("archive-owner");
     const other = await registerAndLogin("archive-other");

@@ -8,6 +8,7 @@ import {
 } from "./timezone";
 import { sendPushNotification } from "./webPush";
 import { shouldSendReminder } from "./reminderEligibility";
+import { isWithinQuietHours } from "./quietHours";
 import { cronSlotsForDate } from "./cron";
 import type { Reminder } from "../generated/prisma/client";
 
@@ -43,7 +44,7 @@ async function sweepExpiredReminders(now: Date): Promise<void> {
 }
 
 type ReminderWithTargets = Reminder & {
-  user: { timezone: string };
+  user: { timezone: string; quietHoursStart: string | null; quietHoursEnd: string | null };
   category: { name: string; description: string | null } | null;
 };
 
@@ -160,7 +161,9 @@ export async function runReminderTick(): Promise<void> {
       AND: [{ OR: [{ startsAt: null }, { startsAt: { lte: now } }] }],
     },
     include: {
-      user: { select: { timezone: true } },
+      user: {
+        select: { timezone: true, quietHoursStart: true, quietHoursEnd: true },
+      },
       category: { select: { name: true, description: true } },
     },
   });
@@ -230,12 +233,22 @@ export async function runReminderTick(): Promise<void> {
       loggedTarget = await hasLoggedTarget(reminder, reminder.userId, start, end);
     }
 
+    // Resolved once per reminder rather than per slot - it depends only on the current time and
+    // the owner's window, neither of which varies across a reminder's own slots.
+    const inQuietHours =
+      !reminder.allowDuringQuietHours &&
+      isWithinQuietHours(currentLocalTime, {
+        start: reminder.user.quietHoursStart,
+        end: reminder.user.quietHoursEnd,
+      });
+
     const eligible = todaysSlots.filter((time) =>
       shouldSendReminder({
         time,
         currentLocalTime,
         alreadySentThisSlot: sentSet.has(sentSlotKey(reminder.id, today, time)),
         hasLoggedTarget: loggedTarget,
+        inQuietHours,
       }),
     );
     if (eligible.length === 0) continue;
