@@ -442,10 +442,22 @@ describe("GET /api/reminders/upcoming", () => {
     expect(utcRes.body.runs).toEqual([]);
   });
 
-  it("caps the list at 200 runs and says it was cut", async () => {
+  it("caps the list at 200 entries and says it was cut", async () => {
     const { accessToken, userId } = await registerAndLogin("truncated");
-    // Hourly for thirty days is 700-odd runs - far past the point where more rows help anyone.
-    await createReminder(userId, { schedules: ["0 * * * *"] });
+    // Six times a day each, which is the most that stays listed rather than collapsing into one
+    // row - so two reminders give twelve entries a day, and thirty days of that is 360. Past the
+    // cap without relying on a cadence, which would now be merged.
+    const category = await prisma.category.create({
+      data: { userId, name: "Water intake", valueType: "NUMERIC", icon: "💧" },
+    });
+    await createReminder(userId, {
+      schedules: Array.from({ length: 6 }, (_, i) => `0 ${13 + i} * * *`),
+    });
+    await createReminder(userId, {
+      target: "CATEGORY",
+      categoryId: category.id,
+      schedules: Array.from({ length: 6 }, (_, i) => `30 ${13 + i} * * *`),
+    });
 
     const res = await upcoming(accessToken, 30);
 
@@ -453,6 +465,72 @@ describe("GET /api/reminders/upcoming", () => {
     expect(res.body.truncated).toBe(true);
     // Still chronological up to the cut, and cut from the far end rather than sampled.
     expect(res.body.runs[0]).toMatchObject({ date: TODAY, time: "13:00" });
+  });
+
+  // A single hourly reminder used to fill the Dashboard panel with twenty-four near-identical rows.
+  // Found by pointing the panel at a real account, not by any test - see docs/log/46.
+  describe("collapsing a cadence", () => {
+    it("merges a day of hourly slots into one row that says how many", async () => {
+      const { accessToken, userId } = await registerAndLogin("collapse-hourly");
+      await createReminder(userId, { schedules: ["0 * * * *"] });
+
+      const res = await upcoming(accessToken, 1);
+
+      // 13:00 through 23:00 - the ones still to come after 12:05.
+      expect(res.body.runs).toHaveLength(1);
+      expect(res.body.runs[0]).toMatchObject({
+        date: TODAY,
+        time: "13:00",
+        repeatCount: 11,
+        lastTime: "23:00",
+      });
+    });
+
+    // The case that matters most: a hand-written list of times is what somebody deliberately chose,
+    // and merging two of them into "2 times" would be actively worse than listing them.
+    it("leaves a hand-written set of times listed", async () => {
+      const { accessToken, userId } = await registerAndLogin("collapse-listed");
+      await createReminder(userId, { schedules: ["0 14 * * *", "0 20 * * *", "0 22 * * *"] });
+
+      const res = await upcoming(accessToken, 1);
+
+      expect(res.body.runs.map((r: { time: string }) => r.time)).toEqual([
+        "14:00",
+        "20:00",
+        "22:00",
+      ]);
+      expect(
+        res.body.runs.every((r: { repeatCount?: number }) => r.repeatCount === undefined),
+      ).toBe(true);
+    });
+
+    // An hourly reminder that runs into quiet hours is genuinely two different things. Merging them
+    // would produce one row claiming a single state for slots that do not share one.
+    it("does not merge slots whose state differs", async () => {
+      const { accessToken, userId } = await registerAndLogin("collapse-split", {
+        quietHoursStart: "14:00",
+        quietHoursEnd: "08:00",
+      });
+      await createReminder(userId, {
+        schedules: ["0 * * * *"],
+        allowDuringQuietHours: false,
+      });
+
+      const res = await upcoming(accessToken, 1);
+
+      // 13:00 fires as scheduled; 14:00-23:00 are all held until the window ends. Two entries, not
+      // one - a single row claiming one state for slots that do not share one would be a lie.
+      expect(res.body.runs).toHaveLength(2);
+      expect(res.body.runs[0]).toMatchObject({ time: "13:00", state: "scheduled" });
+      expect(res.body.runs[0].repeatCount).toBeUndefined();
+      expect(res.body.runs[1]).toMatchObject({
+        time: "14:00",
+        state: "held",
+        deliveredAt: "08:00",
+        repeatCount: 10,
+        lastTime: "23:00",
+      });
+    });
   });
 
   it("returns an empty list for an account with no reminders at all", async () => {

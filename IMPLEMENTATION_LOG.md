@@ -421,3 +421,7 @@ project's own sessions.
 ### [The Coming Up Panel](docs/log/45-coming-up-panel.md)
 
 - 2026-08-30 — Answering "what's next" without opening anything
+
+### [Collapsing a Cadence Into One Row](docs/log/46-collapsing-repeated-runs.md)
+
+- 2026-08-30 — Twenty-four rows that say one thing
