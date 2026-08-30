@@ -15,5 +15,6 @@ export default defineConfig({
     // Vitest's global test() once Vitest's default include pattern picks the same *.spec.ts
     // files up too.
     exclude: [...configDefaults.exclude, "e2e/**"],
+    fileParallelism: false,
   },
 });

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useCollapsedState } from "../../hooks/useCollapsedState";
+import { CollapsibleSection } from "../CollapsibleSection";
 
 interface SectionPanelProps {
   title: string;
@@ -17,21 +17,37 @@ interface SectionPanelProps {
   // `Modal`, owned by each Section component directly - collapsing this panel has no effect on
   // it, and opening the form has no effect on this panel's own collapsed state either.
   children: ReactNode;
+
+  // ---- What a collapsed panel says about itself --------------------------------------------
+  // Passed straight through to CollapsibleSection. "Recent Anxiety ⌄" tells a reader nothing;
+  // "🧠 Anxiety / Last 4/7 · yesterday, 21:12" tells them whether it is worth opening.
+  icon?: ReactNode;
+  subtitle?: ReactNode;
+  badge?: ReactNode;
+  meta?: ReactNode;
+  defaultCollapsed?: boolean;
 }
 
 // One bordered card per Dashboard section, with the "+ Add" action inlined into the same header
 // row as the title and collapse chevron - see the implementation log entry on this redesign for
 // why an earlier version kept the add button in its own separate area above the list instead.
+//
+// The header itself is no longer written out here. It used to be a near-copy of
+// CollapsibleSection's, differing only in having an action beside the toggle - something that
+// component could not express until it was given an `actions` slot. This is now that component,
+// plus a card and a "+". See docs/log/43-disclosure-panel.md.
 export function SectionPanel({
   title,
   storageKey,
   addLabel,
   onAddClick,
   children,
+  icon,
+  subtitle,
+  badge,
+  meta,
+  defaultCollapsed,
 }: SectionPanelProps) {
-  const { collapsed, toggle } = useCollapsedState(`dashboard.${storageKey}`);
-  const contentId = `section-panel-${storageKey}-content`;
-
   return (
     // No margin/spacing classes here - this panel is always laid out inside DashboardPage's own
     // grid (a single column on mobile, two from md: up - see the implementation log entry on
@@ -42,55 +58,42 @@ export function SectionPanel({
       id={`dashboard-section-${storageKey}`}
       className="rounded-2xl border border-border bg-surface shadow-sm"
     >
-      <div className="flex items-center gap-2 p-4">
-        <button
-          type="button"
-          onClick={toggle}
-          aria-expanded={!collapsed}
-          aria-controls={contentId}
-          className="flex flex-1 items-center gap-2 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-        >
-          <h2 className="flex-1 text-lg font-semibold text-text">{title}</h2>
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 20 20"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`h-5 w-5 shrink-0 text-text-muted transition-transform ${collapsed ? "" : "rotate-180"}`}
+      <CollapsibleSection
+        title={title}
+        storageKey={`dashboard.${storageKey}`}
+        defaultCollapsed={defaultCollapsed}
+        icon={icon}
+        subtitle={subtitle}
+        badge={badge}
+        meta={meta}
+        headerClassName="p-4"
+        contentClassName="border-t border-border p-4 pt-3"
+        actions={
+          // min 44px touch target (WCAG 2.5.5) despite the compact 20px icon - h-11 w-11 gives
+          // exactly that, unlike the icon-only button in the original comparison mockup, which
+          // was sized for a small phone-frame graphic, not a real thumb.
+          <button
+            type="button"
+            onClick={onAddClick}
+            aria-label={addLabel}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand text-white hover:bg-brand-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
-            <path d="M5 7.5 10 12.5 15 7.5" />
-          </svg>
-        </button>
-        {/* min 44px touch target (WCAG 2.5.5) despite the compact 20px icon - h-11 w-11 gives
-            exactly that, unlike the icon-only button in the original comparison mockup, which
-            was sized for a small phone-frame graphic, not a real thumb. */}
-        <button
-          type="button"
-          onClick={onAddClick}
-          aria-label={addLabel}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand text-white hover:bg-brand-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-        >
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 20 20"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2.4}
-            strokeLinecap="round"
-            className="h-5 w-5"
-          >
-            <path d="M10 4v12M4 10h12" />
-          </svg>
-        </button>
-      </div>
-      {!collapsed && (
-        <div id={contentId} className="border-t border-border p-4 pt-3">
-          {children}
-        </div>
-      )}
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.4}
+              strokeLinecap="round"
+              className="h-5 w-5"
+            >
+              <path d="M10 4v12M4 10h12" />
+            </svg>
+          </button>
+        }
+      >
+        {children}
+      </CollapsibleSection>
     </section>
   );
 }
