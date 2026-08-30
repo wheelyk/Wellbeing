@@ -405,3 +405,7 @@ project's own sessions.
 ### [Quiet Hours, and Who Gets To Ignore Them](docs/log/41-quiet-hours.md)
 
 - 2026-08-30 — "No reminder in the middle of the night unless the user explicitly selects it"
+
+### [What's Actually Coming Up](docs/log/42-upcoming-reminders.md)
+
+- 2026-08-30 — A list of when reminders will really fire, built by refusing to write the rules twice
