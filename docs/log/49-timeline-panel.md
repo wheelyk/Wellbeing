@@ -151,4 +151,18 @@ is used as the tiebreak, and this has not been observed happening, only reasoned
   the two already exist independently, are independently tested, and are each useful on their own
   (a future task might want "recent" alone, e.g. on a history-adjacent page).
 
+**Follow-up, caught by CI after the PR opened:** `e2e/quick-add-and-dashboard.spec.ts` still
+asserted against the now-deleted `#recent-entries-content` (its four Quick-Add-logged entries have
+no reminder attached, so they were never going to appear in Timeline either - Timeline only ever
+shows reminder-driven runs). This is exactly the "repo-wide grep for the copy, not a search scoped
+to where I was just told the problem was" lesson from [45](45-coming-up-panel.md)'s own follow-up,
+recurring: a grep across `frontend/e2e/` and `frontend/scripts/` for the retired selector and the
+old "Name — value" copy found this one real hit (plus two harmless stale comments, left as-is).
+Fixed by asserting against each category's own card instead - scoped by its heading, since that
+card already renders the same just-saved value (`CategoryLogCard`'s `formatCategoryLogValue`) and
+always did; the combined-card check was redundant with per-card checks even before this task,
+not something Timeline needed to replace. Verified by running the full local e2e suite against
+real dev servers and a real Postgres database (not just the one previously-failing spec) - 4/4
+green.
+
 ---
