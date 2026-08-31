@@ -92,9 +92,9 @@ describe("GET /api/history", () => {
     const times = res.body.entries.map((e: { loggedAt: string }) => new Date(e.loggedAt).getTime());
     expect(times).toEqual([...times].sort((a, b) => b - a));
 
-    expect(res.body.entries[0]).toMatchObject({ label: "Mood: 4/5" });
-    expect(res.body.entries[1]).toMatchObject({ label: "Ibuprofen: Done" });
-    expect(res.body.entries[2]).toMatchObject({ label: "Exercise: Done" });
+    expect(res.body.entries[0]).toMatchObject({ categoryName: "Mood", value: "4/5" });
+    expect(res.body.entries[1]).toMatchObject({ categoryName: "Ibuprofen", value: "Done" });
+    expect(res.body.entries[2]).toMatchObject({ categoryName: "Exercise", value: "Done" });
     // Each entry's own id is present and is the id /api/category-logs/:id's DELETE endpoint
     // expects - the same id used to create it via the route above.
     res.body.entries.forEach((entry: { id: string }) => expect(entry.id).toBeDefined());
@@ -126,7 +126,12 @@ describe("GET /api/history", () => {
 
     const res = await request(app).get("/api/history").set(authed(accessToken));
 
-    const labels = res.body.entries.map((e: { label: string }) => e.label);
+    // categoryName and value are separate fields now (see history.ts's own comment on why) -
+    // rejoined here into the same "Name: value" shape purely for a concise assertion, not
+    // because the route itself still does this.
+    const labels = res.body.entries.map(
+      (e: { categoryName: string; value: string }) => `${e.categoryName}: ${e.value}`,
+    );
     expect(labels).toEqual(expect.arrayContaining(["Glasses of water: 6", "Meditation: 15 min"]));
   });
 
@@ -152,8 +157,45 @@ describe("GET /api/history", () => {
       .send({ categoryId: durationCategory.body.id, valueDurationMinutes: 15 });
 
     const res = await request(app).get("/api/history").set(authed(accessToken));
-    const labels = res.body.entries.map((e: { label: string }) => e.label);
+    const labels = res.body.entries.map(
+      (e: { categoryName: string; value: string }) => `${e.categoryName}: ${e.value}`,
+    );
     expect(labels).toEqual(expect.arrayContaining(["Energy level: 4/5", "Meditation: 15 min"]));
+  });
+
+  // Regression coverage for the new categoryIcon field (see history.ts's own comment on why
+  // `label` split into categoryName/categoryIcon/value) - a category with an icon set returns it,
+  // and one without (the common case - most categories in the seed helpers above never set one)
+  // returns null rather than an empty string or throwing.
+  it("returns categoryIcon when the category has one, and null when it doesn't", async () => {
+    const { accessToken } = await registerAndLogin("category-icon");
+
+    const withIcon = await request(app)
+      .post("/api/categories")
+      .set(authed(accessToken))
+      .send({ name: "Water intake", valueType: "boolean", icon: "💧" });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId: withIcon.body.id, valueBoolean: true });
+
+    const withoutIcon = await createCategory(accessToken, "Reading");
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId: withoutIcon, valueBoolean: true });
+
+    const res = await request(app).get("/api/history").set(authed(accessToken));
+
+    expect(res.status).toBe(200);
+    const byName = Object.fromEntries(
+      res.body.entries.map((e: { categoryName: string; categoryIcon: string | null }) => [
+        e.categoryName,
+        e.categoryIcon,
+      ]),
+    );
+    expect(byName["Water intake"]).toBe("💧");
+    expect(byName["Reading"]).toBeNull();
   });
 
   it("filters by ?categoryId=, returning only that category's own entries", async () => {
@@ -171,7 +213,7 @@ describe("GET /api/history", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.entries).toHaveLength(1);
-    expect(res.body.entries[0].label).toBe("Ibuprofen: Done");
+    expect(res.body.entries[0]).toMatchObject({ categoryName: "Ibuprofen", value: "Done" });
   });
 
   it("never returns another user's entries even when ?categoryId= names a shared system category", async () => {
@@ -230,7 +272,7 @@ describe("GET /api/history", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.entries).toHaveLength(1);
-    expect(res.body.entries[0].label).toBe("Mood: 3/5");
+    expect(res.body.entries[0]).toMatchObject({ categoryName: "Mood", value: "3/5" });
   });
 
   // Regression test: `from`/`to` are calendar-day strings that must be resolved against *this
@@ -275,10 +317,11 @@ describe("GET /api/history", () => {
       .set(authed(accessToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.entries.map((e: { label: string }) => e.label).sort()).toEqual([
-      "Mood: 3/5",
-      "Mood: 5/5",
-    ]);
+    expect(
+      res.body.entries
+        .map((e: { categoryName: string; value: string }) => `${e.categoryName}: ${e.value}`)
+        .sort(),
+    ).toEqual(["Mood: 3/5", "Mood: 5/5"]);
   });
 
   it("rejects `from` after `to`", async () => {

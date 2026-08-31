@@ -23,7 +23,14 @@ const querySchema = z.object({
 
 interface HistoryEntry {
   id: string;
-  label: string;
+  categoryName: string;
+  // Split from a single pre-joined `label` string (was `"Sertraline: Done"`) into its own
+  // structured fields - the exact "real field on the response instead" this route's own
+  // formatting comment used to point at as unaddressed. The frontend needs the name and value
+  // apart to render History's rows the way Timeline already renders a reminder row: the name as
+  // the row's own text, the value as a separate pill (see docs/log/53-history-redesign.md).
+  categoryIcon: string | null;
+  value: string;
   notes: string | null;
   loggedAt: string;
 }
@@ -118,13 +125,15 @@ historyRouter.get("/", async (req, res) => {
     orderBy: [{ loggedAt: "desc" }, { id: "desc" }],
     take: limit + 1,
     skip: offset,
-    include: { category: { select: { name: true, valueType: true, scaleMax: true } } },
+    include: { category: { select: { name: true, icon: true, valueType: true, scaleMax: true } } },
   });
 
   const hasMore = categoryLogs.length > limit;
   const entries: HistoryEntry[] = categoryLogs.slice(0, limit).map((log) => ({
     id: log.id,
-    label: `${log.category.name}: ${formatCategoryLogValue(log)}`,
+    categoryName: log.category.name,
+    categoryIcon: log.category.icon,
+    value: formatCategoryLogValue(log),
     notes: log.notes,
     loggedAt: log.loggedAt.toISOString(),
   }));
