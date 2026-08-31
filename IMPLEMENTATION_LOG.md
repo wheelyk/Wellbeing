@@ -449,3 +449,7 @@ project's own sessions.
 ### [Timeline Sync: Announcing a Reminder Change, and Catching Up When a Tab Was Never Told](docs/log/52-timeline-sync.md)
 
 - 2026-08-31 — Two gaps in "Timeline always shows what's actually true"
+
+### [History Redesign: Bringing the Second Most-Used Page in Line with the First](docs/log/53-history-redesign.md)
+
+- 2026-08-31 — Splitting a pre-joined label so a value can finally be a pill

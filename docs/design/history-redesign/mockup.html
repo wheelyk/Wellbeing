@@ -1,0 +1,347 @@
+<title>History Redesign</title>
+<style>
+  :root{
+    --page-bg:#eef1f6; --page-surface:#ffffff; --page-text:#111827; --page-muted:#6b7280;
+    --page-border:#e5e7eb; --accent:#2563eb; --accent-soft:#eef2ff;
+    --wt-brand:#2563eb; --wt-brand-dark:#1d4ed8; --wt-surface:#ffffff; --wt-surface-muted:#f8fafc;
+    --wt-text:#0f172a; --wt-text-muted:#475569; --wt-border:#e2e8f0; --wt-danger:#dc2626;
+    --wt-success:#16a34a; --wt-warning:#b45309;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --page-bg:#0b1220; --page-surface:#141b2d; --page-text:#e5e9f2; --page-muted:#93a0b8;
+      --page-border:#243049; --accent:#5b8def; --accent-soft:#182238;
+    }
+  }
+  :root[data-theme="dark"]{
+    --page-bg:#0b1220; --page-surface:#141b2d; --page-text:#e5e9f2; --page-muted:#93a0b8;
+    --page-border:#243049; --accent:#5b8def; --accent-soft:#182238;
+  }
+  *{box-sizing:border-box}
+  body{
+    background:var(--page-bg); color:var(--page-text);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    line-height:1.5;
+  }
+  .wrap{max-width:1160px;margin:0 auto;padding:40px 20px 80px}
+  .kicker{
+    font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--accent); margin:0 0 8px;
+  }
+  h1{font-size:28px; font-weight:700; margin:0 0 10px; letter-spacing:-0.01em; text-wrap:balance}
+  .lede{color:var(--page-muted); max-width:66ch; margin:0 0 36px; font-size:15px}
+  .lede strong{color:var(--page-text)}
+
+  h2{font-size:19px; font-weight:700; margin:0 0 4px}
+  .section-sub{color:var(--page-muted); font-size:13.5px; margin:0 0 20px; max-width:62ch}
+  section{margin-bottom:56px}
+
+  /* ---- phone comparison ---- */
+  .compare{
+    display:grid; grid-template-columns:1fr; gap:28px;
+  }
+  @media (min-width:820px){ .compare{grid-template-columns:1fr 1fr} }
+  .frame-col{display:flex; flex-direction:column; align-items:center; gap:12px}
+  .frame-label{
+    display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:700;
+    letter-spacing:.04em; text-transform:uppercase; color:var(--page-muted);
+  }
+  .frame-label.after{color:var(--wt-success)}
+  .frame-label .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+
+  .phone{
+    width:100%; max-width:330px; border-radius:34px; background:#000;
+    padding:10px; box-shadow:0 20px 45px -18px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.15);
+  }
+  .phone-screen{
+    background:var(--wt-surface-muted); border-radius:26px; overflow:hidden; height:640px;
+    display:flex; flex-direction:column; position:relative;
+  }
+  .status{
+    display:flex; justify-content:space-between; align-items:center; padding:8px 18px 4px;
+    font-size:11px; font-weight:600; color:var(--wt-text); background:var(--wt-surface);
+  }
+  .topbar{
+    display:flex; justify-content:space-between; align-items:center; padding:10px 16px 14px;
+    background:var(--wt-surface); border-bottom:1px solid var(--wt-border);
+  }
+  .brand{color:var(--wt-brand); font-weight:700; font-size:16px}
+  .logout{
+    font-size:11px; font-weight:600; color:var(--wt-text); background:var(--wt-surface-muted);
+    border:1px solid var(--wt-border); border-radius:8px; padding:5px 10px;
+  }
+  .screen-body{flex:1; overflow:hidden; padding:14px 12px 0}
+  .page-title{font-size:19px;font-weight:700;color:var(--wt-text);margin:2px 2px 2px}
+  .page-sub{font-size:12px;color:var(--wt-text-muted);margin:0 2px 12px}
+  .bottomnav{
+    display:flex; justify-content:space-around; align-items:center; padding:8px 4px 10px;
+    background:var(--wt-surface); border-top:1px solid var(--wt-border);
+  }
+  .navitem{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9.5px;color:var(--wt-text-muted)}
+  .navitem.active{color:var(--wt-brand)}
+  .navitem .ic{font-size:15px}
+
+  /* ---- BEFORE rows (current) ---- */
+  .before .filters{
+    border:1px solid var(--wt-border); border-radius:14px; padding:12px 14px; margin:0 2px 14px;
+    font-size:12.5px; font-weight:600; color:var(--wt-text); display:flex; justify-content:space-between;
+    background:var(--wt-surface);
+  }
+  .before .daygroup-head{
+    display:flex; justify-content:space-between; align-items:center; margin:0 2px 8px;
+  }
+  .before .daygroup-head .day{font-size:13.5px;font-weight:700;color:var(--wt-text)}
+  .before .daygroup-head .count{font-size:12px;color:var(--wt-text-muted)}
+  .before .row{
+    border:1px solid var(--wt-border); background:var(--wt-surface); border-radius:16px;
+    padding:12px 14px; margin:0 2px 8px; display:flex; justify-content:space-between; align-items:flex-start; gap:10px;
+  }
+  .before .row .label{font-size:13.5px;color:var(--wt-text)}
+  .before .row .time{font-size:11px;color:var(--wt-text-muted);margin-top:3px}
+  .before .row .actions{display:flex;gap:6px;flex-shrink:0}
+  .before .row .actions span{
+    width:30px;height:30px;border-radius:8px;background:var(--wt-surface-muted);
+    border:1px solid var(--wt-border); display:flex; align-items:center; justify-content:center; font-size:13px;
+  }
+
+  /* ---- AFTER rows (redesign) ---- */
+  .after .divider{
+    display:flex; align-items:center; gap:8px; margin:14px 2px 8px;
+  }
+  .after .divider .rule{flex:1;height:1px;background:var(--wt-border)}
+  .after .divider .pill{
+    border:1px solid var(--wt-border); border-radius:999px; padding:2px 10px;
+    font-size:9.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--wt-text-muted);
+    white-space:nowrap;
+  }
+  .after .divider .n{font-size:10.5px;color:var(--wt-text-muted);white-space:nowrap}
+  .after .row{
+    border:1px solid var(--wt-border); background:var(--wt-surface-muted); border-radius:12px;
+    padding:9px 10px; margin:0 2px 6px; display:flex; align-items:center; gap:10px;
+  }
+  .after .row .time{font-size:12.5px;font-weight:600;color:var(--wt-text);font-variant-numeric:tabular-nums; flex-shrink:0}
+  .after .row .mid{min-width:0;flex:1}
+  .after .row .name{font-size:13.5px;color:var(--wt-text); display:flex; align-items:center; gap:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .after .row .note{font-size:11px;color:var(--wt-text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px}
+  .after .row .val{
+    flex-shrink:0; font-size:11px; font-weight:600; padding:2px 9px; border-radius:999px;
+    border:1px solid var(--wt-border); color:var(--wt-text-muted); font-variant-numeric:tabular-nums;
+  }
+  .after .row .val.success{border-color:color-mix(in srgb, var(--wt-success) 50%, transparent); background:color-mix(in srgb, var(--wt-success) 12%, transparent); color:var(--wt-success)}
+  .after .row .acts{display:flex;gap:5px;flex-shrink:0}
+  .after .row .acts button{
+    width:26px;height:26px;border-radius:999px;border:1px solid var(--wt-border);
+    background:var(--wt-surface); color:var(--wt-text-muted); display:flex; align-items:center; justify-content:center; font-size:11px;
+  }
+
+  /* ---- annotation list ---- */
+  .diff-grid{display:grid; grid-template-columns:1fr; gap:14px; margin-top:22px}
+  @media (min-width:720px){ .diff-grid{grid-template-columns:1fr 1fr} }
+  .diff-card{
+    background:var(--page-surface); border:1px solid var(--page-border); border-radius:14px; padding:16px 18px;
+  }
+  .diff-card .n{
+    display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px;
+    border-radius:999px; background:var(--accent-soft); color:var(--accent); font-size:11.5px; font-weight:700;
+    margin-bottom:8px;
+  }
+  .diff-card h3{font-size:14.5px; margin:0 0 5px}
+  .diff-card p{font-size:13px; color:var(--page-muted); margin:0}
+  .diff-card .tag{
+    display:inline-block; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+    padding:2px 8px; border-radius:999px; margin-left:6px; vertical-align:1px;
+  }
+  .tag.fe{background:var(--accent-soft); color:var(--accent)}
+  .tag.be{background:#fef3c7; color:#92400e}
+  :root:not([data-theme="light"]) .tag.be{background:#3f2d0f; color:#fbbf24}
+  :root[data-theme="dark"] .tag.be{background:#3f2d0f; color:#fbbf24}
+
+  /* ---- tips ---- */
+  .tips{display:grid; grid-template-columns:1fr; gap:14px}
+  @media (min-width:720px){ .tips{grid-template-columns:1fr 1fr} }
+  .tip{background:var(--page-surface); border:1px solid var(--page-border); border-radius:14px; padding:18px 20px}
+  .tip h3{font-size:14.5px;margin:0 0 6px; display:flex; align-items:center; gap:8px}
+  .tip h3 .ic{font-size:16px}
+  .tip p{font-size:13px; color:var(--page-muted); margin:0}
+  .tip code{
+    background:var(--accent-soft); color:var(--accent); padding:1px 5px; border-radius:5px; font-size:12px;
+  }
+
+  footer{margin-top:50px; padding-top:20px; border-top:1px solid var(--page-border); font-size:12px; color:var(--page-muted)}
+</style>
+
+<div class="wrap">
+  <p class="kicker">WellTrack · Design proposal</p>
+  <h1>Bringing History in line with Home</h1>
+  <p class="lede">
+    Home's Timeline redesign (docs/log/49–52) settled on a visual language — thin-rule day
+    dividers, a leading time column, a muted pill for state — that History never picked up. It
+    still reads as an older screen: bold text headers, trailing timestamps, two boxy icon
+    buttons per row. Below is that same language applied to History, using WellTrack's real
+    tokens (light and dark), followed by what changed and why, and some general notes on the
+    app beyond this one screen.
+  </p>
+
+  <section>
+    <h2>Before → After</h2>
+    <p class="section-sub">Same real data from the two screenshots (Sertraline, Candesartan, Headache) — restyled, not re-imagined.</p>
+
+    <div class="compare">
+      <div class="frame-col">
+        <div class="frame-label"><span class="dot"></span>Before — current</div>
+        <div class="phone"><div class="phone-screen before">
+          <div class="status"><span>13:18</span><span>●●● 54%</span></div>
+          <div class="topbar"><span class="brand">WellTrack</span><span class="logout">Log out</span></div>
+          <div class="screen-body">
+            <p class="page-title">History</p>
+            <p class="page-sub">Browse everything you've logged.</p>
+            <div class="filters"><span>Filters</span><span>⌄</span></div>
+
+            <div class="daygroup-head"><span class="day">Monday, 31 August 2026</span><span class="count">1 ⌃</span></div>
+            <div class="row">
+              <div><div class="label">Sertraline: Done</div><div class="time">8:32</div></div>
+              <div class="actions"><span>✏️</span><span>🗑️</span></div>
+            </div>
+
+            <div class="daygroup-head" style="margin-top:14px"><span class="day">Sunday, 30 August 2026</span><span class="count">3 ⌃</span></div>
+            <div class="row">
+              <div><div class="label">Headache: 4/7</div><div class="time">20:41</div></div>
+              <div class="actions"><span>✏️</span><span>🗑️</span></div>
+            </div>
+            <div class="row">
+              <div><div class="label">Candesartan: Done</div><div class="time">18:00</div></div>
+              <div class="actions"><span>✏️</span><span>🗑️</span></div>
+            </div>
+          </div>
+          <div class="bottomnav">
+            <div class="navitem"><span class="ic">🏠</span>Home</div>
+            <div class="navitem active"><span class="ic">🕘</span>History</div>
+            <div class="navitem"><span class="ic">📈</span>Trends</div>
+            <div class="navitem"><span class="ic">🗂️</span>Categories</div>
+            <div class="navitem"><span class="ic">⚙️</span>Settings</div>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="frame-col">
+        <div class="frame-label after"><span class="dot"></span>After — matches Home</div>
+        <div class="phone"><div class="phone-screen after">
+          <div class="status"><span>13:18</span><span>●●● 54%</span></div>
+          <div class="topbar"><span class="brand">WellTrack</span><span class="logout">Log out</span></div>
+          <div class="screen-body">
+            <p class="page-title">History</p>
+            <p class="page-sub">Browse everything you've logged.</p>
+            <div class="filters" style="border-radius:12px;padding:10px 12px;margin-bottom:10px">
+              <span>Filters</span><span>⌄</span>
+            </div>
+
+            <div class="divider"><span class="rule"></span><span class="pill">Monday, 31 August</span><span class="rule"></span><span class="n">1</span></div>
+            <div class="row">
+              <span class="time">08:32</span>
+              <span class="mid"><span class="name">💊 Sertraline</span></span>
+              <span class="val success">Done</span>
+              <span class="acts"><button>✎</button><button>🗑</button></span>
+            </div>
+
+            <div class="divider"><span class="rule"></span><span class="pill">Sunday, 30 August</span><span class="rule"></span><span class="n">3</span></div>
+            <div class="row">
+              <span class="time">20:41</span>
+              <span class="mid"><span class="name">🤕 Headache</span></span>
+              <span class="val">4 / 7</span>
+              <span class="acts"><button>✎</button><button>🗑</button></span>
+            </div>
+            <div class="row">
+              <span class="time">18:00</span>
+              <span class="mid"><span class="name">💊 Candesartan</span></span>
+              <span class="val success">Done</span>
+              <span class="acts"><button>✎</button><button>🗑</button></span>
+            </div>
+            <div class="row">
+              <span class="time">09:05</span>
+              <span class="mid"><span class="name">💊 Sertraline</span></span>
+              <span class="val success">Done</span>
+              <span class="acts"><button>✎</button><button>🗑</button></span>
+            </div>
+          </div>
+          <div class="bottomnav">
+            <div class="navitem"><span class="ic">🏠</span>Home</div>
+            <div class="navitem active"><span class="ic">🕘</span>History</div>
+            <div class="navitem"><span class="ic">📈</span>Trends</div>
+            <div class="navitem"><span class="ic">🗂️</span>Categories</div>
+            <div class="navitem"><span class="ic">⚙️</span>Settings</div>
+          </div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What changed, and why</h2>
+    <p class="section-sub">Six moves, each one already established on Home — nothing invented for History specifically.</p>
+    <div class="diff-grid">
+      <div class="diff-card">
+        <span class="n">1</span>
+        <h3>Day headers become dividers <span class="tag fe">frontend</span></h3>
+        <p>CollapsibleSection's bold-text-plus-chevron header is replaced with the same thin-rule-plus-pill divider every Home day group already uses — one visual language for "a new day starts here," not two.</p>
+      </div>
+      <div class="diff-card">
+        <span class="n">2</span>
+        <h3>Time leads the row <span class="tag fe">frontend</span></h3>
+        <p>Home always puts the time first, in a tabular-nums column, so a list of rows reads as a scannable timeline. History currently buries it as a small trailing line under the label — moved to match.</p>
+      </div>
+      <div class="diff-card">
+        <span class="n">3</span>
+        <h3>The value becomes a pill <span class="tag be">backend</span></h3>
+        <p><code>GET /api/history</code> currently returns one pre-joined string, <code>"Sertraline: Done"</code> — the exact thing <code>HistoryPage.tsx</code>'s own comment already flags as wanting "a real field on the response instead." Splitting it into <code>categoryName</code> + a formatted <code>value</code> is what lets the value render as its own pill, the same way a Timeline row's "Logged"/"Done" state does — small, additive, and the formatting logic (<code>formatCategoryLogValue</code>) already exists in <code>history.ts</code>, just needs to stop being concatenated before it's sent.</p>
+      </div>
+      <div class="diff-card">
+        <span class="n">4</span>
+        <h3>Pill color means outcome, not "is a pill" <span class="tag fe">frontend</span></h3>
+        <p>"Done" gets Home's exact success-green pill — it means the same thing "Logged" does. "Not done" and every numeric/scale/duration value stay neutral: an explicit "no," or a plain recorded number, isn't a failure the way a missed reminder is, so it shouldn't borrow danger red just because it's a pill.</p>
+      </div>
+      <div class="diff-card">
+        <span class="n">5</span>
+        <h3>A category icon, when there is one <span class="tag be">backend</span></h3>
+        <p>Home already shows a reminder's category icon; History's category is already the same table, just not currently selected in this one query. One more field on the same include.</p>
+      </div>
+      <div class="diff-card">
+        <span class="n">6</span>
+        <h3>Edit/Delete shrink to match Home's own icon buttons <span class="tag fe">frontend</span></h3>
+        <p>The current pair are full <code>Button</code> components with borders and padding sized for a primary action. Home's own row-level icon button (Timeline's "+") is a quiet 28px circle — Edit/Delete adopt that same restrained sizing instead of visually competing with the row's own content.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>General UI notes for the app</h2>
+    <p class="section-sub">Beyond this one screen — things that would tighten the whole product, roughly in order of how much they'd be felt.</p>
+    <div class="tips">
+      <div class="tip">
+        <h3><span class="ic">🧭</span>One state-pill vocabulary, everywhere</h3>
+        <p>Timeline now has three separate pill palettes (<code>PILL_TONE</code>, <code>TASK_PILL_TONE</code>, and whatever History grows next) that happen to agree today because they were copied by hand. Worth pulling into one shared <code>StatusPill</code> component/token map before a third or fourth screen needs its own — the risk isn't visual, it's that "success" quietly drifts to a different green in one spot after a future edit nobody thought to check against the other two.</p>
+      </div>
+      <div class="tip">
+        <h3><span class="ic">🌓</span>Spot-check dark mode as its own pass</h3>
+        <p>The app's dark palette is well-built (real tokens, not an inverted filter) — but it's easy for a new component to get built and eyeballed in light mode only, the way the value pill above would be if I hadn't checked <code>color-scheme</code> both ways. A quick "toggle dark, scroll every page" pass after each visual change catches this cheaply.</p>
+      </div>
+      <div class="tip">
+        <h3><span class="ic">🫥</span>Empty and loading states are half the app</h3>
+        <p>"Loading…" as bare text and "Nothing to show yet" as one plain line both work, but neither matches the polish of a populated row. Even a simple skeleton row (a muted rounded rectangle, Timeline's own row shape with no content) reads as "the app is working," where bare text reads as "the app forgot to finish this screen" for the half-second it's visible.</p>
+      </div>
+      <div class="tip">
+        <h3><span class="ic">👆</span>Row tap-targets vs. row actions</h3>
+        <p>Timeline solved "a button inside a button is invalid HTML" by making the checkbox and the row body siblings (see <code>TaskRowItem</code>). History's Edit/Delete pair should follow the exact same shape once restyled — two adjacent 28px circles beside the row, not nested inside a bigger tappable card, so a stray tap on the row itself doesn't compete with either action.</p>
+      </div>
+      <div class="tip">
+        <h3><span class="ic">📏</span>A second breakpoint between mobile and <code>md:</code></h3>
+        <p>History's own container comment already flags this: content that's genuinely single-column stays cramped-then-suddenly-wide at the <code>md:</code> jump, because nothing happens between 412px and 768px. A small step at <code>sm:</code> (already used for <code>ActionButton</code>'s icon-to-label swap) for spacing/padding alone — not a layout change — would smooth that jump on the tablet-width sliver in between.</p>
+      </div>
+      <div class="tip">
+        <h3><span class="ic">🔔</span>Let a pill answer "should I do something," not just "what happened"</h3>
+        <p>Overdue (red) and Done (green) on a Task row work because they're actionable at a glance. History's pills are purely retrospective — that's correct for a log, but worth keeping deliberate: a future screen that reuses the same pill component for something the user still needs to act on should stay visually distinct from "this already happened," or the whole vocabulary stops being trustworthy at a glance.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>WellTrack · design proposal, not yet implemented</footer>
+</div>
