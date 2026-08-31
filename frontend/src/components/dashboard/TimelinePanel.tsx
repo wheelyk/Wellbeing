@@ -149,13 +149,26 @@ export function TimelinePanel() {
     load();
     // Refetches immediately once something actually changes - a Timeline row logging a category
     // entry, or TaskManager saving/completing/deleting a task, both dispatch this same event (see
-    // dashboardEntryChangedEvent.ts). Missing before Tasks existed: the range-chip probe above
-    // already listened for it, but this, the data the panel actually renders, did not - a real
-    // gap this task closes rather than one Tasks specifically needed and reminders didn't.
+    // dashboardEntryChangedEvent.ts), and so does a reminder create/edit/delete on the Categories
+    // or Settings page now too (see CategoriesPage.tsx/SettingsPage.tsx). Missing before Tasks
+    // existed: the range-chip probe above already listened for it, but this, the data the panel
+    // actually renders, did not - a real gap this task closes rather than one Tasks specifically
+    // needed and reminders didn't.
     const unsubscribe = listenForDashboardEntryChanged(load);
+    // A same-window dispatch can't reach a change made from a *different* tab or device, and a
+    // backgrounded tab's own JS keeps running (or gets frozen and later resumed) with whatever
+    // data it last had - neither case is one this event was ever going to catch. Refetching
+    // whenever this tab becomes the visible one again is the general fix for both: it costs one
+    // extra request only on the transition back into view, not on a timer, and it means "Timeline
+    // is current" no longer depends on enumerating every place a reminder or task can change.
+    function onVisible() {
+      if (document.visibilityState === "visible") load();
+    }
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       unsubscribe();
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [range]);
 
