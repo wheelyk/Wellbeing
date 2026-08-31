@@ -134,6 +134,34 @@ export interface ReminderTargetRef {
   categoryId: string | null;
 }
 
+// The same question as hasLoggedTarget below, but returning *which* log answered it rather than a
+// bare yes/no - GET /api/reminders/recent (docs/log/50-timeline-v2.md) wants this id so a "logged"
+// Timeline row can be tapped straight into editing the actual entry, not just told that one
+// exists. GENERAL's "any category log at all" reach is preserved deliberately, not narrowed to a
+// specific category - which log answers a GENERAL reminder is genuinely ambiguous (any category
+// could have satisfied it), so a caller that needs to *act* on the result scopes its own use of it
+// to CATEGORY-target reminders, where the returned id is unambiguous. `hasLoggedTarget` is this
+// function with the id discarded, kept as a thin wrapper so the scheduler - which only ever asked
+// the yes/no question - never has to change.
+export async function findLoggedTarget(
+  reminder: ReminderTargetRef,
+  userId: string,
+  start: Date,
+  end: Date,
+): Promise<{ id: string } | null> {
+  const where = { userId, loggedAt: { gte: start, lt: end } };
+
+  switch (reminder.target) {
+    case "GENERAL":
+      return prisma.categoryLog.findFirst({ where, select: { id: true } });
+    case "CATEGORY":
+      return prisma.categoryLog.findFirst({
+        where: { ...where, categoryId: reminder.categoryId as string },
+        select: { id: true },
+      });
+  }
+}
+
 // Whether the user has already logged against this specific reminder's own target within the given
 // UTC instant range (normally one local day) - GENERAL is a blanket "any category log at all"
 // check; CATEGORY is scoped to the specific category this reminder is about (a "Diazepam" reminder
@@ -150,17 +178,5 @@ export async function hasLoggedTarget(
   start: Date,
   end: Date,
 ): Promise<boolean> {
-  const where = { userId, loggedAt: { gte: start, lt: end } };
-
-  switch (reminder.target) {
-    case "GENERAL":
-      return (await prisma.categoryLog.findFirst({ where, select: { id: true } })) !== null;
-    case "CATEGORY":
-      return (
-        (await prisma.categoryLog.findFirst({
-          where: { ...where, categoryId: reminder.categoryId as string },
-          select: { id: true },
-        })) !== null
-      );
-  }
+  return (await findLoggedTarget(reminder, userId, start, end)) !== null;
 }

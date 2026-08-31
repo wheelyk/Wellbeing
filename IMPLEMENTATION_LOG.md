@@ -437,3 +437,7 @@ project's own sessions.
 ### [The Timeline Panel](docs/log/49-timeline-panel.md)
 
 - 2026-08-30 — Past, now, and future in one list
+
+### [Timeline v2: Compact Dividers, Newest First, and Tap-to-Log](docs/log/50-timeline-v2.md)
+
+- 2026-08-31 — The banner moves back up, the per-category list retires, and rows do something

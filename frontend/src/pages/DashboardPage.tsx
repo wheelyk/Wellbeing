@@ -3,7 +3,7 @@ import { NavBar } from "../components/NavBar";
 import { BottomNav } from "../components/BottomNav";
 import { DashboardSummary } from "../components/dashboard/DashboardSummary";
 import { TimelinePanel } from "../components/dashboard/TimelinePanel";
-import { CategorySection } from "../components/dashboard/CategorySection";
+import { CategoryLogger } from "../components/dashboard/CategoryLogger";
 import { QuickAddFab } from "../components/dashboard/QuickAddFab";
 
 export function DashboardPage() {
@@ -20,43 +20,30 @@ export function DashboardPage() {
           BottomNav bar below `md:`, so the last panel in the grid isn't hidden behind it;
           md:pb-8 reverts to the normal, symmetric padding once `md:` hides BottomNav. */}
       <main className="mx-auto max-w-3xl px-4 pt-8 pb-24 md:max-w-5xl md:pb-8">
-        {/* No page-level heading out here any more. There used to be one - "Welcome, {name}" plus
-            a "You're logged in as ..." line - sitting above DashboardSummary's own date heading, so
-            the page opened with two blocks both doing the same job (orienting you: who, then
-            what day). DashboardSummary's date is now the page's one <h1>, with the welcome line
-            folded into the byline underneath it - see docs/log/48-dashboard-heading-merge.md.
-            displayName is passed down rather than read via useAuth() inside DashboardSummary
-            itself, so that component's fetch/poll tests keep mocking exactly the one endpoint
-            they always have. */}
-
-        {/* Above the day summary, deliberately: "what did I log/miss and what's coming up" is the
-            question people open the app to answer, and the streak card is a look back rather than
-            forward. This replaces both the old Coming Up panel and DashboardSummary's own Recent
-            Entries list, which duplicated the past half of this once GET /api/reminders/recent
-            existed - see docs/log/49-timeline-panel.md. */}
+        {/* DashboardSummary is the page's own top frame again - date, identity, today's count,
+            and the one "Log an entry for today" button every entry point on this page now shares
+            (see docs/log/50-timeline-v2.md). It sat below Timeline for one task (docs/log/49); direct
+            feedback moved it back above: a page's own "what day is it, who am I, how do I log
+            something" frame reads better first, with the chronological detail underneath it. */}
         <div>
-          <TimelinePanel />
-        </div>
-
-        <div className="mt-6">
           <DashboardSummary displayName={user?.displayName} />
         </div>
 
-        {/* One column on mobile (screen width is the scarce resource - see the implementation
-            log entry), two from md: (768px) up once there's enough width for a second column
-            without cramping either one. Mood, Habit, Symptom, and Medication each had their own
-            toggle/section here too until Phase 17 and Phase 19 folded all four into Category (see
-            docs/log/17-unify-mood-symptom-habit.md and docs/log/19-medication-to-category.md) -
-            every one of them is an ordinary category now (personal or system), rendered entirely
-            through CategorySection's own per-category cards below - no fixed built-in section is
-            left to gate on a toggle. History deliberately isn't gated the same way - browsing past
-            data is a different concern from "can I log a new one" (see
-            docs/log/16-reminders-and-category-toggles.md's Task 3 entry). */}
-        <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
-          <CategorySection />
+        {/* "What did I log/miss and what's coming up" - chronological, right under the frame
+            above. This is also now the *only* place logged/scheduled entries are browsed on this
+            page: the per-category card list that used to sit below it is retired outright
+            (docs/log/50-timeline-v2.md) - Timeline plus the summary's own logging button already
+            cover what that list did, so showing every category again underneath would just repeat
+            what Timeline already says. */}
+        <div className="mt-6">
+          <TimelinePanel />
         </div>
       </main>
       <BottomNav centerAction={<QuickAddFab />} />
+      {/* Renders no visible chrome of its own - just the one shared "log a category" modal every
+          trigger on this page opens (QuickAddFab's "+", DashboardSummary's button, and a tap on a
+          Timeline row). See CategoryLogger's own comment for why this replaces CategorySection. */}
+      <CategoryLogger />
     </div>
   );
 }

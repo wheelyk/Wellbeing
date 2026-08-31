@@ -14,15 +14,15 @@ test("edit an entry from History, then delete it, with real persistence across a
   // it now goes through the generic "Quick add" entry and the system Mood category (seeded for
   // every account, selectable directly from the picker), and editing/deleting both go through
   // CategoryEntryForm/the category-logs endpoint like any other category, not a dedicated
-  // MoodEntryForm/mood-logs endpoint of its own anymore. Since Phase 18, saving this first entry
-  // also promotes Mood into its own Dashboard card (see
-  // docs/log/18-per-category-dashboard-cards.md) rather than an inline "Mood: 3/5" line.
+  // MoodEntryForm/mood-logs endpoint of its own anymore. Waiting for the dialog to close (rather
+  // than a per-category Dashboard card heading, retired along with that card list - see
+  // docs/log/50-timeline-v2.md) is the save-succeeded signal now.
   await page.getByRole("button", { name: "Quick add" }).click();
   await page.waitForSelector("text=Log an entry");
   await page.locator("#category-picker").selectOption({ label: "Mood" });
   await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "3" }).click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector('h2:text-is("Mood")');
+  await page.waitForSelector('[role="dialog"]', { state: "detached" });
 
   await page.goto("/history");
   // Mood is a 1-7 scale (see docs/log/21-unify-scale-to-seven.md) - not the 1-5 it originally

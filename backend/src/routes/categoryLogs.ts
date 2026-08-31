@@ -155,6 +155,24 @@ categoryLogsRouter.get("/", async (req, res) => {
   res.json(page);
 });
 
+// A single log by id - added for Timeline's own "tap a logged row to edit it" quick action
+// (docs/log/50-timeline-v2.md). Nothing before this route needed to fetch one log in isolation:
+// PATCH/DELETE already take an id but return either the updated row or a bare confirmation, never
+// a plain "give me this one back" read, and the list route above only ever returns pages. Auth-
+// scoped the same way PATCH/DELETE already are - a 404, not a 403, for another user's log, so a
+// guessed id never confirms whether it exists at all.
+categoryLogsRouter.get("/:id", async (req, res) => {
+  const log = await prisma.categoryLog.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+  });
+  if (!log) {
+    return res.status(404).json({
+      error: { message: "Category log not found", code: "CATEGORY_LOG_NOT_FOUND" },
+    });
+  }
+  res.json(log);
+});
+
 categoryLogsRouter.post("/", async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {

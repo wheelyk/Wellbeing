@@ -215,6 +215,52 @@ describe("category-logs routes", () => {
     expect(deleteRes.status).toBe(404);
   });
 
+  // Added for Timeline's own "tap a logged row to edit it" quick action
+  // (docs/log/50-timeline-v2.md) - it needs the full log by id to pre-fill the edit form.
+  it("gets a single category log by id", async () => {
+    const { accessToken, userId } = await registerAndLogin("get-one");
+    const categoryId = await createCategory(accessToken, "numeric");
+    const created = await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId, valueNumeric: 3, notes: "Felt off" });
+
+    const res = await request(app)
+      .get(`/api/category-logs/${created.body.id}`)
+      .set(authed(accessToken));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      id: created.body.id,
+      userId,
+      categoryId,
+      valueNumeric: 3,
+      notes: "Felt off",
+    });
+  });
+
+  it("404s getting a log that doesn't exist, or belongs to another user", async () => {
+    const owner = await registerAndLogin("get-owner");
+    const intruder = await registerAndLogin("get-intruder");
+    const categoryId = await createCategory(owner.accessToken, "boolean");
+    const created = await request(app)
+      .post("/api/category-logs")
+      .set(authed(owner.accessToken))
+      .send({ categoryId, valueBoolean: true });
+
+    const missingRes = await request(app)
+      .get("/api/category-logs/does-not-exist")
+      .set(authed(owner.accessToken));
+    expect(missingRes.status).toBe(404);
+
+    // Same "404, not 403" scoping PATCH/DELETE already use above - a guessed id never confirms
+    // whether it exists at all, even to someone who is genuinely logged in.
+    const intruderRes = await request(app)
+      .get(`/api/category-logs/${created.body.id}`)
+      .set(authed(intruder.accessToken));
+    expect(intruderRes.status).toBe(404);
+  });
+
   it("deletes a category log owned by the authenticated user", async () => {
     const { accessToken } = await registerAndLogin("delete");
     const categoryId = await createCategory(accessToken, "boolean");

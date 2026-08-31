@@ -1,17 +1,26 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../../api/client";
 import { listenForDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
+import { dispatchDashboardQuickAdd } from "../../lib/dashboardQuickAddEvent";
 
 // Recent entries no longer render here - see the Timeline panel (docs/log/49-timeline-panel.md),
 // which now shows every individual past entry (logged and missed) chronologically alongside
-// what's coming up. Keeping both would show the same data twice on one page. This card is left as
-// the day's frame: the date, who you are, your streak, and today's own count - not a list of
-// entries in its own right. `recentEntries` still comes back from GET /api/dashboard (the backend
-// wasn't touched - see that entry's own follow-ups) but nothing here reads it any more.
+// what's coming up. Keeping both would show the same data twice on one page. This card is now the
+// page's own top frame: the date, who you are, today's own count, and the "Log an entry for
+// today" button that opens CategoryLogger's picker - not a list of entries in its own right.
+// `recentEntries` still comes back from GET /api/dashboard (the backend wasn't touched - see that
+// entry's own follow-ups) but nothing here reads it any more.
+//
+// `streak` also still comes back from the same response and is deliberately left unread here too
+// (see the interface below, which only lists what this component actually consumes) - dropped
+// from the byline per direct feedback that it wasn't earning its place: a bare day-count doesn't
+// say much on its own, and this page already answers "what have I kept up with" more usefully via
+// Timeline's own missed/logged rows just above. Revisit if a real streak treatment (e.g. a
+// dedicated Trends chart) gives the number a place worth reading it in again - see
+// docs/log/50-timeline-v2.md.
 interface DashboardSummaryData {
   date: string;
   loggedTodayCount: number;
-  streak: { current: number; daysLoggedThisWeek: number };
 }
 
 // The backend already resolves `date` to a plain "YYYY-MM-DD" string in the user's own
@@ -126,38 +135,39 @@ export function DashboardSummary({ displayName }: DashboardSummaryProps) {
   // per-category status surfaces in the Timeline panel above, not as a summary clause of its own.
   const hasLoggedAnything = data.loggedTodayCount > 0;
 
-  // Informational tone only, per requirements §7 - a plain sentence, no badges, streak counters
-  // styled as achievements, or "don't break the chain" language.
-  const streakClause =
-    data.streak.current > 0
-      ? `Logging streak: ${data.streak.current} day${data.streak.current === 1 ? "" : "s"}`
-      : "No current logging streak";
-
   return (
     <section className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
       {/* The page's one true heading now - see the note in DashboardPage.tsx on what used to sit
           above this instead. */}
       <h1 className="text-2xl font-semibold text-text">{formatDisplayDate(data.date)}</h1>
 
-      {/* The identity+streak byline that replaced DashboardPage's own separate "Welcome, {name}"
-          block. displayName is genuinely optional here (see the prop's own comment), so the
-          clause is simply omitted rather than rendering "Welcome back, " with nothing after it. */}
-      <p className="mt-1 text-sm text-text-muted">
-        {displayName && `Welcome back, ${displayName} · `}
-        {streakClause}
-        {" · "}
-        Logged {data.streak.daysLoggedThisWeek} of 7 days this week
-      </p>
+      {/* The identity byline that replaced DashboardPage's own separate "Welcome, {name}" block.
+          displayName is genuinely optional here (see the prop's own comment), so the whole line
+          is simply omitted rather than rendering an empty "Welcome back," - unlike before, there
+          is nothing else in this byline to keep it worth showing on its own. */}
+      {displayName && <p className="mt-1 text-sm text-text-muted">Welcome back, {displayName}</p>}
 
       {hasLoggedAnything ? (
         <p className="mt-3 text-text">
           Logged {data.loggedTodayCount} {data.loggedTodayCount === 1 ? "entry" : "entries"} today
         </p>
       ) : (
-        <p className="mt-3 text-text-muted">
-          Nothing logged yet today — use one of the Quick Add buttons below to get started.
-        </p>
+        <p className="mt-3 text-text-muted">Nothing logged yet today.</p>
       )}
+
+      <button
+        type="button"
+        onClick={() => dispatchDashboardQuickAdd()}
+        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-semibold text-white hover:bg-brand-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      >
+        <span
+          aria-hidden="true"
+          className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-xs"
+        >
+          +
+        </span>
+        Log an entry for today
+      </button>
     </section>
   );
 }
