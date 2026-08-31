@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "../auth/AuthContext";
 import { SettingsPage } from "./SettingsPage";
 import * as pushNotifications from "../lib/pushNotifications";
+import { DASHBOARD_ENTRY_CHANGED_EVENT } from "../lib/dashboardEntryChangedEvent";
 
 // RemindersSection's own tests mock this whole module rather than simulating jsdom's complete
 // lack of a real Push API (no serviceWorker/PushManager/Notification implementation at all) -
@@ -53,6 +54,19 @@ function jsonResponse(status: number, body: unknown): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+// A save/delete anywhere Timeline's data depends on should announce it the same way a category
+// log or task save already does (see dashboardEntryChangedEvent.ts and CategoriesPage.test.tsx's
+// own identical helper) - counted directly rather than mounting Timeline itself to observe a
+// refetch.
+function captureEntryChanged(): { count: () => number } {
+  let count = 0;
+  const handler = () => {
+    count += 1;
+  };
+  window.addEventListener(DASHBOARD_ENTRY_CHANGED_EVENT, handler);
+  return { count: () => count };
 }
 
 function renderSettingsPage() {
@@ -380,6 +394,7 @@ describe("SettingsPage — reminders", () => {
       "POST /api/reminders": () => jsonResponse(201, created),
     });
     vi.stubGlobal("fetch", fetchMock);
+    const entryChanged = captureEntryChanged();
     const user = userEvent.setup();
     renderSettingsPage();
 
@@ -387,6 +402,8 @@ describe("SettingsPage — reminders", () => {
     await user.click(screen.getByRole("button", { name: "Save reminder" }));
 
     expect(await screen.findByText("20:00 daily")).toBeInTheDocument();
+    // Timeline's own row for tonight didn't exist until this reminder did - it needs to know.
+    expect(entryChanged.count()).toBe(1);
     // Push has to be subscribed before the first enabled reminder exists, or nothing can be
     // delivered to this device at all.
     expect(pushNotifications.subscribeToPush).toHaveBeenCalledWith("test-key");
@@ -429,6 +446,7 @@ describe("SettingsPage — reminders", () => {
       "DELETE /api/reminders": () => jsonResponse(200, { message: "Deleted" }),
     });
     vi.stubGlobal("fetch", fetchMock);
+    const entryChanged = captureEntryChanged();
     const user = userEvent.setup();
     renderSettingsPage();
 
@@ -437,6 +455,8 @@ describe("SettingsPage — reminders", () => {
 
     expect(await screen.findByText("Off")).toBeInTheDocument();
     expect(pushNotifications.unsubscribeFromPush).toHaveBeenCalled();
+    // Timeline's own row for tonight is gone now too - it needs to know.
+    expect(entryChanged.count()).toBe(1);
   });
 
   it("explains that this browser can't receive notifications at all", async () => {

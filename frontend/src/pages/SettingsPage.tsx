@@ -16,6 +16,7 @@ import {
 } from "../lib/pushNotifications";
 import { ReminderScheduleForm, type Reminder } from "../components/ReminderScheduleForm";
 import { describeSchedules } from "../lib/cronSchedule";
+import { dispatchDashboardEntryChanged } from "../lib/dashboardEntryChangedEvent";
 
 // Mirrors Card.tsx's own visual styling (rounded-2xl border, surface background, shadow) but
 // widens the column instead of Card's `max-w-sm` default - a 2026-08-19 design review found
@@ -343,6 +344,9 @@ function RemindersSection() {
           });
       setGeneral(saved);
       setEditing(false);
+      // See CategoriesPage.tsx's own identical comment on handleSaveReminder - the same
+      // previously-missing signal, for the one reminder this page manages.
+      dispatchDashboardEntryChanged();
     } catch (err) {
       if (err instanceof PushPermissionDeniedError) {
         setError(
@@ -364,6 +368,7 @@ function RemindersSection() {
       await apiFetch(`/api/reminders/${general.id}`, { method: "DELETE" });
       setGeneral(null);
       setEditing(false);
+      dispatchDashboardEntryChanged();
       // Best-effort - reminders can be turned off from a different device than the subscribed
       // one, so there may be nothing here to unsubscribe at all.
       await unsubscribeFromPush().catch(() => {});

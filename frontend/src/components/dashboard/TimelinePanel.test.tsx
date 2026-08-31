@@ -137,6 +137,8 @@ beforeEach(() => {
   stubWorkingLocalStorage();
   apiFetchMock.mockReset();
   mockTimelineFetch();
+  // jsdom's own default - reset explicitly since the visibilitychange tests below override it.
+  Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
 });
 
 describe("TimelinePanel", () => {
@@ -261,6 +263,36 @@ describe("TimelinePanel", () => {
     // needed.
     await waitFor(() => expect(apiFetchMock.mock.calls.length).toBeGreaterThan(callsBefore));
     expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/recent?days=1");
+  });
+
+  // A change made from a different tab (a reminder deleted on Categories, open elsewhere) or
+  // while this tab was backgrounded never dispatches dashboardEntryChangedEvent into *this*
+  // window at all - regaining visibility is the one signal that reaches this tab regardless of
+  // where or how the data actually changed.
+  it("refetches when the tab becomes visible again, regardless of what changed elsewhere", async () => {
+    render(<TimelinePanel />);
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/tasks?days=1"));
+    const callsBefore = apiFetchMock.mock.calls.length;
+
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    await waitFor(() => expect(apiFetchMock.mock.calls.length).toBeGreaterThan(callsBefore));
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/recent?days=1");
+  });
+
+  it("does not refetch on a visibilitychange that leaves the tab hidden", async () => {
+    render(<TimelinePanel />);
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/tasks?days=1"));
+    const callsBefore = apiFetchMock.mock.calls.length;
+
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    // Nothing useful to fetch while backgrounded - the point is the transition back into view,
+    // not every visibility flicker.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(apiFetchMock.mock.calls.length).toBe(callsBefore);
   });
 
   describe("range chip visibility", () => {

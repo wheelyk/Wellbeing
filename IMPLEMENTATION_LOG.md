@@ -445,3 +445,7 @@ project's own sessions.
 ### [One-off Tasks: "Phone the Vet," Not a Category](docs/log/51-one-off-tasks.md)
 
 - 2026-08-31 — A reminder-shaped thing that isn't a Reminder for a Category
+
+### [Timeline Sync: Announcing a Reminder Change, and Catching Up When a Tab Was Never Told](docs/log/52-timeline-sync.md)
+
+- 2026-08-31 — Two gaps in "Timeline always shows what's actually true"
