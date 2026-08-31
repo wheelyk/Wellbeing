@@ -1,6 +1,6 @@
 import { prisma } from "./prisma";
 import { currentTimeInTimezone, getDayRangeUtc, todayInTimezone } from "./timezone";
-import { sendPushNotification } from "./webPush";
+import { sendPushToUser } from "./pushDelivery";
 import { shouldSendReminder } from "./reminderEligibility";
 // Which slots a reminder really has on a given day, whether quiet hours hold it, and whether its
 // target has already been logged - all three now live in reminderRuns.ts rather than here, so that
@@ -60,31 +60,6 @@ function reminderCopy(reminder: ReminderWithTargets): { title: string; body: str
         ? `${name} (${reminder.category.description})`
         : name;
       return { title: APP_TITLE, body: `Time to log ${label}.` };
-    }
-  }
-}
-
-async function sendReminderToUser(
-  userId: string,
-  payload: { title: string; body: string },
-): Promise<void> {
-  const subscriptions = await prisma.pushSubscription.findMany({ where: { userId } });
-
-  for (const subscription of subscriptions) {
-    const { gone } = await sendPushNotification(
-      {
-        endpoint: subscription.endpoint,
-        keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-      },
-      payload,
-    );
-
-    // The browser's own push service reports this endpoint no longer exists (410 Gone) or was
-    // never valid (404) - the standard signal a user unsubscribed, uninstalled, or cleared site
-    // data without this app ever being told directly. Nothing will ever succeed against it
-    // again, so it's cleaned up here rather than left to fail silently on every future tick.
-    if (gone) {
-      await prisma.pushSubscription.delete({ where: { id: subscription.id } });
     }
   }
 }
@@ -215,7 +190,7 @@ export async function runReminderTick(): Promise<void> {
     // hourly schedule whose process was down until 14:00 would otherwise deliver fifteen identical
     // notifications in one burst. This behaviour only became reachable when schedules stopped
     // being a hand-typed list capped at six times - see docs/log/25-cron-reminder-schedules.md.
-    await sendReminderToUser(reminder.userId, reminderCopy(reminder));
+    await sendPushToUser(reminder.userId, reminderCopy(reminder));
 
     for (const time of eligible) {
       await prisma.reminderSend.create({
