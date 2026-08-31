@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { registerAndLandOnDashboard, uniqueTestEmail, E2E_PASSWORD } from "./helpers";
+import { registerAndLandOnDashboard, uniqueTestEmail, E2E_PASSWORD, openCategoryQuickAdd } from "./helpers";
 
 // Phase 13's fourth End-to-end checklist item: account deletion end-to-end, confirming data is
 // gone. "Gone" means two separate things worth checking independently: the session itself (the
@@ -14,10 +14,9 @@ test("deleting an account ends the session and really removes the data", async (
   // Logs a category entry, just to have some real data on the account before deleting it - the
   // point of this test is "does deleting really remove whatever was logged," not which type of
   // entry that happens to be. Medication itself unified into Category (Phase 19, see
-  // docs/log/19-medication-to-category.md) - "Quick add" now opens the category discovery flow
-  // directly, with no menu to pick a type from first.
-  await page.getByRole("button", { name: "Quick add" }).click();
-  await page.waitForSelector("text=Log an entry");
+  // docs/log/19-medication-to-category.md) - "Quick add" now opens a two-choice menu first (see
+  // docs/log/51-one-off-tasks.md), so openCategoryQuickAdd picks the category-entry side of it.
+  await openCategoryQuickAdd(page);
   await page.getByRole("button", { name: /add a new category/i }).click();
   await page.waitForSelector("text=Create a new category");
   await page.getByLabel(/category name/i).fill("E2E Test Medication");
