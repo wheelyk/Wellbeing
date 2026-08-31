@@ -3,6 +3,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TimelinePanel } from "./TimelinePanel";
 import { apiFetch } from "../../api/client";
+import { DASHBOARD_TIMELINE_ACTION_EVENT } from "../../lib/dashboardTimelineActionEvent";
+import type { TimelineAction } from "../../lib/dashboardTimelineActionEvent";
 
 vi.mock("../../api/client", () => ({ apiFetch: vi.fn() }));
 const apiFetchMock = vi.mocked(apiFetch);
@@ -23,6 +25,18 @@ function stubWorkingLocalStorage(): void {
   } as Storage);
 }
 
+// Listens for the one real DOM event a row click dispatches (see
+// lib/dashboardTimelineActionEvent.ts) rather than mocking the module that dispatches it - this
+// is what CategoryLogger genuinely receives, and asserting against the real event catches a wiring
+// mistake a mock of the dispatch function itself would not.
+function captureTimelineActions(): TimelineAction[] {
+  const captured: TimelineAction[] = [];
+  window.addEventListener(DASHBOARD_TIMELINE_ACTION_EVENT, (event) => {
+    captured.push((event as CustomEvent<TimelineAction>).detail);
+  });
+  return captured;
+}
+
 const emptyRecent = { timezone: "Europe/London", today: "2026-08-30", truncated: false, runs: [] };
 const emptyUpcoming = {
   timezone: "Europe/London",
@@ -31,10 +45,12 @@ const emptyUpcoming = {
   runs: [],
 };
 
-// The panel fires two independent calls - one per endpoint - so a single `.mockResolvedValue`
-// (fine for the old, single-endpoint UpcomingRemindersPanel) can no longer stand in for both.
-// Branching on the URL is the same pattern this app's own page-level tests already use for a
-// mount that fires several requests at once.
+// The panel fires two independent calls - one per endpoint - plus a third, separate one-off probe
+// (also against /recent, at a fixed days=7) that decides which range chips are worth showing at
+// all. Branching only on which endpoint a URL hits, not on its query string, means the same
+// `recent` fixture answers both the probe and the currently-selected range's own fetch - which is
+// what every test below wants anyway, since a fixture with a logged row in it should both reveal
+// the wider chips *and* be what renders once one is picked.
 function mockTimelineFetch(overrides: { recent?: unknown; upcoming?: unknown } = {}) {
   apiFetchMock.mockImplementation((url: string) => {
     if (url.includes("/api/reminders/recent")) {
@@ -55,16 +71,20 @@ const recentWithRuns = {
       time: "08:00",
       reminderId: "r-logged",
       target: "category",
+      categoryId: "cat-anxiety",
       category: { name: "Anxiety", icon: "🧠" },
       state: "logged" as const,
+      logId: "log-anxiety-1",
     },
     {
       date: "2026-08-30",
       time: "09:00",
       reminderId: "r-missed",
       target: "category",
+      categoryId: "cat-diazepam",
       category: { name: "Diazepam", icon: "💊" },
       state: "missed" as const,
+      logId: null,
     },
   ],
 };
@@ -77,6 +97,7 @@ const upcomingWithRuns = {
       time: "12:00",
       reminderId: "r-logged-future",
       target: "category",
+      categoryId: "cat-sertraline",
       category: { name: "Sertraline", icon: "💊" },
       state: "logged" as const,
     },
@@ -85,6 +106,7 @@ const upcomingWithRuns = {
       time: "03:46",
       reminderId: "r-held",
       target: "category",
+      categoryId: "cat-water",
       category: { name: "Water", icon: "💧" },
       state: "held" as const,
       deliveredAt: "08:00",
@@ -100,35 +122,60 @@ beforeEach(() => {
 });
 
 describe("TimelinePanel", () => {
-  it("asks both endpoints for the same range by default", async () => {
+  it("asks both endpoints for the same range by default, plus the fixed probe", async () => {
     render(<TimelinePanel />);
 
     await waitFor(() => {
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/recent?days=1");
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/upcoming?days=1");
+      // The probe always asks the widest window, independently of whatever range is selected -
+      // it exists purely to decide which chips are worth offering.
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/recent?days=7");
     });
   });
 
   // The point of the merge: a past row and a future row on the same calendar day land in one
   // "Today" group, not two - which only holds together if the NOW divider actually sits between
-  // them.
-  it("merges past and future rows into a single Today group, with NOW between them", async () => {
+  // them, in whichever direction the current order reads.
+  it("defaults to newest first: future above NOW, past below it, within Today", async () => {
     mockTimelineFetch({ recent: recentWithRuns, upcoming: upcomingWithRuns });
     render(<TimelinePanel />);
 
     expect(await screen.findByText("🧠 Anxiety")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Newest first" })).toBeInTheDocument();
     // Scoped to the day-group heading specifically, not the range chip that also happens to be
     // labelled "Today" - two day-groups both saying "Today" would mean the merge failed to
     // collapse past and future rows into one section.
-    expect(screen.getAllByText("Today", { selector: "p" })).toHaveLength(1);
+    expect(screen.getAllByText("Today")).toHaveLength(2); // range chip + day heading
     expect(screen.getByText("Tomorrow")).toBeInTheDocument();
     expect(screen.getByText("NOW")).toBeInTheDocument();
 
-    // Past, then NOW, then future - the actual reading order, not merely "all present somewhere".
+    // Future (Sertraline), then NOW, then past (Anxiety) - newest-first's own reading order.
     const anxietyRow = screen.getByText("🧠 Anxiety").closest("li") as HTMLElement;
     const now = screen.getByText("NOW");
     const sertralineRow = screen.getByText("💊 Sertraline").closest("li") as HTMLElement;
 
+    expect(
+      sertralineRow.compareDocumentPosition(now) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(now.compareDocumentPosition(anxietyRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("flips to oldest first on request, reversing which side of NOW each row lands on", async () => {
+    mockTimelineFetch({ recent: recentWithRuns, upcoming: upcomingWithRuns });
+    render(<TimelinePanel />);
+    await screen.findByText("🧠 Anxiety");
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Newest first" }));
+
+    expect(await screen.findByRole("button", { name: "Oldest first" })).toBeInTheDocument();
+    const anxietyRow = screen.getByText("🧠 Anxiety").closest("li") as HTMLElement;
+    const now = screen.getByText("NOW");
+    const sertralineRow = screen.getByText("💊 Sertraline").closest("li") as HTMLElement;
+
+    // Past (Anxiety) above NOW, future (Sertraline) below it - the original order this app
+    // launched with, still available via the toggle.
     expect(anxietyRow.compareDocumentPosition(now) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(
       now.compareDocumentPosition(sertralineRow) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -165,17 +212,121 @@ describe("TimelinePanel", () => {
   });
 
   it("re-asks both endpoints with the new range when it changes", async () => {
+    // A logged row today is enough to make every chip available (see hasLoggedWithinDays).
+    mockTimelineFetch({ recent: recentWithRuns });
     render(<TimelinePanel />);
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalled());
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole("button", { name: "7 days" }));
+    await user.click(await screen.findByRole("button", { name: "7 days" }));
 
     // Re-fetched rather than filtered client-side: the client has no way to know what happened
     // or will happen beyond the window it asked for.
     await waitFor(() => {
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/recent?days=7");
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/upcoming?days=7");
+    });
+  });
+
+  describe("range chip visibility", () => {
+    it("offers only Today when nothing has been logged in the last week", async () => {
+      render(<TimelinePanel />);
+      await screen.findByRole("group", { name: "How far to look" });
+
+      expect(screen.getByRole("button", { name: "Today" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "3 days" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "7 days" })).not.toBeInTheDocument();
+    });
+
+    it("offers 3 and 7 days once something was logged within the last week", async () => {
+      mockTimelineFetch({ recent: recentWithRuns });
+      render(<TimelinePanel />);
+
+      expect(await screen.findByRole("button", { name: "3 days" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "7 days" })).toBeInTheDocument();
+    });
+
+    it("offers 7 days but not 3, for something logged 5 days back", async () => {
+      const fiveDaysAgo = {
+        ...emptyRecent,
+        runs: [
+          {
+            date: "2026-08-25",
+            time: "09:00",
+            reminderId: "r-old",
+            target: "category",
+            categoryId: "cat-1",
+            category: { name: "Anxiety", icon: "🧠" },
+            state: "logged" as const,
+            logId: "log-old",
+          },
+        ],
+      };
+      mockTimelineFetch({ recent: fiveDaysAgo });
+      render(<TimelinePanel />);
+
+      expect(await screen.findByRole("button", { name: "7 days" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "3 days" })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("row click actions", () => {
+    it("dispatches an edit action for a past logged row", async () => {
+      const captured = captureTimelineActions();
+      mockTimelineFetch({ recent: recentWithRuns });
+      render(<TimelinePanel />);
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole("button", { name: /Edit Anxiety at 08:00/ }));
+
+      expect(captured).toEqual([{ type: "edit", logId: "log-anxiety-1" }]);
+    });
+
+    it("dispatches a locked add action for a missed row", async () => {
+      const captured = captureTimelineActions();
+      mockTimelineFetch({ recent: recentWithRuns });
+      render(<TimelinePanel />);
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole("button", { name: /Log Diazepam for 09:00/ }));
+
+      expect(captured).toEqual([{ type: "add", categoryId: "cat-diazepam" }]);
+    });
+
+    // The one row with nothing to do at all - already satisfied, and not "in the past" either, so
+    // there is no exact entry to point an edit at (see timelineRowAction's own reasoning).
+    it("renders a future logged row as plain text, not a button", async () => {
+      mockTimelineFetch({ upcoming: upcomingWithRuns });
+      render(<TimelinePanel />);
+
+      const row = await screen.findByText("💊 Sertraline");
+      expect(row.closest("li")?.querySelector("button")).toBeNull();
+    });
+
+    it("dispatches an unlocked add action for a GENERAL row", async () => {
+      const captured = captureTimelineActions();
+      mockTimelineFetch({
+        upcoming: {
+          ...emptyUpcoming,
+          runs: [
+            {
+              date: "2026-08-30",
+              time: "20:00",
+              reminderId: "r-general",
+              target: "general",
+              categoryId: null,
+              category: null,
+              state: "scheduled" as const,
+            },
+          ],
+        },
+      });
+      render(<TimelinePanel />);
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole("button", { name: /Log an entry for 20:00/ }));
+
+      expect(captured).toEqual([{ type: "add", categoryId: null }]);
     });
   });
 
@@ -196,13 +347,15 @@ describe("TimelinePanel", () => {
   });
 
   // One hourly reminder used to fill this panel's forward-only ancestor with 24+ near-identical
-  // rows (docs/log/45) - the cap applies just as much to the merged past+future total.
+  // rows (docs/log/45) - the cap applies just as much to the merged past+future total, regardless
+  // of which order they're read in.
   it("draws a dozen rows and says how many more there are", async () => {
     const many = Array.from({ length: 30 }, (_, i) => ({
       date: "2026-08-30",
       time: `${String(i).padStart(2, "0")}:00`,
       reminderId: `r${i}`,
       target: "category",
+      categoryId: "cat-water",
       category: { name: "Water", icon: "💧" },
       state: "scheduled" as const,
     }));

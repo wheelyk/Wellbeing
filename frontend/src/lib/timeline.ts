@@ -14,12 +14,20 @@ interface BaseRun {
   time: string;
   reminderId: string;
   target: string;
+  /** Present only for a CATEGORY-target reminder - null for GENERAL, matching `category` itself.
+   *  Timeline's own "log this" quick action (docs/log/50-timeline-v2.md) reads this to open that
+   *  one category's form locked to it, rather than the full picker a GENERAL row opens. */
+  categoryId: string | null;
   category: { name: string; icon: string | null } | null;
 }
 
 /** The shape GET /api/reminders/recent returns. */
 export interface RecentRun extends BaseRun {
   state: "logged" | "missed" | "paused";
+  /** The CategoryLog that made this row "logged" - present only then, and only for a CATEGORY
+   *  target (see the route's own comment on why GENERAL never gets one, even though a match
+   *  exists). Lets a tap on a logged row open that exact entry for editing. */
+  logId: string | null;
 }
 
 export interface RecentResponse {
@@ -53,6 +61,9 @@ export interface UpcomingResponse {
 export interface TimelineRun extends BaseRun {
   state: TimelineState;
   when: "past" | "future";
+  /** Always present so callers never need an `?? null` - null on every future-derived row, since
+   *  UpcomingRun never carries one (see RecentRun's own comment on where this comes from). */
+  logId: string | null;
   deliveredAt?: string;
   repeatCount?: number;
   lastTime?: string;
@@ -68,8 +79,26 @@ export interface TimelineRun extends BaseRun {
 export function mergeRuns(recent: RecentRun[], upcoming: UpcomingRun[]): TimelineRun[] {
   return [
     ...recent.map((run): TimelineRun => ({ ...run, when: "past" })),
-    ...upcoming.map((run): TimelineRun => ({ ...run, when: "future" })),
+    // logId set explicitly rather than left to spread from nothing - UpcomingRun has no such
+    // field at all, and TimelineRun's own comment promises every row gets a real null here, not
+    // an accidental `undefined`.
+    ...upcoming.map((run): TimelineRun => ({ ...run, when: "future", logId: null })),
   ];
+}
+
+export type TimelineOrder = "oldest" | "newest";
+
+/**
+ * "Oldest first" is exactly the order `mergeRuns` already produces (past ascending, then future
+ * ascending) - the natural order both source endpoints already return, and the only order this
+ * whole module used before an order toggle existed. "Newest first" reverses the *whole* flat list
+ * before grouping, not just the day order: reversing here is what makes each day's own rows (and,
+ * for Today specifically, which of its rows end up above/below the NOW divider once split by
+ * `splitAroundNow` below) reverse correctly too, since a plain array reverse preserves each day's
+ * relative row order without `groupRunsByDay` ever needing to know which direction it was given.
+ */
+export function orderRuns(runs: TimelineRun[], order: TimelineOrder): TimelineRun[] {
+  return order === "newest" ? [...runs].reverse() : runs;
 }
 
 /**
@@ -131,6 +160,65 @@ export function groupRunsByDay(runs: TimelineRun[], today: string): TimelineDay[
     }
   }
   return days;
+}
+
+/**
+ * Splits one day's rows around the NOW divider, in whichever direction `order` reads. Only
+ * meaningful for the day containing "today" - every other day is wholly past or wholly future by
+ * construction (recent only ever returns days up to and including today; upcoming only ever
+ * returns today onward), so the divider itself never appears there.
+ */
+export function splitAroundNow(
+  dayRuns: TimelineRun[],
+  order: TimelineOrder,
+): { above: TimelineRun[]; below: TimelineRun[] } {
+  const past = dayRuns.filter((run) => run.when === "past");
+  const future = dayRuns.filter((run) => run.when === "future");
+  return order === "newest" ? { above: future, below: past } : { above: past, below: future };
+}
+
+function daysBetween(from: string, to: string): number {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / (24 * 60 * 60 * 1000));
+}
+
+/**
+ * Whether any row in `runs` (a /recent response's own list) was actually logged within the last
+ * `days` calendar days, today included - the same "N days, counting backward" convention
+ * TIMELINE_RANGES already uses. Drives which range chips Timeline bothers to show at all: a chip
+ * for a window with nothing logged in it would look identical to a narrower one that already
+ * shows, so it isn't offered (see TimelinePanel's own comment on why "Today" is the one exception,
+ * always shown regardless of this check). Deliberately about *logged* rows only, not merely
+ * "something to display" - a still-due or missed slot further back doesn't by itself justify
+ * widening the window, only an entry someone actually recorded does.
+ */
+export function hasLoggedWithinDays(
+  runs: RecentRun[],
+  today: string,
+  days: TimelineRange,
+): boolean {
+  return runs.some((run) => run.state === "logged" && daysBetween(run.date, today) < days);
+}
+
+/** What tapping a row should do, or null when there is genuinely nothing to do with it. */
+export type TimelineRowAction =
+  { type: "edit"; logId: string } | { type: "add"; categoryId: string | null };
+
+/**
+ * - A future row already marked "logged" is satisfied and won't fire (see describeState below) -
+ *   nothing to add, and no one specific log to point an edit at either, so this is the one case
+ *   with no action at all.
+ * - A past "logged" row edits the exact entry that made it so, when one is known (CATEGORY target
+ *   only - see RecentRun's own comment). A GENERAL "logged" row still offers "add": there's no
+ *   single entry to edit, but logging something new is always a valid action regardless.
+ * - Everything else (scheduled, held, missed, paused, in either direction) offers "add", locked
+ *   to `categoryId` when the row names one, or the full picker when it's a GENERAL row.
+ */
+export function timelineRowAction(run: TimelineRun): TimelineRowAction | null {
+  if (run.when === "future" && run.state === "logged") return null;
+  if (run.state === "logged" && run.logId !== null) return { type: "edit", logId: run.logId };
+  return { type: "add", categoryId: run.categoryId };
 }
 
 // The line under a run. A collapsed cadence says how many and how late it goes, since "13:00"

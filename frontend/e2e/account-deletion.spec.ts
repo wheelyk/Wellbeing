@@ -26,7 +26,9 @@ test("deleting an account ends the session and really removes the data", async (
   await page.waitForSelector("text=Log an entry");
   await page.getByRole("radio", { name: "Yes" }).click();
   await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector('h2:text-is("E2E Test Medication")');
+  // Waiting for the dialog to close, not a per-category Dashboard card heading - that card list
+  // is retired (see docs/log/50-timeline-v2.md).
+  await page.waitForSelector('[role="dialog"]', { state: "detached" });
 
   // The "Delete account" CollapsibleSection starts expanded by default (no localStorage entry
   // yet in this fresh browser context), so - unlike a section a user has previously collapsed -

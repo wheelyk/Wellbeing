@@ -70,26 +70,35 @@ await screenshot("03-login-then-dashboard");
 // Medication all folded into Category (see docs/log/17-unify-mood-symptom-habit.md and
 // docs/log/19-medication-to-category.md) - there's no dedicated "Add mood entry"/"Add medication
 // entry" button anymore, and every account already sees the 11 seeded system categories (Mood/
-// Energy/Stress plus every system symptom) from registration onward, so "Add category entry"
-// opens straight into "Log an entry", never an empty "Create your first category" state, with
-// Mood itself selectable directly from the picker.
+// Energy/Stress plus every system symptom) from registration onward, so DashboardSummary's own
+// "Log an entry for today" button (docs/log/50-timeline-v2.md) opens straight into "Log an
+// entry", never an empty "Create your first category" state, with Mood itself selectable
+// directly from the picker.
 //
-// Since Phase 18, logging a category for the first time (through this shared "Log a category"
-// panel) promotes it into its own dedicated "Recent <name>" card immediately - it no longer
-// appears inline as "Mood: 5/5" in one shared list, so the checks below wait for that card's own
-// title instead.
-await page.getByRole("button", { name: "Add category entry" }).click();
-await page.waitForSelector("text=Log an entry");
+// The per-category card list this used to wait for (a "Recent <name>" heading appearing once a
+// category was logged the first time) is retired along with it - Timeline shows everything now,
+// but as a reminder-driven row, not a plain "just saved" signal these ad-hoc entries (no reminder
+// attached) would ever produce. Waiting for the dialog itself to close is the reliable signal
+// that survives that change: CategoryLogger (docs/log/50-timeline-v2.md) only closes it after a
+// save actually succeeds.
+async function logEntry() {
+  await page.getByRole("button", { name: "Log an entry for today" }).click();
+  await page.waitForSelector("text=Log an entry");
+}
+async function saveAndWaitForClose() {
+  await page.getByRole("button", { name: /save entry/i }).click();
+  await page.waitForSelector('[role="dialog"]', { state: "detached" });
+}
+
+await logEntry();
 await page.locator("#category-picker").selectOption({ label: "Mood" });
 await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "5" }).click();
-await page.getByRole("button", { name: /save entry/i }).click();
-await page.waitForSelector(`h2:text-is("Mood")`);
+await saveAndWaitForClose();
 
 // A boolean category standing in for what a Medication dose now looks like (Medication unified
 // into Category - see docs/log/19-medication-to-category.md) - reached the same "+ Add a new
 // category" way as any other brand-new category below.
-await page.getByRole("button", { name: "Add category entry" }).click();
-await page.waitForSelector("text=Log an entry");
+await logEntry();
 await page.getByRole("button", { name: /add a new category/i }).click();
 await page.waitForSelector("text=Create a new category");
 await page.getByLabel(/category name/i).fill("Ibuprofen");
@@ -97,11 +106,9 @@ await page.getByRole("radio", { name: /yes \/ no/i }).click();
 await page.getByRole("button", { name: /create category/i }).click();
 await page.waitForSelector("text=Log an entry");
 await page.getByRole("radio", { name: "Yes" }).click();
-await page.getByRole("button", { name: /save entry/i }).click();
-await page.waitForSelector(`h2:text-is("Ibuprofen")`);
+await saveAndWaitForClose();
 
-await page.getByRole("button", { name: "Add category entry" }).click();
-await page.waitForSelector("text=Log an entry");
+await logEntry();
 await page.getByRole("button", { name: /add a new category/i }).click();
 await page.waitForSelector("text=Create a new category");
 await page.getByLabel(/category name/i).fill("Exercise");
@@ -109,8 +116,7 @@ await page.getByRole("radio", { name: /yes \/ no/i }).click();
 await page.getByRole("button", { name: /create category/i }).click();
 await page.waitForSelector("text=Log an entry");
 await page.getByRole("radio", { name: "Yes" }).click();
-await page.getByRole("button", { name: /save entry/i }).click();
-await page.waitForSelector(`h2:text-is("Exercise")`);
+await saveAndWaitForClose();
 
 await screenshot("04-dashboard-functioning-with-entries");
 

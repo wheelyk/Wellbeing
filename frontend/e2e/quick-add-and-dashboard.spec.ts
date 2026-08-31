@@ -16,18 +16,25 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
 }) => {
   await registerAndLandOnDashboard(page, uniqueTestEmail("quick-add"));
 
+  // The per-category card list this test used to wait on (a "Recent <name>" heading appearing
+  // once a category was logged the first time) is retired along with the "Recent entries"
+  // combined card before it - docs/log/50-timeline-v2.md. Waiting for the dialog itself to close
+  // is the reliable "did this save" signal that survives that: CategoryLogger only closes it
+  // after a save actually succeeds (mirrors the same fix in scripts/capture-pr-screenshots.mjs).
+  async function saveAndWaitForClose() {
+    await page.getByRole("button", { name: /save entry/i }).click();
+    await page.waitForSelector('[role="dialog"]', { state: "detached" });
+  }
+
   // Mood: "Quick add" opens straight into "Log an entry", not "Create your first category" -
   // every account, even a brand new one, already sees the 11 seeded system categories (Mood/
   // Energy/Stress plus every system symptom - see backend/prisma/seed.ts) here, with Mood itself
-  // selectable directly from the picker rather than needing to be created. Since Phase 18, saving
-  // this first entry promotes Mood into its own Dashboard card (see
-  // docs/log/18-per-category-dashboard-cards.md) rather than an inline "Mood: 5/5" line.
+  // selectable directly from the picker rather than needing to be created.
   await page.getByRole("button", { name: "Quick add" }).click();
   await page.waitForSelector("text=Log an entry");
   await page.locator("#category-picker").selectOption({ label: "Mood" });
   await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "5" }).click();
-  await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector('h2:text-is("Mood")');
+  await saveAndWaitForClose();
 
   // Category #1: a "scale" category (1-10), standing in for what a migrated Symptom now looks
   // like - reached via "+ Add a new category" since a category (Mood) already exists by this
@@ -46,8 +53,7 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
     .getByRole("radiogroup", { name: "E2E Test Scale Category" })
     .getByRole("radio", { name: "6" })
     .click();
-  await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector('h2:text-is("E2E Test Scale Category")');
+  await saveAndWaitForClose();
 
   // Category #2: a "boolean" category, standing in for what a migrated Medication dose now looks
   // like - same "Log an entry" -> "+ Add a new category" path as Category #1 above.
@@ -60,8 +66,7 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
   await page.getByRole("button", { name: /create category/i }).click();
   await page.waitForSelector("text=Log an entry");
   await page.getByRole("radio", { name: "Yes" }).click();
-  await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector('h2:text-is("E2E Test Medication")');
+  await saveAndWaitForClose();
 
   // Category #3: a second "boolean" category, standing in for what a migrated Habit now looks
   // like - same "Log an entry" -> "+ Add a new category" path as above.
@@ -74,31 +79,24 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
   await page.getByRole("button", { name: /create category/i }).click();
   await page.waitForSelector("text=Log an entry");
   await page.getByRole("radio", { name: "Yes" }).click();
-  await page.getByRole("button", { name: /save entry/i }).click();
-  await page.waitForSelector('h2:text-is("E2E Test Category")');
+  await saveAndWaitForClose();
 
-  // The combined "Recent entries" card this used to check against is gone - its job is now split
-  // between the Timeline panel (reminder-driven runs only; these four entries have no reminder
-  // attached, so none of them appear there - see docs/log/49-timeline-panel.md) and each
-  // category's own card, which already shows its own just-saved value
-  // (CategoryLogCard's formatCategoryLogValue). Scoped to each category's own <section>, found by
-  // its heading, so an ambiguous match across cards can't slip through the way an unscoped
-  // getByText would.
-  function cardFor(name: string) {
-    return page
-      .locator("section")
-      .filter({ has: page.getByRole("heading", { name, exact: true }) });
-  }
+  // The summary line on DashboardSummary itself - a plain count now, not a per-type breakdown: an
+  // unbounded, user-extensible category set has no fixed "how many were there to log today"
+  // denominator the way the original built-ins did (see DashboardSummary.tsx's own comment on
+  // why).
+  await expect(page.getByText(/Logged 4 entries today/)).toBeVisible();
+
+  // Per-entry verification moved to History: the per-category Dashboard cards these four used to
+  // check against are retired outright (docs/log/50-timeline-v2.md), and none of the four has a
+  // reminder attached, so none of them appear on the reminder-driven Timeline either. History
+  // still lists every entry regardless, in the exact "Name: value" format the backend's own
+  // formatCategoryLogValue builds (see backend/src/routes/history.ts).
+  await page.goto("/history");
   // Mood is a 1-7 scale (see docs/log/21-unify-scale-to-seven.md) - not the 1-5 it originally
   // launched with, hence "5/7" rather than "5/5" below.
-  await expect(cardFor("Mood").getByText("5/7", { exact: true })).toBeVisible();
-  await expect(cardFor("E2E Test Scale Category").getByText("6/10", { exact: true })).toBeVisible();
-  await expect(cardFor("E2E Test Medication").getByText("Done", { exact: true })).toBeVisible();
-  await expect(cardFor("E2E Test Category").getByText("Done", { exact: true })).toBeVisible();
-
-  // And the summary line on DashboardSummary itself - a plain count now, not a per-type
-  // breakdown: an unbounded, user-extensible category set has no fixed "how many were there to
-  // log today" denominator the way the original built-ins did (see DashboardSummary.tsx's own
-  // comment on why).
-  await expect(page.getByText(/Logged 4 entries today/)).toBeVisible();
+  await expect(page.getByText("Mood: 5/7")).toBeVisible();
+  await expect(page.getByText("E2E Test Scale Category: 6/10")).toBeVisible();
+  await expect(page.getByText("E2E Test Medication: Done")).toBeVisible();
+  await expect(page.getByText("E2E Test Category: Done")).toBeVisible();
 });

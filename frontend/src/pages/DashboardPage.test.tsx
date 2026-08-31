@@ -22,23 +22,24 @@ function renderDashboard() {
   );
 }
 
-// A composition-level guard, not a re-test of each section's own behavior (that's already
-// covered by CategorySection.test.tsx). This exists specifically to catch a regression in how
-// DashboardPage wires its sections together - e.g. a future edit accidentally dropping an
-// import, or breaking NavBar - since nothing else in the suite renders DashboardPage as a whole.
+// A composition-level guard, not a re-test of each piece's own behavior (that's already covered
+// by DashboardSummary.test.tsx, TimelinePanel.test.tsx and CategoryLogger.test.tsx). This exists
+// specifically to catch a regression in how DashboardPage wires them together - e.g. a future
+// edit accidentally dropping an import, or breaking NavBar - since nothing else in the suite
+// renders DashboardPage as a whole.
 describe("DashboardPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("renders the nav, the dashboard summary, and the category section together", async () => {
-    // CategorySection fires two simultaneous calls via Promise.all, so mockImplementation is
-    // required here (not mockResolvedValue) to give each call its own fresh, independently-
-    // readable Response - see docs/log/08-git-github-workflow.md for why mockResolvedValue
-    // silently breaks this. DashboardSummary's GET /api/dashboard expects a differently-shaped
-    // object; /api/category-logs is paginated ({entries, limit, offset, hasMore} - see
-    // backend/src/lib/pagination.ts) while /api/categories is still a plain array - both
-    // special-cased by URL here.
+  it("renders the nav, the dashboard summary, and the timeline together", async () => {
+    // Timeline fires two simultaneous calls via Promise.all (plus its own one-off range-chip
+    // probe, also against /recent), so mockImplementation is required here (not
+    // mockResolvedValue) to give each call its own fresh, independently-readable Response.
+    // DashboardSummary's GET /api/dashboard expects a differently-shaped object; everything else
+    // (including /api/categories, which CategoryLogger fetches on mount) falls through to the
+    // plain-array default, the same "auto-handle, override only when needed" convention
+    // CategoriesPage.test.tsx already uses.
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/api/dashboard")) {
         return Promise.resolve(
@@ -50,9 +51,6 @@ describe("DashboardPage", () => {
           }),
         );
       }
-      // The Timeline panel fetches both of these on every Dashboard render. Defaulted here so
-      // the tests that are about something else do not need to know it exists - the same
-      // "auto-handle, override only when needed" convention CategoriesPage.test.tsx already uses.
       if (url.includes("/api/reminders/upcoming") || url.includes("/api/reminders/recent")) {
         return Promise.resolve(
           jsonResponse(200, {
@@ -61,11 +59,6 @@ describe("DashboardPage", () => {
             truncated: false,
             runs: [],
           }),
-        );
-      }
-      if (url.includes("-logs")) {
-        return Promise.resolve(
-          jsonResponse(200, { entries: [], limit: 10, offset: 0, hasMore: false }),
         );
       }
       return Promise.resolve(jsonResponse(200, []));
@@ -85,10 +78,9 @@ describe("DashboardPage", () => {
     expect(screen.getAllByRole("link", { name: "Settings" })).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: "Add category entry" })).toBeInTheDocument();
-
     expect(await screen.findByText(/nothing logged yet today/i)).toBeInTheDocument();
-    expect(await screen.findByText("Log a category")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /log an entry for today/i })).toBeInTheDocument();
+    expect(await screen.findByText("Timeline")).toBeInTheDocument();
   });
 
   it("opens the category add dialog directly from the floating Quick Add button", async () => {
@@ -103,9 +95,6 @@ describe("DashboardPage", () => {
           }),
         );
       }
-      // The Timeline panel fetches both of these on every Dashboard render. Defaulted here so
-      // the tests that are about something else do not need to know it exists - the same
-      // "auto-handle, override only when needed" convention CategoriesPage.test.tsx already uses.
       if (url.includes("/api/reminders/upcoming") || url.includes("/api/reminders/recent")) {
         return Promise.resolve(
           jsonResponse(200, {
@@ -116,25 +105,20 @@ describe("DashboardPage", () => {
           }),
         );
       }
-      if (url.includes("-logs")) {
-        return Promise.resolve(
-          jsonResponse(200, { entries: [], limit: 10, offset: 0, hasMore: false }),
-        );
-      }
       return Promise.resolve(jsonResponse(200, []));
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
     renderDashboard();
-    await screen.findByText("Log a category");
+    await screen.findByRole("button", { name: /log an entry for today/i });
 
     // No dialog open yet - the FAB doesn't open one until clicked.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Quick add" }));
 
-    // The category section's own "+" button never got clicked directly - this proves the FAB
+    // CategoryLogger renders no visible trigger of its own any more - this proves the FAB still
     // reaches it via the shared dashboardQuickAddEvent, not a coincidence of some other trigger.
     expect(screen.getByRole("dialog", { name: "Create your first category" })).toBeInTheDocument();
   });
