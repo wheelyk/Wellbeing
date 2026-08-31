@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "../auth/AuthContext";
 import { CategoriesPage } from "./CategoriesPage";
+import { DASHBOARD_ENTRY_CHANGED_EVENT } from "../lib/dashboardEntryChangedEvent";
 
 // The test environment's own `window.localStorage` (Node's built-in, not jsdom's) is a
 // non-functional stub with no working setItem/getItem/clear - unrelated to this app's own code.
@@ -40,6 +41,19 @@ function jsonResponse(status: number, body: unknown): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+// A save/delete anywhere Timeline's data depends on should announce it the same way a category
+// log or task save already does (see dashboardEntryChangedEvent.ts) - Timeline itself doesn't
+// need to be rendered for this to matter, so these tests just count the dispatch directly rather
+// than mounting a second page to observe a refetch.
+function captureEntryChanged(): { count: () => number } {
+  let count = 0;
+  const handler = () => {
+    count += 1;
+  };
+  window.addEventListener(DASHBOARD_ENTRY_CHANGED_EVENT, handler);
+  return { count: () => count };
 }
 
 function renderCategoriesPage() {
@@ -535,5 +549,82 @@ describe("CategoriesPage", () => {
       expect(await screen.findByText("09:00")).toBeInTheDocument();
       expect(screen.getByRole("checkbox", { name: /Only for today/ })).not.toBeChecked();
     });
+
+    // The bug this pins: Timeline's own data (see TimelinePanel.tsx) can add, remove, or move a
+    // row for today whenever a reminder's schedule changes, but until this fix, reminder CRUD
+    // living on this page (and on Settings - see SettingsPage.test.tsx's own version of this same
+    // test) never told Timeline anything had changed at all, so it only ever caught up on its own
+    // next full remount rather than being told directly.
+    it("stopping the temporary reminder announces the change to the rest of the dashboard", async () => {
+      const fetchMock = withBothReminders({
+        "DELETE /api/reminders": () => jsonResponse(200, { message: "Deleted" }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const entryChanged = captureEntryChanged();
+      renderCategoriesPage();
+      const user = userEvent.setup();
+
+      await screen.findByText("Just for today");
+      await user.click(screen.getByRole("button", { name: "Stop" }));
+
+      await waitFor(() => expect(screen.queryByText("Just for today")).not.toBeInTheDocument());
+      expect(entryChanged.count()).toBe(1);
+    });
+
+    it("turning off the standing reminder announces the change to the rest of the dashboard", async () => {
+      const fetchMock = withBothReminders({
+        "DELETE /api/reminders": () => jsonResponse(200, { message: "Deleted" }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const entryChanged = captureEntryChanged();
+      renderCategoriesPage();
+      const user = userEvent.setup();
+
+      await screen.findByRole("button", { name: /Edit reminder for Water intake/ });
+      await user.click(screen.getByRole("button", { name: /Edit reminder for Water intake/ }));
+      await user.click(await screen.findByRole("button", { name: "Turn off" }));
+
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: /Edit reminder for Water intake/ }),
+        ).not.toBeInTheDocument(),
+      );
+      expect(entryChanged.count()).toBe(1);
+    });
+  });
+
+  it("saving a brand-new reminder announces the change to the rest of the dashboard", async () => {
+    const savedReminder = {
+      id: "rem-new",
+      userId: "user-1",
+      target: "category",
+      categoryId: "cat-own",
+      category: { name: "Water intake", icon: "💧" },
+      schedules: ["0 9 * * *"],
+      enabled: true,
+      expiresAt: null,
+      stopsWhenLogged: true,
+      createdAt: "2026-08-31T00:00:00.000Z",
+    };
+    const fetchMock = withAuthedUser({
+      "/api/categories": () => jsonResponse(200, [ownCategory]),
+      "GET /api/reminders": () => jsonResponse(200, []),
+      "POST /api/reminders": () => jsonResponse(201, savedReminder),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const entryChanged = captureEntryChanged();
+    renderCategoriesPage();
+    const user = userEvent.setup();
+
+    await screen.findByRole("button", { name: /Remind me about Water intake/ });
+    await user.click(screen.getByRole("button", { name: /Remind me about Water intake/ }));
+    await user.click(await screen.findByRole("button", { name: "Save reminder" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: /Remind me about Water intake/ }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(entryChanged.count()).toBe(1);
   });
 });

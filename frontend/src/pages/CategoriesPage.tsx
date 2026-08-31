@@ -24,6 +24,7 @@ import { describeSchedules } from "../lib/cronSchedule";
 import { useTimedMessage } from "../hooks/useTimedMessage";
 import { Toast } from "../components/Toast";
 import { dispatchCollapseAll, listenForCollapsedChanged } from "../lib/collapseAllEvent";
+import { dispatchDashboardEntryChanged } from "../lib/dashboardEntryChangedEvent";
 
 // Every group section persists its collapsed state under this prefix, which is also what the
 // page’s Collapse/Expand all control broadcasts to (see lib/collapseAllEvent.ts).
@@ -785,6 +786,12 @@ function CategoriesBody() {
       );
       setReminderState({ openForCategoryId: null, saving: false, error: null });
       setActionMessage("Reminder saved.");
+      // A schedule change can add, remove, or move a Timeline row for today - Timeline's own
+      // listener (see TimelinePanel.tsx) refetches on this the same way a category log or task
+      // save already does. Missing before this fix: reminder CRUD lived on this page and Settings
+      // alone, and neither ever fired it, so Timeline only ever caught up on its own next full
+      // remount rather than being told directly.
+      dispatchDashboardEntryChanged();
     } catch (err) {
       // The backend validates every expression with the same parser the scheduler uses, so its
       // message names the actual problem ("The hour field must be between 0 and 23") - far more
@@ -806,6 +813,7 @@ function CategoriesBody() {
     try {
       await apiFetch(`/api/reminders/${reminderId}`, { method: "DELETE" });
       setActionMessage("Reminder stopped.");
+      dispatchDashboardEntryChanged();
     } catch {
       setReminders(previous);
       setActionMessage("Couldn't stop that reminder. Please try again.");
@@ -821,6 +829,7 @@ function CategoriesBody() {
       setReminders((prev) => prev.filter((r) => r.id !== existing.id));
       setReminderState({ openForCategoryId: null, saving: false, error: null });
       setActionMessage("Reminder turned off.");
+      dispatchDashboardEntryChanged();
     } catch {
       setReminderState((prev) => ({
         ...prev,
