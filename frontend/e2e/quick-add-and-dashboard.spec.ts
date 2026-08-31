@@ -85,7 +85,9 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
   // its heading, so an ambiguous match across cards can't slip through the way an unscoped
   // getByText would.
   function cardFor(name: string) {
-    return page.locator("section").filter({ has: page.getByRole("heading", { name, exact: true }) });
+    return page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name, exact: true }) });
   }
   // Mood is a 1-7 scale (see docs/log/21-unify-scale-to-seven.md) - not the 1-5 it originally
   // launched with, hence "5/7" rather than "5/5" below.
