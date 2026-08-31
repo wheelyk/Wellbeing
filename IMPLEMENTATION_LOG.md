@@ -441,3 +441,7 @@ project's own sessions.
 ### [Timeline v2: Compact Dividers, Newest First, and Tap-to-Log](docs/log/50-timeline-v2.md)
 
 - 2026-08-31 — The banner moves back up, the per-category list retires, and rows do something
+
+### [One-off Tasks: "Phone the Vet," Not a Category](docs/log/51-one-off-tasks.md)
+
+- 2026-08-31 — A reminder-shaped thing that isn't a Reminder for a Category

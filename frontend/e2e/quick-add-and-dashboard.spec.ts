@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { registerAndLandOnDashboard, uniqueTestEmail } from "./helpers";
+import { registerAndLandOnDashboard, uniqueTestEmail, openCategoryQuickAdd } from "./helpers";
 
 // Phase 13's first End-to-end checklist item: register -> log in -> Quick Add Mood plus three
 // more categories (one scale-typed, standing in for what used to be a dedicated Symptom entry;
@@ -26,12 +26,13 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
     await page.waitForSelector('[role="dialog"]', { state: "detached" });
   }
 
-  // Mood: "Quick add" opens straight into "Log an entry", not "Create your first category" -
-  // every account, even a brand new one, already sees the 11 seeded system categories (Mood/
-  // Energy/Stress plus every system symptom - see backend/prisma/seed.ts) here, with Mood itself
-  // selectable directly from the picker rather than needing to be created.
-  await page.getByRole("button", { name: "Quick add" }).click();
-  await page.waitForSelector("text=Log an entry");
+  // Mood: "Quick add" opens a two-choice menu first (see docs/log/51-one-off-tasks.md);
+  // openCategoryQuickAdd picks the category-entry side, landing straight on "Log an entry", not
+  // "Create your first category" - every account, even a brand new one, already sees the 11
+  // seeded system categories (Mood/Energy/Stress plus every system symptom - see
+  // backend/prisma/seed.ts) here, with Mood itself selectable directly from the picker rather
+  // than needing to be created.
+  await openCategoryQuickAdd(page);
   await page.locator("#category-picker").selectOption({ label: "Mood" });
   await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "5" }).click();
   await saveAndWaitForClose();
@@ -39,8 +40,7 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
   // Category #1: a "scale" category (1-10), standing in for what a migrated Symptom now looks
   // like - reached via "+ Add a new category" since a category (Mood) already exists by this
   // point, same as every subsequent category below.
-  await page.getByRole("button", { name: "Quick add" }).click();
-  await page.waitForSelector("text=Log an entry");
+  await openCategoryQuickAdd(page);
   await page.getByRole("button", { name: /add a new category/i }).click();
   await page.waitForSelector("text=Create a new category");
   await page.getByLabel(/category name/i).fill("E2E Test Scale Category");
@@ -57,8 +57,7 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
 
   // Category #2: a "boolean" category, standing in for what a migrated Medication dose now looks
   // like - same "Log an entry" -> "+ Add a new category" path as Category #1 above.
-  await page.getByRole("button", { name: "Quick add" }).click();
-  await page.waitForSelector("text=Log an entry");
+  await openCategoryQuickAdd(page);
   await page.getByRole("button", { name: /add a new category/i }).click();
   await page.waitForSelector("text=Create a new category");
   await page.getByLabel(/category name/i).fill("E2E Test Medication");
@@ -70,8 +69,7 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
 
   // Category #3: a second "boolean" category, standing in for what a migrated Habit now looks
   // like - same "Log an entry" -> "+ Add a new category" path as above.
-  await page.getByRole("button", { name: "Quick add" }).click();
-  await page.waitForSelector("text=Log an entry");
+  await openCategoryQuickAdd(page);
   await page.getByRole("button", { name: /add a new category/i }).click();
   await page.waitForSelector("text=Create a new category");
   await page.getByLabel(/category name/i).fill("E2E Test Category");

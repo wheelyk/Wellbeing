@@ -5,6 +5,9 @@ import { TimelinePanel } from "./TimelinePanel";
 import { apiFetch } from "../../api/client";
 import { DASHBOARD_TIMELINE_ACTION_EVENT } from "../../lib/dashboardTimelineActionEvent";
 import type { TimelineAction } from "../../lib/dashboardTimelineActionEvent";
+import { DASHBOARD_TASK_ACTION_EVENT } from "../../lib/dashboardTaskActionEvent";
+import type { TaskManagerAction } from "../../lib/dashboardTaskActionEvent";
+import { dispatchDashboardEntryChanged } from "../../lib/dashboardEntryChangedEvent";
 
 vi.mock("../../api/client", () => ({ apiFetch: vi.fn() }));
 const apiFetchMock = vi.mocked(apiFetch);
@@ -37,6 +40,14 @@ function captureTimelineActions(): TimelineAction[] {
   return captured;
 }
 
+function captureTaskActions(): TaskManagerAction[] {
+  const captured: TaskManagerAction[] = [];
+  window.addEventListener(DASHBOARD_TASK_ACTION_EVENT, (event) => {
+    captured.push((event as CustomEvent<TaskManagerAction>).detail);
+  });
+  return captured;
+}
+
 const emptyRecent = { timezone: "Europe/London", today: "2026-08-30", truncated: false, runs: [] };
 const emptyUpcoming = {
   timezone: "Europe/London",
@@ -44,20 +55,27 @@ const emptyUpcoming = {
   truncated: false,
   runs: [],
 };
+const emptyTasks = { timezone: "Europe/London", today: "2026-08-30", tasks: [] };
 
-// The panel fires two independent calls - one per endpoint - plus a third, separate one-off probe
-// (also against /recent, at a fixed days=7) that decides which range chips are worth showing at
-// all. Branching only on which endpoint a URL hits, not on its query string, means the same
-// `recent` fixture answers both the probe and the currently-selected range's own fetch - which is
-// what every test below wants anyway, since a fixture with a logged row in it should both reveal
-// the wider chips *and* be what renders once one is picked.
-function mockTimelineFetch(overrides: { recent?: unknown; upcoming?: unknown } = {}) {
+// The panel fires three independent calls - one per endpoint, plus GET /api/tasks - and a fourth,
+// separate one-off probe (also against /recent, at a fixed days=7) that decides which range chips
+// are worth showing at all. Branching only on which endpoint a URL hits, not on its query string,
+// means the same `recent` fixture answers both the probe and the currently-selected range's own
+// fetch - which is what every test below wants anyway, since a fixture with a logged row in it
+// should both reveal the wider chips *and* be what renders once one is picked. Tasks default to
+// empty throughout - the tests specifically about Tasks override it.
+function mockTimelineFetch(
+  overrides: { recent?: unknown; upcoming?: unknown; tasks?: unknown } = {},
+) {
   apiFetchMock.mockImplementation((url: string) => {
     if (url.includes("/api/reminders/recent")) {
       return Promise.resolve(overrides.recent ?? emptyRecent);
     }
     if (url.includes("/api/reminders/upcoming")) {
       return Promise.resolve(overrides.upcoming ?? emptyUpcoming);
+    }
+    if (url.includes("/api/tasks")) {
+      return Promise.resolve(overrides.tasks ?? emptyTasks);
     }
     throw new Error(`Unhandled fetch in test: ${url}`);
   });
@@ -122,12 +140,13 @@ beforeEach(() => {
 });
 
 describe("TimelinePanel", () => {
-  it("asks both endpoints for the same range by default, plus the fixed probe", async () => {
+  it("asks all three endpoints for the same range by default, plus the fixed probe", async () => {
     render(<TimelinePanel />);
 
     await waitFor(() => {
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/recent?days=1");
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/upcoming?days=1");
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/tasks?days=1");
       // The probe always asks the widest window, independently of whatever range is selected -
       // it exists purely to decide which chips are worth offering.
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/recent?days=7");
@@ -225,7 +244,23 @@ describe("TimelinePanel", () => {
     await waitFor(() => {
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/recent?days=7");
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/upcoming?days=7");
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/tasks?days=7");
     });
+  });
+
+  it("refetches immediately when any Dashboard section reports an entry changed", async () => {
+    render(<TimelinePanel />);
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/tasks?days=1"));
+    const callsBefore = apiFetchMock.mock.calls.length;
+
+    dispatchDashboardEntryChanged();
+
+    // A genuine second pass over all three endpoints, not just the range-chip probe (which
+    // already listened for this event before Tasks existed) - see TimelinePanel's own comment on
+    // this being a real, pre-existing gap Tasks closed rather than something Tasks specifically
+    // needed.
+    await waitFor(() => expect(apiFetchMock.mock.calls.length).toBeGreaterThan(callsBefore));
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/recent?days=1");
   });
 
   describe("range chip visibility", () => {
@@ -327,6 +362,110 @@ describe("TimelinePanel", () => {
       await user.click(await screen.findByRole("button", { name: /Log an entry for 20:00/ }));
 
       expect(captured).toEqual([{ type: "add", categoryId: null }]);
+    });
+  });
+
+  describe("tasks", () => {
+    // `kind: "task"` included here even though GET /api/tasks itself never sends it - TimelinePanel
+    // adds it while merging (see mergeWithTasks), so the object a row click actually dispatches
+    // carries it too. Including it in the fixture keeps these tests' own `toEqual` calls exact
+    // rather than needing `objectContaining` to tolerate a field the real flow always adds.
+    const overdueTask = {
+      kind: "task" as const,
+      id: "task-vet",
+      title: "Phone the vet",
+      notes: "ask about the booster",
+      date: "2026-08-30",
+      time: "12:30",
+      dueAt: "2026-08-30T12:30:00.000Z",
+      state: "overdue" as const,
+      when: "past" as const,
+    };
+    const upcomingTask = {
+      kind: "task" as const,
+      id: "task-parcel",
+      title: "Pick up parcel",
+      notes: null,
+      date: "2026-08-30",
+      time: "20:00",
+      dueAt: "2026-08-30T20:00:00.000Z",
+      state: "upcoming" as const,
+      when: "future" as const,
+    };
+
+    it("renders a task row with its Task tag, notes, and state pill", async () => {
+      mockTimelineFetch({ tasks: { ...emptyTasks, tasks: [overdueTask] } });
+      render(<TimelinePanel />);
+
+      expect(await screen.findByText("Phone the vet")).toBeInTheDocument();
+      expect(screen.getByText("Task")).toBeInTheDocument();
+      expect(screen.getByText("ask about the booster")).toBeInTheDocument();
+      expect(screen.getByText("Overdue")).toBeInTheDocument();
+    });
+
+    it("interleaves tasks with reminder rows in the merged list", async () => {
+      mockTimelineFetch({
+        recent: recentWithRuns,
+        tasks: { ...emptyTasks, tasks: [overdueTask] },
+      });
+      render(<TimelinePanel />);
+
+      expect(await screen.findByText("Phone the vet")).toBeInTheDocument();
+      expect(screen.getByText("🧠 Anxiety")).toBeInTheDocument();
+      expect(screen.getByText("💊 Diazepam")).toBeInTheDocument();
+    });
+
+    it("dispatches toggleDone when the checkbox is tapped", async () => {
+      const captured = captureTaskActions();
+      mockTimelineFetch({ tasks: { ...emptyTasks, tasks: [overdueTask] } });
+      render(<TimelinePanel />);
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole("button", { name: /Mark Phone the vet done/ }));
+
+      expect(captured).toEqual([{ type: "toggleDone", task: overdueTask }]);
+    });
+
+    it("dispatches edit when the row body is tapped, not the checkbox", async () => {
+      const captured = captureTaskActions();
+      mockTimelineFetch({ tasks: { ...emptyTasks, tasks: [overdueTask] } });
+      render(<TimelinePanel />);
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole("button", { name: /Phone the vet, due 12:30/ }));
+
+      expect(captured).toEqual([{ type: "edit", task: overdueTask }]);
+    });
+
+    it("labels a done task's checkbox for reopening instead of marking done", async () => {
+      mockTimelineFetch({
+        tasks: { ...emptyTasks, tasks: [{ ...overdueTask, state: "done" as const }] },
+      });
+      render(<TimelinePanel />);
+
+      expect(
+        await screen.findByRole("button", { name: /Reopen Phone the vet/ }),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Done")).toBeInTheDocument();
+    });
+
+    it("shows no state pill for an ordinary upcoming task", async () => {
+      mockTimelineFetch({ tasks: { ...emptyTasks, tasks: [upcomingTask] } });
+      render(<TimelinePanel />);
+
+      expect(await screen.findByText("Pick up parcel")).toBeInTheDocument();
+      expect(screen.queryByText("Overdue")).not.toBeInTheDocument();
+      expect(screen.queryByText("Done")).not.toBeInTheDocument();
+    });
+
+    it("dispatches an add action from Timeline's own header button", async () => {
+      const captured = captureTaskActions();
+      render(<TimelinePanel />);
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole("button", { name: "Add a task" }));
+
+      expect(captured).toEqual([{ type: "add" }]);
     });
   });
 

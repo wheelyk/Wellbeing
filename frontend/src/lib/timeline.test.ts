@@ -1,14 +1,18 @@
 import { describe, it, expect } from "vitest";
 import {
   describeRun,
+  describeTask,
   groupRunsByDay,
   hasLoggedWithinDays,
   mergeRuns,
+  mergeWithTasks,
   orderRuns,
   splitAroundNow,
   stateLabel,
+  taskStateLabel,
   timelineRowAction,
   type RecentRun,
+  type TaskRun,
   type TimelineRun,
   type UpcomingRun,
 } from "./timeline";
@@ -66,8 +70,92 @@ describe("mergeRuns", () => {
   });
 });
 
+const taskRun = (over: Partial<TaskRun> = {}): TaskRun => ({
+  kind: "task",
+  id: "task-1",
+  title: "Phone the vet",
+  notes: null,
+  date: "2026-08-30",
+  time: "12:30",
+  dueAt: "2026-08-30T12:30:00.000Z",
+  state: "upcoming",
+  when: "future",
+  ...over,
+});
+
+describe("mergeWithTasks", () => {
+  it("interleaves reminder rows and tasks by date and time, not by which array they came from", () => {
+    const runs = [
+      mergeRuns([], [upcomingRun({ time: "12:00", reminderId: "r" })])[0],
+      mergeRuns([], [upcomingRun({ time: "18:00", reminderId: "r2" })])[0],
+    ];
+    const tasks = [taskRun({ id: "t1", time: "09:00" }), taskRun({ id: "t2", time: "15:00" })];
+
+    const merged = mergeWithTasks(runs, tasks);
+
+    expect(merged.map((entry) => ("reminderId" in entry ? entry.reminderId : entry.id))).toEqual([
+      "t1",
+      "r",
+      "t2",
+      "r2",
+    ]);
+  });
+
+  it("sorts across different days too, not just within one", () => {
+    const runs = mergeRuns([], [upcomingRun({ date: "2026-09-01", reminderId: "later" })]);
+    const tasks = [taskRun({ id: "sooner", date: "2026-08-30" })];
+
+    const merged = mergeWithTasks(runs, tasks);
+
+    expect(merged.map((entry) => ("reminderId" in entry ? entry.reminderId : entry.id))).toEqual([
+      "sooner",
+      "later",
+    ]);
+  });
+
+  it("keeps runs before tasks when they land on the exact same date and time", () => {
+    const runs = mergeRuns([], [upcomingRun({ time: "12:30", reminderId: "r" })]);
+    const tasks = [taskRun({ id: "t", time: "12:30" })];
+
+    const merged = mergeWithTasks(runs, tasks);
+
+    expect(merged.map((entry) => entry.kind)).toEqual(["reminder", "task"]);
+  });
+
+  it("merges an empty side without error", () => {
+    expect(mergeWithTasks([], [taskRun()])).toHaveLength(1);
+    expect(mergeWithTasks(mergeRuns([], [upcomingRun()]), [])).toHaveLength(1);
+    expect(mergeWithTasks([], [])).toEqual([]);
+  });
+});
+
+describe("describeTask", () => {
+  it("shows the notes when there are any", () => {
+    expect(describeTask(taskRun({ notes: "ask about the booster" }))).toBe("ask about the booster");
+  });
+
+  it("shows nothing for a task with no notes", () => {
+    expect(describeTask(taskRun({ notes: null }))).toBeNull();
+  });
+});
+
+describe("taskStateLabel", () => {
+  it("says nothing for an ordinary upcoming task", () => {
+    expect(taskStateLabel("upcoming")).toBeNull();
+  });
+
+  it("labels an overdue task plainly", () => {
+    expect(taskStateLabel("overdue")).toBe("Overdue");
+  });
+
+  it("labels a done task plainly", () => {
+    expect(taskStateLabel("done")).toBe("Done");
+  });
+});
+
 describe("groupRunsByDay", () => {
   const run = (over: Partial<TimelineRun> = {}): TimelineRun => ({
+    kind: "reminder",
     date: "2026-08-30",
     time: "09:00",
     reminderId: "r1",
@@ -129,6 +217,7 @@ describe("groupRunsByDay", () => {
 
 describe("describeRun", () => {
   const run = (over: Partial<TimelineRun> = {}): TimelineRun => ({
+    kind: "reminder",
     date: "2026-08-30",
     time: "09:00",
     reminderId: "r1",
@@ -192,9 +281,9 @@ describe("describeRun", () => {
 
 describe("orderRuns", () => {
   const runs: TimelineRun[] = [
-    { ...recentRun({ reminderId: "a" }), when: "past", logId: null },
-    { ...recentRun({ reminderId: "b" }), when: "past", logId: null },
-    { ...upcomingRun({ reminderId: "c" }), when: "future", logId: null },
+    { ...recentRun({ reminderId: "a" }), kind: "reminder", when: "past", logId: null },
+    { ...recentRun({ reminderId: "b" }), kind: "reminder", when: "past", logId: null },
+    { ...upcomingRun({ reminderId: "c" }), kind: "reminder", when: "future", logId: null },
   ];
 
   it("leaves the order untouched for oldest first", () => {
@@ -215,11 +304,13 @@ describe("orderRuns", () => {
 describe("splitAroundNow", () => {
   const past = (id: string): TimelineRun => ({
     ...recentRun({ reminderId: id }),
+    kind: "reminder",
     when: "past",
     logId: null,
   });
   const future = (id: string): TimelineRun => ({
     ...upcomingRun({ reminderId: id }),
+    kind: "reminder",
     when: "future",
     logId: null,
   });
@@ -273,6 +364,7 @@ describe("hasLoggedWithinDays", () => {
 
 describe("timelineRowAction", () => {
   const run = (over: Partial<TimelineRun> = {}): TimelineRun => ({
+    kind: "reminder",
     date: "2026-08-30",
     time: "09:00",
     reminderId: "r1",

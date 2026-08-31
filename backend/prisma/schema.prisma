@@ -51,6 +51,7 @@ model User {
   hiddenCategories HiddenCategory[]
   categoryTimings  CategoryTiming[]
   hiddenGroups     HiddenGroup[]
+  tasks            Task[]
 
   @@map("users")
 }
@@ -435,4 +436,38 @@ model ReminderSend {
   // batched query (see reminderScheduler.ts) rather than one query per (reminder, time) pair.
   @@index([reminderId, date])
   @@map("reminder_sends")
+}
+
+// A one-off thing to do at a specific moment - "phone the vet," "pick up the parcel" -
+// deliberately *not* a Category. A Category exists to be tracked repeatedly over time (its own
+// Trends chart, a permanent slot in the picker); a Task is disposable by design, done once and
+// then either marked done (kept, as a record - see doneAt) or deleted outright. See
+// docs/log/51-one-off-tasks.md.
+model Task {
+  id     String  @id @default(uuid())
+  userId String  @map("user_id")
+  title  String
+  notes  String?
+  // A real instant, not a local date/time pair - the one moment this task is due, compared
+  // directly against "now" the same way Reminder.expiresAt already is, with the account's own
+  // timezone only ever entering the picture at display time (see routes/tasks.ts).
+  dueAt  DateTime @map("due_at")
+  // Non-null once marked done; null means still open (due, or overdue). Kept as a record rather
+  // than deleted - the same "archive, don't erase" instinct Category.archivedAt already reflects,
+  // just without a purge sweep behind it: there's no separate undo window to protect, since
+  // reopening a done task is just clearing this field back to null.
+  doneAt DateTime? @map("done_at")
+  // Set once taskScheduler.ts has actually sent the due-time push for this task - an idempotency
+  // guard, the same job ReminderSend plays for a recurring reminder's own slots. A Task only ever
+  // fires once in its lifetime, so one nullable timestamp here does the whole job a join table
+  // exists for on the Reminder side.
+  notifiedAt DateTime? @map("notified_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // The Timeline merge (GET /api/tasks) and the scheduler's own due-task scan both filter on
+  // exactly this pair.
+  @@index([userId, dueAt])
+  @@map("tasks")
 }

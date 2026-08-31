@@ -57,8 +57,12 @@ export interface UpcomingResponse {
 
 /** One row of the merged timeline - a `RecentRun` or `UpcomingRun`, tagged with which side of
  *  "now" it came from. The tag is what lets the panel draw the NOW divider correctly even though
- *  both sides can legitimately contribute rows for the same calendar day. */
+ *  both sides can legitimately contribute rows for the same calendar day. `kind` distinguishes it
+ *  from a `TaskRun` once the two are merged together (see `TimelineEntry`) - a reminder-driven row
+ *  keeps every field it already had; nothing here changes for a caller that only ever saw
+ *  reminders before Tasks existed. */
 export interface TimelineRun extends BaseRun {
+  kind: "reminder";
   state: TimelineState;
   when: "past" | "future";
   /** Always present so callers never need an `?? null` - null on every future-derived row, since
@@ -70,6 +74,48 @@ export interface TimelineRun extends BaseRun {
 }
 
 /**
+ * A one-off "phone the vet" thing to do, at a specific moment - deliberately not a Category (see
+ * the backend's own schema.prisma comment on Task). See docs/log/51-one-off-tasks.md.
+ */
+export type TaskState = "upcoming" | "overdue" | "done";
+
+/** The shape GET /api/tasks returns per row. */
+export interface ApiTask {
+  id: string;
+  title: string;
+  notes: string | null;
+  /** "YYYY-MM-DD" in the account's own timezone. */
+  date: string;
+  /** "HH:mm", likewise. */
+  time: string;
+  /** The raw instant, for the edit form's own date/time fields - `date`/`time` above are already
+   *  split for display and grouping, but editing wants the one real value to start from. */
+  dueAt: string;
+  state: TaskState;
+  when: "past" | "future";
+}
+
+export interface TaskResponse {
+  timezone: string;
+  today: string;
+  tasks: ApiTask[];
+}
+
+/** A Task, shaped to sit in the same merged Timeline list as a `TimelineRun` - see
+ *  `TimelineEntry`. Everything Timeline's own grouping/ordering/NOW-split machinery needs
+ *  (`date`, `time`, `when`) is already on `ApiTask` directly; this only adds the `kind` tag a
+ *  caller switches on to render/act on it differently from a reminder row. */
+export interface TaskRun extends ApiTask {
+  kind: "task";
+}
+
+/** Either half of the merged Timeline list - a reminder-driven row or a Task. Every function in
+ *  this module that only needs `date`/`time`/`when` (grouping, ordering, the NOW split) works on
+ *  either one without caring which; `kind` is there for the one place that does care -
+ *  TimelinePanel's own row rendering and click handling. */
+export type TimelineEntry = TimelineRun | TaskRun;
+
+/**
  * Concatenates, not sorts. `recent`'s rows are all at or before "now" and `upcoming`'s are all
  * strictly after it (each endpoint's own rule - see their route comments), so the two lists are
  * already in chronological order relative to each other with no merge step needed: every `recent`
@@ -78,12 +124,34 @@ export interface TimelineRun extends BaseRun {
  */
 export function mergeRuns(recent: RecentRun[], upcoming: UpcomingRun[]): TimelineRun[] {
   return [
-    ...recent.map((run): TimelineRun => ({ ...run, when: "past" })),
+    ...recent.map((run): TimelineRun => ({ ...run, kind: "reminder", when: "past" })),
     // logId set explicitly rather than left to spread from nothing - UpcomingRun has no such
     // field at all, and TimelineRun's own comment promises every row gets a real null here, not
     // an accidental `undefined`.
-    ...upcoming.map((run): TimelineRun => ({ ...run, when: "future", logId: null })),
+    ...upcoming.map((run): TimelineRun => ({
+      ...run,
+      kind: "reminder",
+      when: "future",
+      logId: null,
+    })),
   ];
+}
+
+/**
+ * Folds a fetched batch of Tasks into the same merged list `mergeRuns` builds for reminders.
+ * Unlike `mergeRuns` itself, this is a real sort, not a concatenation: `runs` and `tasks` come
+ * from two independent endpoints with no ordering guarantee relative to *each other* (the
+ * guarantee `mergeRuns` relies on only ever held between `/recent` and `/upcoming`, which are
+ * halves of one design). Stable, so two rows sharing an exact date+time keep whichever relative
+ * order they already had - in practice, `runs` before `tasks` at that instant, since that's the
+ * order they're concatenated in below.
+ */
+export function mergeWithTasks(runs: TimelineRun[], tasks: TaskRun[]): TimelineEntry[] {
+  return [...runs, ...tasks].sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    if (a.time !== b.time) return a.time < b.time ? -1 : 1;
+    return 0;
+  });
 }
 
 export type TimelineOrder = "oldest" | "newest";
@@ -97,7 +165,7 @@ export type TimelineOrder = "oldest" | "newest";
  * `splitAroundNow` below) reverse correctly too, since a plain array reverse preserves each day's
  * relative row order without `groupRunsByDay` ever needing to know which direction it was given.
  */
-export function orderRuns(runs: TimelineRun[], order: TimelineOrder): TimelineRun[] {
+export function orderRuns<T>(runs: T[], order: TimelineOrder): T[] {
   return order === "newest" ? [...runs].reverse() : runs;
 }
 
@@ -120,10 +188,20 @@ export const TIMELINE_RANGES = [
 
 export type TimelineRange = (typeof TIMELINE_RANGES)[number]["days"];
 
-export interface TimelineDay {
+/** The minimal shape `groupRunsByDay`/`splitAroundNow` actually need - both `TimelineRun` and
+ *  `TaskRun` already satisfy it, so either function works on a merged list, a reminder-only list,
+ *  or (in tests) a bare list of either shape alone, and hands the caller back exactly the type it
+ *  gave in. */
+interface Chronological {
+  date: string;
+  time: string;
+  when: "past" | "future";
+}
+
+export interface TimelineDay<T extends Chronological = TimelineEntry> {
   date: string;
   label: string;
-  runs: TimelineRun[];
+  runs: T[];
 }
 
 // "Yesterday", "Today" and "Tomorrow" are worth naming; past that a weekday and date reads better
@@ -148,9 +226,13 @@ function dayLabel(date: string, today: string): string {
   }).format(new Date(Date.UTC(ry, rm - 1, rd)));
 }
 
-/** Groups an already-chronological list into days, preserving order. */
-export function groupRunsByDay(runs: TimelineRun[], today: string): TimelineDay[] {
-  const days: TimelineDay[] = [];
+/** Groups an already-chronological list into days, preserving order. Works on a merged
+ *  reminder+Task list exactly as it did on reminders alone - both shapes carry `date`. */
+export function groupRunsByDay<T extends Chronological>(
+  runs: T[],
+  today: string,
+): TimelineDay<T>[] {
+  const days: TimelineDay<T>[] = [];
   for (const run of runs) {
     const last = days[days.length - 1];
     if (last && last.date === run.date) {
@@ -165,13 +247,14 @@ export function groupRunsByDay(runs: TimelineRun[], today: string): TimelineDay[
 /**
  * Splits one day's rows around the NOW divider, in whichever direction `order` reads. Only
  * meaningful for the day containing "today" - every other day is wholly past or wholly future by
- * construction (recent only ever returns days up to and including today; upcoming only ever
- * returns today onward), so the divider itself never appears there.
+ * construction (recent/upcoming only ever return days up to, or from, today; a Task's own `when`
+ * is resolved server-side the identical way - see routes/tasks.ts), so the divider itself never
+ * appears there.
  */
-export function splitAroundNow(
-  dayRuns: TimelineRun[],
+export function splitAroundNow<T extends Chronological>(
+  dayRuns: T[],
   order: TimelineOrder,
-): { above: TimelineRun[]; below: TimelineRun[] } {
+): { above: T[]; below: T[] } {
   const past = dayRuns.filter((run) => run.when === "past");
   const future = dayRuns.filter((run) => run.when === "future");
   return order === "newest" ? { above: future, below: past } : { above: past, below: future };
@@ -267,6 +350,25 @@ export function stateLabel(state: TimelineState): string | null {
     case "paused":
       return "Paused";
     case "scheduled":
+      return null;
+  }
+}
+
+// A Task's own "line under the row" - just its notes, when there are any. Unlike a reminder,
+// there is no cadence to collapse and no quiet-hours delay to explain: it fires once, and its
+// pill (see taskStateLabel) already says everything about its own state a reminder's row needs
+// prose for.
+export function describeTask(task: TaskRun): string | null {
+  return task.notes && task.notes.trim().length > 0 ? task.notes : null;
+}
+
+export function taskStateLabel(state: TaskState): string | null {
+  switch (state) {
+    case "overdue":
+      return "Overdue";
+    case "done":
+      return "Done";
+    case "upcoming":
       return null;
   }
 }

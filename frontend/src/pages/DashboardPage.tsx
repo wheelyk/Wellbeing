@@ -4,6 +4,7 @@ import { BottomNav } from "../components/BottomNav";
 import { DashboardSummary } from "../components/dashboard/DashboardSummary";
 import { TimelinePanel } from "../components/dashboard/TimelinePanel";
 import { CategoryLogger } from "../components/dashboard/CategoryLogger";
+import { TaskManager } from "../components/dashboard/TaskManager";
 import { QuickAddFab } from "../components/dashboard/QuickAddFab";
 
 export function DashboardPage() {
@@ -44,6 +45,11 @@ export function DashboardPage() {
           trigger on this page opens (QuickAddFab's "+", DashboardSummary's button, and a tap on a
           Timeline row). See CategoryLogger's own comment for why this replaces CategorySection. */}
       <CategoryLogger />
+      {/* Its own manager, alongside CategoryLogger rather than folded into it - a Task is a
+          different kind of thing (no category, no value type, no log), with its own modal and its
+          own triggers (QuickAddFab's choice, Timeline's own "+", and a tap on a task row itself).
+          See docs/log/51-one-off-tasks.md. */}
+      <TaskManager />
     </div>
   );
 }

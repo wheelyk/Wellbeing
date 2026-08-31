@@ -19,3 +19,16 @@ export async function registerAndLandOnDashboard(page: Page, email: string): Pro
   await page.getByRole("button", { name: "Create account" }).click();
   await page.waitForURL("**/dashboard");
 }
+
+// Taps the FAB and chooses the category-entry side of its two-choice menu (the other being
+// "Add a task" - see docs/log/51-one-off-tasks.md). Before that task, "Quick add" opened
+// "Log an entry" directly; every spec in this suite that logs a category entry now needs this
+// extra hop through the choice dialog first.
+export async function openCategoryQuickAdd(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Quick add" }).click();
+  await page
+    .getByRole("dialog", { name: "Quick add" })
+    .getByRole("button", { name: /log a category entry/i })
+    .click();
+  await page.waitForSelector("text=Log an entry");
+}

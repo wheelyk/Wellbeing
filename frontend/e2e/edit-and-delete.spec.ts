@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { registerAndLandOnDashboard, uniqueTestEmail } from "./helpers";
+import { registerAndLandOnDashboard, uniqueTestEmail, openCategoryQuickAdd } from "./helpers";
 
 // Phase 13's second End-to-end checklist item: edit and delete an entry end-to-end. Exercises
 // both of History's two real actions (see PR #99/#103) - not just the Dashboard section's own
@@ -16,9 +16,10 @@ test("edit an entry from History, then delete it, with real persistence across a
   // CategoryEntryForm/the category-logs endpoint like any other category, not a dedicated
   // MoodEntryForm/mood-logs endpoint of its own anymore. Waiting for the dialog to close (rather
   // than a per-category Dashboard card heading, retired along with that card list - see
-  // docs/log/50-timeline-v2.md) is the save-succeeded signal now.
-  await page.getByRole("button", { name: "Quick add" }).click();
-  await page.waitForSelector("text=Log an entry");
+  // docs/log/50-timeline-v2.md) is the save-succeeded signal now. "Quick add" now opens a
+  // two-choice menu first (see docs/log/51-one-off-tasks.md), so openCategoryQuickAdd picks the
+  // category-entry side of it.
+  await openCategoryQuickAdd(page);
   await page.locator("#category-picker").selectOption({ label: "Mood" });
   await page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "3" }).click();
   await page.getByRole("button", { name: /save entry/i }).click();
