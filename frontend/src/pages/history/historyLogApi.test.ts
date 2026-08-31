@@ -1,17 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { categoryValueLabel, categoryLabel } from "./historyLogApi";
+import { categoryValueLabel } from "./historyLogApi";
 
-// This file's label-formatting functions mirror backend/src/routes/history.ts's own copy of the
-// same logic exactly (see historyLogApi.ts's own top-of-file comment on why) - previously
-// untested here, the same real gap the backend's own dashboard.ts/history.ts tests just closed:
-// only boolean-type category values had ever been exercised by any test, anywhere in the
-// codebase, across both independent copies of this formatting logic (one backend, one frontend).
-// These used to test the near-identical habitValueLabel/habitLabel (Habit) and symptomLabel
+// This file's value-formatting function mirrors backend/src/routes/history.ts's own
+// formatCategoryLogValue exactly (see historyLogApi.ts's own top-of-file comment on why) -
+// previously untested here, the same real gap the backend's own dashboard.ts/history.ts tests
+// just closed: only boolean-type category values had ever been exercised by any test, anywhere
+// in the codebase, across both independent copies of this formatting logic (one backend, one
+// frontend). These used to test the near-identical habitValueLabel (Habit) and symptomLabel
 // (Symptom), which covered the same shapes before both unified into Category (Phase 17) - see
 // docs/log/17-unify-mood-symptom-habit.md. moodLabel and medicationLabel (and Mood/Medication
 // themselves) were retired the same way (Phase 17 and Phase 19 respectively, see
-// docs/log/19-medication-to-category.md) - a former mood check-in's or medication dose's label
-// now goes through categoryValueLabel/categoryLabel below like any other category.
+// docs/log/19-medication-to-category.md) - a former mood check-in's or medication dose's value
+// now goes through categoryValueLabel below like any other category.
 describe("historyLogApi label formatting", () => {
   describe("categoryValueLabel", () => {
     const numericCategory = { valueType: "numeric" as const, scaleMax: null };
@@ -75,15 +75,5 @@ describe("historyLogApi label formatting", () => {
         ),
       ).toBe("4/5");
     });
-  });
-
-  it("categoryLabel combines the category name and its formatted value", () => {
-    expect(
-      categoryLabel(
-        "Meditation",
-        { valueBoolean: null, valueNumeric: null, valueDurationMinutes: 15 },
-        { valueType: "duration", scaleMax: null },
-      ),
-    ).toBe("Meditation: 15 min");
   });
 });

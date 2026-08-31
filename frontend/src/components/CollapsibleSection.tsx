@@ -67,8 +67,11 @@ interface CollapsibleSectionProps {
 
 // The chevron every disclosure in this app shares. Its direction reflects the actual state rather
 // than what was last clicked (see docs/log/36-picker-and-collapse-polish.md for when that was not
-// true of the bulk control).
-function Chevron({ collapsed, size }: { collapsed: boolean; size: "lg" | "md" }) {
+// true of the bulk control). Exported once History's own per-day divider (docs/log/53-history-redesign.md)
+// needed the identical glyph for a header shaped too differently from this component's own to
+// reuse the whole thing - the same "extract once a second consumer needs it" call StatusPill's
+// own comment already made.
+export function Chevron({ collapsed, size }: { collapsed: boolean; size: "lg" | "md" }) {
   return (
     <svg
       aria-hidden="true"

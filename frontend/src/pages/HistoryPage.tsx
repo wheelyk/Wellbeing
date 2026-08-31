@@ -1,17 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { NavBar } from "../components/NavBar";
 import { BottomNav } from "../components/BottomNav";
 import { Button } from "../components/Button";
-import { CollapsibleSection } from "../components/CollapsibleSection";
+import { CollapsibleSection, Chevron } from "../components/CollapsibleSection";
+import { useCollapsedState } from "../hooks/useCollapsedState";
 import { apiFetch } from "../api/client";
 import type { Category } from "../components/CategoryCreateForm";
 import { HistoryEditModal } from "./history/HistoryEditModal";
 import { ConfirmDeleteModal } from "../components/ConfirmDeleteModal";
-import { ActionButton } from "../components/ActionButton";
 
+// categoryName/categoryIcon/value are separate fields, not one pre-joined "Name: value" string -
+// see backend/src/routes/history.ts's own comment on why (docs/log/53-history-redesign.md). This
+// is what lets a row render the way a Timeline reminder row already does: the name as the row's
+// own text, the value as its own pill.
 export interface HistoryEntry {
   id: string;
-  label: string;
+  categoryName: string;
+  categoryIcon: string | null;
+  value: string;
   notes: string | null;
   loggedAt: string;
 }
@@ -80,6 +86,136 @@ function buildQuery(filters: { from: string; to: string; categoryId: string }, o
   params.set("limit", String(PAGE_SIZE));
   params.set("offset", String(offset));
   return params.toString();
+}
+
+// Green means the same thing Timeline's own "Logged" pill already does - the thing happened.
+// Everything else (an explicit "Not done", or a plain recorded number) stays neutral: a real
+// answer isn't a failure just because it's a pill, and a raw value has no good/bad reading of its
+// own the way an outcome does (see docs/log/53-history-redesign.md's own Decisions).
+const HISTORY_VALUE_TONE: Record<"success" | "neutral", string> = {
+  success: "border-success/50 bg-success/10 text-success",
+  neutral: "border-border bg-surface text-text-muted",
+};
+
+function historyValueTone(value: string): "success" | "neutral" {
+  return value === "Done" ? "success" : "neutral";
+}
+
+// Timeline's own day divider (thin rule, centered pill, thin rule - see TimelinePanel.tsx) has no
+// reason to collapse: it only ever shows one day at a time. History spans weeks, so per-day
+// collapse (see the "collapses one date group" test below) is worth keeping - this borrows
+// Timeline's visual shape and adds a count and a chevron to it, rather than dropping collapse to
+// match Timeline exactly. useCollapsedState is the same hook CollapsibleSection itself uses, so
+// this participates in the same "collapse all" broadcast and localStorage persistence every other
+// disclosure in the app already has, just under a header shaped too differently from
+// CollapsibleSection's own (icon-title-badge-subtitle-meta-chevron, always left-to-right) for that
+// component to render directly - there's no prop combination that produces two flex-1 rules either
+// side of a centered pill.
+function DayGroupDivider({
+  dayKey,
+  label,
+  count,
+  children,
+}: {
+  dayKey: string;
+  label: string;
+  count: number;
+  children: ReactNode;
+}) {
+  const { collapsed, toggle } = useCollapsedState(`history.${dayKey}`, false);
+  const contentId = `history-day-${dayKey}`;
+
+  return (
+    <div className="mt-6 first:mt-0">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={!collapsed}
+        aria-controls={contentId}
+        className="flex w-full items-center gap-2 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      >
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
+        <span className="rounded-full border border-border px-2.5 py-0.5 text-[11px] font-semibold tracking-wide text-text-muted uppercase">
+          {/* A real heading, not just styled to look like one - narrower than the page's own
+              h1, matching every other per-day heading this page has always had. */}
+          <h2 className="inline text-[11px] font-semibold tracking-wide uppercase">{label}</h2>
+        </span>
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
+        <span className="shrink-0 text-xs tabular-nums text-text-muted">{count}</span>
+        <Chevron collapsed={collapsed} size="md" />
+      </button>
+      {!collapsed && (
+        <ul id={contentId} className="mt-2 flex flex-col gap-2">
+          {children}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// A row shaped exactly like Timeline's own reminder row (see ReminderRow in TimelinePanel.tsx):
+// leading time, name (with its category's icon, when it has one) and notes as a detail line, a
+// state pill, then row actions as trailing siblings. Edit/Delete are small circular icon buttons
+// - the same restrained sizing Timeline's own row-level "+" and checkbox already use - rather than
+// the full-sized, bordered Button/ActionButton pair this row used before, which visually competed
+// with the row's own content instead of sitting quietly beside it. Icon-only at every width
+// (title="" stands in for the label ActionButton used to show from `sm:` up), matching how
+// Timeline's own icon buttons work at every width too - the accessible name (name= before this
+// change, aria-label now) is unchanged either way, so this is a visual restyle only.
+function HistoryRow({
+  entry,
+  onEdit,
+  onDelete,
+}: {
+  entry: HistoryEntry;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const time = new Date(entry.loggedAt).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const loggedAtText = new Date(entry.loggedAt).toLocaleString();
+
+  return (
+    <li className="flex items-center gap-3 rounded-xl border border-border bg-surface-muted px-3 py-2">
+      <span className="shrink-0 text-sm font-medium tabular-nums text-text">{time}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-text">
+          {entry.categoryIcon ? `${entry.categoryIcon} ` : ""}
+          {entry.categoryName}
+        </span>
+        {entry.notes && (
+          <span className="block truncate text-xs text-text-muted">{entry.notes}</span>
+        )}
+      </span>
+      <span
+        className={`shrink-0 rounded-full border px-2 py-0.5 text-xs tabular-nums ${HISTORY_VALUE_TONE[historyValueTone(entry.value)]}`}
+      >
+        {entry.value}
+      </span>
+      <span className="flex shrink-0 gap-1">
+        <button
+          type="button"
+          onClick={onEdit}
+          title="Edit"
+          aria-label={`Edit entry from ${loggedAtText}`}
+          className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-surface text-text-muted hover:border-brand hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        >
+          <span aria-hidden="true">✎</span>
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          title="Delete"
+          aria-label={`Delete entry from ${loggedAtText}`}
+          className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-surface text-text-muted hover:border-danger hover:text-danger focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        >
+          <span aria-hidden="true">🗑</span>
+        </button>
+      </span>
+    </li>
+  );
 }
 
 export function HistoryPage() {
@@ -305,54 +441,21 @@ export function HistoryPage() {
           {!loading &&
             !loadError &&
             groups.map((group) => (
-              <div key={group.key} className="mt-6 first:mt-0">
-                <CollapsibleSection
-                  title={dateHeading(group.key)}
-                  storageKey={`history.${group.key}`}
-                  // So a closed day still says whether it is worth opening. The categories logged
-                  // that day would say more still, but the history entry carries only a formatted
-                  // "Name: value" label - splitting that string to recover the name is the kind of
-                  // fragile parsing that breaks the first time a category name contains a colon.
-                  // It wants a real field on the response instead; see docs/log/44.
-                  meta={group.entries.length}
-                >
-                  <ul className="flex flex-col gap-2">
-                    {group.entries.map((entry) => (
-                      <li
-                        key={entry.id}
-                        className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-4 shadow-sm"
-                      >
-                        <div>
-                          <p className="text-text">{entry.label}</p>
-                          {entry.notes && <p className="text-sm text-text-muted">{entry.notes}</p>}
-                          <p className="text-xs text-text-muted">
-                            {new Date(entry.loggedAt).toLocaleTimeString([], {
-                              hour: "numeric",
-                              minute: "2-digit",
-                            })}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 gap-2">
-                          <ActionButton
-                            variant="secondary"
-                            icon="✏️"
-                            label="Edit"
-                            name={`Edit entry from ${new Date(entry.loggedAt).toLocaleString()}`}
-                            onClick={() => setEditingEntry(entry)}
-                          />
-                          <ActionButton
-                            variant="secondary"
-                            icon="🗑️"
-                            label="Delete"
-                            name={`Delete entry from ${new Date(entry.loggedAt).toLocaleString()}`}
-                            onClick={() => handleRequestDelete(entry)}
-                          />
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </CollapsibleSection>
-              </div>
+              <DayGroupDivider
+                key={group.key}
+                dayKey={group.key}
+                label={dateHeading(group.key)}
+                count={group.entries.length}
+              >
+                {group.entries.map((entry) => (
+                  <HistoryRow
+                    key={entry.id}
+                    entry={entry}
+                    onEdit={() => setEditingEntry(entry)}
+                    onDelete={() => handleRequestDelete(entry)}
+                  />
+                ))}
+              </DayGroupDivider>
             ))}
 
           {!loading && !loadError && (hasMore || entries.length > PAGE_SIZE) && (
