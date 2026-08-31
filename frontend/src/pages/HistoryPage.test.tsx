@@ -43,6 +43,8 @@ function mockHistoryFetch(handler: (url: string, init?: RequestInit) => Response
 describe("HistoryPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // jsdom's own default - reset explicitly since the visibilitychange tests below override it.
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
   });
 
   it("renders fetched entries grouped by date, most recent first", async () => {
@@ -538,5 +540,48 @@ describe("HistoryPage", () => {
     // "5", since Energy level is a scale category with scaleMax 5.
     expect(await screen.findByText("5/5")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Edit entry" })).not.toBeInTheDocument();
+  });
+
+  // Real bug, caught in production right after this page's own redesign shipped: a request that
+  // landed on the backend mid-deploy got served the pre-redesign response shape (a plain `label`
+  // string), and the new frontend rendered that as blank name/value text rather than an error,
+  // since GET /api/history's own load effect never refetches again on its own once it succeeds
+  // once. Refetching on a real transition back to "visible" is the fix - see HistoryPage.tsx's
+  // own comment on why, and TimelinePanel.test.tsx's identical pair of tests for the same fix
+  // there.
+  it("refetches when the tab becomes visible again", async () => {
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPage();
+    await screen.findByText(/nothing to show yet/i);
+    const callsBefore = fetchMock.mock.calls.length;
+
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(callsBefore));
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/history"))).toBe(true);
+  });
+
+  it("does not refetch on a visibilitychange that leaves the tab hidden", async () => {
+    const fetchMock = mockHistoryFetch(() =>
+      jsonResponse(200, { entries: [], limit: 20, offset: 0, hasMore: false }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPage();
+    await screen.findByText(/nothing to show yet/i);
+    const callsBefore = fetchMock.mock.calls.length;
+
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    // Nothing useful to fetch while backgrounded - the point is the transition back into view,
+    // not every visibility flicker.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fetchMock.mock.calls.length).toBe(callsBefore);
   });
 });

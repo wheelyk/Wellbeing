@@ -453,3 +453,7 @@ project's own sessions.
 ### [History Redesign: Bringing the Second Most-Used Page in Line with the First](docs/log/53-history-redesign.md)
 
 - 2026-08-31 — Splitting a pre-joined label so a value can finally be a pill
+
+### [History Refetches on Tab Focus, Closing the Same Gap Timeline Already Closed](docs/log/54-history-refetch-on-visible.md)
+
+- 2026-08-31 — A second occurrence of the same deploy-timing class of bug
