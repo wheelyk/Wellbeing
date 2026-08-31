@@ -3,14 +3,14 @@ import type { CategoryLog } from "../../components/CategoryEntryForm";
 import type { Category } from "../../components/CategoryCreateForm";
 
 // The unified GET /api/history endpoint (see backend/src/routes/history.ts) only returns a
-// display-ready {label, notes, loggedAt} shape - enough to render the list, but not enough to
-// pre-fill a real edit form (e.g. a category entry's label is "Headache: 6/10", which has no
-// machine-readable categoryId in it anywhere). The actual structured fields (categoryId/valueX)
-// only live on /api/category-logs, so editing has to go back there - see findLogById below for
-// how, given the backend can't be touched for this task and it doesn't support a "fetch by id"
-// lookup. Reuses the exact same CategoryLog type the Dashboard's own CategoryEntryForm already
-// exports, rather than maintaining a second, parallel interface - this is what actually lets
-// HistoryEditModal render that same form component directly instead of rebuilding its own.
+// display-ready {categoryName, categoryIcon, value, notes, loggedAt} shape - enough to render the
+// list, but not enough to pre-fill a real edit form (there's no machine-readable categoryId in
+// it anywhere). The actual structured fields (categoryId/valueX) only live on
+// /api/category-logs, so editing has to go back there - see findLogById below for how, given
+// that endpoint doesn't support a "fetch by id" lookup of its own. Reuses the exact same
+// CategoryLog type the Dashboard's own CategoryEntryForm already exports, rather than maintaining
+// a second, parallel interface - this is what actually lets HistoryEditModal render that same
+// form component directly instead of rebuilding its own.
 //
 // Medication used to have its own identical pair of helpers here (fetchMedicationLog,
 // medicationLabel) until it unified into Category (Phase 19, see
@@ -59,11 +59,11 @@ export function fetchCategories(): Promise<Category[]> {
   return apiFetch<Category[]>("/api/categories");
 }
 
-// ---- Label formatting ------------------------------------------------------------------------
-// Mirrors backend/src/routes/history.ts's own label builder exactly, so an entry just updated
-// through this page's own edit flow can be reflected in HistoryPage's local `entries` list
-// immediately - producing the same string the unified endpoint would produce on its next real
-// fetch - without needing a full refetch just to pick up a display label.
+// ---- Value formatting -------------------------------------------------------------------------
+// Mirrors backend/src/routes/history.ts's own formatCategoryLogValue exactly, so an entry just
+// updated through this page's own edit flow can be reflected in HistoryPage's local `entries`
+// list immediately - producing the same value string the unified endpoint would produce on its
+// next real fetch - without needing a full refetch just to pick up the new display value.
 
 // Handles the "scale" type (sharing valueNumeric with plain "numeric") too - rendered as
 // "value/max" using the category's own scaleMax, matching how dashboard.ts/CategorySection.tsx
@@ -85,12 +85,4 @@ export function categoryValueLabel(
     return `${log.valueNumeric}`;
   }
   return "—";
-}
-
-export function categoryLabel(
-  categoryName: string,
-  log: Parameters<typeof categoryValueLabel>[0],
-  category: Parameters<typeof categoryValueLabel>[1],
-): string {
-  return `${categoryName}: ${categoryValueLabel(log, category)}`;
 }

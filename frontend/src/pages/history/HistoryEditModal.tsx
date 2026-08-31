@@ -4,7 +4,7 @@ import { Modal } from "../../components/Modal";
 import { CategoryEntryForm, type CategoryLog } from "../../components/CategoryEntryForm";
 import type { Category } from "../../components/CategoryCreateForm";
 import type { HistoryEntry } from "../HistoryPage";
-import { fetchCategories, fetchCategoryLog, categoryLabel } from "./historyLogApi";
+import { fetchCategories, fetchCategoryLog, categoryValueLabel } from "./historyLogApi";
 
 interface HistoryEditModalProps {
   // null means "closed" - same convention as HistoryPage's own deletingEntry state, so the
@@ -90,7 +90,9 @@ export function HistoryEditModal({ entry, onClose, onSaved }: HistoryEditModalPr
                 : undefined;
             onSaved({
               id: log.id,
-              label: categoryLabel(category?.name ?? "Category", log, {
+              categoryName: category?.name ?? "Category",
+              categoryIcon: category?.icon ?? null,
+              value: categoryValueLabel(log, {
                 valueType: category?.valueType ?? "numeric",
                 scaleMax: category?.scaleMax ?? null,
               }),

@@ -88,13 +88,23 @@ test("register, Quick Add four categories, and see them reflected on Dashboard",
   // Per-entry verification moved to History: the per-category Dashboard cards these four used to
   // check against are retired outright (docs/log/50-timeline-v2.md), and none of the four has a
   // reminder attached, so none of them appear on the reminder-driven Timeline either. History
-  // still lists every entry regardless, in the exact "Name: value" format the backend's own
-  // formatCategoryLogValue builds (see backend/src/routes/history.ts).
+  // still lists every entry regardless, its name and formatted value (built from the backend's
+  // own formatCategoryLogValue - see backend/src/routes/history.ts) now in separate elements
+  // rather than one pre-joined "Name: value" string (docs/log/53-history-redesign.md) - each
+  // check below is scoped to the <li> containing the category's own name, since a bare value
+  // like "Done" isn't unique across two different boolean categories, and a bare name like
+  // "Mood" also isn't unique on this page (the Category filter's own <option> renders it too).
   await page.goto("/history");
   // Mood is a 1-7 scale (see docs/log/21-unify-scale-to-seven.md) - not the 1-5 it originally
   // launched with, hence "5/7" rather than "5/5" below.
-  await expect(page.getByText("Mood: 5/7")).toBeVisible();
-  await expect(page.getByText("E2E Test Scale Category: 6/10")).toBeVisible();
-  await expect(page.getByText("E2E Test Medication: Done")).toBeVisible();
-  await expect(page.getByText("E2E Test Category: Done")).toBeVisible();
+  await expect(page.locator("li", { hasText: "Mood" }).getByText("5/7")).toBeVisible();
+  await expect(
+    page.locator("li", { hasText: "E2E Test Scale Category" }).getByText("6/10"),
+  ).toBeVisible();
+  await expect(
+    page.locator("li", { hasText: "E2E Test Medication" }).getByText("Done"),
+  ).toBeVisible();
+  await expect(
+    page.locator("li", { hasText: "E2E Test Category" }).getByText("Done"),
+  ).toBeVisible();
 });
