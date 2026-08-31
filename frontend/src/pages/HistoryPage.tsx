@@ -261,22 +261,44 @@ export function HistoryPage() {
   // around and appended to.
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setLoadError(false);
-    apiFetch<HistoryResponse>(`/api/history?${buildQuery({ from, to, categoryId }, 0)}`)
-      .then((res) => {
-        if (cancelled) return;
-        setEntries(res.entries);
-        setHasMore(res.hasMore);
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError(true);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+
+    function load() {
+      setLoading(true);
+      setLoadError(false);
+      apiFetch<HistoryResponse>(`/api/history?${buildQuery({ from, to, categoryId }, 0)}`)
+        .then((res) => {
+          if (cancelled) return;
+          setEntries(res.entries);
+          setHasMore(res.hasMore);
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }
+
+    load();
+    // Refetches whenever this tab becomes visible again - the general fix for a request landing
+    // mid-deploy and getting served whichever shape the backend happened to be running at that
+    // exact instant (see docs/log/52-timeline-sync.md, which added the identical fix to
+    // TimelinePanel.tsx for the same reason: a same-window "something changed" event was never
+    // going to catch this, since nothing about this page's own data changed - the *server*
+    // changed underneath an already-loaded page). Concretely: GET /api/history's own response
+    // shape changed under docs/log/53-history-redesign.md (a pre-joined `label` string split into
+    // categoryName/categoryIcon/value) - a request that landed on Railway before that deploy
+    // finished still returned a real 200, just in the old shape, which the new frontend then
+    // rendered as blank name/value text rather than an error, since nothing here previously
+    // checked that the fields it expected were actually present. Backgrounding and refocusing the
+    // tab (or simply reloading) picks up the real, by-then-finished deploy automatically.
+    function onVisible() {
+      if (document.visibilityState === "visible") load();
+    }
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [from, to, categoryId]);
 
