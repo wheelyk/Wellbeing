@@ -153,6 +153,7 @@ describe("GET /api/reminders/upcoming", () => {
         time: "20:00",
         reminderId: expect.any(String),
         target: "general",
+        categoryId: null,
         category: null,
         state: "scheduled",
       },
@@ -232,9 +233,10 @@ describe("GET /api/reminders/upcoming", () => {
 
     expect(res.body.runs[0]).toMatchObject({
       target: "category",
+      categoryId: category.id,
       category: { name: "Sertraline", icon: "💊" },
     });
-    expect(res.body.runs[1]).toMatchObject({ target: "general", category: null });
+    expect(res.body.runs[1]).toMatchObject({ target: "general", categoryId: null, category: null });
   });
 
   it("lists a switched-off reminder as paused rather than hiding it", async () => {

@@ -8,7 +8,12 @@ import {
   toPrismaReminderTarget,
 } from "../lib/reminderTarget";
 import { cronValidationError, nextRunsForSchedules } from "../lib/cron";
-import { hasLoggedTarget, quietHoursHoldUntil, reminderSlotsForDate } from "../lib/reminderRuns";
+import {
+  findLoggedTarget,
+  hasLoggedTarget,
+  quietHoursHoldUntil,
+  reminderSlotsForDate,
+} from "../lib/reminderRuns";
 import {
   addDaysToDateStr,
   currentTimeInTimezone,
@@ -153,7 +158,11 @@ const updateSchema = z
   });
 
 const REMINDER_INCLUDE = {
-  category: { select: { name: true, icon: true } },
+  // `id` added alongside name/icon for Timeline's own use (docs/log/50-timeline-v2.md): a row's
+  // categoryId is what lets a click on it open that specific category's own log form, locked to
+  // it - the plain serialized Reminder response (below) never needed it before now, but exposing
+  // it costs nothing there either.
+  category: { select: { id: true, name: true, icon: true } },
 } as const;
 
 // Shapes a raw Prisma Reminder row (SCREAMING_CASE target, plus the joined category) into the
@@ -238,6 +247,10 @@ interface UpcomingRun {
   time: string;
   reminderId: string;
   target: string;
+  // Present only for a CATEGORY-target reminder - null for GENERAL, matching `category` itself.
+  // Timeline's own "log this" quick action (docs/log/50-timeline-v2.md) reads this to open that
+  // one category's form pre-selected and locked, rather than the full picker a GENERAL row opens.
+  categoryId: string | null;
   category: { name: string; icon: string | null } | null;
   state: UpcomingRunState;
   // Only present on a held run.
@@ -413,6 +426,7 @@ remindersRouter.get("/upcoming", async (req, res) => {
         date,
         reminderId: reminder.id,
         target: toApiReminderTarget(reminder.target),
+        categoryId: reminder.categoryId,
         category: reminder.category,
         ...resolved,
       };
@@ -644,8 +658,17 @@ interface RecentRun {
   time: string;
   reminderId: string;
   target: string;
+  // Present only for a CATEGORY-target reminder - null for GENERAL, matching `category` itself.
+  // See docs/log/50-timeline-v2.md.
+  categoryId: string | null;
   category: { name: string; icon: string | null } | null;
   state: RecentRunState;
+  // The CategoryLog that made this row "logged" - present only then, and only for a CATEGORY
+  // target: which log answered a GENERAL reminder is genuinely ambiguous (see
+  // findLoggedTarget's own comment), so a row that can't name one exact entry isn't given an id
+  // to point Timeline's "edit" action at. Lets a tap on a logged row open that exact entry for
+  // editing, rather than only being told one exists somewhere.
+  logId: string | null;
 }
 
 // "What happened, and what didn't" - the backward-looking half of /upcoming, sharing its firing
@@ -689,11 +712,14 @@ remindersRouter.get("/recent", async (req, res) => {
     include: REMINDER_INCLUDE,
   });
 
-  // "Was this target logged on this day" - memoised per (target, day) rather than per reminder,
-  // for the same reason /upcoming memoises per target: two reminders about the same category, or
-  // one reminder with several slots in a day, all share one answer, so it is asked once.
-  const loggedOnDay = new Map<string, Promise<boolean>>();
-  function wasLoggedOn(
+  // "Was this target logged on this day, and by which log" - memoised per (target, day) rather
+  // than per reminder, for the same reason /upcoming memoises per target: two reminders about the
+  // same category, or one reminder with several slots in a day, all share one answer, so it is
+  // asked once. Returns `findLoggedTarget`'s own {id}|null now rather than a bare boolean, so a
+  // "logged" row can carry the actual log's id (see RecentRun's own comment on why GENERAL never
+  // gets one exposed even though this map has it internally).
+  const loggedOnDay = new Map<string, Promise<{ id: string } | null>>();
+  function findLoggedOn(
     reminder: { target: PrismaReminderTarget; categoryId: string | null },
     date: string,
   ) {
@@ -702,7 +728,7 @@ remindersRouter.get("/recent", async (req, res) => {
     let answer = loggedOnDay.get(key);
     if (!answer) {
       const { start, end } = getDayRangeUtc(date, timezone);
-      answer = hasLoggedTarget(reminder, req.userId as string, start, end);
+      answer = findLoggedTarget(reminder, req.userId as string, start, end);
       loggedOnDay.set(key, answer);
     }
     return answer;
@@ -746,18 +772,25 @@ remindersRouter.get("/recent", async (req, res) => {
       if (eligible.length === 0) continue;
 
       let state: RecentRunState;
+      let logId: string | null = null;
       if (!reminder.enabled) {
         state = "paused";
-      } else if (await wasLoggedOn(reminder, date)) {
-        state = "logged";
-      } else if (!reminder.stopsWhenLogged) {
-        // A rhythm reminder has nothing to have missed - see this route's own comment above.
-        continue;
       } else {
-        // Reached only for a slot `eligible` already confirmed is due: any past day in full, or
-        // today's own already-elapsed slots. There is no "too soon to call it missed" case left to
-        // handle here - that filtering already happened above, before the state was ever asked.
-        state = "missed";
+        const loggedMatch = await findLoggedOn(reminder, date);
+        if (loggedMatch) {
+          state = "logged";
+          // Only exposed for a CATEGORY target - see RecentRun's own comment on why a GENERAL
+          // row's match, though real, isn't given an id to point an edit action at.
+          if (reminder.target === "CATEGORY") logId = loggedMatch.id;
+        } else if (!reminder.stopsWhenLogged) {
+          // A rhythm reminder has nothing to have missed - see this route's own comment above.
+          continue;
+        } else {
+          // Reached only for a slot `eligible` already confirmed is due: any past day in full, or
+          // today's own already-elapsed slots. There is no "too soon to call it missed" case left
+          // to handle here - that filtering already happened above, before the state was asked.
+          state = "missed";
+        }
       }
 
       if (runs.length >= MAX_UPCOMING_RUNS) {
@@ -769,8 +802,10 @@ remindersRouter.get("/recent", async (req, res) => {
         time: eligible[0],
         reminderId: reminder.id,
         target: toApiReminderTarget(reminder.target),
+        categoryId: reminder.categoryId,
         category: reminder.category,
         state,
+        logId,
       });
     }
   }

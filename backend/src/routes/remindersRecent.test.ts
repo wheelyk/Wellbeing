@@ -85,6 +85,9 @@ async function logCategory(
   if (res.status !== 201) {
     throw new Error(`logCategory failed: ${res.status} ${JSON.stringify(res.body)}`);
   }
+  // Returned so a test asserting on `logId` can check it against the exact log it just created,
+  // not merely that some id or other showed up.
+  return res.body.id as string;
 }
 
 function recent(accessToken: string, days?: number) {
@@ -136,6 +139,50 @@ describe("GET /api/reminders/recent", () => {
 
     expect(res.body.runs).toEqual([
       expect.objectContaining({ date: TODAY, time: "09:00", state: "logged" }),
+    ]);
+  });
+
+  // Timeline's own "tap a logged row to edit it" quick action (docs/log/50-timeline-v2.md) reads
+  // categoryId/logId directly - carrying the wrong log, or none at all, would silently open the
+  // wrong entry (or nothing) for editing.
+  it("carries the reminder's categoryId and the exact log that made it logged", async () => {
+    const { accessToken, userId } = await registerAndLogin("log-id");
+    const categoryId = await createCategory(accessToken);
+    await createReminder(userId, { target: "CATEGORY", categoryId, schedules: ["0 9 * * *"] });
+    const logId = await logCategory(accessToken, categoryId, `${TODAY}T09:30:00.000Z`);
+
+    const res = await recent(accessToken, 1);
+
+    expect(res.body.runs).toEqual([
+      expect.objectContaining({ state: "logged", categoryId, logId }),
+    ]);
+  });
+
+  it("gives a missed or paused row no log id, and a CATEGORY row its reminder's categoryId even unlogged", async () => {
+    const { accessToken, userId } = await registerAndLogin("no-log-id");
+    const categoryId = await createCategory(accessToken);
+    await createReminder(userId, { target: "CATEGORY", categoryId, schedules: ["0 9 * * *"] });
+
+    const res = await recent(accessToken, 1);
+
+    expect(res.body.runs).toEqual([
+      expect.objectContaining({ state: "missed", categoryId, logId: null }),
+    ]);
+  });
+
+  // GENERAL's "any category log at all" match is real (findLoggedTarget genuinely finds one), but
+  // deliberately withheld here - see RecentRun's own comment on why a row that can't name one
+  // unambiguous entry isn't given an id to point an edit action at.
+  it("never exposes a log id for a GENERAL reminder, even though a match exists", async () => {
+    const { accessToken, userId } = await registerAndLogin("general-no-log-id");
+    const categoryId = await createCategory(accessToken);
+    await createReminder(userId, { target: "GENERAL", schedules: ["0 9 * * *"] });
+    await logCategory(accessToken, categoryId, `${TODAY}T09:30:00.000Z`);
+
+    const res = await recent(accessToken, 1);
+
+    expect(res.body.runs).toEqual([
+      expect.objectContaining({ target: "general", categoryId: null, state: "logged", logId: null }),
     ]);
   });
 
@@ -258,7 +305,7 @@ describe("GET /api/reminders/recent", () => {
     ]);
   });
 
-  it("carries a category's name and icon, and null for a general reminder", async () => {
+  it("carries a category's id, name and icon, and null for a general reminder", async () => {
     const { accessToken, userId } = await registerAndLogin("category-shape");
     const categoryId = await createCategory(accessToken, "Sertraline");
     await request(app)
@@ -271,10 +318,13 @@ describe("GET /api/reminders/recent", () => {
     const res = await recent(accessToken, 1);
 
     expect(res.body.runs).toContainEqual(
-      expect.objectContaining({ category: { name: "Sertraline", icon: "💊" } }),
+      expect.objectContaining({
+        categoryId,
+        category: { id: categoryId, name: "Sertraline", icon: "💊" },
+      }),
     );
     expect(res.body.runs).toContainEqual(
-      expect.objectContaining({ target: "general", category: null }),
+      expect.objectContaining({ target: "general", categoryId: null, category: null }),
     );
   });
 
