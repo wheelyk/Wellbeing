@@ -526,9 +526,32 @@ Connector set up once at your claude.ai account is what shows up automatically i
 Claude reaching into an external system it couldn't otherwise touch — from two different angles,
 point-and-click versus hand-configured. "Skill" names something categorically different: no new
 reach at all, just a taught, repeatable way of using reach the assistant already has. If the
-question is "how do I get Claude into my email, calendar, or cloud storage," the answer is always
-a Connector (or, same thing, an MCP server) — never a skill, because a skill has nothing to grant
-access with.
+question is "how do I get Claude into my email, calendar, or cloud storage," the answer is
+usually a Connector (or, same thing, an MCP server) — never a skill, because a skill has nothing
+to grant access with.
+
+**"Usually," not "always" — because a Connector needs the other side to actually offer an API,
+and plenty of real work happens on sites that don't.** An internal company dashboard, a legacy
+web app with no public API, anything you'd normally just click through by hand — none of that has
+an MCP server waiting for it, and never will, because there's no structured integration to build
+one against. That's what **Claude in Chrome** is for: a genuinely different mechanism again, not
+a third name for the same idea. Where a Connector calls a defined API, Claude in Chrome is real
+**browser automation** — it opens tabs, reads the rendered page, clicks, types, and fills in
+forms the same way a person would, sharing your browser's own logged-in session so it can act on
+anything you're already signed into. No API, no `.mcp.json` entry, no server to connect — just
+control of the browser itself, which is why it works on sites a Connector never could.
+
+That does come with a real trade-off worth stating plainly: acting on a live page is slower and
+less reliable than a structured API call, and Anthropic's own published red-team testing found it
+genuinely vulnerable to prompt injection from content on the page itself (hidden instructions
+lowered, not eliminated, by their safety mitigations) — reach for a Connector first whenever one
+exists, and keep Claude in Chrome away from banking, health records, or anything credential-
+sensitive, per the official guidance. It also asks before acting by default (a three-tier
+permission model — approve every action, approve automatically with a safety net, or skip
+approval entirely) and hard-blocks purchases, account creation, and permanent deletions regardless
+of that setting. Install it from the Chrome Web Store (Pro/Max/Team/Enterprise — not the free
+tier), and it's reachable from Claude Code with the `--chrome` flag or `/chrome`, from Cowork's
+own side panel, and from claude.ai chat — one extension, available across all three.
 
 The practical version: if the assistant can already do something (read a file, run a shell
 command) but you want it done a specific, repeatable *way*, that's a skill — see the dedicated
@@ -1409,6 +1432,8 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | Adding Gmail/Slack/Drive/GitHub-style account connectors   | claude.ai/customize/connectors — not `claude mcp add`    |
 | "Connector" vs. "MCP server" — which one do I actually need? | Same thing, two names — point-and-click vs. hand-configured |
 | Reaching into email/calendar/cloud storage specifically     | A Connector (= an MCP server) — never a skill              |
+| A site with no API — an internal dashboard, a legacy web app | Claude in Chrome — real browser control, not a Connector  |
+| Banking, health records, anything credential-sensitive      | Avoid Claude in Chrome there — use a Connector if one exists |
 | An MCP server touching sensitive data                    | Prefer stdio (local) over remote — data never leaves     |
 | An MCP server that won't connect                         | stdio fails at launch; HTTP fails on network/auth        |
 | A capability one documented shell command already covers | Write a skill, don't add an MCP server                   |
@@ -1425,6 +1450,24 @@ Small, easy-to-ignore habits that compound over a long-running project:
 
 Add new observations below, newest first. Keep each one short: what happened, why it mattered,
 what to do differently.
+
+### 2026-09-01 — Claude in Chrome: the real answer for sites with no Connector at all
+
+The Connector/MCP write-up above stopped one step short: "a Connector is how Claude reaches an
+external system" is only true when that system actually *has* something to connect to. An
+internal company dashboard or a legacy web app with no public API has nothing an MCP server could
+be built against, no matter how the setup is done — and the document had no answer for that case
+at all before this pass.
+
+Verified Claude in Chrome against the documentation before writing anything (the same discipline
+as the rest of this document's technical claims): it's genuine browser automation — Claude opens
+tabs, reads the rendered page, clicks and types the way a person would, sharing the browser's own
+logged-in session — not a third name for the Connector/MCP idea, and mechanically nothing like it.
+Added it as the actual answer for "there's no Connector for this," along with the real trade-off
+(slower than a structured API call, and Anthropic's own published red-team results found it
+genuinely vulnerable to prompt injection from page content) and the concrete guidance that follows
+from that: prefer a Connector whenever one exists, and keep this away from anything
+credential-sensitive.
 
 ### 2026-09-01 — Connectors, MCP servers, and skills: two names for one idea, plus a genuinely different third
 
