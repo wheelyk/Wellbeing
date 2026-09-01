@@ -8,6 +8,7 @@ import { apiFetch } from "../api/client";
 import type { Category } from "../components/CategoryCreateForm";
 import { HistoryEditModal } from "./history/HistoryEditModal";
 import { ConfirmDeleteModal } from "../components/ConfirmDeleteModal";
+import { categoryLogValueTone } from "../lib/timeline";
 
 // categoryName/categoryIcon/value are separate fields, not one pre-joined "Name: value" string -
 // see backend/src/routes/history.ts's own comment on why (docs/log/53-history-redesign.md). This
@@ -91,15 +92,17 @@ function buildQuery(filters: { from: string; to: string; categoryId: string }, o
 // Green means the same thing Timeline's own "Logged" pill already does - the thing happened.
 // Everything else (an explicit "Not done", or a plain recorded number) stays neutral: a real
 // answer isn't a failure just because it's a pill, and a raw value has no good/bad reading of its
-// own the way an outcome does (see docs/log/53-history-redesign.md's own Decisions).
-const HISTORY_VALUE_TONE: Record<"success" | "neutral", string> = {
+// own the way an outcome does (see docs/log/53-history-redesign.md's own Decisions). The
+// success/neutral decision itself now lives in lib/timeline.ts's categoryLogValueTone - Timeline's
+// own unscheduled-category-log row needed the identical rule (see docs/log/55-timeline-shows-all-
+// logged.md), and this was the second real use that justified pulling it out rather than keeping
+// two copies in sync by hand. The Tailwind class map stays local - it's the one part that's
+// genuinely per-page (Timeline's row and History's row don't have to share pixel-identical
+// styling, just the same underlying tone decision).
+const HISTORY_VALUE_TONE: Record<ReturnType<typeof categoryLogValueTone>, string> = {
   success: "border-success/50 bg-success/10 text-success",
   neutral: "border-border bg-surface text-text-muted",
 };
-
-function historyValueTone(value: string): "success" | "neutral" {
-  return value === "Done" ? "success" : "neutral";
-}
 
 // Timeline's own day divider (thin rule, centered pill, thin rule - see TimelinePanel.tsx) has no
 // reason to collapse: it only ever shows one day at a time. History spans weeks, so per-day
@@ -190,7 +193,7 @@ function HistoryRow({
         )}
       </span>
       <span
-        className={`shrink-0 rounded-full border px-2 py-0.5 text-xs tabular-nums ${HISTORY_VALUE_TONE[historyValueTone(entry.value)]}`}
+        className={`shrink-0 rounded-full border px-2 py-0.5 text-xs tabular-nums ${HISTORY_VALUE_TONE[categoryLogValueTone(entry.value)]}`}
       >
         {entry.value}
       </span>
