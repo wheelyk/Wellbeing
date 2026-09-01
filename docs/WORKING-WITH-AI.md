@@ -1378,6 +1378,23 @@ Small, easy-to-ignore habits that compound over a long-running project:
 - **One feature branch per task, atomic commits, real PRs** — not because it's bureaucratic, but
   because it's what makes "what actually changed, and why" answerable later, by a human or another
   AI session picking the project back up cold.
+- **Know what a GitHub merge queue actually does, before several PRs land in a hurry.** An AI
+  session tends to produce exactly the situation this feature exists for — several independent,
+  individually-green PRs opened in quick succession (this repo has had four or five open on the
+  same day more than once). Each one being tested against `main` *as it looked when you opened it*
+  isn't the same guarantee as being tested against `main` *as it will actually look once everything
+  ahead of it has also landed* — usually harmless, occasionally not, if two unrelated PRs happen to
+  touch the same file in a way that's clean alone but broken combined. This repo already has a full
+  writeup of the mechanism and — importantly — what it *doesn't* solve (it has nothing to do with a
+  stacked PR's genuine code dependency, and it wouldn't have caught this project's own past
+  stranded-branch incidents, which all happened before the merge step, not at it) in
+  [`docs/log/08-git-github-workflow.md`](log/08-git-github-workflow.md) (search that file for its
+  own "GitHub merge queues, explained" entry, dated 2026-08-18) and the
+  [glossary](GLOSSARY.md#merge-queue) — worth reading there rather than re-explained here,
+  since it's a general GitHub feature this project has already reasoned through carefully, not
+  something specific to AI collaboration. **Not enabled in this repo as of this writing** — confirm
+  via `gh api repos/<owner>/<repo>/rulesets` before assuming either way, since it's the kind of
+  setting that's easy to assume is on (or off) without checking.
 
 ---
 
@@ -1450,6 +1467,22 @@ Small, easy-to-ignore habits that compound over a long-running project:
 
 Add new observations below, newest first. Keep each one short: what happened, why it mattered,
 what to do differently.
+
+### 2026-09-01 — Merge queues: pointed at, not re-explained
+
+Asked to add an explanation of GitHub merge queues — but this repo already has one, thorough and
+still accurate: a full concept explainer in `docs/log/08-git-github-workflow.md` (2026-08-18),
+plus a glossary entry, both written well before this document existed. Confirmed it was still
+current rather than assuming (checked the real ruleset via `gh api
+repos/<owner>/<repo>/rulesets` — no merge-queue rule configured, matching the existing entry's own
+"not enabled yet").
+
+Rather than duplicate that explanation into a second file — the exact staleness trap this
+document's own `CLAUDE.md` section already warns about, just two files instead of two sessions —
+added a short cross-reference from `Process hygiene` instead, framed around the specific angle
+that actually belongs in a document about working with AI: an AI session tends to produce exactly
+the situation a merge queue exists for, several independent, individually-green PRs landing in
+quick succession (this project has had four or five open the same day, more than once).
 
 ### 2026-09-01 — Claude in Chrome: the real answer for sites with no Connector at all
 
