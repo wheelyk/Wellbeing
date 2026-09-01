@@ -35,6 +35,35 @@ goal → pick a tool → use it → look at what came back → adjust → repeat
 That loop is the entire difference. It's what separates _suggesting_ a fix from _making_ one,
 running the tests, seeing them fail, and fixing it again before you ever see the result.
 
+### Concretely: three real products, not two — Chat, Cowork, and Code
+
+Worth naming what "a plain chatbot" and "an agentic assistant" above actually map to, because
+there are genuinely **three** modes on offer, not two, and "cowork" is a real, distinct middle
+one — easy to mistake for just another name for Claude Code, which it isn't.
+
+| Mode | What it is | Runs where | Best for |
+| ---- | ---------- | ---------- | -------- |
+| **Chat** | A conversation — you ask, draft, brainstorm, or think out loud; Claude responds in the chat window | claude.ai / Claude Desktop, one exchange at a time | Asking questions, exploring ideas, drafting something *you'll* polish yourself, anything that fits in a single response |
+| **Cowork** | A workspace — point Claude at a folder and your connected tools, describe an outcome; Claude plans, executes, and delivers | claude.ai / Claude Desktop, but running on Anthropic's servers, in the background — closing your laptop doesn't stop it | Multi-step knowledge work across files and apps, producing real deliverables (a working spreadsheet, a deck, a report), work you want to set in motion and come back to — including on a recurring schedule |
+| **Code** | An agentic coding tool — Claude works inside a codebase: editing files, running tests, making commits, with terminal and git access | Your own terminal/machine, self-hosted | Working in a repo, building or refactoring across many source files — developer work, not document work |
+
+All three run on the same underlying agentic loop this section already described (goal → tool →
+result → adjust → repeat) — what differs is **scope and delivery**, not the core mechanism. Chat
+stays confined to one exchange with no persistent workspace; Cowork and Code both sustain a whole
+piece of work across many steps without you relaying each one by hand, but aim at different kinds
+of output and live in different places: Cowork is GUI-first and general-purpose knowledge work
+(documents, spreadsheets, research, cross-app workflows, nothing repo-shaped), where Code is
+terminal-first and specifically for software — the one with a filesystem, a shell, and git access
+to your actual project.
+
+**The practical version:** if you want to *think something through* — compare two approaches,
+sanity-check an idea, get an explanation — chat is the right tool, and staying turn-by-turn isn't
+a limitation there, it's the correct shape for a conversation. If the outcome is a **document or
+knowledge-work deliverable** you want produced and handed back finished — a report, a
+spreadsheet, research pulled together from several sources — that's Cowork. If the outcome is
+**code** — a change made, tests run, a PR opened — that's Code, and it's what the rest of this
+document is specifically about, since it's what actually built this project.
+
 ### Why tools matter more than the model's knowledge
 
 Three things follow from having tools, and each one changes how you should work:
@@ -92,6 +121,91 @@ the PR. Not a description of the change: the change.
 The rest of this document is, in one way or another, about using these well: keeping the loop's
 context clean, delegating the noisy parts, not carrying tools you don't need, and treating what
 comes back as evidence to check rather than conclusions to accept.
+
+---
+
+## The tools that actually did the work here
+
+The table above is the shape; this is what actually filled it in, task by task, across the real
+work behind this project — a new Task feature, a production bug in Timeline, a History-page
+redesign, and a second production bug that followed it. Naming the real tools (not just the
+category) matters, because "it can run commands" undersells what that turns into once you see it
+applied to an actual bug.
+
+**Read / search — `Read`, `Grep`, `Glob`.** Every change started by opening the real file, not
+recalling it from a filename. Concrete case: tracing why Timeline never noticed a reminder had
+changed meant reading `CategoriesPage.tsx` and `SettingsPage.tsx` in full to find every place a
+reminder gets created, edited, or deleted — grepping for the event-dispatch call that was
+*supposed* to be there would have found nothing, since the bug was precisely that those handlers
+never called it. Search only finds what's present; reading finds what's missing.
+
+**Write / edit — `Edit`, `Write`.** `Edit` requires the target file to have already been read in
+the same conversation — a small, mechanical guardrail against editing blind. It earned its keep
+directly: mid-branch-surgery (moving a commit that had landed on the wrong branch), a `git stash`
+silently reverted several files to their last-committed content, and the harness's own
+"this file changed on disk since you last read it" notice caught it immediately, rather than the
+next edit landing on stale content without anyone noticing.
+
+**Execute — `Bash`, `PowerShell`.** The workhorse, and the tool most responsible for turning
+"should work" into "does work":
+
+- Real regressions were confirmed with a probe, not assumed: hitting the auth rate limiter
+  mid-verification was confirmed with a direct `curl -X POST /api/auth/register` returning
+  `429 RATE_LIMITED`, before ever deciding to restart a dev server on the strength of it.
+- `gh pr create`, `gh pr checks --watch`, `gh pr view --json mergeable`, and
+  `gh run view --log-failed` carried every PR in this project from open to green — including
+  diagnosing *why* CI failed (a stale Playwright selector after a UI redesign) directly from the
+  terminal, not by guessing from the failure's headline.
+- `PowerShell`'s `Get-CimInstance Win32_Process` answered a genuinely load-bearing question before
+  ever running `Stop-Process`: is this dev-server process actually mine? Checking a candidate
+  PID's `CreationDate`, `CommandLine`, and `ParentProcessId` against exactly when and how a
+  session had started its own servers — and finding *several* independent backend processes
+  running against the same repo, none of them started by the current session — is what kept a
+  previously-real mistake (killing another session's process) from repeating. When ownership
+  couldn't be confirmed, the tool wasn't used at all — a fresh, unused port stood in instead.
+- Long-running work (a 400-plus-test backend suite, routinely 7+ minutes) ran via
+  `run_in_background: true` rather than blocking the whole turn on it — other useful work (writing
+  docs, checking a different test file) continued in the meantime, with a notification on
+  completion rather than an idle wait.
+
+**Web / external systems — MCP tools, e.g. Google Drive's `search_files` and `create_file`.**
+Asked to save a design record to "the Wellbeing folder" in Google Drive, `search_files` was run
+*first*, against the actual connected account — which turned out to hold a different project's
+content entirely, no "Wellbeing" folder anywhere. That's a fact only a real tool call could
+surface; guessing would have either silently created a duplicate in the wrong place or claimed
+success over nothing. Once confirmed (see `AskUserQuestion` below) and authorized, `create_file`
+created the real folder and a real Doc in it, without the user needing to leave the conversation
+to do either by hand.
+
+**`AskUserQuestion` — pausing on a genuine fork, not a trivial one.** Used exactly where a
+plausible guess would have risked being *confidently* wrong: once `search_files` came back empty,
+the choice ("create a new folder here" vs. "skip Drive, this is the wrong account") was put to the
+user directly rather than picked unilaterally. A second real case: an intermittent
+"couldn't load Timeline" error had at least three plausible next steps (read browser DevTools
+output, guess a fix from the stack trace alone, or make a live, authenticated request against the
+production backend to actually confirm it) — each with a real trade-off in speed, certainty, and
+what it touches, which is exactly the shape of decision worth surfacing rather than picking
+silently. Both are consistent with the "ask, don't guess, on ambiguous product decisions" habit
+covered later in this document — the mechanism is the same, just applied to a tooling/process
+choice instead of a product one.
+
+**Producing something visual — the `Artifact` tool.** A redesign of the History page started as a
+design conversation, not code: an HTML mockup (built from this app's own real design tokens —
+actual hex values pulled from `index.css`, not approximations) was published as a live, shareable
+page showing the current design next to the proposed one, side by side, before a single line of
+the real component changed. That let the actual product decision — "should this row look more
+like Timeline's?" — get made by looking at it, not by reading a text description of it and
+imagining the result.
+
+**Delegate — subagents.** See the dedicated section below; not used in every task in this
+project, but exactly the right shape for the "run this whole test suite while I do something else"
+and "iterate on this browser script until it's clean" cases described there.
+
+The common thread across all of it: each tool call is small, but a claim built on real tool
+output ("the rate limiter is confirmed active," "this process was started nine minutes before I
+touched anything," "the connected Drive account has no such folder") is categorically different
+from the same sentence asserted from confidence alone. That difference is the entire subject of
+_Verify, don't trust_, further down.
 
 ---
 
@@ -369,7 +483,7 @@ because the _goal_ sounds like it could be described in one sentence.
 
 ---
 
-## Turn off MCP servers that aren't relevant to this project
+## MCP servers: what they are, how to connect one, and when to turn it off
 
 **MCP** (Model Context Protocol) is a standard way to give an AI assistant access to external
 systems — GitHub, Gmail, Google Drive, Slack, a database, an internal API. Each connected MCP
@@ -386,6 +500,71 @@ Calendar, Google Drive, and Slack all enabled alongside GitHub. Between them, th
 of **eighty-plus tool definitions** loaded into every single session, for a project that will
 never send an email, read a calendar, or post to Slack. GitHub genuinely earns its place (PRs get
 opened constantly). The rest were pure carrying cost.
+
+### Connectors, MCP servers, built-in tools, and skills — sorting out what's what
+
+Easy to blur together when you're new to this, so worth pinning down before going further, since
+the rest of this document (and this section in particular) leans on the distinction:
+
+| Thing              | What it actually is                                             | When it loads                        | Can add a genuinely new capability? |
+| ------------------- | ---------------------------------------------------------------- | ------------------------------------- | ------------------------------------ |
+| **A built-in tool**  | Ships with the assistant itself — `Read`, `Edit`, `Bash`, and so on | Always available, no setup            | N/A — this is the baseline           |
+| **A skill**          | A folder of instructions for using the tools you already have    | Name + description always; full body only when the task matches | No — it's a smarter recipe for existing tools, not a new one |
+| **An MCP server**    | A separate program the assistant connects to over a defined protocol | Every tool it exposes loads for the whole session, once connected | **Yes** — this is the only one of the three that adds tools that didn't exist before |
+
+**A fourth word you'll see is "Connector" — it isn't a fourth thing.** "Connector" is simply the
+user-facing name for an MCP server added the point-and-click way, through claude.ai's own
+Connectors directory (Gmail, Google Calendar, Google Drive, Slack, and similar — this is what
+lets Claude reach into apps where the actual work already lives, rather than just your local
+files). Under the hood it's the exact same Model Context Protocol either way; "MCP server" is
+just the more technical name for the identical thing, used when you're the one wiring it up by
+hand (`claude mcp add`, a `.mcp.json` entry) rather than clicking "connect" on a hosted one. A
+Connector set up once at your claude.ai account is what shows up automatically in Claude Code too
+— see _Adding one_ below for exactly where that setup happens.
+
+**So, three words, really two ideas:** "Connector" and "MCP server" name the *same* mechanism —
+Claude reaching into an external system it couldn't otherwise touch — from two different angles,
+point-and-click versus hand-configured. "Skill" names something categorically different: no new
+reach at all, just a taught, repeatable way of using reach the assistant already has. If the
+question is "how do I get Claude into my email, calendar, or cloud storage," the answer is
+usually a Connector (or, same thing, an MCP server) — never a skill, because a skill has nothing
+to grant access with.
+
+**"Usually," not "always" — because a Connector needs the other side to actually offer an API,
+and plenty of real work happens on sites that don't.** An internal company dashboard, a legacy
+web app with no public API, anything you'd normally just click through by hand — none of that has
+an MCP server waiting for it, and never will, because there's no structured integration to build
+one against. That's what **Claude in Chrome** is for: a genuinely different mechanism again, not
+a third name for the same idea. Where a Connector calls a defined API, Claude in Chrome is real
+**browser automation** — it opens tabs, reads the rendered page, clicks, types, and fills in
+forms the same way a person would, sharing your browser's own logged-in session so it can act on
+anything you're already signed into. No API, no `.mcp.json` entry, no server to connect — just
+control of the browser itself, which is why it works on sites a Connector never could.
+
+That does come with a real trade-off worth stating plainly: acting on a live page is slower and
+less reliable than a structured API call, and Anthropic's own published red-team testing found it
+genuinely vulnerable to prompt injection from content on the page itself (hidden instructions
+lowered, not eliminated, by their safety mitigations) — reach for a Connector first whenever one
+exists, and keep Claude in Chrome away from banking, health records, or anything credential-
+sensitive, per the official guidance. It also asks before acting by default (a three-tier
+permission model — approve every action, approve automatically with a safety net, or skip
+approval entirely) and hard-blocks purchases, account creation, and permanent deletions regardless
+of that setting. Install it from the Chrome Web Store (Pro/Max/Team/Enterprise — not the free
+tier), and it's reachable from Claude Code with the `--chrome` flag or `/chrome`, from Cowork's
+own side panel, and from claude.ai chat — one extension, available across all three.
+
+The practical version: if the assistant can already do something (read a file, run a shell
+command) but you want it done a specific, repeatable *way*, that's a skill — see the dedicated
+section on skills below. If it genuinely **cannot** do something at all — post to Slack, query a
+database it has no client for, call an internal API — that's what MCP is for. Reaching for an MCP
+server to teach the assistant a *procedure* it could already carry out with tools it has is the
+same mistake as writing a skill to grant a capability it doesn't have; the skills section below
+covers the reverse case (a CLI-shaped capability that doesn't need a whole server) in detail.
+
+Concretely, this is *why* a skill is so often just "run this CLI tool, this specific way, in this
+order" — `git`, `gh`, `docker`, `psql`, a project's own scripts. Wherever a command-line tool
+already reaches the external system you need, a skill documenting how to drive it is the lighter
+option every time; an MCP server only earns its place once there's genuinely no CLI to reach for.
 
 ### How MCP servers connect: stdio vs. HTTP, local vs. remote
 
@@ -457,24 +636,81 @@ not the same question:
 "turn off what you don't need" advice below applies to both. What changes with transport is the
 _risk_ profile, not the price.
 
-### How to actually turn them off
+### Adding one: the CLI, and the three real scopes
 
-MCP servers are configured at three different levels, and which one you edit depends on where the
-server came from:
+`claude mcp add` is the command, run from a terminal (not inside a session). The shape differs by
+transport:
 
-- **Project-scoped** — a `.mcp.json` file committed at the repo root. Anyone who opens this repo
-  gets these servers. Edit or remove entries here to change what the project itself brings along.
-  (This repo doesn't have one, which is fine — it doesn't need any project-specific servers.)
-- **User-scoped (local CLI)** — servers added via `claude mcp add ...`, stored in your user config
-  and available across all your projects. List them with `claude mcp list`, and remove one with
-  `claude mcp remove <name>`.
-- **Account-level connectors** — servers connected through your claude.ai account settings (this
-  is where GitHub/Gmail/Google Drive/Slack live for this setup). These follow your account rather
-  than any particular repo, so they're toggled in claude.ai's own connector settings, **not** by
-  anything in this repository.
+```bash
+# A local stdio server - note the "--" before the command being run
+claude mcp add <name> -- <command> [args...]
+claude mcp add playwright -- npx -y @playwright/mcp@latest
 
-Inside a session, `/mcp` shows what's currently connected and lets you inspect/authenticate
-servers interactively. The practical habit: before starting a long session on a focused
+# A remote HTTP server - a URL, not a command
+claude mcp add --transport http <name> <url>
+claude mcp add --transport http notion https://mcp.notion.com/mcp \
+  --header "Authorization: Bearer YOUR_TOKEN"
+```
+
+(SSE, the transport HTTP replaced, still works with `--transport sse`, but the official docs mark
+it deprecated — reach for HTTP unless a server genuinely only offers SSE.)
+
+Every add takes a `--scope` flag, and this is where "user vs. local vs. project" — genuinely three
+different things, not two — actually lives:
+
+| Scope       | Who gets it                          | Where it's stored                          | Command                                     |
+| ----------- | ------------------------------------- | ------------------------------------------- | -------------------------------------------- |
+| `local`     | Just you, just **this** project       | Your user config, scoped to this project's path | `claude mcp add <name> ...` (the **default** — no flag needed) |
+| `user`      | Just you, **every** project you open  | Your user config (`~/.claude.json`), global | `claude mcp add --scope user <name> ...`     |
+| `project`   | **Anyone** who opens this repo        | `.mcp.json`, committed at the repo root     | `claude mcp add --scope project <name> ...`  |
+
+The distinction that trips people up: **`local` is not the same as `user`.** Both are private to
+you — neither is shared with anyone else — but `local` only applies while you're in this one
+project, while `user` follows you into every project you open. If a server is genuinely something
+you always want (a personal filesystem helper, say), `user` is the right choice; `local` is the
+right default for "I'm trying this out here" or "this only makes sense for this one codebase, and
+I don't want to commit it for my teammates." `project`, in turn, is the only one of the three that
+puts the server in version control and hands it to anyone else who clones the repo — use it
+deliberately, the same way you'd think before committing a dependency.
+
+A minimal `.mcp.json` (the file `--scope project` writes to) looks like this:
+
+```json
+{
+  "mcpServers": {
+    "playwright": { "type": "stdio", "command": "npx", "args": ["-y", "@playwright/mcp@latest"] },
+    "notion": { "type": "http", "url": "https://mcp.notion.com/mcp" }
+  }
+}
+```
+
+(This repo has no `.mcp.json` of its own, which is fine — nothing about WellTrack needs a
+project-wide server everyone who clones it is forced to carry.)
+
+**Account-level connectors are a fourth *setup path*, not a fourth *kind of thing*** — still the
+same MCP mechanism (see the note above the transport section), just added through claude.ai's own
+UI instead of a scope flag. GitHub, Gmail, Google Drive, and Slack in this setup aren't added with
+`claude mcp add` at all — they're connected through a browser, at
+**claude.ai/customize/connectors**, tied to your claude.ai account rather than any scope above.
+Once connected there, they're available automatically in every session signed into that account,
+CLI included. There's no repo-local or per-project equivalent for this kind — see
+_Why the difference actually matters_ above for what that means for a project handling sensitive
+data (a stdio server never leaves your machine; an account-level connector always does).
+
+### Removing one, and checking what's connected
+
+- **`claude mcp list`** — shows every server currently configured, at every scope, and its
+  connection status.
+- **`claude mcp remove <name>`** — removes one. Add `--scope local` or `--scope user` if the same
+  name exists at more than one scope and you need to be specific about which copy goes.
+- **Editing `.mcp.json` directly** (or removing its entry) is exactly equivalent to `--scope
+  project` add/remove — it's a plain file, not a black box.
+- **Account-level connectors** are toggled the same place they're added: claude.ai's own connector
+  settings, not by anything in this repository.
+
+Inside a session, **`/mcp`** shows the same connected/status view as `claude mcp list`, plus lets
+you inspect a server's own tools and authenticate/reconnect one interactively — without leaving
+the conversation. The practical habit either way: before starting a long session on a focused
 codebase, glance at what's connected and disable anything the work genuinely can't touch. Turning
 a connector back on takes seconds; carrying it unused costs you on every turn of a long session.
 
@@ -688,6 +924,184 @@ means each session only carries what its actual work needs. That's a worthwhile 
 repo, and a good default for any monorepo where the two halves have genuinely different toolchains.
 It's noted here rather than done, since it's a change to how the project is set up rather than a
 documentation fix.
+
+---
+
+## Hooks: instructions that are guaranteed to run
+
+Everything so far — `CLAUDE.md`, skills — is the assistant reading something and *deciding* to
+follow it. That's usually enough, but it has a real limit worth naming plainly: **a `CLAUDE.md`
+line is a suggestion, not a guarantee.** "Always run `prettier` after editing a file" in
+`CLAUDE.md` is genuinely followed most of the time — but "most of the time" means there's a real
+session, on a real day, where a big edit, a compacted context, or a distracted turn means it just
+doesn't happen. Nothing enforces it. The model has to remember, every single time, on its own.
+
+A **hook** is the fix for exactly that gap. It's a shell command *the harness itself* runs at a
+defined point in the loop — not something the model reads and chooses to act on, but something
+that happens whether or not the model ever thinks about it. Configure a hook to run `prettier`
+after every file edit, and it runs after every file edit — not "usually," not "when Claude
+remembers," **every time**, the same way a Git pre-commit hook runs whether or not you remembered
+to run the linter yourself.
+
+That's the whole distinction, and it's worth being precise about because the two are easy to
+blur: `CLAUDE.md` (and a skill) are **read by the model** and followed by judgment. A **hook is
+read by Claude Code itself**, before the model is even in the loop for that step — the model
+doesn't get a vote.
+
+**The practical rule, stated plainly: if something has to happen without fail, it doesn't belong
+in a prompt — it belongs in a hook.** `CLAUDE.md` is the right home for things that are true and
+worth knowing; a hook is the right home for things that must occur, every time, with nothing left
+to the model's judgment or memory. "Please always run the formatter" is a `CLAUDE.md` line. "The
+formatter runs, full stop" is a hook.
+
+### How they're set up: the `hooks` key in `settings.json`
+
+Hooks live in the same kind of file permissions and other settings already live in, at the same
+three scopes MCP servers use (see above) — `.claude/settings.json` (project, committed, the whole
+team gets it), `.claude/settings.local.json` (project, gitignored, just you), or
+`~/.claude/settings.json` (every project you open). The top-level key is `"hooks"`, and this repo
+currently has none configured — its own `.claude/settings.local.json` only has a `permissions`
+block, which is a genuine, concrete gap: this project runs `prettier --check` on every task by
+hand, and a `PostToolUse` hook is exactly the mechanism that would make "every edit gets
+formatted" true by construction instead of by discipline.
+
+A minimal example — reformat a file with `prettier` immediately after `Edit` or `Write` touches
+it:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | xargs npx prettier --write"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Reading that structure outward: `"hooks"` → the **event** (`PostToolUse`, fired right after a
+tool call succeeds) → a **matcher** (`"Edit|Write"` — only these two tools trigger this group;
+an empty string or omitted matcher means "every tool") → the actual **command** to run
+(`"type": "command"`), which receives the tool call as JSON on stdin — `jq` pulls out
+`tool_input.file_path`, and pipes it straight into `prettier --write`.
+
+### The two events that matter for almost everything: `PreToolUse` and `PostToolUse`
+
+Claude Code has a genuinely long list of hookable moments (session start/end, compaction, a
+subagent finishing, and several more specialised ones) — but for the "make sure X always happens"
+use case this document cares about, two cover nearly every real case:
+
+- **`PreToolUse`** — fires *before* a tool call runs, and can **block it**. A hook here that exits
+  with status `2` (writing its reason to stderr) stops the tool call entirely — Claude Code
+  never runs it, and the model sees why. This is the mechanism for "never let this happen at all,"
+  not just "clean up after it."
+- **`PostToolUse`** — fires *after* a tool call has already succeeded. Can't undo the call, but is
+  exactly right for "and now do this too" — format the file that was just written, log what
+  changed, re-run a check.
+
+**A second real example — refusing to touch specific files at all, not just cleaning up after
+touching them:**
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect-files.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+where `protect-files.sh` reads the same `tool_input.file_path` JSON from stdin, checks it against
+a list like `.env`, `package-lock.json`, `.git/`, and exits `2` (blocking the edit, with a reason
+on stderr) the moment one matches — otherwise exits `0` and the edit proceeds untouched. The
+difference from the `prettier` example is the event: `PreToolUse` gets a real veto; `PostToolUse`
+only ever gets to react.
+
+**A third, very common one: refusing to run a destructive command at all, not just asking nicely
+not to.** Same `PreToolUse`/exit-`2` mechanics, matched against the `Bash` tool instead of
+`Edit`/`Write`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-rm-rf.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+where `block-rm-rf.sh` reads `tool_input.command` (the exact shell command about to run, this
+time — not a file path) from the same stdin JSON, and denies anything matching a
+dangerous-looking pattern:
+
+```bash
+#!/bin/bash
+COMMAND=$(cat | jq -r '.tool_input.command // empty')
+
+if echo "$COMMAND" | grep -qE 'rm\s+(-\S*r\S*f|-\S*f\S*r)\b'; then
+  echo "Blocked: '$COMMAND' looks like a recursive, forced delete." >&2
+  exit 2
+fi
+
+exit 0
+```
+
+This is a genuinely popular first hook for exactly the reason you'd guess: an assistant that can
+run arbitrary shell commands can, in principle, run `rm -rf` somewhere you didn't mean, and a
+`CLAUDE.md` line saying "be careful with destructive commands" is a request, not a wall. A
+`PreToolUse` guardrail like this one is the actual wall — it runs before the command executes, on
+every single Bash call, regardless of how the request to run it was phrased or whether the model
+was being careful that particular turn. Treat it as a floor, not a substitute for the normal
+permission prompts and approval settings already in place — a narrow pattern match will never
+catch every dangerous command, and shouldn't be trusted to.
+
+### Worth knowing before you write one
+
+- **The matcher filters by tool name**, and follows the same shape as everywhere else in this
+  ecosystem: `"Bash"` for one tool, `"Edit|Write"` for a few, a regex like `"mcp__github__.*"`
+  for every tool a particular MCP server exposes, or empty/omitted for "all of them."
+- **Exit code is the whole contract.** `0` means proceed normally; `2` means block, with the
+  reason on stderr; anything else is treated as non-blocking. A hook that wants finer control than
+  a bare exit code (choosing `"allow"`/`"deny"`/`"ask"` explicitly, say) can print structured JSON
+  to stdout instead — the reference docs cover that shape in full.
+- **Multiple hooks on the same event run in parallel**, and any single one blocking is enough to
+  block the whole group — don't design two hooks on the same event to depend on each other's side
+  effects.
+- **A hook is a script you're choosing to auto-execute on every matching event, in every session
+  in its scope**, the same as any other executable code you'd commit to a repo — worth the same
+  glance of scrutiny as anything else that runs automatically, especially one added at `user`
+  scope, since that one follows you into every project you open.
+- **Inside a session, `/hooks` shows what's configured** — every event, how many hooks are on it,
+  and each one's matcher, type, source file, and command. Useful for checking what's actually
+  active without leaving the conversation. Unlike `/mcp`, though, `/hooks` is **read-only** — it
+  won't add, edit, or remove anything for you. Changing a hook still means editing the real
+  `settings.json` yourself (or asking Claude to make the edit, which is itself just an `Edit` tool
+  call against a plain file, not a special hooks-editing mechanism).
 
 ---
 
@@ -964,6 +1378,23 @@ Small, easy-to-ignore habits that compound over a long-running project:
 - **One feature branch per task, atomic commits, real PRs** — not because it's bureaucratic, but
   because it's what makes "what actually changed, and why" answerable later, by a human or another
   AI session picking the project back up cold.
+- **Know what a GitHub merge queue actually does, before several PRs land in a hurry.** An AI
+  session tends to produce exactly the situation this feature exists for — several independent,
+  individually-green PRs opened in quick succession (this repo has had four or five open on the
+  same day more than once). Each one being tested against `main` *as it looked when you opened it*
+  isn't the same guarantee as being tested against `main` *as it will actually look once everything
+  ahead of it has also landed* — usually harmless, occasionally not, if two unrelated PRs happen to
+  touch the same file in a way that's clean alone but broken combined. This repo already has a full
+  writeup of the mechanism and — importantly — what it *doesn't* solve (it has nothing to do with a
+  stacked PR's genuine code dependency, and it wouldn't have caught this project's own past
+  stranded-branch incidents, which all happened before the merge step, not at it) in
+  [`docs/log/08-git-github-workflow.md`](log/08-git-github-workflow.md) (search that file for its
+  own "GitHub merge queues, explained" entry, dated 2026-08-18) and the
+  [glossary](GLOSSARY.md#merge-queue) — worth reading there rather than re-explained here,
+  since it's a general GitHub feature this project has already reasoned through carefully, not
+  something specific to AI collaboration. **Not enabled in this repo as of this writing** — confirm
+  via `gh api repos/<owner>/<repo>/rulesets` before assuming either way, since it's the kind of
+  setting that's easy to assume is on (or off) without checking.
 
 ---
 
@@ -971,6 +1402,9 @@ Small, easy-to-ignore habits that compound over a long-running project:
 
 | Situation                                                | What to do                                               |
 | -------------------------------------------------------- | -------------------------------------------------------- |
+| You want to ask, discuss, or sanity-check an idea         | Chat — lighter, turn-by-turn, no setup needed             |
+| You want a document/deliverable produced and handed back   | Cowork — GUI, background/scheduled, non-code deliverables |
+| You want a whole coding task actually done (tests, a PR)   | Code — delegates the full multi-step loop, in your repo   |
 | A task is done, merged, and the next task is unrelated   | `/clear`                                                 |
 | Mid-task, transcript is noisy but you need continuity    | `/compact`                                               |
 | Starting a session, or about to start something big      | `/context` — learn your baseline and what's eating it    |
@@ -986,6 +1420,12 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | A check that's deterministic and repeatable              | A script in the skill — costs its output, not its source |
 | A skill you wrote never seems to get used                | Fix the description, not the body — it was never reached |
 | A non-negotiable guardrail, not just a procedure         | `CLAUDE.md` — always applies, never depends on matching  |
+| Something that must happen every time, no exceptions     | A hook — `CLAUDE.md`/skills are read; a hook is enforced |
+| Auto-format a file right after it's edited or written    | `PostToolUse` hook, `matcher: "Edit\|Write"`              |
+| Block a tool call outright before it runs                | `PreToolUse` hook, exit code `2` to deny it               |
+| Stopping a destructive command like `rm -rf` outright     | `PreToolUse` hook matched on `Bash`, not a `CLAUDE.md` line |
+| Checking what hooks are actually configured               | `/hooks` in-session — view only, can't edit from there    |
+| Deciding where to configure a hook                       | Same 3 scopes as MCP: project/local/user `settings.json` |
 | Deciding which level a rule or skill belongs at          | The broadest level where it's still universally true     |
 | Two levels contradicting each other                      | Rewrite so they don't — don't rely on override order     |
 | A convention true for everyone on the project            | Project `CLAUDE.md` (committed, reviewed)                |
@@ -1001,6 +1441,16 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | A single known file/symbol lookup                        | Just do it directly — don't delegate                     |
 | Two genuinely independent checks (e.g. two test suites)  | Launch both as parallel subagents                        |
 | Starting a long session on a focused codebase            | Check `/mcp`, disable connectors the work can't touch    |
+| The assistant can already do it, just not the way you want | A skill — a recipe for tools it already has            |
+| The assistant genuinely cannot do it at all               | An MCP server — the only one of the three that adds tools |
+| Adding an MCP server just for yourself, just here          | `claude mcp add <name> -- <cmd>` (scope defaults to `local`) |
+| Adding one you want in every project you open              | `claude mcp add --scope user <name> -- <cmd>`            |
+| Adding one the whole team should get from cloning the repo | `claude mcp add --scope project <name> -- <cmd>`         |
+| Adding Gmail/Slack/Drive/GitHub-style account connectors   | claude.ai/customize/connectors — not `claude mcp add`    |
+| "Connector" vs. "MCP server" — which one do I actually need? | Same thing, two names — point-and-click vs. hand-configured |
+| Reaching into email/calendar/cloud storage specifically     | A Connector (= an MCP server) — never a skill              |
+| A site with no API — an internal dashboard, a legacy web app | Claude in Chrome — real browser control, not a Connector  |
+| Banking, health records, anything credential-sensitive      | Avoid Claude in Chrome there — use a Connector if one exists |
 | An MCP server touching sensitive data                    | Prefer stdio (local) over remote — data never leaves     |
 | An MCP server that won't connect                         | stdio fails at launch; HTTP fails on network/auth        |
 | A capability one documented shell command already covers | Write a skill, don't add an MCP server                   |
@@ -1017,6 +1467,146 @@ Small, easy-to-ignore habits that compound over a long-running project:
 
 Add new observations below, newest first. Keep each one short: what happened, why it mattered,
 what to do differently.
+
+### 2026-09-01 — Merge queues: pointed at, not re-explained
+
+Asked to add an explanation of GitHub merge queues — but this repo already has one, thorough and
+still accurate: a full concept explainer in `docs/log/08-git-github-workflow.md` (2026-08-18),
+plus a glossary entry, both written well before this document existed. Confirmed it was still
+current rather than assuming (checked the real ruleset via `gh api
+repos/<owner>/<repo>/rulesets` — no merge-queue rule configured, matching the existing entry's own
+"not enabled yet").
+
+Rather than duplicate that explanation into a second file — the exact staleness trap this
+document's own `CLAUDE.md` section already warns about, just two files instead of two sessions —
+added a short cross-reference from `Process hygiene` instead, framed around the specific angle
+that actually belongs in a document about working with AI: an AI session tends to produce exactly
+the situation a merge queue exists for, several independent, individually-green PRs landing in
+quick succession (this project has had four or five open the same day, more than once).
+
+### 2026-09-01 — Claude in Chrome: the real answer for sites with no Connector at all
+
+The Connector/MCP write-up above stopped one step short: "a Connector is how Claude reaches an
+external system" is only true when that system actually *has* something to connect to. An
+internal company dashboard or a legacy web app with no public API has nothing an MCP server could
+be built against, no matter how the setup is done — and the document had no answer for that case
+at all before this pass.
+
+Verified Claude in Chrome against the documentation before writing anything (the same discipline
+as the rest of this document's technical claims): it's genuine browser automation — Claude opens
+tabs, reads the rendered page, clicks and types the way a person would, sharing the browser's own
+logged-in session — not a third name for the Connector/MCP idea, and mechanically nothing like it.
+Added it as the actual answer for "there's no Connector for this," along with the real trade-off
+(slower than a structured API call, and Anthropic's own published red-team results found it
+genuinely vulnerable to prompt injection from page content) and the concrete guidance that follows
+from that: prefer a Connector whenever one exists, and keep this away from anything
+credential-sensitive.
+
+### 2026-09-01 — Connectors, MCP servers, and skills: two names for one idea, plus a genuinely different third
+
+The MCP section already mentioned account-level connectors, but described them as "a fourth,
+different thing entirely" from a `.mcp.json`/`claude mcp add`-configured MCP server — which
+undersold the actual relationship. Verified against the documentation before writing anything
+further (the same discipline as every other precise claim in this document): a Connector *is* an
+MCP server — "Connector" is the user-facing name for the exact same Model Context Protocol
+mechanism, used when it's added the point-and-click way through claude.ai rather than by hand.
+Corrected the "fourth, different thing" phrasing to "a fourth setup path, not a fourth kind of
+thing," and added the explicit three-way sort (Connector/MCP server name one mechanism from two
+angles; Skill names something categorically different — instructions, not access) directly into
+the existing MCP-vs-tools-vs-skills comparison, since that's where a reader already learning the
+distinction would look for it, rather than a second, separate section repeating ground already
+covered.
+
+### 2026-09-01 — Chat vs. Cowork vs. Code: a real product I'd initially conflated, corrected against an actual screenshot
+
+Asked to document the difference between "chat" and "the delegated, do-real-work mode," the first
+draft named only two products — Claude.ai chat and Claude Code — and folded "Cowork" into Code as
+if it were just another name for the same thing. That was wrong: Cowork is a genuinely distinct
+third product (a GUI-based, server-hosted workspace mode for knowledge work — documents,
+spreadsheets, research, cross-app tasks — that can run in the background or on a schedule), not a
+synonym for the terminal-based coding tool.
+
+Caught because the user supplied an actual photo of the real three-way comparison (Chat/Cowork/
+Code, with their real "best for" copy) rather than the mistake being noticed independently — worth
+recording plainly rather than smoothing over, the same as this document's own precedent elsewhere
+of correcting a mistaken finding rather than quietly fixing it. Verified the specifics the photo's
+own cropped edges didn't show (where Cowork actually runs, how it relates mechanically to Code,
+concrete use-case examples, how its background/scheduled execution works) against the real
+documentation before writing the corrected three-way table — the same discipline already applied
+to the MCP and hooks additions above, now applied to a case where the mistake was already made
+once and needed catching, not just avoiding from the start.
+
+### 2026-09-01 — A follow-up pass on the Hooks section: a canonical example, and the rule stated outright
+
+The first Hooks pass explained the mechanism (`PreToolUse`/`PostToolUse`, `settings.json`, exit
+codes) but skipped the single most common reason people reach for a `PreToolUse` hook in the first
+place: refusing to run a destructive shell command at all, not just being asked nicely not to.
+Added that as a third worked example (`rm -rf` and similar, matched against the `Bash` tool),
+alongside the underlying rule stated as its own plain sentence rather than left implicit: **if
+something has to happen without fail, it belongs in a hook, not a prompt.**
+
+Also checked, rather than assumed, whether a `/hooks` slash command exists the way `/mcp` does for
+MCP servers — it does, but it's **read-only** (view configured hooks and their detail; editing
+still means touching `settings.json` directly), which is a real and non-obvious difference from
+`/mcp`'s own more interactive behaviour, worth stating precisely rather than assuming parity by
+analogy.
+
+### 2026-09-01 — Hooks were never in this document at all
+
+Every mechanism covered so far for shaping the assistant's behaviour — `CLAUDE.md`, a skill — has
+the same underlying limit: the model has to *read it and choose to act on it*. That's fine for
+almost everything, but it quietly breaks down for the one class of instruction where "almost
+always" isn't good enough — "always run the formatter after an edit" is exactly that shape, and
+this document had no answer for it beyond "write it in `CLAUDE.md` and hope."
+
+Added a new section explaining hooks as the actual answer: a command the harness itself runs at a
+defined point (`PreToolUse`, `PostToolUse`, and others), enforced regardless of whether the model
+ever reasons about it. Verified the real `settings.json` schema, event names, matcher syntax, and
+exit-code semantics against the official documentation first (the same `claude-code-guide`
+subagent used for the MCP CLI syntax below) rather than writing plausible JSON from memory. Also
+checked this project's own `.claude/settings.local.json` directly, which turned up a genuine,
+concrete gap worth naming in the section itself: this repo runs `prettier --check` as a matter of
+discipline on every task, with no hook actually enforcing it — precisely the example the section
+opens with.
+
+### 2026-09-01 — MCP had a cost story but no "how do I actually connect one" story
+
+The MCP section (by then already substantial — transports, scoping-for-removal, the skills
+trade-off) had a real gap once someone actually tried to *use* it rather than read about it: there
+was no beginner framing of "MCP vs. a built-in tool vs. a skill" as three distinct things, and no
+instructions for *adding* a server at all — only for turning one off. The scoping explanation had
+the same shape problem underneath it: it named "project-scoped" and "user-scoped (local CLI)" as
+if those were the only two options, when the CLI genuinely has three real scopes
+(`local`/`user`/`project`), and `local` — the *default* — was never mentioned as its own thing.
+
+Fixed by consulting the real Claude Code documentation first (via a specialised
+documentation-consulting agent, not from memory — the same discipline the "Verify, don't trust"
+section already argues for) to get the exact `claude mcp add` syntax, the exact `--scope` flag and
+its three values, and the exact file locations, rather than writing plausible-sounding command
+syntax and letting it be subtly wrong. Retitled the section, added a three-way MCP/tool/skill
+comparison table up front, and rewrote the scoping subsection to cover adding *and* removing at
+all three real scopes plus the separate, fourth case (account-level connectors, added through
+claude.ai's own browser UI, not the CLI at all).
+
+### 2026-09-01 — Naming the actual tools, not just the categories
+
+The "categories of tool" table (Read/search, Write/edit, Execute, and so on) had sat there since
+the first pass, correct but abstract — it never said *which* real tool did the work, or showed it
+doing anything. Meanwhile several real sessions since then had piled up genuinely concrete
+material: a rate limiter confirmed with a direct `curl` probe rather than assumed; a stray dev
+server process checked against its own `CreationDate`/`CommandLine` before ever being stopped,
+which is what caught that it belonged to a different session entirely; a Google Drive search that
+came back empty and got surfaced as a real decision instead of quietly papered over; a design
+mockup published as a live, comparable page before any component code changed. None of that had
+made it into this document — it lived only in the sessions that produced it.
+
+Added "The tools that actually did the work here" directly under the tool-loop introduction,
+naming the real tool for each category and pinning it to one of those concrete cases. The
+underlying point isn't new — it's the same "grounding, feedback, completion" argument the tool-loop
+section already makes — but a category name ("Execute") doesn't carry that argument on its own the
+way a specific, verifiable instance of it does. This is the same lesson the document's own "If
+you're repeating yourself" section describes: an abstract rule was already correctly stated, and
+what was missing was the concrete procedure/example layer underneath it.
 
 ### 2026-08-28 — First pass, written retrospectively
 
