@@ -35,6 +35,35 @@ goal → pick a tool → use it → look at what came back → adjust → repeat
 That loop is the entire difference. It's what separates _suggesting_ a fix from _making_ one,
 running the tests, seeing them fail, and fixing it again before you ever see the result.
 
+### Concretely: three real products, not two — Chat, Cowork, and Code
+
+Worth naming what "a plain chatbot" and "an agentic assistant" above actually map to, because
+there are genuinely **three** modes on offer, not two, and "cowork" is a real, distinct middle
+one — easy to mistake for just another name for Claude Code, which it isn't.
+
+| Mode | What it is | Runs where | Best for |
+| ---- | ---------- | ---------- | -------- |
+| **Chat** | A conversation — you ask, draft, brainstorm, or think out loud; Claude responds in the chat window | claude.ai / Claude Desktop, one exchange at a time | Asking questions, exploring ideas, drafting something *you'll* polish yourself, anything that fits in a single response |
+| **Cowork** | A workspace — point Claude at a folder and your connected tools, describe an outcome; Claude plans, executes, and delivers | claude.ai / Claude Desktop, but running on Anthropic's servers, in the background — closing your laptop doesn't stop it | Multi-step knowledge work across files and apps, producing real deliverables (a working spreadsheet, a deck, a report), work you want to set in motion and come back to — including on a recurring schedule |
+| **Code** | An agentic coding tool — Claude works inside a codebase: editing files, running tests, making commits, with terminal and git access | Your own terminal/machine, self-hosted | Working in a repo, building or refactoring across many source files — developer work, not document work |
+
+All three run on the same underlying agentic loop this section already described (goal → tool →
+result → adjust → repeat) — what differs is **scope and delivery**, not the core mechanism. Chat
+stays confined to one exchange with no persistent workspace; Cowork and Code both sustain a whole
+piece of work across many steps without you relaying each one by hand, but aim at different kinds
+of output and live in different places: Cowork is GUI-first and general-purpose knowledge work
+(documents, spreadsheets, research, cross-app workflows, nothing repo-shaped), where Code is
+terminal-first and specifically for software — the one with a filesystem, a shell, and git access
+to your actual project.
+
+**The practical version:** if you want to *think something through* — compare two approaches,
+sanity-check an idea, get an explanation — chat is the right tool, and staying turn-by-turn isn't
+a limitation there, it's the correct shape for a conversation. If the outcome is a **document or
+knowledge-work deliverable** you want produced and handed back finished — a report, a
+spreadsheet, research pulled together from several sources — that's Cowork. If the outcome is
+**code** — a change made, tests run, a PR opened — that's Code, and it's what the rest of this
+document is specifically about, since it's what actually built this project.
+
 ### Why tools matter more than the model's knowledge
 
 Three things follow from having tools, and each one changes how you should work:
@@ -1313,6 +1342,9 @@ Small, easy-to-ignore habits that compound over a long-running project:
 
 | Situation                                                | What to do                                               |
 | -------------------------------------------------------- | -------------------------------------------------------- |
+| You want to ask, discuss, or sanity-check an idea         | Chat — lighter, turn-by-turn, no setup needed             |
+| You want a document/deliverable produced and handed back   | Cowork — GUI, background/scheduled, non-code deliverables |
+| You want a whole coding task actually done (tests, a PR)   | Code — delegates the full multi-step loop, in your repo   |
 | A task is done, merged, and the next task is unrelated   | `/clear`                                                 |
 | Mid-task, transcript is noisy but you need continuity    | `/compact`                                               |
 | Starting a session, or about to start something big      | `/context` — learn your baseline and what's eating it    |
@@ -1371,6 +1403,25 @@ Small, easy-to-ignore habits that compound over a long-running project:
 
 Add new observations below, newest first. Keep each one short: what happened, why it mattered,
 what to do differently.
+
+### 2026-09-01 — Chat vs. Cowork vs. Code: a real product I'd initially conflated, corrected against an actual screenshot
+
+Asked to document the difference between "chat" and "the delegated, do-real-work mode," the first
+draft named only two products — Claude.ai chat and Claude Code — and folded "Cowork" into Code as
+if it were just another name for the same thing. That was wrong: Cowork is a genuinely distinct
+third product (a GUI-based, server-hosted workspace mode for knowledge work — documents,
+spreadsheets, research, cross-app tasks — that can run in the background or on a schedule), not a
+synonym for the terminal-based coding tool.
+
+Caught because the user supplied an actual photo of the real three-way comparison (Chat/Cowork/
+Code, with their real "best for" copy) rather than the mistake being noticed independently — worth
+recording plainly rather than smoothing over, the same as this document's own precedent elsewhere
+of correcting a mistaken finding rather than quietly fixing it. Verified the specifics the photo's
+own cropped edges didn't show (where Cowork actually runs, how it relates mechanically to Code,
+concrete use-case examples, how its background/scheduled execution works) against the real
+documentation before writing the corrected three-way table — the same discipline already applied
+to the MCP and hooks additions above, now applied to a case where the mistake was already made
+once and needed catching, not just avoiding from the start.
 
 ### 2026-09-01 — A follow-up pass on the Hooks section: a canonical example, and the rule stated outright
 
