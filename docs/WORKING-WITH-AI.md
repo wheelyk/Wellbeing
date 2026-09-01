@@ -501,7 +501,7 @@ of **eighty-plus tool definitions** loaded into every single session, for a proj
 never send an email, read a calendar, or post to Slack. GitHub genuinely earns its place (PRs get
 opened constantly). The rest were pure carrying cost.
 
-### MCP vs. built-in tools vs. skills — three different things with "tool" in the description
+### Connectors, MCP servers, built-in tools, and skills — sorting out what's what
 
 Easy to blur together when you're new to this, so worth pinning down before going further, since
 the rest of this document (and this section in particular) leans on the distinction:
@@ -511,6 +511,24 @@ the rest of this document (and this section in particular) leans on the distinct
 | **A built-in tool**  | Ships with the assistant itself — `Read`, `Edit`, `Bash`, and so on | Always available, no setup            | N/A — this is the baseline           |
 | **A skill**          | A folder of instructions for using the tools you already have    | Name + description always; full body only when the task matches | No — it's a smarter recipe for existing tools, not a new one |
 | **An MCP server**    | A separate program the assistant connects to over a defined protocol | Every tool it exposes loads for the whole session, once connected | **Yes** — this is the only one of the three that adds tools that didn't exist before |
+
+**A fourth word you'll see is "Connector" — it isn't a fourth thing.** "Connector" is simply the
+user-facing name for an MCP server added the point-and-click way, through claude.ai's own
+Connectors directory (Gmail, Google Calendar, Google Drive, Slack, and similar — this is what
+lets Claude reach into apps where the actual work already lives, rather than just your local
+files). Under the hood it's the exact same Model Context Protocol either way; "MCP server" is
+just the more technical name for the identical thing, used when you're the one wiring it up by
+hand (`claude mcp add`, a `.mcp.json` entry) rather than clicking "connect" on a hosted one. A
+Connector set up once at your claude.ai account is what shows up automatically in Claude Code too
+— see _Adding one_ below for exactly where that setup happens.
+
+**So, three words, really two ideas:** "Connector" and "MCP server" name the *same* mechanism —
+Claude reaching into an external system it couldn't otherwise touch — from two different angles,
+point-and-click versus hand-configured. "Skill" names something categorically different: no new
+reach at all, just a taught, repeatable way of using reach the assistant already has. If the
+question is "how do I get Claude into my email, calendar, or cloud storage," the answer is always
+a Connector (or, same thing, an MCP server) — never a skill, because a skill has nothing to grant
+access with.
 
 The practical version: if the assistant can already do something (read a file, run a shell
 command) but you want it done a specific, repeatable *way*, that's a skill — see the dedicated
@@ -646,11 +664,13 @@ A minimal `.mcp.json` (the file `--scope project` writes to) looks like this:
 (This repo has no `.mcp.json` of its own, which is fine — nothing about WellTrack needs a
 project-wide server everyone who clones it is forced to carry.)
 
-**Account-level connectors are a fourth, different thing entirely.** GitHub, Gmail, Google Drive,
-and Slack in this setup aren't added with `claude mcp add` at all — they're connected through a
-browser, at **claude.ai/customize/connectors**, tied to your claude.ai account rather than any
-scope above. Once connected there, they're available automatically in every session signed into
-that account, CLI included. There's no repo-local or per-project equivalent for this kind — see
+**Account-level connectors are a fourth *setup path*, not a fourth *kind of thing*** — still the
+same MCP mechanism (see the note above the transport section), just added through claude.ai's own
+UI instead of a scope flag. GitHub, Gmail, Google Drive, and Slack in this setup aren't added with
+`claude mcp add` at all — they're connected through a browser, at
+**claude.ai/customize/connectors**, tied to your claude.ai account rather than any scope above.
+Once connected there, they're available automatically in every session signed into that account,
+CLI included. There's no repo-local or per-project equivalent for this kind — see
 _Why the difference actually matters_ above for what that means for a project handling sensitive
 data (a stdio server never leaves your machine; an account-level connector always does).
 
@@ -1387,6 +1407,8 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | Adding one you want in every project you open              | `claude mcp add --scope user <name> -- <cmd>`            |
 | Adding one the whole team should get from cloning the repo | `claude mcp add --scope project <name> -- <cmd>`         |
 | Adding Gmail/Slack/Drive/GitHub-style account connectors   | claude.ai/customize/connectors — not `claude mcp add`    |
+| "Connector" vs. "MCP server" — which one do I actually need? | Same thing, two names — point-and-click vs. hand-configured |
+| Reaching into email/calendar/cloud storage specifically     | A Connector (= an MCP server) — never a skill              |
 | An MCP server touching sensitive data                    | Prefer stdio (local) over remote — data never leaves     |
 | An MCP server that won't connect                         | stdio fails at launch; HTTP fails on network/auth        |
 | A capability one documented shell command already covers | Write a skill, don't add an MCP server                   |
@@ -1403,6 +1425,21 @@ Small, easy-to-ignore habits that compound over a long-running project:
 
 Add new observations below, newest first. Keep each one short: what happened, why it mattered,
 what to do differently.
+
+### 2026-09-01 — Connectors, MCP servers, and skills: two names for one idea, plus a genuinely different third
+
+The MCP section already mentioned account-level connectors, but described them as "a fourth,
+different thing entirely" from a `.mcp.json`/`claude mcp add`-configured MCP server — which
+undersold the actual relationship. Verified against the documentation before writing anything
+further (the same discipline as every other precise claim in this document): a Connector *is* an
+MCP server — "Connector" is the user-facing name for the exact same Model Context Protocol
+mechanism, used when it's added the point-and-click way through claude.ai rather than by hand.
+Corrected the "fourth, different thing" phrasing to "a fourth setup path, not a fourth kind of
+thing," and added the explicit three-way sort (Connector/MCP server name one mechanism from two
+angles; Skill names something categorically different — instructions, not access) directly into
+the existing MCP-vs-tools-vs-skills comparison, since that's where a reader already learning the
+distinction would look for it, rather than a second, separate section repeating ground already
+covered.
 
 ### 2026-09-01 — Chat vs. Cowork vs. Code: a real product I'd initially conflated, corrected against an actual screenshot
 
