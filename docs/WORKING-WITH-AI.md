@@ -95,6 +95,91 @@ comes back as evidence to check rather than conclusions to accept.
 
 ---
 
+## The tools that actually did the work here
+
+The table above is the shape; this is what actually filled it in, task by task, across the real
+work behind this project — a new Task feature, a production bug in Timeline, a History-page
+redesign, and a second production bug that followed it. Naming the real tools (not just the
+category) matters, because "it can run commands" undersells what that turns into once you see it
+applied to an actual bug.
+
+**Read / search — `Read`, `Grep`, `Glob`.** Every change started by opening the real file, not
+recalling it from a filename. Concrete case: tracing why Timeline never noticed a reminder had
+changed meant reading `CategoriesPage.tsx` and `SettingsPage.tsx` in full to find every place a
+reminder gets created, edited, or deleted — grepping for the event-dispatch call that was
+*supposed* to be there would have found nothing, since the bug was precisely that those handlers
+never called it. Search only finds what's present; reading finds what's missing.
+
+**Write / edit — `Edit`, `Write`.** `Edit` requires the target file to have already been read in
+the same conversation — a small, mechanical guardrail against editing blind. It earned its keep
+directly: mid-branch-surgery (moving a commit that had landed on the wrong branch), a `git stash`
+silently reverted several files to their last-committed content, and the harness's own
+"this file changed on disk since you last read it" notice caught it immediately, rather than the
+next edit landing on stale content without anyone noticing.
+
+**Execute — `Bash`, `PowerShell`.** The workhorse, and the tool most responsible for turning
+"should work" into "does work":
+
+- Real regressions were confirmed with a probe, not assumed: hitting the auth rate limiter
+  mid-verification was confirmed with a direct `curl -X POST /api/auth/register` returning
+  `429 RATE_LIMITED`, before ever deciding to restart a dev server on the strength of it.
+- `gh pr create`, `gh pr checks --watch`, `gh pr view --json mergeable`, and
+  `gh run view --log-failed` carried every PR in this project from open to green — including
+  diagnosing *why* CI failed (a stale Playwright selector after a UI redesign) directly from the
+  terminal, not by guessing from the failure's headline.
+- `PowerShell`'s `Get-CimInstance Win32_Process` answered a genuinely load-bearing question before
+  ever running `Stop-Process`: is this dev-server process actually mine? Checking a candidate
+  PID's `CreationDate`, `CommandLine`, and `ParentProcessId` against exactly when and how a
+  session had started its own servers — and finding *several* independent backend processes
+  running against the same repo, none of them started by the current session — is what kept a
+  previously-real mistake (killing another session's process) from repeating. When ownership
+  couldn't be confirmed, the tool wasn't used at all — a fresh, unused port stood in instead.
+- Long-running work (a 400-plus-test backend suite, routinely 7+ minutes) ran via
+  `run_in_background: true` rather than blocking the whole turn on it — other useful work (writing
+  docs, checking a different test file) continued in the meantime, with a notification on
+  completion rather than an idle wait.
+
+**Web / external systems — MCP tools, e.g. Google Drive's `search_files` and `create_file`.**
+Asked to save a design record to "the Wellbeing folder" in Google Drive, `search_files` was run
+*first*, against the actual connected account — which turned out to hold a different project's
+content entirely, no "Wellbeing" folder anywhere. That's a fact only a real tool call could
+surface; guessing would have either silently created a duplicate in the wrong place or claimed
+success over nothing. Once confirmed (see `AskUserQuestion` below) and authorized, `create_file`
+created the real folder and a real Doc in it, without the user needing to leave the conversation
+to do either by hand.
+
+**`AskUserQuestion` — pausing on a genuine fork, not a trivial one.** Used exactly where a
+plausible guess would have risked being *confidently* wrong: once `search_files` came back empty,
+the choice ("create a new folder here" vs. "skip Drive, this is the wrong account") was put to the
+user directly rather than picked unilaterally. A second real case: an intermittent
+"couldn't load Timeline" error had at least three plausible next steps (read browser DevTools
+output, guess a fix from the stack trace alone, or make a live, authenticated request against the
+production backend to actually confirm it) — each with a real trade-off in speed, certainty, and
+what it touches, which is exactly the shape of decision worth surfacing rather than picking
+silently. Both are consistent with the "ask, don't guess, on ambiguous product decisions" habit
+covered later in this document — the mechanism is the same, just applied to a tooling/process
+choice instead of a product one.
+
+**Producing something visual — the `Artifact` tool.** A redesign of the History page started as a
+design conversation, not code: an HTML mockup (built from this app's own real design tokens —
+actual hex values pulled from `index.css`, not approximations) was published as a live, shareable
+page showing the current design next to the proposed one, side by side, before a single line of
+the real component changed. That let the actual product decision — "should this row look more
+like Timeline's?" — get made by looking at it, not by reading a text description of it and
+imagining the result.
+
+**Delegate — subagents.** See the dedicated section below; not used in every task in this
+project, but exactly the right shape for the "run this whole test suite while I do something else"
+and "iterate on this browser script until it's clean" cases described there.
+
+The common thread across all of it: each tool call is small, but a claim built on real tool
+output ("the rate limiter is confirmed active," "this process was started nine minutes before I
+touched anything," "the connected Drive account has no such folder") is categorically different
+from the same sentence asserted from confidence alone. That difference is the entire subject of
+_Verify, don't trust_, further down.
+
+---
+
 ## Managing context: `/clear` and `/compact`
 
 An AI coding session has a limited "context window" — everything said and done in the
@@ -1017,6 +1102,26 @@ Small, easy-to-ignore habits that compound over a long-running project:
 
 Add new observations below, newest first. Keep each one short: what happened, why it mattered,
 what to do differently.
+
+### 2026-09-01 — Naming the actual tools, not just the categories
+
+The "categories of tool" table (Read/search, Write/edit, Execute, and so on) had sat there since
+the first pass, correct but abstract — it never said *which* real tool did the work, or showed it
+doing anything. Meanwhile several real sessions since then had piled up genuinely concrete
+material: a rate limiter confirmed with a direct `curl` probe rather than assumed; a stray dev
+server process checked against its own `CreationDate`/`CommandLine` before ever being stopped,
+which is what caught that it belonged to a different session entirely; a Google Drive search that
+came back empty and got surfaced as a real decision instead of quietly papered over; a design
+mockup published as a live, comparable page before any component code changed. None of that had
+made it into this document — it lived only in the sessions that produced it.
+
+Added "The tools that actually did the work here" directly under the tool-loop introduction,
+naming the real tool for each category and pinning it to one of those concrete cases. The
+underlying point isn't new — it's the same "grounding, feedback, completion" argument the tool-loop
+section already makes — but a category name ("Execute") doesn't carry that argument on its own the
+way a specific, verifiable instance of it does. This is the same lesson the document's own "If
+you're repeating yourself" section describes: an abstract rule was already correctly stated, and
+what was missing was the concrete procedure/example layer underneath it.
 
 ### 2026-08-28 — First pass, written retrospectively
 
