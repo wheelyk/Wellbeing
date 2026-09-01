@@ -484,15 +484,21 @@ describe("mergeWithCategoryLogs", () => {
 
   it("interleaves category logs with existing entries by date and time, not by which array they came from", () => {
     const entries: TimelineEntry[] = [
-      { ...upcomingRun({ time: "18:00", reminderId: "r" }), kind: "reminder", when: "future" },
+      {
+        ...upcomingRun({ time: "18:00", reminderId: "r" }),
+        kind: "reminder",
+        when: "future",
+        logId: null,
+      },
     ];
     const logs = [categoryLogRun({ id: "log-1", time: "12:00" })];
 
     const merged = mergeWithCategoryLogs(entries, logs);
 
-    expect(
-      merged.map((entry) => (entry.kind === "categoryLog" ? entry.id : entry.reminderId)),
-    ).toEqual(["log-1", "r"]);
+    expect(merged.map((entry) => ("reminderId" in entry ? entry.reminderId : entry.id))).toEqual([
+      "log-1",
+      "r",
+    ]);
   });
 
   it("merges an empty side without error", () => {
