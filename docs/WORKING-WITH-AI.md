@@ -491,6 +491,11 @@ server to teach the assistant a *procedure* it could already carry out with tool
 same mistake as writing a skill to grant a capability it doesn't have; the skills section below
 covers the reverse case (a CLI-shaped capability that doesn't need a whole server) in detail.
 
+Concretely, this is *why* a skill is so often just "run this CLI tool, this specific way, in this
+order" — `git`, `gh`, `docker`, `psql`, a project's own scripts. Wherever a command-line tool
+already reaches the external system you need, a skill documenting how to drive it is the lighter
+option every time; an MCP server only earns its place once there's genuinely no CLI to reach for.
+
 ### How MCP servers connect: stdio vs. HTTP, local vs. remote
 
 An MCP server is a **program that has to run somewhere**, and the assistant has to talk to it
@@ -850,6 +855,125 @@ documentation fix.
 
 ---
 
+## Hooks: instructions that are guaranteed to run
+
+Everything so far — `CLAUDE.md`, skills — is the assistant reading something and *deciding* to
+follow it. That's usually enough, but it has a real limit worth naming plainly: **a `CLAUDE.md`
+line is a suggestion, not a guarantee.** "Always run `prettier` after editing a file" in
+`CLAUDE.md` is genuinely followed most of the time — but "most of the time" means there's a real
+session, on a real day, where a big edit, a compacted context, or a distracted turn means it just
+doesn't happen. Nothing enforces it. The model has to remember, every single time, on its own.
+
+A **hook** is the fix for exactly that gap. It's a shell command *the harness itself* runs at a
+defined point in the loop — not something the model reads and chooses to act on, but something
+that happens whether or not the model ever thinks about it. Configure a hook to run `prettier`
+after every file edit, and it runs after every file edit — not "usually," not "when Claude
+remembers," **every time**, the same way a Git pre-commit hook runs whether or not you remembered
+to run the linter yourself.
+
+That's the whole distinction, and it's worth being precise about because the two are easy to
+blur: `CLAUDE.md` (and a skill) are **read by the model** and followed by judgment. A **hook is
+read by Claude Code itself**, before the model is even in the loop for that step — the model
+doesn't get a vote.
+
+### How they're set up: the `hooks` key in `settings.json`
+
+Hooks live in the same kind of file permissions and other settings already live in, at the same
+three scopes MCP servers use (see above) — `.claude/settings.json` (project, committed, the whole
+team gets it), `.claude/settings.local.json` (project, gitignored, just you), or
+`~/.claude/settings.json` (every project you open). The top-level key is `"hooks"`, and this repo
+currently has none configured — its own `.claude/settings.local.json` only has a `permissions`
+block, which is a genuine, concrete gap: this project runs `prettier --check` on every task by
+hand, and a `PostToolUse` hook is exactly the mechanism that would make "every edit gets
+formatted" true by construction instead of by discipline.
+
+A minimal example — reformat a file with `prettier` immediately after `Edit` or `Write` touches
+it:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | xargs npx prettier --write"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Reading that structure outward: `"hooks"` → the **event** (`PostToolUse`, fired right after a
+tool call succeeds) → a **matcher** (`"Edit|Write"` — only these two tools trigger this group;
+an empty string or omitted matcher means "every tool") → the actual **command** to run
+(`"type": "command"`), which receives the tool call as JSON on stdin — `jq` pulls out
+`tool_input.file_path`, and pipes it straight into `prettier --write`.
+
+### The two events that matter for almost everything: `PreToolUse` and `PostToolUse`
+
+Claude Code has a genuinely long list of hookable moments (session start/end, compaction, a
+subagent finishing, and several more specialised ones) — but for the "make sure X always happens"
+use case this document cares about, two cover nearly every real case:
+
+- **`PreToolUse`** — fires *before* a tool call runs, and can **block it**. A hook here that exits
+  with status `2` (writing its reason to stderr) stops the tool call entirely — Claude Code
+  never runs it, and the model sees why. This is the mechanism for "never let this happen at all,"
+  not just "clean up after it."
+- **`PostToolUse`** — fires *after* a tool call has already succeeded. Can't undo the call, but is
+  exactly right for "and now do this too" — format the file that was just written, log what
+  changed, re-run a check.
+
+**A second real example — refusing to touch specific files at all, not just cleaning up after
+touching them:**
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect-files.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+where `protect-files.sh` reads the same `tool_input.file_path` JSON from stdin, checks it against
+a list like `.env`, `package-lock.json`, `.git/`, and exits `2` (blocking the edit, with a reason
+on stderr) the moment one matches — otherwise exits `0` and the edit proceeds untouched. The
+difference from the `prettier` example is the event: `PreToolUse` gets a real veto; `PostToolUse`
+only ever gets to react.
+
+### Worth knowing before you write one
+
+- **The matcher filters by tool name**, and follows the same shape as everywhere else in this
+  ecosystem: `"Bash"` for one tool, `"Edit|Write"` for a few, a regex like `"mcp__github__.*"`
+  for every tool a particular MCP server exposes, or empty/omitted for "all of them."
+- **Exit code is the whole contract.** `0` means proceed normally; `2` means block, with the
+  reason on stderr; anything else is treated as non-blocking. A hook that wants finer control than
+  a bare exit code (choosing `"allow"`/`"deny"`/`"ask"` explicitly, say) can print structured JSON
+  to stdout instead — the reference docs cover that shape in full.
+- **Multiple hooks on the same event run in parallel**, and any single one blocking is enough to
+  block the whole group — don't design two hooks on the same event to depend on each other's side
+  effects.
+- **A hook is a script you're choosing to auto-execute on every matching event, in every session
+  in its scope**, the same as any other executable code you'd commit to a repo — worth the same
+  glance of scrutiny as anything else that runs automatically, especially one added at `user`
+  scope, since that one follows you into every project you open.
+
+---
+
 ## If you're repeating yourself, you're missing an artifact
 
 This is the habit that's easiest to miss, because repeating an instruction doesn't _feel_ like a
@@ -1145,6 +1269,10 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | A check that's deterministic and repeatable              | A script in the skill — costs its output, not its source |
 | A skill you wrote never seems to get used                | Fix the description, not the body — it was never reached |
 | A non-negotiable guardrail, not just a procedure         | `CLAUDE.md` — always applies, never depends on matching  |
+| Something that must happen every time, no exceptions     | A hook — `CLAUDE.md`/skills are read; a hook is enforced |
+| Auto-format a file right after it's edited or written    | `PostToolUse` hook, `matcher: "Edit\|Write"`              |
+| Block a tool call outright before it runs                | `PreToolUse` hook, exit code `2` to deny it               |
+| Deciding where to configure a hook                       | Same 3 scopes as MCP: project/local/user `settings.json` |
 | Deciding which level a rule or skill belongs at          | The broadest level where it's still universally true     |
 | Two levels contradicting each other                      | Rewrite so they don't — don't rely on override order     |
 | A convention true for everyone on the project            | Project `CLAUDE.md` (committed, reviewed)                |
@@ -1182,6 +1310,24 @@ Small, easy-to-ignore habits that compound over a long-running project:
 
 Add new observations below, newest first. Keep each one short: what happened, why it mattered,
 what to do differently.
+
+### 2026-09-01 — Hooks were never in this document at all
+
+Every mechanism covered so far for shaping the assistant's behaviour — `CLAUDE.md`, a skill — has
+the same underlying limit: the model has to *read it and choose to act on it*. That's fine for
+almost everything, but it quietly breaks down for the one class of instruction where "almost
+always" isn't good enough — "always run the formatter after an edit" is exactly that shape, and
+this document had no answer for it beyond "write it in `CLAUDE.md` and hope."
+
+Added a new section explaining hooks as the actual answer: a command the harness itself runs at a
+defined point (`PreToolUse`, `PostToolUse`, and others), enforced regardless of whether the model
+ever reasons about it. Verified the real `settings.json` schema, event names, matcher syntax, and
+exit-code semantics against the official documentation first (the same `claude-code-guide`
+subagent used for the MCP CLI syntax below) rather than writing plausible JSON from memory. Also
+checked this project's own `.claude/settings.local.json` directly, which turned up a genuine,
+concrete gap worth naming in the section itself: this repo runs `prettier --check` as a matter of
+discipline on every task, with no hook actually enforcing it — precisely the example the section
+opens with.
 
 ### 2026-09-01 — MCP had a cost story but no "how do I actually connect one" story
 
