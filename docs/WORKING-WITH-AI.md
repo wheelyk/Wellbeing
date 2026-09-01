@@ -876,6 +876,12 @@ blur: `CLAUDE.md` (and a skill) are **read by the model** and followed by judgme
 read by Claude Code itself**, before the model is even in the loop for that step — the model
 doesn't get a vote.
 
+**The practical rule, stated plainly: if something has to happen without fail, it doesn't belong
+in a prompt — it belongs in a hook.** `CLAUDE.md` is the right home for things that are true and
+worth knowing; a hook is the right home for things that must occur, every time, with nothing left
+to the model's judgment or memory. "Please always run the formatter" is a `CLAUDE.md` line. "The
+formatter runs, full stop" is a hook.
+
 ### How they're set up: the `hooks` key in `settings.json`
 
 Hooks live in the same kind of file permissions and other settings already live in, at the same
@@ -955,6 +961,53 @@ on stderr) the moment one matches — otherwise exits `0` and the edit proceeds 
 difference from the `prettier` example is the event: `PreToolUse` gets a real veto; `PostToolUse`
 only ever gets to react.
 
+**A third, very common one: refusing to run a destructive command at all, not just asking nicely
+not to.** Same `PreToolUse`/exit-`2` mechanics, matched against the `Bash` tool instead of
+`Edit`/`Write`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-rm-rf.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+where `block-rm-rf.sh` reads `tool_input.command` (the exact shell command about to run, this
+time — not a file path) from the same stdin JSON, and denies anything matching a
+dangerous-looking pattern:
+
+```bash
+#!/bin/bash
+COMMAND=$(cat | jq -r '.tool_input.command // empty')
+
+if echo "$COMMAND" | grep -qE 'rm\s+(-\S*r\S*f|-\S*f\S*r)\b'; then
+  echo "Blocked: '$COMMAND' looks like a recursive, forced delete." >&2
+  exit 2
+fi
+
+exit 0
+```
+
+This is a genuinely popular first hook for exactly the reason you'd guess: an assistant that can
+run arbitrary shell commands can, in principle, run `rm -rf` somewhere you didn't mean, and a
+`CLAUDE.md` line saying "be careful with destructive commands" is a request, not a wall. A
+`PreToolUse` guardrail like this one is the actual wall — it runs before the command executes, on
+every single Bash call, regardless of how the request to run it was phrased or whether the model
+was being careful that particular turn. Treat it as a floor, not a substitute for the normal
+permission prompts and approval settings already in place — a narrow pattern match will never
+catch every dangerous command, and shouldn't be trusted to.
+
 ### Worth knowing before you write one
 
 - **The matcher filters by tool name**, and follows the same shape as everywhere else in this
@@ -971,6 +1024,12 @@ only ever gets to react.
   in its scope**, the same as any other executable code you'd commit to a repo — worth the same
   glance of scrutiny as anything else that runs automatically, especially one added at `user`
   scope, since that one follows you into every project you open.
+- **Inside a session, `/hooks` shows what's configured** — every event, how many hooks are on it,
+  and each one's matcher, type, source file, and command. Useful for checking what's actually
+  active without leaving the conversation. Unlike `/mcp`, though, `/hooks` is **read-only** — it
+  won't add, edit, or remove anything for you. Changing a hook still means editing the real
+  `settings.json` yourself (or asking Claude to make the edit, which is itself just an `Edit` tool
+  call against a plain file, not a special hooks-editing mechanism).
 
 ---
 
@@ -1272,6 +1331,8 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | Something that must happen every time, no exceptions     | A hook — `CLAUDE.md`/skills are read; a hook is enforced |
 | Auto-format a file right after it's edited or written    | `PostToolUse` hook, `matcher: "Edit\|Write"`              |
 | Block a tool call outright before it runs                | `PreToolUse` hook, exit code `2` to deny it               |
+| Stopping a destructive command like `rm -rf` outright     | `PreToolUse` hook matched on `Bash`, not a `CLAUDE.md` line |
+| Checking what hooks are actually configured               | `/hooks` in-session — view only, can't edit from there    |
 | Deciding where to configure a hook                       | Same 3 scopes as MCP: project/local/user `settings.json` |
 | Deciding which level a rule or skill belongs at          | The broadest level where it's still universally true     |
 | Two levels contradicting each other                      | Rewrite so they don't — don't rely on override order     |
@@ -1310,6 +1371,21 @@ Small, easy-to-ignore habits that compound over a long-running project:
 
 Add new observations below, newest first. Keep each one short: what happened, why it mattered,
 what to do differently.
+
+### 2026-09-01 — A follow-up pass on the Hooks section: a canonical example, and the rule stated outright
+
+The first Hooks pass explained the mechanism (`PreToolUse`/`PostToolUse`, `settings.json`, exit
+codes) but skipped the single most common reason people reach for a `PreToolUse` hook in the first
+place: refusing to run a destructive shell command at all, not just being asked nicely not to.
+Added that as a third worked example (`rm -rf` and similar, matched against the `Bash` tool),
+alongside the underlying rule stated as its own plain sentence rather than left implicit: **if
+something has to happen without fail, it belongs in a hook, not a prompt.**
+
+Also checked, rather than assumed, whether a `/hooks` slash command exists the way `/mcp` does for
+MCP servers — it does, but it's **read-only** (view configured hooks and their detail; editing
+still means touching `settings.json` directly), which is a real and non-obvious difference from
+`/mcp`'s own more interactive behaviour, worth stating precisely rather than assuming parity by
+analogy.
 
 ### 2026-09-01 — Hooks were never in this document at all
 
