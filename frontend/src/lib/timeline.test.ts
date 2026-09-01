@@ -1,18 +1,23 @@
 import { describe, it, expect } from "vitest";
 import {
+  categoryLogValueTone,
+  describeCategoryLog,
   describeRun,
   describeTask,
   groupRunsByDay,
   hasLoggedWithinDays,
   mergeRuns,
+  mergeWithCategoryLogs,
   mergeWithTasks,
   orderRuns,
   splitAroundNow,
   stateLabel,
   taskStateLabel,
   timelineRowAction,
+  type CategoryLogRun,
   type RecentRun,
   type TaskRun,
+  type TimelineEntry,
   type TimelineRun,
   type UpcomingRun,
 } from "./timeline";
@@ -410,5 +415,123 @@ describe("timelineRowAction", () => {
     expect(
       timelineRowAction(run({ when: "past", state: "logged", categoryId: null, logId: null })),
     ).toEqual({ type: "add", categoryId: null });
+  });
+});
+
+const categoryLogRun = (over: Partial<CategoryLogRun> = {}): CategoryLogRun => ({
+  kind: "categoryLog",
+  when: "past",
+  id: "log-1",
+  categoryName: "Headache",
+  categoryIcon: "🤕",
+  value: "6/10",
+  notes: null,
+  loggedAt: "2026-08-30T09:00:00.000Z",
+  date: "2026-08-30",
+  time: "09:00",
+  ...over,
+});
+
+describe("mergeWithCategoryLogs", () => {
+  it("adds an unscheduled category log as its own row", () => {
+    const merged = mergeWithCategoryLogs([], [categoryLogRun()]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toEqual(categoryLogRun());
+  });
+
+  it("drops a category log already represented by a CATEGORY-target reminder's own logged row", () => {
+    const entries: TimelineEntry[] = [
+      { ...recentRun({ state: "logged", logId: "log-1" }), kind: "reminder", when: "past" },
+    ];
+
+    const merged = mergeWithCategoryLogs(entries, [categoryLogRun({ id: "log-1" })]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged.map((entry) => entry.kind)).toEqual(["reminder"]);
+  });
+
+  // A GENERAL reminder's own "logged" row never carries a logId (see RecentRun's own comment) -
+  // so nothing it contributes ever suppresses a category log's own row, even when that reminder
+  // really was what prompted the log.
+  it("keeps a category log even when a GENERAL reminder's own logged row shares its day", () => {
+    const entries: TimelineEntry[] = [
+      {
+        ...recentRun({ state: "logged", logId: null, categoryId: null, category: null }),
+        kind: "reminder",
+        when: "past",
+      },
+    ];
+
+    const merged = mergeWithCategoryLogs(entries, [categoryLogRun({ id: "log-1" })]);
+
+    expect(merged.map((entry) => entry.kind)).toEqual(["reminder", "categoryLog"]);
+  });
+
+  it("only drops the matching log, not every category log in the batch", () => {
+    const entries: TimelineEntry[] = [
+      { ...recentRun({ state: "logged", logId: "log-1" }), kind: "reminder", when: "past" },
+    ];
+    const logs = [categoryLogRun({ id: "log-1" }), categoryLogRun({ id: "log-2", time: "10:00" })];
+
+    const merged = mergeWithCategoryLogs(entries, logs);
+
+    expect(merged.map((entry) => (entry.kind === "categoryLog" ? entry.id : entry.kind))).toEqual([
+      "reminder",
+      "log-2",
+    ]);
+  });
+
+  it("interleaves category logs with existing entries by date and time, not by which array they came from", () => {
+    const entries: TimelineEntry[] = [
+      {
+        ...upcomingRun({ time: "18:00", reminderId: "r" }),
+        kind: "reminder",
+        when: "future",
+        logId: null,
+      },
+    ];
+    const logs = [categoryLogRun({ id: "log-1", time: "12:00" })];
+
+    const merged = mergeWithCategoryLogs(entries, logs);
+
+    expect(merged.map((entry) => ("reminderId" in entry ? entry.reminderId : entry.id))).toEqual([
+      "log-1",
+      "r",
+    ]);
+  });
+
+  it("merges an empty side without error", () => {
+    expect(mergeWithCategoryLogs([], [])).toEqual([]);
+    expect(mergeWithCategoryLogs([], [categoryLogRun()])).toHaveLength(1);
+    const entries: TimelineEntry[] = [
+      { ...upcomingRun(), kind: "reminder", when: "future", logId: null },
+    ];
+    expect(mergeWithCategoryLogs(entries, [])).toHaveLength(1);
+  });
+});
+
+describe("describeCategoryLog", () => {
+  it("shows the notes when there are any", () => {
+    expect(describeCategoryLog(categoryLogRun({ notes: "woke up with it" }))).toBe(
+      "woke up with it",
+    );
+  });
+
+  it("shows nothing for a category log with no notes", () => {
+    expect(describeCategoryLog(categoryLogRun({ notes: null }))).toBeNull();
+    expect(describeCategoryLog(categoryLogRun({ notes: "   " }))).toBeNull();
+  });
+});
+
+describe("categoryLogValueTone", () => {
+  it("reads Done as success", () => {
+    expect(categoryLogValueTone("Done")).toBe("success");
+  });
+
+  it("reads everything else as neutral", () => {
+    expect(categoryLogValueTone("Not done")).toBe("neutral");
+    expect(categoryLogValueTone("6/10")).toBe("neutral");
+    expect(categoryLogValueTone("45 min")).toBe("neutral");
   });
 });

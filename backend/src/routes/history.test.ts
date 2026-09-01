@@ -275,6 +275,97 @@ describe("GET /api/history", () => {
     expect(res.body.entries[0]).toMatchObject({ categoryName: "Mood", value: "3/5" });
   });
 
+  // `days` is the shortcut Timeline itself uses (see docs/log/55-timeline-shows-all-logged.md) -
+  // "N calendar days back, through today," resolved server-side the same way TIMELINE_RANGES'
+  // other two sources already are, so the caller never has to compute a from/to string itself.
+  it("filters by ?days=, the same '2N-1 calendar days' window Timeline's other sources use", async () => {
+    const { accessToken } = await registerAndLogin("filter-days");
+    const categoryId = await createCategory(accessToken, "Mood", "scale", {
+      scaleMin: 1,
+      scaleMax: 5,
+    });
+    const now = new Date();
+    const daysAgo = (n: number) => new Date(now.getTime() - n * 24 * 60 * 60 * 1000).toISOString();
+
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId, valueNumeric: 1, loggedAt: daysAgo(0) }); // today
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId, valueNumeric: 2, loggedAt: daysAgo(2) }); // within days=3
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId, valueNumeric: 3, loggedAt: daysAgo(10) }); // outside every option below
+
+    const today = await request(app)
+      .get("/api/history")
+      .query({ days: "1" })
+      .set(authed(accessToken));
+    expect(today.body.entries.map((e: { value: string }) => e.value)).toEqual(["1/5"]);
+
+    const threeDays = await request(app)
+      .get("/api/history")
+      .query({ days: "3" })
+      .set(authed(accessToken));
+    expect(threeDays.body.entries.map((e: { value: string }) => e.value).sort()).toEqual([
+      "1/5",
+      "2/5",
+    ]);
+  });
+
+  it("an explicit `from` wins over `days` when both are given", async () => {
+    const { accessToken } = await registerAndLogin("days-from-precedence");
+    const categoryId = await createCategory(accessToken, "Mood", "scale", {
+      scaleMin: 1,
+      scaleMax: 5,
+    });
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId, valueNumeric: 4, loggedAt: "2026-01-15T09:00:00.000Z" });
+
+    const res = await request(app)
+      .get("/api/history")
+      // days=1 alone would exclude this (it's not today) - the explicit from overrides it.
+      .query({ from: "2026-01-01", days: "1" })
+      .set(authed(accessToken));
+
+    expect(res.body.entries).toHaveLength(1);
+    expect(res.body.entries[0]).toMatchObject({ value: "4/5" });
+  });
+
+  // Regression coverage for the new date/time fields (see history.ts's own comment on why -
+  // Timeline needs pre-formatted strings the same way every other row it merges already has
+  // them, resolved in the account's own timezone rather than derived from loggedAt client-side).
+  it("returns date/time resolved in the account's own timezone", async () => {
+    const { accessToken } = await registerAndLogin("date-time-fields");
+    await request(app)
+      .patch("/api/users/me")
+      .set(authed(accessToken))
+      .send({ timezone: "America/New_York" });
+    const categoryId = await createCategory(accessToken, "Mood", "scale", {
+      scaleMin: 1,
+      scaleMax: 5,
+    });
+    // 9pm Eastern on Jan 31 is already Feb 1 in UTC - date/time must reflect the local day/time,
+    // not the raw UTC instant.
+    await request(app)
+      .post("/api/category-logs")
+      .set(authed(accessToken))
+      .send({ categoryId, valueNumeric: 4, loggedAt: "2026-02-01T02:00:00.000Z" });
+
+    const res = await request(app)
+      .get("/api/history")
+      .query({ from: "2026-01-31", to: "2026-01-31" })
+      .set(authed(accessToken));
+
+    expect(res.body.entries).toHaveLength(1);
+    expect(res.body.entries[0]).toMatchObject({ date: "2026-01-31", time: "21:00" });
+  });
+
   // Regression test: `from`/`to` are calendar-day strings that must be resolved against *this
   // user's own timezone*, the same convention dashboard.ts/trends.ts already use - not raw UTC
   // day boundaries. For a UTC-5 user (America/New_York in February, no DST), local Feb 1 spans

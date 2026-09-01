@@ -56,16 +56,19 @@ const emptyUpcoming = {
   runs: [],
 };
 const emptyTasks = { timezone: "Europe/London", today: "2026-08-30", tasks: [] };
+const emptyHistory = { entries: [], limit: 20, offset: 0, hasMore: false };
 
-// The panel fires three independent calls - one per endpoint, plus GET /api/tasks - and a fourth,
-// separate one-off probe (also against /recent, at a fixed days=7) that decides which range chips
-// are worth showing at all. Branching only on which endpoint a URL hits, not on its query string,
-// means the same `recent` fixture answers both the probe and the currently-selected range's own
-// fetch - which is what every test below wants anyway, since a fixture with a logged row in it
-// should both reveal the wider chips *and* be what renders once one is picked. Tasks default to
-// empty throughout - the tests specifically about Tasks override it.
+// The panel fires four independent calls - one per endpoint (recent, upcoming, tasks, and
+// GET /api/history for unscheduled category logs - see docs/log/55-timeline-shows-all-logged.md)
+// - and a fifth, separate one-off probe (also against /recent, at a fixed days=7) that decides
+// which range chips are worth showing at all. Branching only on which endpoint a URL hits, not on
+// its query string, means the same `recent` fixture answers both the probe and the
+// currently-selected range's own fetch - which is what every test below wants anyway, since a
+// fixture with a logged row in it should both reveal the wider chips *and* be what renders once
+// one is picked. Tasks and history default to empty throughout - the tests specifically about
+// each override it.
 function mockTimelineFetch(
-  overrides: { recent?: unknown; upcoming?: unknown; tasks?: unknown } = {},
+  overrides: { recent?: unknown; upcoming?: unknown; tasks?: unknown; history?: unknown } = {},
 ) {
   apiFetchMock.mockImplementation((url: string) => {
     if (url.includes("/api/reminders/recent")) {
@@ -76,6 +79,9 @@ function mockTimelineFetch(
     }
     if (url.includes("/api/tasks")) {
       return Promise.resolve(overrides.tasks ?? emptyTasks);
+    }
+    if (url.includes("/api/history")) {
+      return Promise.resolve(overrides.history ?? emptyHistory);
     }
     throw new Error(`Unhandled fetch in test: ${url}`);
   });
@@ -142,13 +148,14 @@ beforeEach(() => {
 });
 
 describe("TimelinePanel", () => {
-  it("asks all three endpoints for the same range by default, plus the fixed probe", async () => {
+  it("asks all four endpoints for the same range by default, plus the fixed probe", async () => {
     render(<TimelinePanel />);
 
     await waitFor(() => {
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/recent?days=1");
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/upcoming?days=1");
       expect(apiFetchMock).toHaveBeenCalledWith("/api/tasks?days=1");
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/history?days=1");
       // The probe always asks the widest window, independently of whatever range is selected -
       // it exists purely to decide which chips are worth offering.
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/recent?days=7");
@@ -232,7 +239,7 @@ describe("TimelinePanel", () => {
     expect(screen.getByText("Quiet hours — arrives at 08:00")).toBeInTheDocument();
   });
 
-  it("re-asks both endpoints with the new range when it changes", async () => {
+  it("re-asks every endpoint with the new range when it changes", async () => {
     // A logged row today is enough to make every chip available (see hasLoggedWithinDays).
     mockTimelineFetch({ recent: recentWithRuns });
     render(<TimelinePanel />);
@@ -247,6 +254,7 @@ describe("TimelinePanel", () => {
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/recent?days=7");
       expect(apiFetchMock).toHaveBeenCalledWith("/api/reminders/upcoming?days=7");
       expect(apiFetchMock).toHaveBeenCalledWith("/api/tasks?days=7");
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/history?days=7");
     });
   });
 
@@ -498,6 +506,73 @@ describe("TimelinePanel", () => {
       await user.click(await screen.findByRole("button", { name: "Add a task" }));
 
       expect(captured).toEqual([{ type: "add" }]);
+    });
+  });
+
+  // See docs/log/55-timeline-shows-all-logged.md - a category with no reminder attached (most
+  // ad-hoc symptom tracking, in practice) used to be invisible on Timeline even though it had
+  // genuinely been logged that day, and only showed up on History.
+  describe("category logs", () => {
+    const headacheLog = {
+      kind: "categoryLog" as const,
+      when: "past" as const,
+      id: "log-headache-1",
+      categoryName: "Headache",
+      categoryIcon: "🤕",
+      value: "6/10",
+      notes: "worse after screen time",
+      loggedAt: "2026-08-30T09:00:00.000Z",
+      date: "2026-08-30",
+      time: "09:00",
+    };
+
+    it("renders an unscheduled category log's own row, with its notes and value pill", async () => {
+      mockTimelineFetch({ history: { ...emptyHistory, entries: [headacheLog] } });
+      render(<TimelinePanel />);
+
+      expect(await screen.findByText("🤕 Headache")).toBeInTheDocument();
+      expect(screen.getByText("worse after screen time")).toBeInTheDocument();
+      expect(screen.getByText("6/10")).toBeInTheDocument();
+    });
+
+    it("interleaves an unscheduled category log with reminder rows in the merged list", async () => {
+      mockTimelineFetch({
+        recent: recentWithRuns,
+        history: { ...emptyHistory, entries: [headacheLog] },
+      });
+      render(<TimelinePanel />);
+
+      expect(await screen.findByText("🤕 Headache")).toBeInTheDocument();
+      expect(screen.getByText("🧠 Anxiety")).toBeInTheDocument();
+    });
+
+    // The dedup case: this log's id matches the CATEGORY-target reminder's own logId in
+    // recentWithRuns (see recentWithRuns above, "log-anxiety-1"), so it must not also appear as
+    // its own separate row - that would show the exact same entry twice.
+    it("does not duplicate a category log already shown as a reminder's own logged row", async () => {
+      mockTimelineFetch({
+        recent: recentWithRuns,
+        history: {
+          ...emptyHistory,
+          entries: [
+            { ...headacheLog, id: "log-anxiety-1", categoryName: "Anxiety", categoryIcon: "🧠" },
+          ],
+        },
+      });
+      render(<TimelinePanel />);
+
+      expect(await screen.findAllByText("🧠 Anxiety")).toHaveLength(1);
+    });
+
+    it("dispatches an edit action for the exact log when its row is tapped", async () => {
+      const captured = captureTimelineActions();
+      mockTimelineFetch({ history: { ...emptyHistory, entries: [headacheLog] } });
+      render(<TimelinePanel />);
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole("button", { name: /Edit Headache at 09:00/ }));
+
+      expect(captured).toEqual([{ type: "edit", logId: "log-headache-1" }]);
     });
   });
 

@@ -109,11 +109,44 @@ export interface TaskRun extends ApiTask {
   kind: "task";
 }
 
-/** Either half of the merged Timeline list - a reminder-driven row or a Task. Every function in
- *  this module that only needs `date`/`time`/`when` (grouping, ordering, the NOW split) works on
- *  either one without caring which; `kind` is there for the one place that does care -
- *  TimelinePanel's own row rendering and click handling. */
-export type TimelineEntry = TimelineRun | TaskRun;
+/** The shape GET /api/history returns per entry - see backend/src/routes/history.ts's own
+ *  comment on `date`/`time`. Reused directly here rather than re-declared, since it's already
+ *  exactly what a Timeline row needs. */
+export interface ApiCategoryLogEntry {
+  id: string;
+  categoryName: string;
+  categoryIcon: string | null;
+  value: string;
+  notes: string | null;
+  loggedAt: string;
+  date: string;
+  time: string;
+}
+
+export interface CategoryLogHistoryResponse {
+  entries: ApiCategoryLogEntry[];
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+/** A logged category entry with no reminder behind it at all - see
+ *  docs/log/55-timeline-shows-all-logged.md for why Timeline needs a third source alongside
+ *  reminders and Tasks: a category with no reminder attached (most symptom-tracking categories,
+ *  in practice) was invisible on Timeline before this, even though it had genuinely been logged
+ *  that day - only visible on History. `when` is always `"past"`: a category log always has a
+ *  real, already-happened `loggedAt`, unlike a reminder slot or a Task, neither of which is
+ *  guaranteed to have fired yet. */
+export interface CategoryLogRun extends ApiCategoryLogEntry {
+  kind: "categoryLog";
+  when: "past";
+}
+
+/** Either third of the merged Timeline list - a reminder-driven row, a Task, or an unscheduled
+ *  category log. Every function in this module that only needs `date`/`time`/`when` (grouping,
+ *  ordering, the NOW split) works on any of the three without caring which; `kind` is there for
+ *  the one place that does care - TimelinePanel's own row rendering and click handling. */
+export type TimelineEntry = TimelineRun | TaskRun | CategoryLogRun;
 
 /**
  * Concatenates, not sorts. `recent`'s rows are all at or before "now" and `upcoming`'s are all
@@ -137,21 +170,49 @@ export function mergeRuns(recent: RecentRun[], upcoming: UpcomingRun[]): Timelin
   ];
 }
 
+/** Shared by every merge below that isn't `mergeRuns` itself - two rows from independent
+ *  endpoints have no ordering guarantee relative to each other, so each of those merges is a
+ *  real `.sort()`, not a concatenation. Stable, so two rows sharing an exact date+time keep
+ *  whichever relative order the array already had them in. */
+function compareChronological(a: Chronological, b: Chronological): number {
+  if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+  if (a.time !== b.time) return a.time < b.time ? -1 : 1;
+  return 0;
+}
+
 /**
  * Folds a fetched batch of Tasks into the same merged list `mergeRuns` builds for reminders.
  * Unlike `mergeRuns` itself, this is a real sort, not a concatenation: `runs` and `tasks` come
  * from two independent endpoints with no ordering guarantee relative to *each other* (the
  * guarantee `mergeRuns` relies on only ever held between `/recent` and `/upcoming`, which are
- * halves of one design). Stable, so two rows sharing an exact date+time keep whichever relative
- * order they already had - in practice, `runs` before `tasks` at that instant, since that's the
- * order they're concatenated in below.
+ * halves of one design).
  */
 export function mergeWithTasks(runs: TimelineRun[], tasks: TaskRun[]): TimelineEntry[] {
-  return [...runs, ...tasks].sort((a, b) => {
-    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
-    if (a.time !== b.time) return a.time < b.time ? -1 : 1;
-    return 0;
-  });
+  return [...runs, ...tasks].sort(compareChronological);
+}
+
+/**
+ * Folds a fetched batch of unscheduled category logs (GET /api/history, see
+ * docs/log/55-timeline-shows-all-logged.md) into an already-merged Timeline list. The one thing
+ * this has to get right that `mergeWithTasks` doesn't: avoiding a duplicate row for a category
+ * log that's *already* represented, as a reminder's own "logged" row, among `entries` - a
+ * CATEGORY-target reminder's `logId` names the exact CategoryLog that satisfied it (see
+ * `RecentRun`'s own comment), so any history entry sharing that id is dropped rather than shown
+ * a second time. A GENERAL reminder's own "logged" row never carries a `logId` at all (its match
+ * is real but deliberately ambiguous - see `RecentRun`'s comment again), so the specific entry
+ * that satisfied one is never excluded by this check, and shows up as its own row too - a
+ * deliberate choice, not a gap: the GENERAL row says "you logged something," and its own
+ * category-log row is what actually says what.
+ */
+export function mergeWithCategoryLogs(
+  entries: TimelineEntry[],
+  categoryLogs: CategoryLogRun[],
+): TimelineEntry[] {
+  const alreadyShown = new Set(
+    entries.flatMap((entry) => (entry.kind === "reminder" && entry.logId ? [entry.logId] : [])),
+  );
+  const unscheduled = categoryLogs.filter((log) => !alreadyShown.has(log.id));
+  return [...entries, ...unscheduled].sort(compareChronological);
 }
 
 export type TimelineOrder = "oldest" | "newest";
@@ -371,4 +432,25 @@ export function taskStateLabel(state: TaskState): string | null {
     case "upcoming":
       return null;
   }
+}
+
+/** An unscheduled category log's own "line under the row" - its notes, when there are any. Same
+ *  shape as `describeTask`: no cadence, no state to explain, just whatever the person actually
+ *  wrote down when they logged it. */
+export function describeCategoryLog(log: CategoryLogRun): string | null {
+  return log.notes && log.notes.trim().length > 0 ? log.notes : null;
+}
+
+/** Green means the same thing a reminder's own "Logged" pill already does - the thing happened.
+ *  Everything else (an explicit "Not done", a bare number, a scale fraction, a duration) stays
+ *  neutral: a real answer isn't a failure just because it's a pill, and a raw value has no
+ *  good/bad reading of its own the way an outcome does. Previously duplicated by hand in
+ *  HistoryPage.tsx (see docs/log/53-history-redesign.md's own "Known limitations" - a second,
+ *  hand-copied pill palette this task closes) - now the one place both History and Timeline read
+ *  it from, since both genuinely need the identical logic once Timeline shows these rows too (see
+ *  docs/log/55-timeline-shows-all-logged.md). */
+export type CategoryLogValueTone = "success" | "neutral";
+
+export function categoryLogValueTone(value: string): CategoryLogValueTone {
+  return value === "Done" ? "success" : "neutral";
 }

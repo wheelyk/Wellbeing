@@ -6,17 +6,22 @@ import { dispatchTimelineAction } from "../../lib/dashboardTimelineActionEvent";
 import { dispatchTaskAction } from "../../lib/dashboardTaskActionEvent";
 import {
   TIMELINE_RANGES,
+  categoryLogValueTone,
+  describeCategoryLog,
   describeRun,
   describeTask,
   groupRunsByDay,
   hasLoggedWithinDays,
   mergeRuns,
+  mergeWithCategoryLogs,
   mergeWithTasks,
   orderRuns,
   splitAroundNow,
   stateLabel,
   taskStateLabel,
   timelineRowAction,
+  type CategoryLogHistoryResponse,
+  type CategoryLogRun,
   type RecentResponse,
   type TaskResponse,
   type TaskRun,
@@ -35,14 +40,16 @@ import {
 // GET /api/reminders/recent existed (docs/log/47) - see docs/log/49-timeline-panel.md. This file
 // itself also replaces the per-category card list that used to sit further down the page (see
 // docs/log/50-timeline-v2.md, which covers the row-click quick action and the order toggle below),
-// and now merges in one-off Tasks alongside reminder-driven rows too - see
-// docs/log/51-one-off-tasks.md.
+// merges in one-off Tasks alongside reminder-driven rows (docs/log/51-one-off-tasks.md), and now
+// a third source too: a category log with no reminder behind it at all - most symptom-tracking
+// categories, in practice - which was invisible here before even though it had genuinely been
+// logged that day (see docs/log/55-timeline-shows-all-logged.md).
 //
 // Every reminder-driven row comes from one of two server calls. Nothing here expands a cron
 // expression or decides whether a reminder fired: the browser has its own cron implementation for
 // drawing the picker, and a list built from it would show runs the scheduler never actually sent
 // or will never send. A Task carries no such derivation at all - it is what it is, at the moment
-// it's due.
+// it's due. Neither does an unscheduled category log - it already happened, full stop.
 
 const PILL_TONE: Record<Exclude<TimelineState, "scheduled">, string> = {
   held: "border-warning/50 bg-warning/10 text-warning",
@@ -114,24 +121,37 @@ export function TimelinePanel() {
 
     function load() {
       setLoading(true);
-      // All three use the same `days` value - see TIMELINE_RANGES's own comment on why that is a
-      // deliberate simplification rather than a literal "N days total" window; GET /api/tasks
-      // reads it the identical way (see routes/tasks.ts's own comment).
+      // All four use the same `days` value - see TIMELINE_RANGES's own comment on why that is a
+      // deliberate simplification rather than a literal "N days total" window; GET /api/tasks and
+      // GET /api/history both read it the identical way (see their own route comments).
       Promise.all([
         apiFetch<RecentResponse>(`/api/reminders/recent?days=${range}`),
         apiFetch<UpcomingResponse>(`/api/reminders/upcoming?days=${range}`),
         apiFetch<TaskResponse>(`/api/tasks?days=${range}`),
+        apiFetch<CategoryLogHistoryResponse>(`/api/history?days=${range}`),
       ])
-        .then(([recent, upcoming, taskResponse]) => {
+        .then(([recent, upcoming, taskResponse, historyResponse]) => {
           if (cancelled) return;
           const tasks: TaskRun[] = taskResponse.tasks.map((task) => ({ ...task, kind: "task" }));
+          const categoryLogs: CategoryLogRun[] = historyResponse.entries.map((entry) => ({
+            ...entry,
+            kind: "categoryLog",
+            when: "past",
+          }));
           setData({
             // recent.today and upcoming.today should always agree (same account, same instant,
             // give or take the gap between two requests) - upcoming's is used simply because it
             // is the side nearer "now", for the rare case a request lands exactly on a midnight
             // rollover between the two.
             today: upcoming.today,
-            runs: mergeWithTasks(mergeRuns(recent.runs, upcoming.runs), tasks),
+            runs: mergeWithCategoryLogs(
+              mergeWithTasks(mergeRuns(recent.runs, upcoming.runs), tasks),
+              categoryLogs,
+            ),
+            // /api/history's own hasMore isn't folded in here - it means "there are more pages
+            // available", not "the server capped what it looked at" the way the other three's
+            // truncated flag does, and Timeline never paginates this list, only caps how many of
+            // it get drawn (see VISIBLE_RUNS below).
             truncated: recent.truncated || upcoming.truncated,
           });
           setLoadError(false);
@@ -338,16 +358,28 @@ export function TimelinePanel() {
 }
 
 // Stable regardless of which day-group or which side of NOW an entry lands in - a reminder row's
-// own (reminderId, date, time) triple was already unique before Tasks existed; a task's own id
-// already is one on its own.
+// own (reminderId, date, time) triple was already unique before Tasks existed; a task's own id,
+// and a category log's own id, are already unique on their own.
 function entryKey(entry: TimelineEntry): string {
-  return entry.kind === "task"
-    ? `task-${entry.id}`
-    : `${entry.reminderId}-${entry.date}-${entry.time}`;
+  switch (entry.kind) {
+    case "task":
+      return `task-${entry.id}`;
+    case "categoryLog":
+      return `categoryLog-${entry.id}`;
+    case "reminder":
+      return `${entry.reminderId}-${entry.date}-${entry.time}`;
+  }
 }
 
 function TimelineEntryRow({ entry }: { entry: TimelineEntry }) {
-  return entry.kind === "task" ? <TaskRowItem task={entry} /> : <ReminderRow run={entry} />;
+  switch (entry.kind) {
+    case "task":
+      return <TaskRowItem task={entry} />;
+    case "categoryLog":
+      return <CategoryLogRowItem log={entry} />;
+    case "reminder":
+      return <ReminderRow run={entry} />;
+  }
 }
 
 function ReminderRow({ run }: { run: TimelineRun }) {
@@ -469,6 +501,47 @@ function TaskRowItem({ task }: { task: TaskRun }) {
             {pill}
           </span>
         )}
+      </button>
+    </li>
+  );
+}
+
+const CATEGORY_LOG_VALUE_TONE: Record<ReturnType<typeof categoryLogValueTone>, string> = {
+  success: "border-success/50 bg-success/10 text-success",
+  neutral: "border-border bg-surface text-text-muted",
+};
+
+// An unscheduled category log's own row: no reminder behind it at all, so there is no state to
+// explain and nothing it "would have" done - it already happened. Same time/icon+name/detail/pill
+// layout every other row here already uses, but always a single tappable button (never the
+// no-action bare `<li>` a reminder row can be) - a category log genuinely always has one exact
+// entry to edit, unlike a reminder row's future "logged" state, which has nothing to point at.
+// Reuses the exact `{type: "edit", logId}` action CategoryLogger.tsx already handles for a
+// reminder's own "logged" row (docs/log/50-timeline-v2.md) - nothing new to wire up there.
+function CategoryLogRowItem({ log }: { log: CategoryLogRun }) {
+  const detail = describeCategoryLog(log);
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => dispatchTimelineAction({ type: "edit", logId: log.id })}
+        aria-label={`Edit ${log.categoryName} at ${log.time}`}
+        className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface-muted px-3 py-2 text-left transition-colors hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      >
+        <span className="shrink-0 text-sm font-medium tabular-nums text-text">{log.time}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-text">
+            {log.categoryIcon ? `${log.categoryIcon} ` : ""}
+            {log.categoryName}
+          </span>
+          {detail && <span className="block truncate text-xs text-text-muted">{detail}</span>}
+        </span>
+        <span
+          className={`shrink-0 rounded-full border px-2 py-0.5 text-xs tabular-nums ${CATEGORY_LOG_VALUE_TONE[categoryLogValueTone(log.value)]}`}
+        >
+          {log.value}
+        </span>
       </button>
     </li>
   );

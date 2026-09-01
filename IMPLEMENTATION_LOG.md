@@ -457,3 +457,7 @@ project's own sessions.
 ### [History Refetches on Tab Focus, Closing the Same Gap Timeline Already Closed](docs/log/54-history-refetch-on-visible.md)
 
 - 2026-08-31 — A second occurrence of the same deploy-timing class of bug
+
+### [Timeline Gets a Third Source: Unscheduled Category Logs](docs/log/55-timeline-shows-all-logged.md)
+
+- 2026-09-01 — A category with no reminder was invisible on Timeline, even after being logged
