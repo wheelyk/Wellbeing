@@ -2,15 +2,31 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import type { CategoryValueType as PrismaCategoryValueType } from "../generated/prisma/client";
-import { getDayRangeUtc } from "../lib/timezone";
+import {
+  addDaysToDateStr,
+  formatDateInTimezone,
+  getDayRangeUtc,
+  timeInTimezone,
+  todayInTimezone,
+} from "../lib/timezone";
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
+// The same three choices Timeline's own range chips offer (see frontend's lib/timeline.ts
+// TIMELINE_RANGES) - lets Timeline ask "everything logged in the last N days" the same way it
+// already asks /api/reminders/recent and /api/tasks, without having to compute a from/to date
+// string itself (see docs/log/55-timeline-shows-all-logged.md for why that matters: the server
+// always resolves calendar-day boundaries against the account's own timezone, never the client).
+// Purely additive alongside from/to, which every existing caller (History's own filters) keeps
+// using unchanged - days is only consulted when from is absent.
+const DAY_OPTIONS = ["1", "3", "7"] as const;
+
 const querySchema = z.object({
   from: z.string().regex(DATE_ONLY, "from must be YYYY-MM-DD").optional(),
   to: z.string().regex(DATE_ONLY, "to must be YYYY-MM-DD").optional(),
+  days: z.enum(DAY_OPTIONS).optional(),
   // Narrows results to one category's own entries - mirrors categoryLogs.ts's identical
   // Phase 18 addition. Replaces the old `?type=` filter (medication vs. category), which stopped
   // meaning anything once every entry became a category (see
@@ -33,6 +49,15 @@ interface HistoryEntry {
   value: string;
   notes: string | null;
   loggedAt: string;
+  // Resolved against the account's own timezone here, once - added for Timeline (see
+  // docs/log/55-timeline-shows-all-logged.md), which needs pre-formatted date/time strings the
+  // same way every other row it merges already provides them, rather than deriving them
+  // client-side from loggedAt. History's own frontend still computes its own day-grouping key
+  // from loggedAt directly (deliberately, in the browser's local timezone - see HistoryPage.tsx's
+  // own comment) and simply ignores these two fields; nothing about its existing behaviour
+  // changes.
+  date: string;
+  time: string;
 }
 
 // Mirrors dashboard.ts's identical formatCategoryLogValue - see there for why SCALE renders as
@@ -68,9 +93,16 @@ historyRouter.get("/", async (req, res) => {
     });
   }
 
-  const { from, to, categoryId, limit = DEFAULT_LIMIT, offset = 0 } = parsed.data;
+  const {
+    from: explicitFrom,
+    to,
+    days,
+    categoryId,
+    limit = DEFAULT_LIMIT,
+    offset = 0,
+  } = parsed.data;
 
-  if (from && to && from > to) {
+  if (explicitFrom && to && explicitFrom > to) {
     return res.status(400).json({
       error: { message: "`from` must not be after `to`", code: "VALIDATION_ERROR" },
     });
@@ -98,6 +130,16 @@ historyRouter.get("/", async (req, res) => {
   // "always compute which calendar day using the user's own timezone" requirement exists to
   // prevent.
   const userTimezone = user.timezone;
+
+  // `days`, when given, computes a default `from` the same "N calendar days back, through today"
+  // way Timeline's own /api/reminders/recent and /api/tasks already do (see TIMELINE_RANGES) -
+  // only when the caller hasn't already given an explicit `from` of their own (History's own
+  // filters always pass one directly; Timeline always passes `days` instead). Never extends `to`
+  // into the future the way those two do, since a category log has no "upcoming" half to show -
+  // it only ever has a real, already-passed loggedAt.
+  const from =
+    explicitFrom ??
+    (days ? addDaysToDateStr(todayInTimezone(userTimezone), -(Number(days) - 1)) : undefined);
 
   const dateFilter =
     from || to
@@ -136,6 +178,8 @@ historyRouter.get("/", async (req, res) => {
     value: formatCategoryLogValue(log),
     notes: log.notes,
     loggedAt: log.loggedAt.toISOString(),
+    date: formatDateInTimezone(log.loggedAt, userTimezone),
+    time: timeInTimezone(log.loggedAt, userTimezone),
   }));
 
   res.json({ entries, limit, offset, hasMore });
