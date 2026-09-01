@@ -454,7 +454,7 @@ because the _goal_ sounds like it could be described in one sentence.
 
 ---
 
-## Turn off MCP servers that aren't relevant to this project
+## MCP servers: what they are, how to connect one, and when to turn it off
 
 **MCP** (Model Context Protocol) is a standard way to give an AI assistant access to external
 systems — GitHub, Gmail, Google Drive, Slack, a database, an internal API. Each connected MCP
@@ -471,6 +471,25 @@ Calendar, Google Drive, and Slack all enabled alongside GitHub. Between them, th
 of **eighty-plus tool definitions** loaded into every single session, for a project that will
 never send an email, read a calendar, or post to Slack. GitHub genuinely earns its place (PRs get
 opened constantly). The rest were pure carrying cost.
+
+### MCP vs. built-in tools vs. skills — three different things with "tool" in the description
+
+Easy to blur together when you're new to this, so worth pinning down before going further, since
+the rest of this document (and this section in particular) leans on the distinction:
+
+| Thing              | What it actually is                                             | When it loads                        | Can add a genuinely new capability? |
+| ------------------- | ---------------------------------------------------------------- | ------------------------------------- | ------------------------------------ |
+| **A built-in tool**  | Ships with the assistant itself — `Read`, `Edit`, `Bash`, and so on | Always available, no setup            | N/A — this is the baseline           |
+| **A skill**          | A folder of instructions for using the tools you already have    | Name + description always; full body only when the task matches | No — it's a smarter recipe for existing tools, not a new one |
+| **An MCP server**    | A separate program the assistant connects to over a defined protocol | Every tool it exposes loads for the whole session, once connected | **Yes** — this is the only one of the three that adds tools that didn't exist before |
+
+The practical version: if the assistant can already do something (read a file, run a shell
+command) but you want it done a specific, repeatable *way*, that's a skill — see the dedicated
+section on skills below. If it genuinely **cannot** do something at all — post to Slack, query a
+database it has no client for, call an internal API — that's what MCP is for. Reaching for an MCP
+server to teach the assistant a *procedure* it could already carry out with tools it has is the
+same mistake as writing a skill to grant a capability it doesn't have; the skills section below
+covers the reverse case (a CLI-shaped capability that doesn't need a whole server) in detail.
 
 ### How MCP servers connect: stdio vs. HTTP, local vs. remote
 
@@ -542,24 +561,79 @@ not the same question:
 "turn off what you don't need" advice below applies to both. What changes with transport is the
 _risk_ profile, not the price.
 
-### How to actually turn them off
+### Adding one: the CLI, and the three real scopes
 
-MCP servers are configured at three different levels, and which one you edit depends on where the
-server came from:
+`claude mcp add` is the command, run from a terminal (not inside a session). The shape differs by
+transport:
 
-- **Project-scoped** — a `.mcp.json` file committed at the repo root. Anyone who opens this repo
-  gets these servers. Edit or remove entries here to change what the project itself brings along.
-  (This repo doesn't have one, which is fine — it doesn't need any project-specific servers.)
-- **User-scoped (local CLI)** — servers added via `claude mcp add ...`, stored in your user config
-  and available across all your projects. List them with `claude mcp list`, and remove one with
-  `claude mcp remove <name>`.
-- **Account-level connectors** — servers connected through your claude.ai account settings (this
-  is where GitHub/Gmail/Google Drive/Slack live for this setup). These follow your account rather
-  than any particular repo, so they're toggled in claude.ai's own connector settings, **not** by
-  anything in this repository.
+```bash
+# A local stdio server - note the "--" before the command being run
+claude mcp add <name> -- <command> [args...]
+claude mcp add playwright -- npx -y @playwright/mcp@latest
 
-Inside a session, `/mcp` shows what's currently connected and lets you inspect/authenticate
-servers interactively. The practical habit: before starting a long session on a focused
+# A remote HTTP server - a URL, not a command
+claude mcp add --transport http <name> <url>
+claude mcp add --transport http notion https://mcp.notion.com/mcp \
+  --header "Authorization: Bearer YOUR_TOKEN"
+```
+
+(SSE, the transport HTTP replaced, still works with `--transport sse`, but the official docs mark
+it deprecated — reach for HTTP unless a server genuinely only offers SSE.)
+
+Every add takes a `--scope` flag, and this is where "user vs. local vs. project" — genuinely three
+different things, not two — actually lives:
+
+| Scope       | Who gets it                          | Where it's stored                          | Command                                     |
+| ----------- | ------------------------------------- | ------------------------------------------- | -------------------------------------------- |
+| `local`     | Just you, just **this** project       | Your user config, scoped to this project's path | `claude mcp add <name> ...` (the **default** — no flag needed) |
+| `user`      | Just you, **every** project you open  | Your user config (`~/.claude.json`), global | `claude mcp add --scope user <name> ...`     |
+| `project`   | **Anyone** who opens this repo        | `.mcp.json`, committed at the repo root     | `claude mcp add --scope project <name> ...`  |
+
+The distinction that trips people up: **`local` is not the same as `user`.** Both are private to
+you — neither is shared with anyone else — but `local` only applies while you're in this one
+project, while `user` follows you into every project you open. If a server is genuinely something
+you always want (a personal filesystem helper, say), `user` is the right choice; `local` is the
+right default for "I'm trying this out here" or "this only makes sense for this one codebase, and
+I don't want to commit it for my teammates." `project`, in turn, is the only one of the three that
+puts the server in version control and hands it to anyone else who clones the repo — use it
+deliberately, the same way you'd think before committing a dependency.
+
+A minimal `.mcp.json` (the file `--scope project` writes to) looks like this:
+
+```json
+{
+  "mcpServers": {
+    "playwright": { "type": "stdio", "command": "npx", "args": ["-y", "@playwright/mcp@latest"] },
+    "notion": { "type": "http", "url": "https://mcp.notion.com/mcp" }
+  }
+}
+```
+
+(This repo has no `.mcp.json` of its own, which is fine — nothing about WellTrack needs a
+project-wide server everyone who clones it is forced to carry.)
+
+**Account-level connectors are a fourth, different thing entirely.** GitHub, Gmail, Google Drive,
+and Slack in this setup aren't added with `claude mcp add` at all — they're connected through a
+browser, at **claude.ai/customize/connectors**, tied to your claude.ai account rather than any
+scope above. Once connected there, they're available automatically in every session signed into
+that account, CLI included. There's no repo-local or per-project equivalent for this kind — see
+_Why the difference actually matters_ above for what that means for a project handling sensitive
+data (a stdio server never leaves your machine; an account-level connector always does).
+
+### Removing one, and checking what's connected
+
+- **`claude mcp list`** — shows every server currently configured, at every scope, and its
+  connection status.
+- **`claude mcp remove <name>`** — removes one. Add `--scope local` or `--scope user` if the same
+  name exists at more than one scope and you need to be specific about which copy goes.
+- **Editing `.mcp.json` directly** (or removing its entry) is exactly equivalent to `--scope
+  project` add/remove — it's a plain file, not a black box.
+- **Account-level connectors** are toggled the same place they're added: claude.ai's own connector
+  settings, not by anything in this repository.
+
+Inside a session, **`/mcp`** shows the same connected/status view as `claude mcp list`, plus lets
+you inspect a server's own tools and authenticate/reconnect one interactively — without leaving
+the conversation. The practical habit either way: before starting a long session on a focused
 codebase, glance at what's connected and disable anything the work genuinely can't touch. Turning
 a connector back on takes seconds; carrying it unused costs you on every turn of a long session.
 
@@ -1086,6 +1160,12 @@ Small, easy-to-ignore habits that compound over a long-running project:
 | A single known file/symbol lookup                        | Just do it directly — don't delegate                     |
 | Two genuinely independent checks (e.g. two test suites)  | Launch both as parallel subagents                        |
 | Starting a long session on a focused codebase            | Check `/mcp`, disable connectors the work can't touch    |
+| The assistant can already do it, just not the way you want | A skill — a recipe for tools it already has            |
+| The assistant genuinely cannot do it at all               | An MCP server — the only one of the three that adds tools |
+| Adding an MCP server just for yourself, just here          | `claude mcp add <name> -- <cmd>` (scope defaults to `local`) |
+| Adding one you want in every project you open              | `claude mcp add --scope user <name> -- <cmd>`            |
+| Adding one the whole team should get from cloning the repo | `claude mcp add --scope project <name> -- <cmd>`         |
+| Adding Gmail/Slack/Drive/GitHub-style account connectors   | claude.ai/customize/connectors — not `claude mcp add`    |
 | An MCP server touching sensitive data                    | Prefer stdio (local) over remote — data never leaves     |
 | An MCP server that won't connect                         | stdio fails at launch; HTTP fails on network/auth        |
 | A capability one documented shell command already covers | Write a skill, don't add an MCP server                   |
@@ -1102,6 +1182,25 @@ Small, easy-to-ignore habits that compound over a long-running project:
 
 Add new observations below, newest first. Keep each one short: what happened, why it mattered,
 what to do differently.
+
+### 2026-09-01 — MCP had a cost story but no "how do I actually connect one" story
+
+The MCP section (by then already substantial — transports, scoping-for-removal, the skills
+trade-off) had a real gap once someone actually tried to *use* it rather than read about it: there
+was no beginner framing of "MCP vs. a built-in tool vs. a skill" as three distinct things, and no
+instructions for *adding* a server at all — only for turning one off. The scoping explanation had
+the same shape problem underneath it: it named "project-scoped" and "user-scoped (local CLI)" as
+if those were the only two options, when the CLI genuinely has three real scopes
+(`local`/`user`/`project`), and `local` — the *default* — was never mentioned as its own thing.
+
+Fixed by consulting the real Claude Code documentation first (via a specialised
+documentation-consulting agent, not from memory — the same discipline the "Verify, don't trust"
+section already argues for) to get the exact `claude mcp add` syntax, the exact `--scope` flag and
+its three values, and the exact file locations, rather than writing plausible-sounding command
+syntax and letting it be subtly wrong. Retitled the section, added a three-way MCP/tool/skill
+comparison table up front, and rewrote the scoping subsection to cover adding *and* removing at
+all three real scopes plus the separate, fourth case (account-level connectors, added through
+claude.ai's own browser UI, not the CLI at all).
 
 ### 2026-09-01 — Naming the actual tools, not just the categories
 
