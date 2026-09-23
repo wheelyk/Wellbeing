@@ -154,6 +154,7 @@ project's own sessions.
 - 2026-08-19 — Phase 2: `GET/PATCH/DELETE /api/users/me`, and how cascade-delete was already doing the hard part
 - 2026-08-19 — Phase 2: `POST /api/auth/forgot-password` and `POST /api/auth/reset-password`
 - 2026-08-20 — A real production bug: refreshing the app on mobile logged users out, and what `SameSite` actually gates
+- 2026-09-20 — Replacing the password-reset console hack with real SMTP email delivery
 
 ### [Authentication — Frontend](docs/log/02-auth-frontend.md)
 

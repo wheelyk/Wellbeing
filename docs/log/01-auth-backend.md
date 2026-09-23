@@ -352,6 +352,7 @@ rejecting invalid emails, weak passwords, and duplicate emails. No other auth en
 
 ---
 
+
 ## 2026-08-15 — Phase 2: `POST /api/auth/login`
 
 **Task:** [Tasks.md](../../Tasks.md) → Phase 2 → "Implement `POST /api/auth/login` — verify
@@ -1895,5 +1896,99 @@ simply the first time that happened to someone paying attention to the result.
 - `npm run build` (backend) — compiles cleanly.
 - Traced every route that reads the refresh cookie, and confirmed every route that touches real
   user data does not — see _Decisions_ above.
+
+---
+
+## 2026-09-20 — Replacing the password-reset console hack with real SMTP email delivery
+
+**Task:** Production follow-up to Phase 2's forgot/reset-password endpoints and Phase 14's
+deployment configuration. The code can now send a reset email, but the task stays open until a
+real provider account and verified sender are configured in Railway and an inbox test succeeds.
+
+### Background / concepts
+
+The reset endpoint already did the security-sensitive database work: it generated a random token,
+stored only its hash, gave it a one-hour expiry, and made it single-use. The missing step was
+delivery. The local placeholder printed the raw reset link to the backend console. That helped a
+developer test the flow, but a real user cannot read Railway's server logs, and anyone who can read
+those logs could use the link as a password-reset credential.
+
+**SMTP** (Simple Mail Transfer Protocol) is the standard protocol applications use to hand email
+to a mail server. WellTrack now uses Nodemailer as its SMTP client. The application is not tied to
+one vendor: a transactional-email provider can be changed by replacing environment variables,
+without rewriting the forgot-password route.
+
+There are two common encrypted SMTP connections:
+
+- Port `465` starts inside TLS immediately (`secure: true`).
+- Port `587` starts as SMTP and must upgrade to TLS using STARTTLS before credentials or message
+  content are sent (`requireTLS: true`).
+
+TLS protects the connection between WellTrack and the provider. It does not by itself prove that a
+message reached the recipient's inbox. A successful SMTP response means the provider accepted the
+message; spam filtering, sender reputation, DNS records, or a bad destination can still affect
+final delivery. That is why a real inbox check remains a separate deployment step.
+
+### What was done
+
+- Added Nodemailer and a provider-neutral SMTP transport in `backend/src/lib/mail.ts`.
+- Added `backend/src/lib/mailConfig.ts` to validate the required configuration and choose the
+  correct encryption mode for ports 465 and 587.
+- Added `MAIL_TRANSPORT`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, and `MAIL_FROM`
+  placeholders to `backend/.env.example`. Real values belong in Railway's **Wellbeing backend
+  service**, not in Git, the Postgres service, or frontend `VITE_` variables.
+- Kept console delivery available for local development. In production, the default is SMTP and
+  `MAIL_TRANSPORT=console` is rejected, preventing reset links from being written to hosted logs.
+- Kept the forgot-password response generic if the account is unknown or the mail provider fails.
+  Returning a different response would reveal which email addresses have WellTrack accounts.
+- Started delivery without awaiting the provider before returning that generic response. An SMTP
+  round-trip is much slower than the unknown-account path; waiting for it would reveal the same
+  private fact through response timing even when the response text and status are identical.
+- Sanitized provider failures. SMTP errors can include recipient addresses or connection details;
+  the route logs only a generic operational message.
+- Added focused tests for port 587 STARTTLS, port 465 direct TLS, production's console-mode guard,
+  missing variables, provider failure sanitization, and transport cleanup.
+
+### How production activation works
+
+1. Create an account with a transactional-email provider that supports SMTP.
+2. Verify a sender address or domain with that provider. Domain verification usually means adding
+   DNS records supplied by the provider so receiving mail systems can verify the sender.
+3. Add the six mail variables to Railway's **Wellbeing backend service**. Treat `SMTP_PASSWORD` as
+   a secret; a password manager may hold a personal backup, but the running application reads it
+   from Railway's Variables settings.
+4. Redeploy the backend. Railway injects the variables into the Node process when it starts.
+5. Request a reset for a real test account and confirm that the message arrives, its link opens the
+   Vercel reset page, the password changes, the token cannot be reused, and the new password logs
+   in successfully.
+
+### Decisions
+
+- **SMTP rather than a vendor-specific HTTP API.** This keeps the first integration portable.
+  Provider APIs can offer templates and delivery analytics later, but SMTP covers the current
+  one-message requirement without coupling WellTrack to one company.
+- **Do not fail differently when delivery fails.** The public response remains “If that email is
+  registered...” to preserve account privacy. Operators can see the generic server error and
+  investigate the provider without exposing account existence to an anonymous caller.
+- **Do not mark production email complete yet.** Automated tests prove message construction and
+  transport behavior without sending real mail. Only configured provider credentials, a verified
+  sender, and an inbox test can prove the deployed system works end to end.
+
+### State at end of this step
+
+The application-side integration is ready for review. Local development still supports the
+console flow. Production will require SMTP automatically after this branch is deployed, so the
+Railway variables must be added before relying on Forgot Password in the live app.
+
+### Verification
+
+- `npm test` (backend) — 439/439 tests passing across 30 files, including five new mail tests.
+- `npm run build` (backend) — Prisma Client generation and TypeScript compilation pass.
+- `npm run lint` (backend) — passes.
+- Prettier passes for every file changed by this task. The repository-wide format check still
+  reports three unrelated files already present on `main`: `src/routes/remindersRecent.test.ts`,
+  `src/routes/tasks.test.ts`, and `src/routes/tasks.ts`.
+- No live message was sent because no provider credentials or verified sender were supplied. The
+  Phase 14 task and Definition of Done remain unchecked until that external setup is verified.
 
 ---
