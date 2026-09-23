@@ -352,7 +352,6 @@ rejecting invalid emails, weak passwords, and duplicate emails. No other auth en
 
 ---
 
-
 ## 2026-08-15 — Phase 2: `POST /api/auth/login`
 
 **Task:** [Tasks.md](../../Tasks.md) → Phase 2 → "Implement `POST /api/auth/login` — verify
@@ -1990,5 +1989,133 @@ Railway variables must be added before relying on Forgot Password in the live ap
   `src/routes/tasks.test.ts`, and `src/routes/tasks.ts`.
 - No live message was sent because no provider credentials or verified sender were supplied. The
   Phase 14 task and Definition of Done remain unchecked until that external setup is verified.
+
+---
+
+## 2026-09-23 — A production-only hosting gotcha: Railway blocks SMTP on Hobby, so WellTrack switched to Resend HTTPS
+
+**Task:** Corrective follow-up to Phase 2's forgot-password delivery and Phase 14's production
+email setup. The checklist item remains open until the corrected transport is deployed and a real
+reset link completes the full inbox-to-login journey.
+
+### Background / concepts
+
+The previous email implementation was valid SMTP code, but a live production test exposed a
+constraint outside the application. Resend's own dashboard test delivered successfully, while a
+forgot-password request from WellTrack produced no Resend activity and Railway logged only the
+application's deliberately safe message:
+
+```text
+Password reset email delivery failed; check email configuration and provider status
+```
+
+Railway's current [outbound-networking documentation](https://docs.railway.com/networking/outbound-networking)
+explains the missing piece: outbound SMTP is disabled on Free, Trial, and Hobby plans to reduce
+spam and abuse. SMTP becomes available only on Pro and above. Railway recommends transactional
+email providers' HTTPS APIs on every plan.
+
+This distinction is easier to understand by comparing the two routes an email can take:
+
+```text
+SMTP approach (blocked on this Railway plan)
+WellTrack container -> SMTP port 465/587 -> Resend mail server
+
+HTTPS API approach (allowed)
+WellTrack container -> HTTPS port 443 -> Resend API -> Resend mail server
+```
+
+Both ultimately ask Resend to deliver the same message. The difference is the network protocol
+used between WellTrack and Resend. HTTPS uses the same ordinary outbound web connection that the
+backend uses for other APIs, so it works on Railway's Hobby plan.
+
+#### Why the automated SMTP tests passed even though production failed
+
+The SMTP tests correctly proved that WellTrack built the right message, selected encrypted SMTP
+settings, handled provider rejection, and hid sensitive errors. They replaced the actual provider
+with a test double, however. That is appropriate for a unit test—it must not send real password
+reset emails—but it also means the test never crosses Railway's production network boundary.
+
+This is a useful distinction for beginners:
+
+- A **unit/integration test** proves behavior the application controls.
+- A **deployment smoke test** proves assumptions about infrastructure the application does not
+  control: firewall rules, platform plan limits, DNS, secrets, and third-party connectivity.
+- Passing the first does not guarantee the second. Both forms of evidence are needed.
+
+The generic browser response also behaved correctly during the failure. Forgot-password must not
+tell an anonymous visitor whether an address has a WellTrack account. Provider errors therefore
+appear only as a sanitized operational log, while the user always sees “If that email is
+registered...”. This made diagnosis less obvious, but preserved the intended privacy boundary.
+
+### What was done
+
+- Replaced Nodemailer/SMTP with a direct `POST https://api.resend.com/emails` request using the
+  platform's built-in `fetch` support.
+- Replaced five SMTP settings with two server-side settings: `RESEND_API_KEY` and `MAIL_FROM`.
+  `MAIL_TRANSPORT=resend` selects the hosted transport explicitly.
+- Removed `nodemailer` and its type package because no SMTP connection remains.
+- Preserved local `MAIL_TRANSPORT=console` behavior for development and tests, while continuing to
+  reject console delivery outside development/test so reset credentials cannot leak into hosted
+  logs.
+- Added a ten-second request timeout so a slow provider cannot leave a delivery attempt hanging
+  indefinitely.
+- Kept provider failures sanitized. Resend responses may contain addresses or configuration
+  details; neither the public response nor Railway's logs receive those private details.
+- Added tests for the exact HTTPS URL, bearer-token header, message body, incomplete configuration,
+  network failure, HTTP rejection, and malformed success response.
+
+### Railway configuration after this correction
+
+The **Wellbeing backend service** now needs:
+
+```text
+MAIL_TRANSPORT=resend
+RESEND_API_KEY=re_...the actual secret value...
+MAIL_FROM=WellTrack <onboarding@resend.dev>
+```
+
+`RESEND_API_KEY` must contain the generated value beginning `re_`, not the human-readable key name.
+It is a backend secret: it must not be committed, pasted into documentation, or given a `VITE_`
+prefix. The old `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and `SMTP_PASSWORD` variables are no longer
+read and can be removed after the corrected deployment succeeds.
+
+The testing sender and the transport are separate concerns. `onboarding@resend.dev` can be used for
+the initial account-owner test. Sending to general users still requires a domain owned and verified
+in Resend; after verification, only `MAIL_FROM` changes (for example,
+`WellTrack <reset@mail.example.co.uk>`). Domain verification would authenticate the sender, but it
+could not have fixed Railway blocking the earlier SMTP connection.
+
+### Decisions
+
+- **Use Resend's HTTPS API instead of upgrading Railway solely for SMTP.** The Hobby plan already
+  supports HTTPS, Railway recommends this route, and it avoids a hosting-plan upgrade for one
+  network protocol.
+- **Use native `fetch` instead of adding a provider SDK.** WellTrack needs one stable endpoint and
+  one message type. A small standards-based request keeps the dependency surface narrow while the
+  provider boundary remains isolated in `mail.ts`.
+- **Accept provider coupling at the transport boundary.** SMTP was more portable in theory, but a
+  portable implementation that the chosen host blocks is not useful. The rest of the password
+  reset flow still knows nothing about Resend; changing providers later remains confined to the
+  mail module.
+- **Do not check off production email yet.** Code and tests are complete, but the Definition of
+  Done requires evidence from the deployed service and a real inbox.
+
+### State at end of this step
+
+The backend is compatible with Railway's Free/Trial/Hobby outbound-network policy. The next
+deployment must replace the SMTP variables with `RESEND_API_KEY`, select the `resend` transport,
+and repeat the inbox test. A verified custom domain can follow after the account-owner test proves
+the connection and key first.
+
+### Verification
+
+- Focused mail tests: 6/6 passing.
+- Full backend suite: 440/440 tests passing across 30 files against real local PostgreSQL.
+- `npm run build` — Prisma generation and TypeScript compilation pass.
+- `npm run lint` — passes.
+- Prettier passes for every changed TypeScript/JSON file. `.env.example` is inspected separately
+  because Prettier does not infer a parser for dotenv example files.
+- The original production failure was reproduced through the real WellTrack form and confirmed in
+  Railway logs before selecting the corrective transport.
 
 ---
