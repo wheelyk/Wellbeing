@@ -269,10 +269,11 @@ Reference: requirements §19.
   the real deployed backend (see the HTTPS/cookie verification below), which isn't possible
   unless `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, and `FRONTEND_URL` are all
   actually set correctly on Railway.
-- [ ] Connect a transactional email provider over SMTP, set `MAIL_TRANSPORT`, `SMTP_HOST`,
-  `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, and `MAIL_FROM` on Railway, then verify a password
-  reset reaches a real inbox. The application-side SMTP integration is implemented and tested;
-  this remains open until provider credentials and a verified sender are configured outside Git.
+- [ ] Connect Resend over its HTTPS API, set `MAIL_TRANSPORT=resend`, `RESEND_API_KEY`, and
+  `MAIL_FROM` on Railway, then verify a password reset reaches a real inbox. The application-side
+  HTTPS integration is implemented and tested. It replaced SMTP after a live test proved Railway
+  blocks outbound SMTP on Free, Trial, and Hobby plans; this remains open until the new variables
+  are deployed and a real inbox test succeeds.
 - [x] Set up production Prisma migrations (`prisma migrate deploy`) as part of the deploy pipeline. (`backend/package.json`'s `start` script — see [IMPLEMENTATION_LOG.md](IMPLEMENTATION_LOG.md).)
 - [x] Enforce HTTPS and confirm cookie flags (`Secure`, `SameSite`) work correctly on the deployed domain.
   Verified directly against the real production backend: `curl` against
@@ -533,8 +534,8 @@ Use this as the final go/no-go check before calling the MVP complete:
 - [ ] Register, log in, log out, reset password, edit profile, delete account all work end-to-end.
   All verified live against production except reset-password specifically: its core mechanism
   (token issue/validate/consume) is covered by backend integration tests, but wasn't exercised
-  in the live smoke test. The reset mechanism and SMTP integration are tested, but this cannot be
-  called end-to-end complete until Phase 14's provider setup sends a link to a real inbox.
+  in the live smoke test. The reset mechanism and Resend HTTPS integration are tested, but this
+  cannot be called end-to-end complete until Phase 14's provider setup sends a link to a real inbox.
 - [x] All four log types (symptoms, mood, medications, habits) can be created, edited, and deleted, including backfilled historical dates.
   Backfilled dates specifically verified live in production via `trends-after-seeding`-style API
   calls with explicit past `loggedAt` values, reflected correctly in Trends.
