@@ -310,10 +310,18 @@ authRouter.post("/forgot-password", authRateLimiter, async (req, res) => {
 
   if (user) {
     // The raw token only ever exists in memory here and in the email it's embedded in - never
-    // written to the database (only its hash is, above) and never logged anywhere except
-    // inside this placeholder mailer's own clearly-labeled console output.
+    // written to the database (only its hash is, above). Local console mode exposes it only to
+    // the developer; production SMTP sends it directly to the account's address.
     const resetLink = `${FRONTEND_URL}/reset-password?token=${rawToken}`;
-    await sendPasswordResetEmail(user.email, resetLink);
+    // Do not wait for the provider before sending the generic HTTP response. A real SMTP request
+    // is much slower than the no-account path; awaiting it would let an attacker infer account
+    // existence from response time even though both response bodies are identical.
+    void sendPasswordResetEmail(user.email, resetLink).catch(() => {
+      // Provider exceptions may contain private connection details, so log a stable message only.
+      console.error(
+        "Password reset email delivery failed; check email configuration and provider status",
+      );
+    });
   }
 
   return res.status(200).json(genericResponse);
